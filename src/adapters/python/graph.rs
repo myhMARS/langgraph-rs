@@ -252,7 +252,7 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false))]
     fn stream(
         &self,
         py: Python<'_>,
@@ -260,11 +260,15 @@ impl PyCompiledGraph {
         thread_id: Option<String>,
         stream_mode: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
+        subgraphs: bool,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
+        }
+        if subgraphs {
+            config = config.with_stream_subgraphs(true);
         }
         let modes = stream_modes_from_py(stream_mode)?;
         let chunks = py

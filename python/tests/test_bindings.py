@@ -658,5 +658,25 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["value"], "")
 
 
+    def test_subgraph_streaming(self):
+        child = lg.StateGraph({"value": "last_value"})
+        child.add_node("work", lambda state: {"value": state["value"] + 1})
+        child.set_entry_point("work")
+        child.set_finish_point("work")
+        parent = lg.StateGraph({"value": "last_value"})
+        parent.add_node("seed", lambda state: {"value": 10})
+        parent.add_subgraph("child", child.compile())
+        parent.set_entry_point("seed")
+        parent.add_edge("seed", "child")
+        parent.set_finish_point("child")
+        chunks = parent.compile().stream({"value": 0}, subgraphs=True)
+        namespaces = [
+            chunk.get("namespace")
+            for chunk in chunks
+            if isinstance(chunk, dict) and "namespace" in chunk
+        ]
+        self.assertIn("child", namespaces)
+
+
 if __name__ == "__main__":
     unittest.main()

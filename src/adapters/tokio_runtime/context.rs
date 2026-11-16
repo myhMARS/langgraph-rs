@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::store::BaseStore;
+use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::Usage;
 
 /// Per-node execution context for async nodes.
@@ -26,6 +27,7 @@ pub struct AsyncContext {
     namespace: String,
     store: Option<Arc<dyn BaseStore>>,
     context: Option<Value>,
+    collector: Option<Arc<Mutex<Vec<StreamChunk>>>>,
 }
 
 #[derive(Default)]
@@ -52,6 +54,7 @@ impl AsyncContext {
             namespace: String::new(),
             store: None,
             context: None,
+            collector: None,
         }
     }
 
@@ -62,11 +65,13 @@ impl AsyncContext {
         namespace: String,
         store: Option<Arc<dyn BaseStore>>,
         context: Option<Value>,
+        collector: Option<Arc<Mutex<Vec<StreamChunk>>>>,
     ) -> Self {
         self.thread_id = thread_id;
         self.namespace = namespace;
         self.store = store;
         self.context = context;
+        self.collector = collector;
         self
     }
 
@@ -88,6 +93,11 @@ impl AsyncContext {
     /// User context passed to the run.
     pub fn context(&self) -> Option<&Value> {
         self.context.as_ref()
+    }
+
+    /// Subgraph chunk collector of the parent run (used by subgraph nodes).
+    pub fn collector(&self) -> Option<Arc<Mutex<Vec<StreamChunk>>>> {
+        self.collector.clone()
     }
 
     /// Take the resume value stamped onto this task (used by subgraph nodes).

@@ -81,6 +81,13 @@ pub enum StreamChunk {
         /// Structured debug payload.
         payload: Value,
     },
+    /// A chunk produced inside a subgraph (`stream(subgraphs=True)`).
+    Subgraph {
+        /// Checkpoint namespace of the subgraph that emitted the chunk.
+        namespace: String,
+        /// Wrapped chunk.
+        chunk: Box<StreamChunk>,
+    },
 }
 
 /// LangGraph-compatible stream mode.
@@ -137,6 +144,7 @@ impl StreamChunk {
     pub fn checkpoint_id(&self) -> Option<&str> {
         match self {
             StreamChunk::Checkpoint { checkpoint_id } => Some(checkpoint_id),
+            StreamChunk::Subgraph { chunk, .. } => chunk.checkpoint_id(),
             _ => None,
         }
     }
@@ -145,6 +153,7 @@ impl StreamChunk {
     pub fn execution(&self) -> Option<&NodeExecution> {
         match self {
             StreamChunk::Usage { execution } => Some(execution),
+            StreamChunk::Subgraph { chunk, .. } => chunk.execution(),
             _ => None,
         }
     }
@@ -153,6 +162,7 @@ impl StreamChunk {
     pub fn values(&self) -> Option<&Value> {
         match self {
             StreamChunk::Values { values, .. } => Some(values),
+            StreamChunk::Subgraph { chunk, .. } => chunk.values(),
             _ => None,
         }
     }
@@ -166,6 +176,7 @@ impl StreamChunk {
             | StreamChunk::Interrupt { node, .. }
             | StreamChunk::Message { node, .. }
             | StreamChunk::Task { node, .. } => Some(node),
+            StreamChunk::Subgraph { chunk, .. } => chunk.node(),
             _ => None,
         }
     }
@@ -180,8 +191,17 @@ impl StreamChunk {
             StreamChunk::Task { .. } => Some(StreamMode::Tasks),
             StreamChunk::Debug { .. } => Some(StreamMode::Debug),
             StreamChunk::Checkpoint { .. } => Some(StreamMode::Checkpoints),
+            StreamChunk::Subgraph { chunk, .. } => chunk.mode(),
             // Usage and interrupt chunks are engine-level extras without a LangGraph mode.
             StreamChunk::Usage { .. } | StreamChunk::Interrupt { .. } => None,
+        }
+    }
+
+    /// Checkpoint namespace of a subgraph chunk, when applicable.
+    pub fn namespace(&self) -> Option<&str> {
+        match self {
+            StreamChunk::Subgraph { namespace, .. } => Some(namespace),
+            _ => None,
         }
     }
 
@@ -192,6 +212,9 @@ impl StreamChunk {
     pub fn matches_modes(&self, modes: &[StreamMode]) -> bool {
         if modes.is_empty() {
             return true;
+        }
+        if let StreamChunk::Subgraph { chunk, .. } = self {
+            return chunk.matches_modes(modes);
         }
         let Some(mode) = self.mode() else {
             return true;

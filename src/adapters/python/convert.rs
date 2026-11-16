@@ -468,6 +468,11 @@ pub(super) fn snapshot_to_py(
 pub(super) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     match chunk {
+        StreamChunk::Subgraph { namespace, chunk } => {
+            dict.set_item("type", "subgraph")?;
+            dict.set_item("namespace", namespace.clone())?;
+            dict.set_item("chunk", chunk_to_py(py, chunk)?)?;
+        }
         StreamChunk::Usage { execution } => {
             dict.set_item("type", "usage")?;
             dict.set_item("node", execution.node.clone())?;

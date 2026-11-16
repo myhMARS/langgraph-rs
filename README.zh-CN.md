@@ -531,6 +531,9 @@ payload。`stream_modes(&input, &config, &[StreamMode::Values, ...])` 按 LangGr
 `values/updates/custom/messages/debug/tasks/checkpoints` 过滤；Python 绑定通过
 `stream(..., stream_mode=...)` 使用相同名称。
 
+设置 `RunConfig::with_stream_subgraphs(true)`（Python `stream(..., subgraphs=True)`）可把子图内
+发出的 chunk 包装为 `StreamChunk::Subgraph { namespace, chunk }`，嵌套命名空间用 `|` 连接。
+
 ```rust
 use langgraph_rs::{NodeOutput, RunConfig, StateGraph, StreamChunk, custom, json};
 

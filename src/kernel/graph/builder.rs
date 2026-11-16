@@ -15,6 +15,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::state_to_values;
 use crate::kernel::state::{State, StateSchema};
 use crate::kernel::store::BaseStore;
+use crate::kernel::stream::StreamChunk;
 use crate::kernel::timeout::TimeoutPolicy;
 use crate::{END, START};
 use serde_json::{Map, Value};
@@ -654,6 +655,40 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
     }
     if let Some(context) = crate::kernel::context::current_context() {
         config = config.with_context(context);
+    }
+    let collector = crate::kernel::context::current_subgraph_collector();
+    if let Some(collector) = collector {
+        config = config.with_stream_subgraphs(true);
+        let chunk_namespace = namespace.clone();
+        let mut sink = move |chunk: StreamChunk| {
+            let wrapped = match chunk {
+                StreamChunk::Subgraph {
+                    namespace: inner,
+                    chunk,
+                } => StreamChunk::Subgraph {
+                    namespace: format!("{chunk_namespace}|{inner}"),
+                    chunk,
+                },
+                other => StreamChunk::Subgraph {
+                    namespace: chunk_namespace.clone(),
+                    chunk: Box::new(other),
+                },
+            };
+            collector
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(wrapped);
+        };
+        if !subgraph.has_checkpointer() {
+            return subgraph.stream_with(input, &config, sink);
+        }
+        return match (thread, resume) {
+            (Some(thread), Some(value)) => {
+                subgraph.resume_in_streaming(&thread, &namespace, value, Some(&config), &mut sink)
+            }
+            (Some(thread), None) => subgraph.stream_with(input, &config.with_thread(thread), sink),
+            (None, _) => subgraph.stream_with(input, &config, sink),
+        };
     }
     if !subgraph.has_checkpointer() {
         return subgraph.run(input, &config).map(|outcome| outcome.state);

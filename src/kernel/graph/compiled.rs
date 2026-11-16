@@ -388,6 +388,37 @@ impl<S: State> CompiledGraph<S> {
         self.resume_inner(thread_id, None, None, None, Some(namespace), None)
     }
 
+    /// Resume a namespace-bound thread while forwarding chunks to `sink`.
+    pub(crate) fn resume_in_streaming(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        value: Value,
+        overrides: Option<&RunConfig>,
+        sink: &mut dyn FnMut(StreamChunk),
+    ) -> Result<S> {
+        let mut config = RunConfig::new()
+            .with_thread(thread_id)
+            .with_checkpoint_ns(namespace);
+        if let Some(overrides) = overrides {
+            config.store = overrides.store.clone();
+            config.context = overrides.context.clone();
+            config.stream_subgraphs = true;
+        }
+        executor::execute(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: None,
+                resume: Some(value),
+                updates: None,
+            },
+            &config,
+            sink,
+        )
+        .map(|outcome| outcome.state)
+    }
+
     /// Resume a namespace-bound thread, inheriting store/context from `overrides`.
     pub fn resume_in_with_run_config(
         &self,

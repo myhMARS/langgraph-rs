@@ -568,7 +568,10 @@ per-node `Updates`, `Custom` events, `Message` payloads (emitted with `message()
 `Interrupt` payloads, `Checkpoint` ids, `Task` lifecycle records and `Debug` payloads.
 `stream_modes(&input, &config, &[StreamMode::Values, ...])` filters to LangGraph's modes
 (`values`, `updates`, `custom`, `messages`, `debug`, `tasks`, `checkpoints`); the Python
-binding accepts the same names via `stream(..., stream_mode=...)`.
+binding accepts the same names via `stream(..., stream_mode=...)`. Pass
+`RunConfig::with_stream_subgraphs(true)` (Python `stream(..., subgraphs=True)`) to wrap chunks
+emitted inside subgraphs as `StreamChunk::Subgraph { namespace, chunk }`; nested namespaces are
+joined with `|`.
 
 ```rust
 use langgraph_rs::{NodeOutput, RunConfig, StateGraph, StreamChunk, custom, json};

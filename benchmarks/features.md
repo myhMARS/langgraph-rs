@@ -111,7 +111,7 @@ below is the complete audit.
 | `interrupt` / `checkpoint` chunks | ✅ | ✅ (via stream modes) | |
 | `messages` (LLM token streaming) | ⚠️ `message()` / `ctx.message()` emitted by nodes; `stream_mode="messages"` | ✅ `stream_mode="messages"` (LangChain callback tokens) | payloads are node-supplied, no automatic LLM callback capture |
 | `debug` / `tasks` / `checkpoints` stream modes | ✅ `StreamChunk::{Debug,Task}` + checkpoint chunks, filterable via `stream_modes` / Python `stream_mode` | ✅ | debug payloads carry step/executed/next rather than LangGraph's full payload schema |
-| Subgraph streaming (`subgraphs=True`) | ❌ | ✅ | |
+| Subgraph streaming (`subgraphs=True`) | ✅ `RunConfig::with_stream_subgraphs(true)` wraps child chunks in `StreamChunk::Subgraph` with a checkpoint namespace (nested namespaces joined with `|`); Python `stream(..., subgraphs=True)`; sync + async | ✅ | enable per run; default hides subgraph chunks |
 | Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` / `stream_modes` | ✅ | same chunk shapes, no v2 events |
 | v2 stream events | ❌ | ✅ `version="v2"` | |
 | Stream writer from arbitrary helpers | ⚠️ thread-local `custom()` | ✅ `get_stream_writer()` | |
@@ -120,7 +120,7 @@ below is the complete audit.
 
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
-| Subgraphs | ⚠️ `add_subgraph` (shared state) + `add_subgraph_mapped` (different state types); child checkpoint namespaces and nested interrupts/resume supported | ✅ first-class | subgraph **streaming** (`subgraphs=True`) is still missing; the interrupt surfaces as the parent subgraph node |
+| Subgraphs | ✅ `add_subgraph` (shared state) + `add_subgraph_mapped` (different state types); child checkpoint namespaces, nested interrupts/resume and subgraph streaming supported | ✅ first-class | the interrupt surfaces as the parent subgraph node |
 | Node-level cache | ⚠️ `CachePolicy` + `NodeCache` port, `InMemoryCache`, sync only | ✅ `CachePolicy(key_func, ttl)` + `BaseCache` (`InMemoryCache`, `RedisCache`) passed to `compile(cache=...)` | ours: in-memory only, no async cache, no size limits, no cache adapters |
 | Long-term memory (`BaseStore`) | ⚠️ `BaseStore` port + `InMemoryStore`; `StateGraph::with_store` / `CompileOptions::with_store` / `RunConfig::with_store`; nodes read it with `get_store()`; not exposed from Python yet | ✅ `compile(store=...)`, `Runtime.store`, `PostgresStore`, ... | no persistent store adapters; `search` supports prefix + substring only |
 | Runtime / context | ⚠️ `Runtime`, `current_runtime()`, `current_context()`, `current_thread_id()`, `current_namespace()`, `get_store()`; `RunConfig::with_context` carries a JSON context | ✅ `Runtime`, `context_schema`, `get_config`, `get_store` | no context schema validation |
@@ -131,7 +131,7 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

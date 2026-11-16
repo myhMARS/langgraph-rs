@@ -212,6 +212,8 @@ pub struct RunConfig {
     pub max_concurrency: Option<usize>,
     /// Checkpoint durability policy.
     pub durability: Durability,
+    /// Forward chunks emitted inside subgraphs (wrapped in `StreamChunk::Subgraph`).
+    pub stream_subgraphs: bool,
 }
 
 impl std::fmt::Debug for RunConfig {
@@ -224,6 +226,7 @@ impl std::fmt::Debug for RunConfig {
             .field("context", &self.context)
             .field("max_concurrency", &self.max_concurrency)
             .field("durability", &self.durability)
+            .field("stream_subgraphs", &self.stream_subgraphs)
             .finish()
     }
 }
@@ -273,6 +276,12 @@ impl RunConfig {
     /// Select the checkpoint durability policy.
     pub fn with_durability(mut self, durability: Durability) -> Self {
         self.durability = durability;
+        self
+    }
+
+    /// Forward subgraph stream chunks, wrapped with their checkpoint namespace.
+    pub fn with_stream_subgraphs(mut self, enabled: bool) -> Self {
+        self.stream_subgraphs = enabled;
         self
     }
 }

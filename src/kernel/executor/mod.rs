@@ -66,6 +66,12 @@ pub(crate) fn execute<S: State>(
         store,
         config.context.clone(),
     );
+    let subgraph_collector: Option<std::sync::Arc<std::sync::Mutex<Vec<StreamChunk>>>> = config
+        .stream_subgraphs
+        .then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+    let _collector_guard = subgraph_collector
+        .as_ref()
+        .map(|collector| crate::kernel::context::install_subgraph_collector(collector.clone()));
 
     if thread_id.is_some() && graph.checkpointer().is_none() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
@@ -219,6 +225,16 @@ pub(crate) fn execute<S: State>(
         }
 
         let outcomes = run_superstep(graph, &state, &tasks);
+        if let Some(collector) = &subgraph_collector {
+            let chunks: Vec<StreamChunk> = collector
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .drain(..)
+                .collect();
+            for chunk in chunks {
+                sink(chunk);
+            }
+        }
 
         // An interrupt aborts the superstep: the checkpoint keeps the pre-superstep
         // values and the whole task list, so a resume replays the superstep.

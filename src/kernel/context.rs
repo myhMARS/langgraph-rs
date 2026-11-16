@@ -5,12 +5,14 @@
 //! every signature, which keeps node closures identical to their LangGraph counterparts.
 
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::kernel::error::NodeFailure;
 use crate::kernel::store::{BaseStore, Runtime};
+use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::Usage;
 use crate::{Error, Interrupt, Result};
 
@@ -18,6 +20,8 @@ thread_local! {
     static CURRENT_TASK: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
     static CURRENT_RUN: RefCell<Option<RunContext>> = const { RefCell::new(None) };
     static CURRENT_STEP: RefCell<Option<(usize, usize)>> = const { RefCell::new(None) };
+    static SUBGRAPH_COLLECTOR: RefCell<Option<Arc<Mutex<Vec<StreamChunk>>>>> =
+        const { RefCell::new(None) };
 }
 
 /// Execution context of the current run.
@@ -315,6 +319,33 @@ pub fn record_tokens(input_tokens: u64, output_tokens: u64) -> Result<()> {
 /// Name of the node that is currently executing, if any.
 pub fn current_node() -> Option<String> {
     CURRENT_TASK.with(|slot| slot.borrow().as_ref().map(|context| context.node.clone()))
+}
+
+/// RAII guard restoring the previous subgraph chunk collector.
+pub(crate) struct CollectorGuard {
+    previous: Option<Arc<Mutex<Vec<StreamChunk>>>>,
+}
+
+impl Drop for CollectorGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        SUBGRAPH_COLLECTOR.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+/// Install a collector that subgraph nodes push their chunks into.
+pub(crate) fn install_subgraph_collector(
+    collector: Arc<Mutex<Vec<StreamChunk>>>,
+) -> CollectorGuard {
+    let previous = SUBGRAPH_COLLECTOR.with(|slot| slot.borrow_mut().replace(collector));
+    CollectorGuard { previous }
+}
+
+/// Collector installed by the running executor, when subgraph streaming is enabled.
+pub(crate) fn current_subgraph_collector() -> Option<Arc<Mutex<Vec<StreamChunk>>>> {
+    SUBGRAPH_COLLECTOR.with(|slot| slot.borrow().clone())
 }
 
 #[cfg(test)]

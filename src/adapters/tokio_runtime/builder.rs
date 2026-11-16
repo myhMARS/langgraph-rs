@@ -18,6 +18,7 @@ use crate::kernel::ports::Checkpointer;
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{State, StateSchema, state_to_values};
 use crate::kernel::store::BaseStore;
+use crate::kernel::stream::StreamChunk;
 use crate::kernel::timeout::TimeoutPolicy;
 use crate::{END, START};
 
@@ -455,7 +456,42 @@ async fn run_async_subgraph<S: State>(
     if let Some(user_context) = context.context() {
         config = config.with_context(user_context.clone());
     }
-    let output = if !child.has_checkpointer() {
+    let output = if let Some(collector) = context.collector() {
+        config = config.with_stream_subgraphs(true);
+        let chunk_namespace = namespace.clone();
+        let mut sink = move |chunk: StreamChunk| {
+            let wrapped = match chunk {
+                StreamChunk::Subgraph {
+                    namespace: inner,
+                    chunk,
+                } => StreamChunk::Subgraph {
+                    namespace: format!("{chunk_namespace}|{inner}"),
+                    chunk,
+                },
+                other => StreamChunk::Subgraph {
+                    namespace: chunk_namespace.clone(),
+                    chunk: Box::new(other),
+                },
+            };
+            collector
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(wrapped);
+        };
+        if !child.has_checkpointer() {
+            child.stream_with(&state, &config, sink).await?
+        } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
+            child
+                .resume_in_streaming(&thread, &namespace, resume, Some(&config), &mut sink)
+                .await?
+        } else if let Some(thread) = thread {
+            child
+                .stream_with(&state, &config.with_thread(thread), sink)
+                .await?
+        } else {
+            child.stream_with(&state, &config, sink).await?
+        }
+    } else if !child.has_checkpointer() {
         child.run(&state, &config).await?.state
     } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
         child.resume_in(&thread, &namespace, resume).await?
