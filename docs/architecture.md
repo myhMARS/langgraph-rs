@@ -304,7 +304,7 @@ translation layer over the Rust engine:
 - **Consumption.** `record_usage` / `record_tokens` / `NodeOutput::with_usage` feed any
   accounting system; use `RunReport::executions` for per-call granularity or `usage_by_node`
   for per-node totals.
-- **Python.** Add methods to `PyStateGraph` / `PyCompiledGraph` in `src/python/mod.rs`; the
+- **Python.** Add methods to `PyStateGraph` / `PyCompiledGraph` in `src/adapters/python/graph.rs` (conversion helpers in `convert.rs`); the
   conversion helpers (`py_to_value`, `value_to_py`, `node_output_from_py`) keep the FFI layer
   thin.
 
