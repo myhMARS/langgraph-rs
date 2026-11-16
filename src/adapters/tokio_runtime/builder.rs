@@ -52,6 +52,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) kernel: Kernel,
     pub(crate) recursion_limit: Option<usize>,
     pub(crate) context_schema: Option<serde_json::Value>,
+    pub(crate) name: Option<String>,
 }
 
 impl<S: State> Default for AsyncStateGraph<S> {
@@ -91,6 +92,7 @@ impl<S: State> AsyncStateGraph<S> {
             kernel: Kernel::builtin(),
             recursion_limit: None,
             context_schema: None,
+            name: None,
         }
     }
 
@@ -251,6 +253,90 @@ impl<S: State> AsyncStateGraph<S> {
         self
     }
 
+    /// Attach a name to the compiled graph.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Register a node that runs after every regular node finished.
+    pub fn add_node_deferred<F, Fut>(self, name: impl Into<String>, node: F) -> Self
+    where
+        F: Fn(S, AsyncContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<NodeOutput>> + Send + 'static,
+    {
+        let name = name.into();
+        self.set_deferred(name.clone()).add_node(name, node)
+    }
+
+    /// Register a node together with a timeout policy.
+    pub fn add_node_with_timeout<F, Fut>(
+        self,
+        name: impl Into<String>,
+        policy: TimeoutPolicy,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(S, AsyncContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<NodeOutput>> + Send + 'static,
+    {
+        let name = name.into();
+        self.set_timeout(name.clone(), policy).add_node(name, node)
+    }
+
+    /// Register a node together with an allow-list of downstream destinations.
+    pub fn add_node_with_destinations<F, Fut, I, T>(
+        self,
+        name: impl Into<String>,
+        destinations: I,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(S, AsyncContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<NodeOutput>> + Send + 'static,
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let name = name.into();
+        self.set_destinations(name.clone(), destinations)
+            .add_node(name, node)
+    }
+
+    /// Register a chain of async nodes, each followed by an edge.
+    pub fn add_sequence<I, N>(mut self, nodes: I) -> Self
+    where
+        I: IntoIterator<Item = (N, AsyncNodeFn<S>)>,
+        N: Into<String>,
+    {
+        let mut previous: Option<String> = None;
+        for (name, node) in nodes {
+            let name = name.into();
+            self = self.add_node(name.clone(), move |state, context| node(state, context));
+            match previous.take() {
+                Some(previous) => self = self.add_edge(previous, name.clone()),
+                None => self = self.set_entry_point(name.clone()),
+            }
+            previous = Some(name);
+        }
+        if let Some(last) = previous {
+            self = self.set_finish_point(last);
+        }
+        self
+    }
+
+    /// Add static edges from several sources to one target.
+    pub fn add_edges_from<I, N>(mut self, sources: I, to: impl Into<String>) -> Self
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        let target = to.into();
+        for source in sources {
+            self = self.add_edge(source.into(), target.clone());
+        }
+        self
+    }
+
     /// Add a static edge (`START` / `END` supported).
     pub fn add_edge(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         let from = from.into();
@@ -359,6 +445,7 @@ impl<S: State> AsyncStateGraph<S> {
                 .recursion_limit
                 .unwrap_or(crate::DEFAULT_RECURSION_LIMIT),
             context_schema: self.context_schema,
+            name: self.name,
         })
     }
 

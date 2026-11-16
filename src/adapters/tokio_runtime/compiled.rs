@@ -111,6 +111,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
     pub(crate) recursion_limit: usize,
     pub(crate) context_schema: Option<Value>,
+    pub(crate) name: Option<String>,
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
@@ -187,6 +188,42 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Render the graph as a PNG image using Graphviz `dot`.
     pub fn draw_png(&self) -> Result<Vec<u8>> {
         crate::kernel::graph::visualize::dot_to_png(&self.to_dot())
+    }
+
+    /// Graph name configured with `with_name`.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Latest state of every subgraph namespace of a thread.
+    pub fn subgraph_states(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
+        let mut namespaces = std::collections::BTreeSet::new();
+        for checkpoint in futures::executor::block_on(self.saver_history(thread_id))? {
+            if !checkpoint.namespace.is_empty() {
+                namespaces.insert(checkpoint.namespace);
+            }
+        }
+        let mut states = Vec::new();
+        for namespace in namespaces {
+            if let Some(checkpoint) =
+                futures::executor::block_on(self.saver_latest_in(thread_id, &namespace))?
+            {
+                states.push(StateSnapshot::from_checkpoint(checkpoint)?);
+            }
+        }
+        Ok(states)
+    }
+
+    /// Root state plus the latest state of each subgraph namespace.
+    #[allow(clippy::type_complexity)]
+    pub fn get_state_subgraphs(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(StateSnapshot<S>, Vec<StateSnapshot<S>>)>> {
+        let Some(root) = self.get_state(thread_id)? else {
+            return Ok(None);
+        };
+        Ok(Some((root, self.subgraph_states(thread_id)?)))
     }
 
     /// Returns `true` when checkpointing is enabled.
