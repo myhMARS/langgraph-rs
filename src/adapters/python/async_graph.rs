@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyList};
+use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::*;
 use super::types::{checkpointer_from_py, store_from_py};
@@ -381,6 +381,100 @@ impl PyAsyncCompiledGraph {
 
     fn has_checkpointer(&self) -> bool {
         self.saver.is_some()
+    }
+
+    /// Awaitably update state without running nodes.
+    #[pyo3(signature = (thread_id, values, as_node=None, task_id=None, checkpoint_ns=None))]
+    fn aupdate_state<'py>(
+        &self,
+        py: Python<'py>,
+        thread_id: String,
+        values: &Bound<'_, PyDict>,
+        as_node: Option<String>,
+        task_id: Option<String>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let mut updates: Vec<(String, serde_json::Value)> = Vec::with_capacity(values.len());
+        for (key, value) in values.iter() {
+            updates.push((key.extract::<String>()?, py_to_value(&value)?));
+        }
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = match checkpoint_ns.as_deref() {
+                Some(namespace) => {
+                    graph
+                        .update_state_in(&thread_id, namespace, updates, as_node.as_deref())
+                        .await
+                }
+                None => {
+                    graph
+                        .update_state_with_task(
+                            &thread_id,
+                            updates,
+                            as_node.as_deref(),
+                            task_id.as_deref(),
+                        )
+                        .await
+                }
+            };
+            match result {
+                Ok(snapshot) => Python::attach(|py| snapshot_to_py(py, &snapshot)),
+                Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
+            }
+        })
+    }
+
+    /// Awaitably resume from a specific checkpoint id.
+    #[pyo3(signature = (thread_id, checkpoint_id, value, checkpoint_ns=None))]
+    fn aresume_from<'py>(
+        &self,
+        py: Python<'py>,
+        thread_id: String,
+        checkpoint_id: String,
+        value: &Bound<'_, PyAny>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let value = py_to_value(value)?;
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result = match checkpoint_ns.as_deref() {
+                Some(namespace) => {
+                    graph
+                        .resume_from_in(&thread_id, namespace, &checkpoint_id, value)
+                        .await
+                }
+                None => graph.resume_from(&thread_id, &checkpoint_id, value).await,
+            };
+            match result {
+                Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
+                Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
+            }
+        })
+    }
+
+    /// Export the latest checkpoint as a LangGraph-shaped JSON document.
+    #[pyo3(signature = (thread_id))]
+    fn export_checkpoint(&self, py: Python<'_>, thread_id: String) -> PyResult<Option<Py<PyAny>>> {
+        let document = self
+            .graph
+            .export_checkpoint(&thread_id)
+            .map_err(|error| to_pyerr(py, error))?;
+        document
+            .map(|document| value_to_py(py, &document))
+            .transpose()
+    }
+
+    /// Import a LangGraph-shaped checkpoint document into a thread.
+    fn import_checkpoint(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        document: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let document = py_to_value(document)?;
+        self.graph
+            .import_checkpoint(&thread_id, &document)
+            .map_err(|error| to_pyerr(py, error))
     }
 
     /// Read the full checkpoint history of a thread, newest first.

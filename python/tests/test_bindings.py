@@ -1709,5 +1709,29 @@ class AsyncPythonTests(unittest.TestCase):
             self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
 
 
+    def test_async_update_state_and_checkpoint_export(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+            graph.set_entry_point("inc")
+            graph.set_finish_point("inc")
+            compiled = graph.compile(checkpointer=lg.InMemorySaver())
+            await compiled.ainvoke({"value": 0}, thread_id="py-async-update")
+            snapshot = await compiled.aupdate_state(
+                "py-async-update", {"value": 42}
+            )
+            history = compiled.get_state_history("py-async-update")
+            document = compiled.export_checkpoint("py-async-update")
+            compiled.import_checkpoint("py-async-imported", document)
+            return snapshot, history, compiled.get_state("py-async-imported")
+
+        snapshot, history, imported = asyncio.run(scenario())
+        self.assertEqual(snapshot["values"]["value"], 42)
+        self.assertEqual(history[0]["values"]["value"], 42)
+        self.assertEqual(imported["values"]["value"], 42)
+
+
 if __name__ == "__main__":
     unittest.main()
