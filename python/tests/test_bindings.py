@@ -1618,7 +1618,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("inspect")
         compiled = graph.compile(checkpointer=lg.InMemorySaver(), recursion_limit=5)
         output = compiled.invoke({}, thread_id="py-managed")
-        self.assertEqual(output["seen"], "5/False")
+        self.assertEqual(output["seen"], "4/False")
         self.assertNotIn("remaining_steps", output)
 
 

@@ -40,7 +40,7 @@ fn remaining_steps_counts_down_across_supersteps() {
     let output = graph
         .invoke(&StepsState::default(), &RunConfig::new())
         .unwrap();
-    assert_eq!(output.log, vec![3, 2]);
+    assert_eq!(output.log, vec![2, 1]);
 }
 
 #[test]
@@ -185,11 +185,11 @@ fn managed_values_are_injected_as_private_state_channels() {
                 .with_recursion_limit(5),
         )
         .unwrap();
-    assert_eq!(output.state.get("seen"), Some(&json!("5/false")));
+    assert_eq!(output.state.get("seen"), Some(&json!("4/false")));
     assert_eq!(output.state.get("remaining_steps"), None);
     let snapshot = graph.get_state("managed-injected").unwrap().unwrap();
     assert_eq!(snapshot.values.get("remaining_steps"), None);
-    assert_eq!(snapshot.values.get("seen"), Some(&json!("5/false")));
+    assert_eq!(snapshot.values.get("seen"), Some(&json!("4/false")));
 }
 
 #[cfg(feature = "async")]

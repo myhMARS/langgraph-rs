@@ -97,5 +97,6 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers linear execution, conditional branches, loops, batch, interrupt/resume,
-`update_state`, checkpoint-history counts, and subgraphs.
+The latest run covers linear execution, conditional branches, loops, batch, managed values,
+streaming values, Command(update), retry policies, interrupt/resume, `update_state`,
+checkpoint-history counts, and subgraphs.

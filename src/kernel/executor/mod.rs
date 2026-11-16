@@ -620,7 +620,7 @@ pub(crate) fn apply_managed_values<S: State>(
     if !schema.managed_values() {
         return Ok(());
     }
-    let remaining = recursion_limit.saturating_sub(step);
+    let remaining = recursion_limit.saturating_sub(step + 1);
     values.insert("remaining_steps".to_string(), json!(remaining));
     values.insert("is_last_step".to_string(), json!(remaining <= 1));
     *state = values_to_state::<S>(values)?;

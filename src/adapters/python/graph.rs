@@ -297,6 +297,30 @@ impl PyCompiledGraph {
                         Err(error) => Err(to_pyerr(py, error)),
                     };
                 }
+                if thread_id.is_none() && command.resume.is_none() {
+                    let updates = command.to_update_map(py)?;
+                    if updates.is_empty() {
+                        return Err(PyTypeError::new_err(
+                            "Command requires either `goto` or `update`",
+                        ));
+                    }
+                    let updates = updates.into_iter().collect();
+                    let command = crate::Command {
+                        resume: None,
+                        update: Some(updates),
+                        goto: Vec::new(),
+                        parent: false,
+                    };
+                    let mut config = run_config(thread_id);
+                    if let Some(control) = control.clone() {
+                        config = config.with_control(control);
+                    }
+                    let result = py.detach(|| self.graph.run_command(command, &config));
+                    return match result {
+                        Ok(outcome) => json_state_to_py(py, &outcome.state),
+                        Err(error) => Err(to_pyerr(py, error)),
+                    };
+                }
                 let thread = thread_id.as_deref().ok_or_else(|| {
                     PyTypeError::new_err("invoke(Command(...)) requires thread_id")
                 })?;

@@ -11,13 +11,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 237704.0,
-        "ops_per_sec": 4206.9
+        "ns_per_op": 207485.0,
+        "ops_per_sec": 4819.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2717054.0,
-        "ops_per_sec": 368.0
+        "ns_per_op": 1940855.0,
+        "ops_per_sec": 515.2
       }
     }
   },
@@ -33,13 +33,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 80210.0,
-        "ops_per_sec": 12467.3
+        "ns_per_op": 90923.0,
+        "ops_per_sec": 10998.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1222411.0,
-        "ops_per_sec": 818.1
+        "ns_per_op": 742143.0,
+        "ops_per_sec": 1347.4
       }
     }
   },
@@ -55,13 +55,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 233158.0,
-        "ops_per_sec": 4288.9
+        "ns_per_op": 141048.0,
+        "ops_per_sec": 7089.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2275986.0,
-        "ops_per_sec": 439.4
+        "ns_per_op": 1440499.0,
+        "ops_per_sec": 694.2
       }
     }
   },
@@ -87,15 +87,61 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 641169.0,
-        "ops_per_sec": 1559.7
+        "ns_per_op": 450027.0,
+        "ops_per_sec": 2222.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4731697.0,
-        "ops_per_sec": 211.3
+        "ns_per_op": 6144889.0,
+        "ops_per_sec": 162.7
       }
     }
+  },
+  {
+    "scenario": "managed_values",
+    "rs": {
+      "value": "4/False"
+    },
+    "lg": {
+      "value": "4/False"
+    },
+    "equivalent": true
+  },
+  {
+    "scenario": "stream_values",
+    "rs": {
+      "value": 10
+    },
+    "lg": {
+      "value": 10
+    },
+    "equivalent": true
+  },
+  {
+    "scenario": "command_update",
+    "rs": {
+      "value": 11
+    },
+    "lg": {
+      "value": 11
+    },
+    "equivalent": true
+  },
+  {
+    "scenario": "retry_policy",
+    "rs": {
+      "value": {
+        "value": 7
+      },
+      "calls": 3
+    },
+    "lg": {
+      "value": {
+        "value": 7
+      },
+      "calls": 3
+    },
+    "equivalent": true
   },
   {
     "scenario": "interrupt_resume",
@@ -143,13 +189,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 65326.0,
-        "ops_per_sec": 15307.8
+        "ns_per_op": 67883.0,
+        "ops_per_sec": 14731.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1229183.0,
-        "ops_per_sec": 813.5
+        "ns_per_op": 1124924.0,
+        "ops_per_sec": 888.9
       }
     }
   }

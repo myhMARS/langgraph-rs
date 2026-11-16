@@ -148,7 +148,7 @@ pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
 pub fn remaining_steps() -> Option<usize> {
     CURRENT_STEP.with(|slot| {
         slot.borrow()
-            .map(|(step, recursion_limit)| recursion_limit.saturating_sub(step))
+            .map(|(step, recursion_limit)| recursion_limit.saturating_sub(step + 1))
     })
 }
 

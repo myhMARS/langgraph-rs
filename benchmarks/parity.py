@@ -13,14 +13,26 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import TypedDict
 
 import langgraph_rs as rs
 from langgraph.checkpoint.memory import InMemorySaver as LgInMemorySaver
 from langgraph.graph import END, START, StateGraph as LgStateGraph
-from langgraph.types import Command as LgCommand
+from langgraph.managed import IsLastStep, RemainingSteps
+from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy
 from langgraph.types import interrupt as lg_interrupt
 
 HERE = Path(__file__).resolve().parent
+
+
+class LgCommandState(TypedDict):
+    value: int
+
+
+class LgManagedState(TypedDict, total=False):
+    value: str
+    remaining_steps: RemainingSteps
+    is_last_step: IsLastStep
 WARMUP = 3
 ITERATIONS = 100
 
@@ -244,7 +256,154 @@ def run_linear_scenarios() -> list[dict]:
             },
         }
     )
+    # Managed values
+    lg_managed = lg_managed_graph()
+    rs_managed = rs_managed_graph()
+    lg_value = lg_managed.invoke({}, {"recursion_limit": 5})
+    rs_value = rs_managed.invoke({})
+    results.append(
+        {
+            "scenario": "managed_values",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+        }
+    )
+
+    # Streaming values (final streamed state)
+    lg_graph, rs_graph = lg_linear(), rs_linear()
+    lg_chunks = list(lg_graph.stream({"value": 0}, stream_mode="values"))
+    rs_chunks = rs_graph.stream({"value": 0}, stream_mode="values")
+    lg_value = lg_chunks[-1]
+    rs_value = [
+        chunk["values"]
+        for chunk in rs_chunks
+        if chunk.get("type") == "values"
+    ][-1]
+    results.append(
+        {
+            "scenario": "stream_values",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+        }
+    )
+
+    # Command(update=...) starts at entry points
+    lg_graph, rs_graph = lg_command_graph(), rs_command_graph()
+    lg_value = lg_graph.invoke(LgCommand(update={"value": 10}))
+    rs_value = rs_graph.invoke(rs.Command(update={"value": 10}))
+    results.append(
+        {
+            "scenario": "command_update",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+        }
+    )
+
+    # Retry policy
+    lg_graph, lg_calls = lg_retry_graph()
+    rs_graph, rs_calls = rs_retry_graph()
+    lg_value = lg_graph.invoke({"value": 0})
+    rs_value = rs_graph.invoke({"value": 0})
+    results.append(
+        {
+            "scenario": "retry_policy",
+            "rs": {"value": rs_value, "calls": rs_calls()},
+            "lg": {"value": lg_value, "calls": lg_calls()},
+            "equivalent": rs_value == lg_value and rs_calls() == lg_calls(),
+        }
+    )
     return results
+
+
+def lg_command_graph():
+    graph = LgStateGraph(LgCommandState)
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.add_edge(START, "inc")
+    graph.add_edge("inc", END)
+    return graph.compile()
+
+
+def rs_command_graph():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.set_entry_point("inc")
+    graph.set_finish_point("inc")
+    return graph.compile()
+
+
+def lg_managed_graph():
+    graph = LgStateGraph(LgManagedState)
+    graph.add_node(
+        "inspect",
+        lambda state: {
+            "value": f"{state['remaining_steps']}/{state['is_last_step']}"
+        },
+    )
+    graph.add_edge(START, "inspect")
+    graph.add_edge("inspect", END)
+    return graph.compile()
+
+
+def rs_managed_graph():
+    graph = rs.StateGraph({"value": "last_value"}, managed_values=True)
+    graph.add_node(
+        "inspect",
+        lambda state: {
+            "value": f"{state['remaining_steps']}/{state['is_last_step']}"
+        },
+    )
+    graph.set_entry_point("inspect")
+    graph.set_finish_point("inspect")
+    return graph.compile(recursion_limit=5)
+
+
+def lg_retry_graph():
+    calls = {"count": 0}
+
+    def flaky(state):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise ValueError("transient")
+        return {"value": 7}
+
+    graph = LgStateGraph(dict)
+    graph.add_node(
+        "flaky",
+        flaky,
+        retry_policy=LgRetryPolicy(
+            max_attempts=3, initial_interval=0.001, backoff_factor=1.0,
+            retry_on=Exception,
+        ),
+    )
+    graph.add_edge(START, "flaky")
+    graph.add_edge("flaky", END)
+    return graph.compile(), lambda: calls["count"]
+
+
+def rs_retry_graph():
+    calls = {"count": 0}
+
+    def flaky(state):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise ValueError("transient")
+        return {"value": 7}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node(
+        "flaky",
+        flaky,
+        retry_policy=rs.RetryPolicy(
+            max_attempts=3, initial_interval=0.001, backoff_factor=1.0,
+            retry_on=["transient"],
+        ),
+    )
+    graph.set_entry_point("flaky")
+    graph.set_finish_point("flaky")
+    return graph.compile(), lambda: calls["count"]
 
 
 def run_checkpoint_scenarios() -> list[dict]:
