@@ -109,7 +109,8 @@ impl<S: State> CompiledGraph<S> {
     ///
     /// The report contains one [`NodeExecution`](crate::NodeExecution) per node run
     /// (wall-clock duration plus any usage the node reported through
-    /// [`record_usage`](crate::record_usage) or [`NodeOutput::with_usage`]).
+    /// [`record_usage`](crate::record_usage) or
+    /// [`NodeOutput::with_usage`](crate::NodeOutput::with_usage)).
     pub fn run(&self, input: &S, config: &RunConfig) -> Result<RunOutcome<S>> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
