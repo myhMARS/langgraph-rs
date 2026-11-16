@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
@@ -704,6 +704,80 @@ impl PyInMemoryStore {
     }
 }
 
+/// SQLite-backed long-term memory store (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+#[pyclass(name = "SqliteStore")]
+pub struct PySqliteStore {
+    pub(crate) store: Arc<dyn BaseStore>,
+}
+
+#[cfg(feature = "sqlite")]
+#[pymethods]
+impl PySqliteStore {
+    #[new]
+    #[pyo3(signature = (path=":memory:"))]
+    fn new(path: &str) -> PyResult<Self> {
+        let store = crate::SqliteStore::open(path)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        namespace: Vec<String>,
+        key: String,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let value = self
+            .store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        value.map(|value| value_to_py(py, &value)).transpose()
+    }
+
+    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.store
+            .put(&namespace, &key, py_to_value(value)?)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
+        self.store
+            .delete(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let items: Vec<StoreItem> = self
+            .store
+            .search(&namespace_prefix, query.as_deref(), limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        items
+            .iter()
+            .map(|item| store_item_to_py(py, item))
+            .collect()
+    }
+
+    fn namespaces(&self) -> PyResult<Vec<Vec<String>>> {
+        self.store
+            .namespaces()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        "SqliteStore()".to_string()
+    }
+}
+
 /// Resolve a Python `store=` keyword into a kernel store.
 pub(super) fn store_from_py(
     obj: Option<&Bound<'_, PyAny>>,
@@ -721,7 +795,11 @@ pub(super) fn store_from_py(
     if let Ok(store) = obj.extract::<PyRef<'_, PyStore>>() {
         return Ok(Some(store.store.clone()));
     }
+    #[cfg(feature = "sqlite")]
+    if let Ok(store) = obj.extract::<PyRef<'_, PySqliteStore>>() {
+        return Ok(Some(store.store.clone()));
+    }
     Err(PyTypeError::new_err(
-        "store must be an InMemoryStore or Store object",
+        "store must be an InMemoryStore, Store or SqliteStore object",
     ))
 }

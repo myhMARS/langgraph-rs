@@ -1437,5 +1437,33 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertNotIn("secret", snapshot["values"])
 
 
+    def test_sqlite_store(self):
+        store = lg.SqliteStore()
+        store.put(["users", "1"], "name", {"first": "Ada"})
+        store.put(["users", "1"], "email", "ada@example.com")
+        self.assertEqual(
+            store.get(["users", "1"], "name"), {"first": "Ada"}
+        )
+        items = store.search(["users"], query="first")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["key"], "name")
+        self.assertEqual(store.namespaces(), [["users", "1"]])
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "remember",
+            lambda state: (
+                lg.get_store().put(["mem"], "greeting", "hello") or {"value": 1}
+            ),
+        )
+        graph.set_entry_point("remember")
+        graph.set_finish_point("remember")
+        compiled = graph.compile(store=store)
+        compiled.invoke({})
+        self.assertEqual(store.get(["mem"], "greeting"), "hello")
+        store.delete(["mem"], "greeting")
+        self.assertIsNone(store.get(["mem"], "greeting"))
+
+
 if __name__ == "__main__":
     unittest.main()

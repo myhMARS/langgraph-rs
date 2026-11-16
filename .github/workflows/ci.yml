@@ -61,8 +61,11 @@ jobs:
       - name: Cache cargo artefacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Install SQLite headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
       - name: Build the extension module
-        run: cargo build --features "python python-async"
+        run: cargo build --features "python python-async sqlite"
 
       - name: Make the module importable
         run: |

@@ -15,6 +15,10 @@ pub mod tokio_runtime;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+/// SQLite long-term memory store (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+pub mod sqlite_store;
+
 /// Redis checkpoint persistence (feature `redis`).
 #[cfg(feature = "redis")]
 pub mod redis;

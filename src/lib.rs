@@ -111,6 +111,10 @@ pub use adapters::async_checkpointer::BlockingSaver;
 #[cfg(feature = "sqlite")]
 pub use adapters::sqlite::SqliteSaver;
 
+#[cfg(feature = "sqlite")]
+/// SQLite-backed long-term memory store.
+pub use adapters::sqlite_store::SqliteStore;
+
 /// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
 #[cfg(feature = "async")]
 pub type AsyncInMemorySaver = InMemorySaver;
