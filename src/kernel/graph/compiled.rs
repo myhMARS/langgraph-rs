@@ -923,6 +923,7 @@ impl<S: State> CompiledGraph<S> {
             channel_versions: checkpoint.channel_versions.clone(),
             versions_seen: checkpoint.versions_seen.clone(),
             updated_channels,
+            pending_writes: Vec::new(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         checkpointer.put(updated)?;

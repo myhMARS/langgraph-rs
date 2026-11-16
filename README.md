@@ -811,9 +811,9 @@ native async Postgres/Redis checkpointers are available, while SQLite still offl
 blocking nodes are interrupted only between supersteps; the functional API
 executes tasks inline and persists completed task results in `checkpoint.task_results` (and
 optionally a `BaseStore`) instead of separate pending writes; `update_state(task_id=...)`
-infers `as_node` from the matching pending task rather than replaying task writes; the sync
-functional API runs tasks inline while the async functional API can await independent tasks
-concurrently; Python nodes can be sync callables or coroutine
+infers `as_node` from the matching pending task rather than replaying task writes; successful writes from a superstep that pauses on a single interrupt are stored as
+checkpoint `pending_writes` and replayed on resume; the sync functional API runs tasks
+inline while the async functional API can await independent tasks concurrently; Python nodes can be sync callables or coroutine
 functions; custom reducers are supported as Python callables in the schema.
 
 ## Differences from LangGraph

@@ -95,7 +95,19 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
         },
         "metadata": metadata,
         "parent_config": parent_config,
-        "pending_writes": [],
+        "pending_writes": checkpoint
+            .pending_writes
+            .iter()
+            .map(|write| {
+                json!({
+                    "task_id": write.task_id,
+                    "node": write.node,
+                    "channel": write.channel,
+                    "value": write.value,
+                    "replace": write.replace,
+                })
+            })
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -243,6 +255,50 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                     .iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        pending_writes: object
+            .get("pending_writes")
+            .and_then(Value::as_array)
+            .map(|writes| {
+                writes
+                    .iter()
+                    .filter_map(|write| {
+                        if let Some(write) = write.as_object() {
+                            let task_id = write.get("task_id")?.as_str()?.to_string();
+                            let node = write
+                                .get("node")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            let channel = write.get("channel")?.as_str()?.to_string();
+                            let value = write.get("value").cloned().unwrap_or(Value::Null);
+                            let replace = write
+                                .get("replace")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false);
+                            Some(crate::kernel::checkpoint::PendingWrite {
+                                task_id,
+                                node,
+                                channel,
+                                value,
+                                replace,
+                            })
+                        } else {
+                            let tuple = write.as_array()?;
+                            let task_id = tuple.first()?.as_str()?.to_string();
+                            let channel = tuple.get(1)?.as_str()?.to_string();
+                            let value = tuple.get(2).cloned().unwrap_or(Value::Null);
+                            Some(crate::kernel::checkpoint::PendingWrite {
+                                task_id,
+                                node: String::new(),
+                                channel,
+                                value,
+                                replace: false,
+                            })
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default(),

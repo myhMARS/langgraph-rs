@@ -161,6 +161,7 @@ pub(crate) fn execute<S: State>(
             parent = Some(checkpoint.id.clone());
             skip_interrupt_before = checkpoint.paused_before;
             let mut values = checkpoint.values.clone();
+            apply_pending_writes(graph.schema(), &mut values, &checkpoint.pending_writes)?;
             if let Some(updates) = updates {
                 apply_updates(
                     graph.schema(),
@@ -224,6 +225,7 @@ pub(crate) fn execute<S: State>(
             false,
             false,
             Vec::new(),
+            Vec::new(),
             sink,
             checkpoint_writer.as_ref(),
         )?;
@@ -279,6 +281,7 @@ pub(crate) fn execute<S: State>(
                 true,
                 true,
                 vec![interrupted_interrupt.clone()],
+                Vec::new(),
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -314,18 +317,41 @@ pub(crate) fn execute<S: State>(
             .collect();
         if !interrupts.is_empty() {
             if interrupts.len() == 1 {
-                let interrupted = interrupts.into_iter().next().expect("one interrupt");
+                let interrupted = interrupts.first().expect("one interrupt").clone();
+                let interrupted_ids: HashSet<String> = tasks
+                    .iter()
+                    .zip(&outcomes)
+                    .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
+                    .map(|(task, _)| task.id.clone())
+                    .collect();
+                let pending_writes = collect_pending_writes(&tasks, &outcomes);
+                let successful: Vec<TaskOutcome> = outcomes
+                    .into_iter()
+                    .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
+                    .collect();
+                let processed = process_outcomes(graph, successful, step, &mut report, sink)?;
+                let mut next_tasks: Vec<Task> = tasks
+                    .iter()
+                    .filter(|task| interrupted_ids.contains(&task.id))
+                    .cloned()
+                    .collect();
+                for task in processed.next_tasks {
+                    if !next_tasks.iter().any(|existing| existing.id == task.id) {
+                        next_tasks.push(task);
+                    }
+                }
                 save_checkpoint(
                     graph,
                     thread_id.as_deref(),
                     &namespace,
                     &mut parent,
                     &values,
-                    &tasks,
+                    &next_tasks,
                     step,
                     true,
                     false,
                     vec![interrupted.clone()],
+                    pending_writes,
                     sink,
                     checkpoint_writer.as_ref(),
                 )?;
@@ -382,6 +408,7 @@ pub(crate) fn execute<S: State>(
                 true,
                 false,
                 interrupts.clone(),
+                Vec::new(),
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -513,6 +540,7 @@ pub(crate) fn execute<S: State>(
                     .iter()
                     .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
+                Vec::new(),
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -543,6 +571,7 @@ pub(crate) fn execute<S: State>(
                     step,
                     false,
                     false,
+                    Vec::new(),
                     Vec::new(),
                     sink,
                     checkpoint_writer.as_ref(),
@@ -607,6 +636,64 @@ fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
         combined.get_or_insert_with(Usage::new).merge(&item);
     }
     combined
+}
+
+fn collect_pending_writes(
+    tasks: &[Task],
+    outcomes: &[TaskOutcome],
+) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+    let mut writes = Vec::new();
+    for (task, outcome) in tasks.iter().zip(outcomes) {
+        let TaskOutcome::Ok(result) = outcome else {
+            continue;
+        };
+        for (channel, value) in result.output.updates_map() {
+            writes.push(crate::kernel::checkpoint::PendingWrite {
+                task_id: task.id.clone(),
+                node: task.node.clone(),
+                channel: channel.clone(),
+                value: value.clone(),
+                replace: false,
+            });
+        }
+        for (channel, value) in result.output.replaces_map() {
+            writes.push(crate::kernel::checkpoint::PendingWrite {
+                task_id: task.id.clone(),
+                node: task.node.clone(),
+                channel: channel.clone(),
+                value: value.clone(),
+                replace: true,
+            });
+        }
+    }
+    writes
+}
+
+pub(crate) fn apply_pending_writes(
+    schema: &crate::kernel::state::StateSchema,
+    values: &mut Map<String, Value>,
+    writes: &[crate::kernel::checkpoint::PendingWrite],
+) -> Result<()> {
+    if writes.is_empty() {
+        return Ok(());
+    }
+    let updates: Vec<ChannelUpdate> = writes
+        .iter()
+        .filter(|write| !write.replace && !schema.is_finish_value(&write.channel))
+        .map(|write| ChannelUpdate {
+            channel: write.channel.clone(),
+            value: write.value.clone(),
+            node: write.node.clone(),
+        })
+        .collect();
+    apply_updates(schema, values, updates)?;
+    for write in writes {
+        if write.replace || schema.is_finish_value(&write.channel) {
+            schema.resolve(&write.channel)?;
+            values.insert(write.channel.clone(), write.value.clone());
+        }
+    }
+    Ok(())
 }
 
 fn process_outcomes<S: State>(

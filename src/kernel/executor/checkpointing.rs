@@ -75,6 +75,7 @@ pub(super) fn save_checkpoint<S: State>(
     interrupted: bool,
     paused_before: bool,
     interrupts: Vec<Interrupt>,
+    pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
     sink: &mut dyn FnMut(StreamChunk),
     writer: Option<&CheckpointWriter>,
 ) -> Result<()> {
@@ -113,6 +114,7 @@ pub(super) fn save_checkpoint<S: State>(
         channel_versions,
         versions_seen,
         updated_channels,
+        pending_writes,
     };
     match writer {
         Some(writer) => writer.submit(checkpoint)?,

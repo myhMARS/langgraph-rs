@@ -9,6 +9,22 @@ use serde_json::{Map, Value};
 use super::error::Interrupt;
 use super::node::Task;
 
+/// A task write that was produced before an interrupt and must be replayed on resume.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingWrite {
+    /// Id of the task that produced the write.
+    pub task_id: String,
+    /// Node that produced the write.
+    pub node: String,
+    /// Channel written.
+    pub channel: String,
+    /// Written value.
+    pub value: Value,
+    /// `true` when the write replaces the channel instead of merging it.
+    #[serde(default)]
+    pub replace: bool,
+}
+
 /// A snapshot of a graph run, stored between supersteps.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Checkpoint {
@@ -59,6 +75,9 @@ pub struct Checkpoint {
     /// Channels whose values changed when this checkpoint was written.
     #[serde(default)]
     pub updated_channels: Vec<String>,
+    /// Successful task writes recorded when a superstep paused on an interrupt.
+    #[serde(default)]
+    pub pending_writes: Vec<PendingWrite>,
 }
 
 impl Checkpoint {
@@ -86,6 +105,7 @@ impl Checkpoint {
             channel_versions: Map::new(),
             versions_seen: Map::new(),
             updated_channels: Vec::new(),
+            pending_writes: Vec::new(),
         }
     }
 

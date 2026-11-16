@@ -659,6 +659,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                 parent = Some(checkpoint.id.clone());
                 skip_interrupt_before = checkpoint.paused_before;
                 let mut values = checkpoint.values.clone();
+                crate::kernel::executor::apply_pending_writes(
+                    &self.schema,
+                    &mut values,
+                    &checkpoint.pending_writes,
+                )?;
                 if let Some(updates) = updates {
                     apply_updates(
                         &self.schema,
@@ -1571,6 +1576,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             channel_versions,
             versions_seen,
             updated_channels,
+            pending_writes: Vec::new(),
         };
         self.saver_put(checkpoint).await?;
         *parent = Some(id.clone());
