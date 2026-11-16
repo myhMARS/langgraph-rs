@@ -125,12 +125,14 @@ pub type AsyncInMemorySaver = InMemorySaver;
 /// Alias for [`SqliteSaver`] used from async graphs (same synchronous implementation).
 #[cfg(all(feature = "async", feature = "sqlite"))]
 pub type AsyncSqliteSaver = SqliteSaver;
-/// Alias for [`RedisSaver`] used from async graphs (same synchronous implementation).
-#[cfg(all(feature = "async", feature = "redis"))]
-pub type AsyncRedisSaver = RedisSaver;
 /// Alias for [`PostgresSaver`] used from async graphs (same synchronous implementation).
 #[cfg(all(feature = "async", feature = "postgres"))]
-pub type AsyncPostgresSaver = PostgresSaver;
+/// Native async Postgres checkpointer.
+pub use adapters::async_postgres::AsyncPostgresSaver;
+/// Alias for [`RedisSaver`] used from async graphs (same synchronous implementation).
+#[cfg(all(feature = "async", feature = "redis"))]
+/// Native async Redis checkpointer.
+pub use adapters::async_redis::AsyncRedisSaver;
 
 #[cfg(feature = "redis")]
 pub use adapters::redis::RedisSaver;

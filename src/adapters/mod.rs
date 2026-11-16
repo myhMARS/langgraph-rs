@@ -35,6 +35,14 @@ pub mod redis_store;
 #[cfg(feature = "redis")]
 pub mod redis_cache;
 
+/// Native async Postgres checkpointer (features `async` + `postgres`).
+#[cfg(all(feature = "async", feature = "postgres"))]
+pub mod async_postgres;
+
+/// Native async Redis checkpointer (features `async` + `redis`).
+#[cfg(all(feature = "async", feature = "redis"))]
+pub mod async_redis;
+
 /// Postgres checkpoint persistence (feature `postgres`).
 #[cfg(feature = "postgres")]
 pub mod postgres;

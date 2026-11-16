@@ -32,8 +32,9 @@ futures = { version = "0.3", optional = true }
 
 # Optional persistent checkpointers (adapters::sqlite / redis / postgres).
 rusqlite = { version = "0.32", optional = true, default-features = false }
-redis = { version = "0.27", optional = true, default-features = false }
+redis = { version = "0.27", optional = true, default-features = false, features = ["aio", "tokio-comp", "connection-manager"] }
 postgres = { version = "0.19", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
 
 [features]
 default = []
@@ -42,7 +43,7 @@ python-async = ["python", "async", "dep:pyo3-async-runtimes"]
 async = ["dep:tokio", "dep:futures"]
 sqlite = ["dep:rusqlite"]
 redis = ["dep:redis"]
-postgres = ["dep:postgres"]
+postgres = ["dep:postgres", "dep:tokio-postgres"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

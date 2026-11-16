@@ -806,8 +806,8 @@ memory scenarios.
 
 Known limitations (documented in `benchmarks/features.md`): checkpoint interop is JSON-level
 (`export_checkpoint` / `import_checkpoint`), not LangGraph's msgpack/database byte format;
-async checkpointers offload synchronous savers through `BlockingSaver` instead of native async
-DB drivers; `RunControl` aborts cooperatively at superstep boundaries; the functional API
+native async Postgres/Redis checkpointers are available, while SQLite still offloads through
+`BlockingSaver`; `RunControl` aborts cooperatively at superstep boundaries; the functional API
 executes tasks inline and persists completed task results in `checkpoint.task_results` (and
 optionally a `BaseStore`) instead of separate pending writes; `update_state(task_id=...)`
 infers `as_node` from the matching pending task rather than replaying task writes;
