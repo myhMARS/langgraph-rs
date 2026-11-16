@@ -369,6 +369,11 @@ pub(crate) fn execute<S: State>(
             step,
             values: Value::Object(values.clone()),
         });
+        // `Command(graph=PARENT)` aborts this (sub)graph; the embedding subgraph node
+        // forwards the writes and targets into the parent graph.
+        if crate::kernel::context::has_parent_command() {
+            return Ok(finish(state, report, started));
+        }
 
         let (next_nodes, router_sends) = collect_next_nodes(
             &state,
@@ -656,6 +661,13 @@ fn process_outcomes<S: State>(
                     result: task_result,
                     error: None,
                 });
+                if output.is_parent() {
+                    let (updates, replaces, goto, _sends) = output.into_parts();
+                    let mut parent_updates: Vec<(String, Value)> = updates.into_iter().collect();
+                    parent_updates.extend(replaces);
+                    crate::kernel::context::record_parent_command(parent_updates, goto);
+                    continue;
+                }
                 let (updates, replaces, goto, sends) = output.into_parts();
                 if !updates.is_empty() {
                     let update = Value::Object(

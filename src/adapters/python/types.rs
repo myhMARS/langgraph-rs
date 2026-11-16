@@ -104,6 +104,7 @@ impl PyCommand {
     /// Convert a Command returned by a node into channel writes + goto targets.
     pub(super) fn to_output(&self, py: Python<'_>) -> PyResult<NodeOutput> {
         let mut output = NodeOutput::new();
+        let parent = self.graph.is_some();
         if let Some(update) = &self.update {
             if !update.bind(py).is_none() {
                 let dict = update.bind(py).cast::<PyDict>().map_err(|_| {
@@ -118,10 +119,20 @@ impl PyCommand {
             if !goto.bind(py).is_none() {
                 if let Ok(names) = goto.bind(py).extract::<Vec<String>>() {
                     for name in names {
-                        output = output.goto(normalize_node(&name));
+                        let target = normalize_node(&name);
+                        output = if parent {
+                            output.goto_parent(target)
+                        } else {
+                            output.goto(target)
+                        };
                     }
                 } else {
-                    output = output.goto(normalize_node(&goto.bind(py).extract::<String>()?));
+                    let target = normalize_node(&goto.bind(py).extract::<String>()?);
+                    output = if parent {
+                        output.goto_parent(target)
+                    } else {
+                        output.goto(target)
+                    };
                 }
             }
         }

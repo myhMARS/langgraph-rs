@@ -1159,6 +1159,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                         result: task_result,
                         error: None,
                     });
+                    if result.output.is_parent() {
+                        return Err(Error::other(
+                            "Command(graph=PARENT) is not supported in async graphs",
+                        ));
+                    }
                     let (updates, replaces, goto, sends) = result.output.into_parts();
                     if !updates.is_empty() {
                         let update = Value::Object(

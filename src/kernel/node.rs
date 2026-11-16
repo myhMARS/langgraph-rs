@@ -41,6 +41,7 @@ pub struct NodeOutput {
     goto: Vec<String>,
     sends: Vec<Send>,
     usage: Option<Usage>,
+    parent: bool,
 }
 
 impl NodeOutput {
@@ -86,6 +87,20 @@ impl NodeOutput {
     pub fn goto(mut self, node: impl Into<String>) -> Self {
         self.goto.push(node.into());
         self
+    }
+
+    /// Route to a node of the **parent** graph (`Command(graph=PARENT)`).
+    ///
+    /// Only meaningful inside a subgraph node: the child graph aborts, its writes are
+    /// applied to the parent state and the parent schedules the target node.
+    pub fn goto_parent(mut self, node: impl Into<String>) -> Self {
+        self.parent = true;
+        self.goto.push(node.into());
+        self
+    }
+
+    pub(crate) fn is_parent(&self) -> bool {
+        self.parent
     }
 
     /// Add a dynamic fan-out task.

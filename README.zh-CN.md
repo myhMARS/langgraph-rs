@@ -347,8 +347,10 @@ let outer = StateGraph::<WorkState>::new()
 
 `add_subgraph` 共享父状态类型；`add_subgraph_mapped` 支持不同状态类型的子图并提供输入/输出映射
 闭包。子图继承父线程，并在子 checkpoint 命名空间（`<parent_ns>|<name>`）中运行，因此子图内
-`interrupt()` 会暂停父运行，下一次 `resume` 从子图自己的 checkpoint 继续。子图流式
-（`subgraphs=True`）尚未实现。
+`interrupt()` 会暂停父运行，下一次 `resume` 从子图自己的 checkpoint 继续；子图流式
+（`subgraphs=True`）可把子图 chunk 带命名空间输出。子图节点返回
+`NodeOutput::goto_parent("parent_node")`（Python `Command(..., graph=Command.PARENT)`）时，
+子图中止、写入应用到父状态并调度父图目标节点（仅同步图；异步图会拒绝）。
 
 ## 节点级缓存
 
@@ -665,7 +667,8 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - 子图：`parent.add_subgraph("child", child_compiled)` 把已编译图嵌入为节点；子图在按节点名
   派生的 checkpoint 命名空间中运行，子图内 `interrupt()` 暂停父图，可用
   `get_state(thread, checkpoint_ns="child")` / `get_state_history(thread, checkpoint_ns="child")`
-  查看子图 checkpoint 链（父子共享同一个 saver 对象即可从父对象看到两条链）。
+  查看子图 checkpoint 链（父子共享同一个 saver 对象即可从父对象看到两条链）。同步子图中的
+  Python 节点可返回 `lg.Command(..., graph=lg.Command.PARENT)` 跳转父图节点。
 - 长期记忆：`store = lg.InMemoryStore()` + `compile(store=store)`；节点通过 `lg.get_store()`
   使用 `get` / `put` / `delete` / `search` / `namespaces`。
 - 运行时上下文：`invoke(..., context={...})`（`run` / `stream` 同样支持）；节点读取

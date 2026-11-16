@@ -25,8 +25,9 @@ It is **not a drop-in replacement**: the execution model differs (OS threads / T
 instead of asyncio), checkpoint payloads are not byte-compatible with LangGraph's, and a
 few APIs are spelled differently or narrower. The remaining gaps are documented in the
 matrix below. The most notable ones are: the functional API is approximated with inline
-tasks plus store memoization, `Command(graph=PARENT)` and LangGraph v2 stream events are not
-implemented, async checkpointers are aliases over the synchronous savers, and `input_schema`
+tasks plus store memoization, LangGraph v2 stream events are not implemented,
+`Command(graph=PARENT)` works in synchronous subgraphs but is rejected by async graphs,
+async checkpointers are aliases over the synchronous savers, and `input_schema`
 is stored as metadata without runtime validation. Everything else — graph API, channels,
 checkpointing/interrupts, streaming modes (including subgraph streaming), subgraphs
 (mapping, checkpoint namespaces, nested interrupts), stores/runtime context, retries and
@@ -53,7 +54,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` / `Send::with_timeout` (per-task timeout; Python `lg.Send(..., timeout=seconds)`) | ✅ `Send` (node, arg, timeout) | |
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
-| `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
+| `Command` | ⚠️ `Command::resume` + `with_update` for invoke input; node output supports `NodeOutput::goto` / `goto_parent` and Python `Command(update=, goto=, graph=PARENT)` in sync graphs | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | async graphs reject `graph=PARENT`; typed `Command(goto=)` node returns are spelled `NodeOutput::goto` in Rust |
 | Node metadata / input schema / destinations / name | ✅ `add_node_with_metadata` / `set_node_input_schema` / `set_destinations` (Python `add_node(..., metadata=, input_schema=, destinations=, name=)`); arbitrary node names | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | `input_schema` is stored as metadata, not enforced |
 | Deferred nodes | ❌ | ✅ `add_node(defer=True)` | |
 | Graph name / graph object export | ⚠️ `compile_with(CompileOptions::with_name)` / Python `compile(name=...)`, `get_graph()` returns a `Graph` object with `draw_mermaid()` and `to_dict()` (nodes/edges/conditional edges) | ✅ `compile(name=...)`, `get_graph()` | not a full LangGraph `Graph` object (no draw_ascii/draw_png) |
@@ -130,12 +131,12 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Runtime / context | ⚠️ `Runtime`, `current_runtime()`, `current_context()`, `current_thread_id()`, `current_namespace()`, `get_store()`; `RunConfig::with_context` carries a JSON context | ✅ `Runtime`, `context_schema`, `get_config`, `get_store` | no context schema validation |
 | Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |
 | Per-node usage/report (`RunReport`, `TraceSink`) | ✅ first-class (extension) | ⚠️ callbacks / metadata / LangSmith | not a LangGraph feature; superset here |
-| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume` (including multiple pending interrupts via an `{id: value}` map), `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`, `RedisSaver`/`PostgresSaver` with the matching features), `InMemoryStore` + `get_store`, subgraphs (namespaces, nested interrupts, streaming), runtime context, functional API (`lg.entrypoint` / `lg.task`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: `Command(graph=PARENT)`; async Python covers `AsyncStateGraph` (incl. `add_subgraph`), `ainvoke`, `aresume`, `abatch`, `astream` (stream modes + subgraph streaming), `get_state` (`python-async` feature) |
+| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume` (including multiple pending interrupts via an `{id: value}` map and sequential interrupts in one node), `Send`, `Command` (node output incl. `graph=PARENT` in sync subgraphs / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`, `RedisSaver`/`PostgresSaver` with the matching features), `InMemoryStore` + `get_store`, subgraphs (namespaces, nested interrupts, streaming), runtime context, functional API (`lg.entrypoint` / `lg.task`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: async `graph=PARENT` (sync graphs support it); async Python covers `AsyncStateGraph` (incl. `add_subgraph`), `ainvoke`, `aresume`, `abatch`, `astream` (stream modes + subgraph streaming), `get_state` (`python-async` feature) |
 
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/messages.rs`, `tests/subgraph_streaming.rs`, `tests/multi_interrupt.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/messages.rs`, `tests/parent_command.rs`, `tests/subgraph_streaming.rs`, `tests/multi_interrupt.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

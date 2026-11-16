@@ -343,7 +343,11 @@ not enforced yet. Managed values are available through `remaining_steps()` and
 
 `add_subgraph` embeds a compiled graph as a node. The subgraph runs against the parent
 state, and every channel it changed is written back as a **direct replacement** (bypassing
-the parent reducer), so reducer channels are not appended twice.
+the parent reducer), so reducer channels are not appended twice. A child node may also return
+`NodeOutput::goto_parent("parent_node")` (Python `Command(update=..., goto="parent_node",
+graph=Command.PARENT)`): the child graph stops, its writes are applied to the parent state and
+the parent schedules the target node. This is supported for synchronous graphs; async graphs
+reject `graph=PARENT`.
 
 ```rust
 use std::sync::Arc;
@@ -711,7 +715,8 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   child runs in a checkpoint namespace named after the node, a nested `interrupt()` pauses
   the parent, and `get_state(thread, checkpoint_ns="child")` /
   `get_state_history(thread, checkpoint_ns="child")` inspect the child chain (share one saver
-  between parent and child to see both chains from the parent object).
+  between parent and child to see both chains from the parent object). Python nodes in a
+  sync child can return `lg.Command(..., graph=lg.Command.PARENT)` to route into the parent.
 - Long-term memory: `store = lg.InMemoryStore()` with `compile(store=store)`; nodes use
   `lg.get_store()` (`get` / `put` / `delete` / `search` / `namespaces`).
 - Runtime context: `invoke(..., context={...})` (also `run` / `stream`); nodes read

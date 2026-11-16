@@ -22,6 +22,39 @@ thread_local! {
     static CURRENT_STEP: RefCell<Option<(usize, usize)>> = const { RefCell::new(None) };
     static SUBGRAPH_COLLECTOR: RefCell<Option<Arc<Mutex<Vec<StreamChunk>>>>> =
         const { RefCell::new(None) };
+    static PARENT_COMMAND: RefCell<Option<ParentCommand>> = const { RefCell::new(None) };
+}
+
+/// `Command(graph=PARENT)` collected from a subgraph node.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ParentCommand {
+    /// Writes applied to the parent state.
+    pub updates: Vec<(String, Value)>,
+    /// Parent nodes to schedule.
+    pub goto: Vec<String>,
+}
+
+pub(crate) fn clear_parent_command() {
+    PARENT_COMMAND.with(|slot| {
+        *slot.borrow_mut() = None;
+    });
+}
+
+pub(crate) fn record_parent_command(updates: Vec<(String, Value)>, goto: Vec<String>) {
+    PARENT_COMMAND.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let command = slot.get_or_insert_with(ParentCommand::default);
+        command.updates.extend(updates);
+        command.goto.extend(goto);
+    });
+}
+
+pub(crate) fn take_parent_command() -> Option<ParentCommand> {
+    PARENT_COMMAND.with(|slot| slot.borrow_mut().take())
+}
+
+pub(crate) fn has_parent_command() -> bool {
+    PARENT_COMMAND.with(|slot| slot.borrow().is_some())
 }
 
 /// Execution context of the current run.

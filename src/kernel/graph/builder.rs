@@ -280,7 +280,18 @@ impl<S: State> StateGraph<S> {
         let name = name.into();
         self.add_node(name.clone(), move |state: &S| {
             let before = state_to_values(state)?;
+            crate::kernel::context::clear_parent_command();
             let output = run_subgraph(&subgraph, state, &name)?;
+            if let Some(command) = crate::kernel::context::take_parent_command() {
+                let mut result = NodeOutput::new();
+                for (channel, value) in command.updates {
+                    result = result.replace(channel, value);
+                }
+                for target in command.goto {
+                    result = result.goto(target);
+                }
+                return Ok(result);
+            }
             let after = state_to_values(&output)?;
             let mut result = NodeOutput::new();
             for (channel, value) in after {
@@ -313,7 +324,18 @@ impl<S: State> StateGraph<S> {
         let name = name.into();
         self.add_node(name.clone(), move |state: &S| {
             let sub_state = input(state)?;
+            crate::kernel::context::clear_parent_command();
             let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
+            if let Some(command) = crate::kernel::context::take_parent_command() {
+                let mut result = NodeOutput::new();
+                for (channel, value) in command.updates {
+                    result = result.replace(channel, value);
+                }
+                for target in command.goto {
+                    result = result.goto(target);
+                }
+                return Ok(result);
+            }
             output(&sub_output, state)
         })
     }

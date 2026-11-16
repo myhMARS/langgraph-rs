@@ -927,5 +927,26 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertTrue(hasattr(lg, "AsyncInMemorySaver"))
 
 
+    def test_subgraph_command_parent(self):
+        child = lg.StateGraph({"value": "last_value"})
+        child.add_node(
+            "jump",
+            lambda state: lg.Command(
+                update={"value": 100},
+                goto="parent_after",
+                graph=lg.Command.PARENT,
+            ),
+        )
+        child.set_entry_point("jump")
+
+        parent = lg.StateGraph({"value": "last_value"})
+        parent.add_subgraph("child", child.compile())
+        parent.add_node("parent_after", lambda state: {"value": state["value"] + 1})
+        parent.set_entry_point("child")
+        parent.set_finish_point("parent_after")
+        output = parent.compile().invoke({"value": 0})
+        self.assertEqual(output["value"], 101)
+
+
 if __name__ == "__main__":
     unittest.main()
