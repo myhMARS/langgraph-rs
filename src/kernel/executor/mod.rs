@@ -128,7 +128,7 @@ pub(crate) fn execute<S: State>(
             (values, state, tasks, 0usize)
         }
         StartInput::Gateways { values, nodes } => {
-            let values = graph.schema().filter_input(values);
+            // `Command(goto=...)` values are state updates, not run input.
             for node in &nodes {
                 if graph.node(node).is_none() {
                     return Err(Error::validation(format!(

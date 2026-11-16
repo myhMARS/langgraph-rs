@@ -111,3 +111,49 @@ async fn async_invoke_command_starts_at_goto_nodes() {
         .unwrap();
     assert_eq!(output.get("value"), Some(&json!(2)));
 }
+
+#[test]
+fn command_update_without_goto_starts_at_entry_points() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile()
+        .unwrap();
+
+    let command = Command::continue_thread().with_update([("value", json!(10))]);
+    let output = graph.invoke_command(command, &RunConfig::new()).unwrap();
+    assert_eq!(output.get("value"), Some(&json!(11)));
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_command_update_without_goto_starts_at_entry_points() {
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: JsonState, _ctx| async move {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile()
+        .unwrap();
+
+    let command = Command::continue_thread().with_update([("value", json!(10))]);
+    let output = graph
+        .invoke_command(command, &RunConfig::new())
+        .await
+        .unwrap();
+    assert_eq!(output.get("value"), Some(&json!(11)));
+}

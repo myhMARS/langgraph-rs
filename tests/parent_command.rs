@@ -70,3 +70,46 @@ async fn async_subgraph_can_route_to_the_parent_graph() {
         .unwrap();
     assert_eq!(output.state.get("value"), Some(&json!(101)));
 }
+
+#[test]
+fn parent_command_updates_merge_through_reducers() {
+    use langgraph_rs::{State, StateSchema, reducers};
+
+    #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct LogState {
+        log: Vec<String>,
+    }
+
+    impl State for LogState {
+        fn schema() -> StateSchema {
+            StateSchema::new().with_reducer("log", reducers::append())
+        }
+    }
+
+    let child = StateGraph::<LogState>::new()
+        .add_node("jump", |_state: &LogState| {
+            Ok(NodeOutput::new()
+                .update("log", json!(["child"]))
+                .goto_parent("parent_after"))
+        })
+        .set_entry_point("jump")
+        .compile()
+        .unwrap();
+
+    let parent = StateGraph::<LogState>::new()
+        .add_node("seed", |_state: &LogState| {
+            Ok(NodeOutput::new().update("log", json!(["seed"])))
+        })
+        .add_subgraph("child", Arc::new(child))
+        .add_node("parent_after", |_state: &LogState| Ok(NodeOutput::new()))
+        .set_entry_point("seed")
+        .add_edge("seed", "child")
+        .set_finish_point("parent_after")
+        .compile()
+        .unwrap();
+
+    let output = parent
+        .invoke(&LogState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.log, vec!["seed", "child"]);
+}

@@ -611,10 +611,21 @@ impl<S: State> CompiledGraph<S> {
                 "Command(graph=PARENT) is only supported for subgraphs",
             ));
         }
+        let mut sink = |_chunk: StreamChunk| {};
         if command.goto.is_empty() {
-            return Err(Error::validation(
-                "Command(goto=...) requires at least one target node",
-            ));
+            // LangGraph starts a Command without `goto` at the normal entry points,
+            // applying `update` first.
+            let Some(updates) = command.update else {
+                return Err(Error::validation(
+                    "Command requires either `goto` or `update`",
+                ));
+            };
+            return executor::execute(
+                self,
+                executor::StartInput::Updates(updates.into_iter().collect()),
+                config,
+                &mut sink,
+            );
         }
         let mut values = Map::new();
         if let Some(updates) = command.update {
@@ -631,7 +642,6 @@ impl<S: State> CompiledGraph<S> {
                     .collect(),
             )?;
         }
-        let mut sink = |_chunk: StreamChunk| {};
         executor::execute(
             self,
             executor::StartInput::Gateways {

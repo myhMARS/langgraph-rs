@@ -294,7 +294,7 @@ impl<S: State> StateGraph<S> {
             if let Some(command) = crate::kernel::context::take_parent_command() {
                 let mut result = NodeOutput::new();
                 for (channel, value) in command.updates {
-                    result = result.replace(channel, value);
+                    result = result.update(channel, value);
                 }
                 for target in command.goto {
                     result = result.goto(target);
@@ -305,7 +305,7 @@ impl<S: State> StateGraph<S> {
             let mut result = NodeOutput::new();
             for (channel, value) in after {
                 if before.get(&channel) != Some(&value) {
-                    result = result.replace(channel, value);
+                    result = result.update(channel, value);
                 }
             }
             Ok(result)
