@@ -481,7 +481,11 @@ exposed from Python).
 
 `stream` collects every chunk; `stream_with` pushes them to a sink on the calling thread, so it
 can forward to a channel, websocket or log without an async runtime. Chunks carry `Values`,
-per-node `Updates`, `Custom` events, `Interrupt` payloads and `Checkpoint` ids.
+per-node `Updates`, `Custom` events, `Message` payloads (emitted with `message()`),
+`Interrupt` payloads, `Checkpoint` ids, `Task` lifecycle records and `Debug` payloads.
+`stream_modes(&input, &config, &[StreamMode::Values, ...])` filters to LangGraph's modes
+(`values`, `updates`, `custom`, `messages`, `debug`, `tasks`, `checkpoints`); the Python
+binding accepts the same names via `stream(..., stream_mode=...)`.
 
 ```rust
 use langgraph_rs::{NodeOutput, RunConfig, StateGraph, StreamChunk, custom, json};

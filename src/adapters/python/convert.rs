@@ -447,6 +447,40 @@ pub(super) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             dict.set_item("type", "checkpoint")?;
             dict.set_item("checkpoint_id", checkpoint_id.clone())?;
         }
+        StreamChunk::Message { node, message } => {
+            dict.set_item("type", "messages")?;
+            dict.set_item("node", node.clone())?;
+            dict.set_item("message", value_to_py(py, message)?)?;
+        }
+        StreamChunk::Task {
+            step,
+            node,
+            input,
+            result,
+            error,
+        } => {
+            dict.set_item("type", "tasks")?;
+            dict.set_item("step", *step)?;
+            dict.set_item("node", node.clone())?;
+            if let Some(input) = input {
+                dict.set_item("input", value_to_py(py, input)?)?;
+            }
+            if let Some(result) = result {
+                dict.set_item("result", value_to_py(py, result)?)?;
+            }
+            if let Some(error) = error {
+                let failure = PyDict::new(py);
+                failure.set_item("node", error.node.clone())?;
+                failure.set_item("message", error.message.clone())?;
+                failure.set_item("attempts", error.attempts)?;
+                dict.set_item("error", failure)?;
+            }
+        }
+        StreamChunk::Debug { step, payload } => {
+            dict.set_item("type", "debug")?;
+            dict.set_item("step", *step)?;
+            dict.set_item("payload", value_to_py(py, payload)?)?;
+        }
     }
     Ok(dict.into_any().unbind())
 }

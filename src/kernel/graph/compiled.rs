@@ -21,7 +21,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{
     ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
 };
-use crate::kernel::stream::StreamChunk;
+use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;
 use crate::{END, START};
 
@@ -207,6 +207,43 @@ impl<S: State> CompiledGraph<S> {
     {
         let values = state_to_values(input)?;
         executor::execute(self, StartInput::Values(values), config, &mut sink)
+            .map(|outcome| outcome.state)
+    }
+
+    /// Stream only the selected LangGraph stream modes.
+    pub fn stream_modes(
+        &self,
+        input: &S,
+        config: &RunConfig,
+        modes: &[StreamMode],
+    ) -> Result<Vec<StreamChunk>> {
+        let mut chunks = Vec::new();
+        self.stream_modes_with(input, config, modes, |chunk| chunks.push(chunk))?;
+        Ok(chunks)
+    }
+
+    /// Stream selected modes while forwarding matching chunks to `sink`.
+    ///
+    /// `debug` includes values, updates, tasks and checkpoint records; usage and
+    /// interrupt chunks are always forwarded.
+    pub fn stream_modes_with<F>(
+        &self,
+        input: &S,
+        config: &RunConfig,
+        modes: &[StreamMode],
+        mut sink: F,
+    ) -> Result<S>
+    where
+        F: FnMut(StreamChunk),
+    {
+        let modes = modes.to_vec();
+        let values = state_to_values(input)?;
+        let mut filtered = |chunk: StreamChunk| {
+            if chunk.matches_modes(&modes) {
+                sink(chunk);
+            }
+        };
+        executor::execute(self, StartInput::Values(values), config, &mut filtered)
             .map(|outcome| outcome.state)
     }
 

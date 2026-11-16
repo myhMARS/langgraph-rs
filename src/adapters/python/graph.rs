@@ -173,17 +173,22 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None))]
     fn stream(
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
+        stream_mode: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let state = state_from_py(input)?;
         let config = run_config(thread_id);
+        let modes = stream_modes_from_py(stream_mode)?;
         let chunks = py
-            .detach(|| self.graph.stream(&state, &config))
+            .detach(|| match &modes {
+                Some(modes) => self.graph.stream_modes(&state, &config, modes),
+                None => self.graph.stream(&state, &config),
+            })
             .map_err(|error| to_pyerr(py, error))?;
         chunks.iter().map(|chunk| chunk_to_py(py, chunk)).collect()
     }
@@ -329,4 +334,27 @@ impl PyCompiledGraph {
             .copy_thread(&source_thread, &target_thread)
             .map_err(|error| to_pyerr(py, error))
     }
+}
+
+/// Parse a `stream_mode` argument: one name or a list of names.
+pub(super) fn stream_modes_from_py(
+    value: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<crate::StreamMode>>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let names: Vec<String> = if let Ok(name) = value.extract::<String>() {
+        vec![name]
+    } else {
+        value.extract::<Vec<String>>().map_err(|_| {
+            PyTypeError::new_err("stream_mode must be a string or a list of strings")
+        })?
+    };
+    let mut modes = Vec::with_capacity(names.len());
+    for name in names {
+        let mode = crate::StreamMode::parse(&name)
+            .ok_or_else(|| PyTypeError::new_err(format!("unknown stream_mode `{name}`")))?;
+        modes.push(mode);
+    }
+    Ok(Some(modes))
 }

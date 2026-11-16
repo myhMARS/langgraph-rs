@@ -18,10 +18,12 @@ pub(super) struct TaskResult {
     pub(super) node: String,
     pub(super) output: NodeOutput,
     pub(super) custom: Vec<Value>,
+    pub(super) messages: Vec<Value>,
     pub(super) usage: Vec<Usage>,
     pub(super) duration_millis: u64,
     pub(super) attempts: u32,
     pub(super) cached: bool,
+    pub(super) input: Option<Value>,
 }
 
 /// Permanent failure of one node execution.
@@ -29,6 +31,7 @@ pub(super) struct TaskFailure {
     pub(super) failure: NodeFailure,
     pub(super) usage: Vec<Usage>,
     pub(super) duration_millis: u64,
+    pub(super) input: Option<Value>,
 }
 
 /// Outcome of one scheduled task.
@@ -117,10 +120,12 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     node: task.node.clone(),
                     output: NodeOutput::from_cached(cached),
                     custom: Vec::new(),
+                    messages: Vec::new(),
                     usage,
                     duration_millis: 0,
                     attempts: 0,
                     cached: true,
+                    input: task.input.clone().map(Value::Object),
                 }));
             }
             Ok(None) => {}
@@ -145,7 +150,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
     for attempt in 1..=max_attempts {
         let context =
             TaskContext::new(task.node.clone(), task.resume.clone()).with_error(task.error.clone());
-        let (result, custom, mut reported) =
+        let (result, custom, messages, mut reported) =
             crate::kernel::context::with_task(context, || node(&node_state));
         usage.append(&mut reported);
 
@@ -180,10 +185,12 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     node: task.node.clone(),
                     output,
                     custom,
+                    messages,
                     usage,
                     duration_millis: started.elapsed().as_millis() as u64,
                     attempts: attempt as u32,
                     cached: false,
+                    input: task.input.clone().map(Value::Object),
                 }));
             }
             Err(Error::Interrupt(interrupt)) => {
@@ -224,5 +231,6 @@ fn failed(
         failure: NodeFailure::new(task.node.clone(), message, attempts),
         usage,
         duration_millis: started.elapsed().as_millis() as u64,
+        input: task.input.clone().map(Value::Object),
     }))
 }

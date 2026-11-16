@@ -16,7 +16,7 @@ mod superstep;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use self::checkpointing::save_checkpoint;
 use self::scheduling::{collect_next_nodes, dedupe};
@@ -277,6 +277,16 @@ pub(crate) fn execute<S: State>(
             next_tasks.push(Task::new(node));
         }
 
+        let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
+        sink(StreamChunk::Debug {
+            step,
+            payload: json!({
+                "step": step,
+                "executed": executed,
+                "next": scheduled,
+            }),
+        });
+
         step += 1;
         let interrupt_after = executed
             .iter()
@@ -367,6 +377,7 @@ fn process_outcomes<S: State>(
                     failure,
                     usage,
                     duration_millis,
+                    input,
                 } = *task_failure;
                 let execution = NodeExecution {
                     node: failure.node.clone(),
@@ -384,6 +395,14 @@ fn process_outcomes<S: State>(
                     trace_sink.record(&execution);
                 }
                 report.record(execution);
+
+                sink(StreamChunk::Task {
+                    step,
+                    node: failure.node.clone(),
+                    input,
+                    result: None,
+                    error: Some(failure.clone()),
+                });
 
                 match graph.error_handler(&failure.node) {
                     Some(handler) if routed_handlers.insert(handler.clone()) => {
@@ -411,16 +430,24 @@ fn process_outcomes<S: State>(
                     node,
                     output,
                     custom,
+                    messages,
                     usage,
                     duration_millis,
                     attempts,
                     cached,
+                    input,
                 } = *result;
                 executed.push(node.clone());
                 for value in custom {
                     sink(StreamChunk::Custom {
                         node: node.clone(),
                         value,
+                    });
+                }
+                for message in messages {
+                    sink(StreamChunk::Message {
+                        node: node.clone(),
+                        message,
                     });
                 }
 
@@ -441,6 +468,26 @@ fn process_outcomes<S: State>(
                 }
                 report.record(execution);
 
+                let task_result = {
+                    let updates = output.updates_map();
+                    if updates.is_empty() {
+                        None
+                    } else {
+                        Some(Value::Object(
+                            updates
+                                .iter()
+                                .map(|(channel, value)| (channel.clone(), value.clone()))
+                                .collect(),
+                        ))
+                    }
+                };
+                sink(StreamChunk::Task {
+                    step,
+                    node: node.clone(),
+                    input: input.clone(),
+                    result: task_result,
+                    error: None,
+                });
                 let (updates, replaces, goto, sends) = output.into_parts();
                 if !updates.is_empty() {
                     let update = Value::Object(

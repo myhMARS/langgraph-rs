@@ -103,12 +103,12 @@ below is the complete audit.
 
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
-| `values` / `updates` / `custom` chunks | ✅ `StreamChunk::{Values,Updates,Custom}` | ✅ `stream_mode` | ours is a single eager chunk list / sync sink |
+| `values` / `updates` / `custom` chunks | ✅ `StreamChunk::{Values,Updates,Custom}` + `stream_modes` filter | ✅ `stream_mode` | ours is a single eager chunk list / sync sink |
 | `interrupt` / `checkpoint` chunks | ✅ | ✅ (via stream modes) | |
-| `messages` (LLM token streaming) | ❌ | ✅ `stream_mode="messages"` | |
-| `debug` / `tasks` / `checkpoints` stream modes | ❌ | ✅ | |
+| `messages` (LLM token streaming) | ⚠️ `message()` / `ctx.message()` emitted by nodes; `stream_mode="messages"` | ✅ `stream_mode="messages"` (LangChain callback tokens) | payloads are node-supplied, no automatic LLM callback capture |
+| `debug` / `tasks` / `checkpoints` stream modes | ✅ `StreamChunk::{Debug,Task}` + checkpoint chunks, filterable via `stream_modes` / Python `stream_mode` | ✅ | debug payloads carry step/executed/next rather than LangGraph's full payload schema |
 | Subgraph streaming (`subgraphs=True`) | ❌ | ✅ | |
-| Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` | ✅ | same chunk shapes, no `stream_mode` selection |
+| Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` / `stream_modes` | ✅ | same chunk shapes, no v2 events |
 | v2 stream events | ❌ | ✅ `version="v2"` | |
 | Stream writer from arbitrary helpers | ⚠️ thread-local `custom()` | ✅ `get_stream_writer()` | |
 

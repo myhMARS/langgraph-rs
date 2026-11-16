@@ -278,6 +278,29 @@ class StreamingTests(unittest.TestCase):
         self.assertIn("custom", kinds)
         self.assertIn("usage", kinds)
 
+    def test_stream_modes(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        def emit(state):
+            lg.custom({"progress": 1})
+            lg.message({"token": "hi"})
+            return {"value": state["value"] + 1}
+        graph.add_node("emit", emit)
+        graph.set_entry_point("emit")
+        graph.set_finish_point("emit")
+        compiled = graph.compile()
+
+        values = compiled.stream({"value": 0}, stream_mode="values")
+        self.assertTrue(all(chunk["type"] in ("values", "usage") for chunk in values))
+        self.assertIn("values", {chunk["type"] for chunk in values})
+
+        custom_modes = compiled.stream({"value": 0}, stream_mode=["values", "custom"])
+        types = {chunk["type"] for chunk in custom_modes}
+        self.assertIn("custom", types)
+        self.assertIn("values", types)
+
+        messages = compiled.stream({"value": 0}, stream_mode="messages")
+        self.assertIn("messages", {chunk["type"] for chunk in messages})
+
     def test_module_metadata(self):
         self.assertEqual(lg.START, "__start__")
         self.assertEqual(lg.END, "__end__")

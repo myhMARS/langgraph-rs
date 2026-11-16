@@ -55,6 +55,13 @@ fn custom(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
     crate::custom(value).map_err(|error| to_pyerr(py, error))
 }
 
+/// Emit a streamed message (e.g. an LLM token) from inside a node.
+#[pyfunction]
+fn message(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    let value = py_to_value(value)?;
+    crate::message(value).map_err(|error| to_pyerr(py, error))
+}
+
 /// Record consumption for the current node.
 #[pyfunction]
 fn record_usage(py: Python<'_>, usage: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -82,6 +89,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;
+    module.add_function(wrap_pyfunction!(message, module)?)?;
     module.add_function(wrap_pyfunction!(record_usage, module)?)?;
     module.add_function(wrap_pyfunction!(record_tokens, module)?)?;
     module.add_function(wrap_pyfunction!(version, module)?)?;

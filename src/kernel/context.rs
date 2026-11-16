@@ -23,6 +23,7 @@ pub(crate) struct TaskContext {
     resume_value: Option<Value>,
     resume_consumed: bool,
     custom: Vec<Value>,
+    messages: Vec<Value>,
     usage: Vec<Usage>,
     error: Option<NodeFailure>,
 }
@@ -34,6 +35,7 @@ impl TaskContext {
             resume_value,
             resume_consumed: false,
             custom: Vec::new(),
+            messages: Vec::new(),
             usage: Vec::new(),
             error: None,
         }
@@ -50,17 +52,17 @@ impl TaskContext {
 pub(crate) fn with_task<R>(
     context: TaskContext,
     run: impl FnOnce() -> R,
-) -> (R, Vec<Value>, Vec<Usage>) {
+) -> (R, Vec<Value>, Vec<Value>, Vec<Usage>) {
     let previous = CURRENT_TASK.with(|slot| slot.borrow_mut().replace(context));
     let result = run();
     let context = CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         std::mem::replace(&mut *slot, previous)
     });
-    let (custom, usage) = context
-        .map(|context| (context.custom, context.usage))
+    let (custom, messages, usage) = context
+        .map(|context| (context.custom, context.messages, context.usage))
         .unwrap_or_default();
-    (result, custom, usage)
+    (result, custom, messages, usage)
 }
 
 /// Failure that caused the current node to be scheduled.
@@ -132,6 +134,27 @@ pub fn push_custom(value: Value) -> Result<()> {
     })
 }
 
+/// Emit a message (for example an LLM token) into the graph stream from inside a node.
+///
+/// This is the langgraph-rs analogue of LangGraph's `stream_mode="messages"` events;
+/// collected chunks are exposed as [`StreamChunk::Message`](crate::StreamChunk::Message).
+pub fn message(value: impl Serialize) -> Result<()> {
+    push_message(serde_json::to_value(value)?)
+}
+
+/// Emit an already serialized message into the graph stream.
+pub fn push_message(value: Value) -> Result<()> {
+    CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
+        Some(context) => {
+            context.messages.push(value);
+            Ok(())
+        }
+        None => Err(Error::other(
+            "message() can only be called from inside a running graph node",
+        )),
+    })
+}
+
 /// Record what the current node consumed (tokens, model, cost, ...).
 ///
 /// Records are attached to the node's [`NodeExecution`](crate::NodeExecution) and
@@ -170,7 +193,7 @@ mod tests {
 
     #[test]
     fn interrupt_without_resume_returns_the_payload() {
-        let (result, _custom, _usage) = with_task(TaskContext::new("ask", None), || {
+        let (result, _custom, _messages, _usage) = with_task(TaskContext::new("ask", None), || {
             interrupt(json!({ "question": "approve?" }))
         });
         let error = result.unwrap_err();
@@ -186,7 +209,7 @@ mod tests {
 
     #[test]
     fn interrupt_with_resume_value_returns_it() {
-        let (result, _custom, _usage) =
+        let (result, _custom, _messages, _usage) =
             with_task(TaskContext::new("ask", Some(json!("yes"))), || {
                 interrupt(json!({ "question": "approve?" }))
             });
@@ -195,7 +218,7 @@ mod tests {
 
     #[test]
     fn custom_values_are_collected() {
-        let (result, custom, usage) = with_task(TaskContext::new("emit", None), || {
+        let (result, custom, messages, usage) = with_task(TaskContext::new("emit", None), || {
             custom(json!({ "progress": 0.5 })).unwrap();
             push_custom(json!("done")).unwrap();
             record_usage(Usage::new().with_input_tokens(3)).unwrap();
@@ -204,6 +227,7 @@ mod tests {
         });
         assert_eq!(result.as_deref(), Some("emit"));
         assert_eq!(custom, vec![json!({ "progress": 0.5 }), json!("done")]);
+        assert!(messages.is_empty());
         assert_eq!(usage.len(), 2);
         assert_eq!(usage[0].input_tokens, Some(3));
         assert_eq!(usage[1].total_tokens(), 3);

@@ -27,6 +27,7 @@ pub struct AsyncContext {
 struct Capture {
     usage: Vec<Usage>,
     custom: Vec<Value>,
+    messages: Vec<Value>,
 }
 
 impl AsyncContext {
@@ -103,6 +104,17 @@ impl AsyncContext {
         );
     }
 
+    /// Emit a streamed message (e.g. an LLM token) into the graph stream.
+    pub fn message(&self, value: impl Serialize) -> Result<()> {
+        let value = serde_json::to_value(value)?;
+        self.capture
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .messages
+            .push(value);
+        Ok(())
+    }
+
     /// Emit a custom value into the stream.
     pub fn custom(&self, value: impl Serialize) -> Result<()> {
         let value = serde_json::to_value(value)?;
@@ -114,7 +126,7 @@ impl AsyncContext {
         Ok(())
     }
 
-    pub(crate) fn take(&self) -> (Vec<Usage>, Vec<Value>) {
+    pub(crate) fn take(&self) -> (Vec<Usage>, Vec<Value>, Vec<Value>) {
         let mut capture = self
             .capture
             .lock()
@@ -122,6 +134,7 @@ impl AsyncContext {
         (
             std::mem::take(&mut capture.usage),
             std::mem::take(&mut capture.custom),
+            std::mem::take(&mut capture.messages),
         )
     }
 }

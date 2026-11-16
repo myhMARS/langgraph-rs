@@ -20,7 +20,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{
     ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
 };
-use crate::kernel::stream::StreamChunk;
+use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 use crate::{END, START};
 
@@ -40,15 +40,18 @@ struct AsyncTaskResult {
     node: String,
     output: crate::kernel::node::NodeOutput,
     custom: Vec<Value>,
+    messages: Vec<Value>,
     usage: Vec<Usage>,
     duration_millis: u64,
     attempts: u32,
+    input: Option<Value>,
 }
 
 struct AsyncTaskFailure {
     failure: NodeFailure,
     usage: Vec<Usage>,
     duration_millis: u64,
+    input: Option<Value>,
 }
 
 enum TaskOutcome {
@@ -163,6 +166,42 @@ impl<S: State> AsyncCompiledGraph<S> {
     {
         let values = state_to_values(input)?;
         self.execute(StartInput::Values(values), config, &mut sink)
+            .await
+            .map(|outcome| outcome.state)
+    }
+
+    /// Stream only the selected LangGraph stream modes.
+    pub async fn stream_modes(
+        &self,
+        input: &S,
+        config: &RunConfig,
+        modes: &[StreamMode],
+    ) -> Result<Vec<StreamChunk>> {
+        let mut chunks = Vec::new();
+        self.stream_modes_with(input, config, modes, |chunk| chunks.push(chunk))
+            .await?;
+        Ok(chunks)
+    }
+
+    /// Stream selected modes while forwarding matching chunks to `sink`.
+    pub async fn stream_modes_with<F>(
+        &self,
+        input: &S,
+        config: &RunConfig,
+        modes: &[StreamMode],
+        mut sink: F,
+    ) -> Result<S>
+    where
+        F: FnMut(StreamChunk),
+    {
+        let modes = modes.to_vec();
+        let values = state_to_values(input)?;
+        let mut filtered = |chunk: StreamChunk| {
+            if chunk.matches_modes(&modes) {
+                sink(chunk);
+            }
+        };
+        self.execute(StartInput::Values(values), config, &mut filtered)
             .await
             .map(|outcome| outcome.state)
     }
@@ -562,6 +601,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 ),
                 usage: Vec::new(),
                 duration_millis: 0,
+                input: task.input.clone().map(Value::Object),
             }));
         };
 
@@ -573,6 +613,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         failure: NodeFailure::new(&task.node, error.to_string(), 1),
                         usage: Vec::new(),
                         duration_millis: 0,
+                        input: task.input.clone().map(Value::Object),
                     }));
                 }
             },
@@ -594,7 +635,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
             let result = future.await;
-            let (mut reported, custom) = context.take();
+            let (mut reported, custom, messages) = context.take();
             usage.append(&mut reported);
             match result {
                 Ok(output) => {
@@ -603,9 +644,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                         node: task.node.clone(),
                         output,
                         custom,
+                        messages,
                         usage,
                         duration_millis: started.elapsed().as_millis() as u64,
                         attempts: attempt as u32,
+                        input: task.input.clone().map(Value::Object),
                     }));
                 }
                 Err(Error::Interrupt(interrupt)) => {
@@ -634,6 +677,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             ),
             usage,
             duration_millis: started.elapsed().as_millis() as u64,
+            input: task.input.clone().map(Value::Object),
         }))
     }
 
@@ -674,6 +718,14 @@ impl<S: State> AsyncCompiledGraph<S> {
                     }
                     report.record(execution);
 
+                    sink(StreamChunk::Task {
+                        step,
+                        node: failure.failure.node.clone(),
+                        input: failure.input,
+                        result: None,
+                        error: Some(failure.failure.clone()),
+                    });
+
                     match self.error_edges.get(&failure.failure.node) {
                         Some(handler) if routed_handlers.insert(handler.clone()) => {
                             next_tasks.push(Task {
@@ -704,6 +756,12 @@ impl<S: State> AsyncCompiledGraph<S> {
                             value,
                         });
                     }
+                    for message in result.messages {
+                        sink(StreamChunk::Message {
+                            node: result.node.clone(),
+                            message,
+                        });
+                    }
                     let execution = NodeExecution {
                         node: result.node.clone(),
                         step,
@@ -721,6 +779,26 @@ impl<S: State> AsyncCompiledGraph<S> {
                     }
                     report.record(execution);
 
+                    let task_result = {
+                        let updates = result.output.updates_map();
+                        if updates.is_empty() {
+                            None
+                        } else {
+                            Some(Value::Object(
+                                updates
+                                    .iter()
+                                    .map(|(channel, value)| (channel.clone(), value.clone()))
+                                    .collect(),
+                            ))
+                        }
+                    };
+                    sink(StreamChunk::Task {
+                        step,
+                        node: result.node.clone(),
+                        input: result.input,
+                        result: task_result,
+                        error: None,
+                    });
                     let (updates, replaces, goto, sends) = result.output.into_parts();
                     if !updates.is_empty() {
                         let update = Value::Object(

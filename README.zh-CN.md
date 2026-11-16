@@ -452,8 +452,11 @@ SQLite 适配器在 CI 中运行测试；Redis/Postgres 测试通过 `LANGGRAPH_
 ## 流式
 
 `stream` 收集全部 chunk；`stream_with` 在调用线程把 chunk 推给 sink，因此无需异步运行时即可转发
-到 channel、WebSocket 或日志。chunk 包括 `Values`、节点级 `Updates`、`Custom` 事件、`Interrupt`
-payload 与 `Checkpoint` id。
+到 channel、WebSocket 或日志。chunk 包括 `Values`、节点级 `Updates`、`Custom` 事件、`Message`
+（由 `message()` 发出）、`Interrupt` payload、`Checkpoint` id、`Task` 生命周期记录与 `Debug`
+payload。`stream_modes(&input, &config, &[StreamMode::Values, ...])` 按 LangGraph 的
+`values/updates/custom/messages/debug/tasks/checkpoints` 过滤；Python 绑定通过
+`stream(..., stream_mode=...)` 使用相同名称。
 
 ```rust
 use langgraph_rs::{NodeOutput, RunConfig, StateGraph, StreamChunk, custom, json};
