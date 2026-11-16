@@ -1692,5 +1692,22 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(history[2]["values"]["value"], 1)
 
 
+    def test_draw_dot_and_png(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("work", lambda state: {"value": 1})
+        graph.set_entry_point("work")
+        graph.set_finish_point("work")
+        compiled = graph.compile()
+        dot = compiled.draw_dot()
+        self.assertIn("digraph langgraph_rs", dot)
+        self.assertIn('"START" -> "work"', dot)
+        try:
+            png = compiled.draw_png()
+        except RuntimeError as exc:
+            self.assertIn("Graphviz", str(exc))
+        else:
+            self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

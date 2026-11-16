@@ -170,6 +170,25 @@ impl<S: State> AsyncCompiledGraph<S> {
         )
     }
 
+    /// Render the graph as a Graphviz DOT document.
+    pub fn to_dot(&self) -> String {
+        crate::kernel::graph::visualize::render_dot(crate::kernel::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
+    }
+
+    /// Render the graph as a PNG image using Graphviz `dot`.
+    pub fn draw_png(&self) -> Result<Vec<u8>> {
+        crate::kernel::graph::visualize::dot_to_png(&self.to_dot())
+    }
+
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
         self.checkpointer.is_some() || self.async_checkpointer.is_some()

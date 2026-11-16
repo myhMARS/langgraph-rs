@@ -6,9 +6,7 @@ use std::sync::Arc;
 use pyo3::exceptions::PyLookupError;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-#[cfg(feature = "msgpack")]
-use pyo3::types::PyBytes;
-use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
 
 use super::convert::*;
 use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py, store_from_py};
@@ -605,6 +603,17 @@ impl PyCompiledGraph {
     /// Render the graph as a Mermaid `graph TD` diagram.
     fn to_mermaid(&self) -> String {
         self.graph.to_mermaid()
+    }
+
+    /// Render the graph as a PNG image using Graphviz `dot`.
+    fn draw_png(&self, py: Python<'_>) -> PyResult<Py<PyBytes>> {
+        let bytes = self.graph.draw_png().map_err(|error| to_pyerr(py, error))?;
+        Ok(PyBytes::new(py, &bytes).unbind())
+    }
+
+    /// Render the graph as a Graphviz DOT document.
+    fn draw_dot(&self) -> String {
+        self.graph.to_dot()
     }
 
     /// Export the latest checkpoint of a thread as LangGraph-shaped JSON.

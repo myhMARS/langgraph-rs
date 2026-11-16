@@ -252,6 +252,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PySqliteStore>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteCache>()?;
+    #[cfg(feature = "sqlite")]
     module.add_class::<PyLangGraphSqliteReader>()?;
     #[cfg(feature = "redis")]
     {
