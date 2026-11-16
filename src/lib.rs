@@ -115,8 +115,8 @@ pub use kernel::channel::{Channel, Reducer, reducers};
 pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
-    current_node, custom, interrupt, last_error, message, push_custom, push_message, record_tokens,
-    record_usage,
+    current_namespace, current_node, current_resume, current_thread_id, custom, interrupt,
+    last_error, message, push_custom, push_message, record_tokens, record_usage,
 };
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 pub use kernel::graph::{

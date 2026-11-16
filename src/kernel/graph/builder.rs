@@ -143,9 +143,9 @@ impl<S: State> StateGraph<S> {
     /// raised inside a subgraph surfaces as a node failure.
     pub fn add_subgraph(self, name: impl Into<String>, subgraph: Arc<CompiledGraph<S>>) -> Self {
         let name = name.into();
-        self.add_node(name, move |state: &S| {
+        self.add_node(name.clone(), move |state: &S| {
             let before = state_to_values(state)?;
-            let output = subgraph.invoke(state, &super::options::RunConfig::new())?;
+            let output = run_subgraph(&subgraph, state, &name)?;
             let after = state_to_values(&output)?;
             let mut result = NodeOutput::new();
             for (channel, value) in after {
@@ -154,6 +154,32 @@ impl<S: State> StateGraph<S> {
                 }
             }
             Ok(result)
+        })
+    }
+
+    /// Embed a subgraph with a **different state type**, mapping the parent state into
+    /// the subgraph input and the subgraph output back into parent writes.
+    ///
+    /// The subgraph shares the parent thread id and runs in a child checkpoint namespace
+    /// (`<parent_ns>|<name>`), so an `interrupt()` inside the subgraph pauses the parent
+    /// run and a parent resume continues the subgraph from its checkpoint.
+    pub fn add_subgraph_mapped<Sub, Input, Output>(
+        self,
+        name: impl Into<String>,
+        subgraph: Arc<CompiledGraph<Sub>>,
+        input: Input,
+        output: Output,
+    ) -> Self
+    where
+        Sub: State,
+        Input: Fn(&S) -> Result<Sub> + Send + Sync + 'static,
+        Output: Fn(&Sub, &S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.add_node(name.clone(), move |state: &S| {
+            let sub_state = input(state)?;
+            let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
+            output(&sub_output, state)
         })
     }
 
@@ -408,5 +434,36 @@ impl<S: State> StateGraph<S> {
 impl<S: State> Default for StateGraph<S> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Child checkpoint namespace of a subgraph node.
+fn child_namespace(parent: &str, name: &str) -> String {
+    if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}|{name}")
+    }
+}
+
+/// Run a subgraph with parent thread/namespace propagation and resume support.
+fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
+    if !subgraph.has_checkpointer() {
+        return subgraph
+            .run(input, &super::options::RunConfig::new())
+            .map(|outcome| outcome.state);
+    }
+    let thread = crate::kernel::context::current_thread_id();
+    let namespace = child_namespace(&crate::kernel::context::current_namespace(), name);
+    let resume = crate::kernel::context::current_resume();
+    let config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
+    match (thread, resume) {
+        (Some(thread), Some(value)) => subgraph.resume_in(&thread, &namespace, value),
+        (Some(thread), None) => subgraph
+            .run(input, &config.with_thread(thread))
+            .map(|outcome| outcome.state),
+        (None, _) => subgraph
+            .run(input, &super::options::RunConfig::new())
+            .map(|outcome| outcome.state),
     }
 }

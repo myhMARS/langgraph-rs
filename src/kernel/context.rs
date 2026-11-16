@@ -15,6 +15,63 @@ use crate::{Error, Interrupt, Result};
 
 thread_local! {
     static CURRENT_TASK: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
+    static CURRENT_RUN: RefCell<Option<RunContext>> = const { RefCell::new(None) };
+}
+
+/// Execution context of the current run (thread id + checkpoint namespace).
+#[derive(Clone, Debug)]
+pub(crate) struct RunContext {
+    pub(crate) thread_id: Option<String>,
+    pub(crate) namespace: String,
+}
+
+/// RAII guard restoring the previous run context when the engine returns.
+pub(crate) struct RunGuard {
+    previous: Option<RunContext>,
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_RUN.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+/// Install the run context for the duration of a graph execution.
+pub(crate) fn install_run(thread_id: Option<String>, namespace: String) -> RunGuard {
+    let previous = CURRENT_RUN.with(|slot| {
+        slot.borrow_mut().replace(RunContext {
+            thread_id,
+            namespace,
+        })
+    });
+    RunGuard { previous }
+}
+
+/// Thread id of the current run, when it is bound to a checkpoint thread.
+pub fn current_thread_id() -> Option<String> {
+    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.thread_id.clone()))
+}
+
+/// Checkpoint namespace of the current run (`""` for the root graph).
+pub fn current_namespace() -> String {
+    CURRENT_RUN.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|run| run.namespace.clone())
+            .unwrap_or_default()
+    })
+}
+
+/// Resume value stamped onto the current task, when replaying an interrupt.
+pub fn current_resume() -> Option<Value> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|context| context.resume_value.clone())
+    })
 }
 
 #[derive(Debug, Default)]

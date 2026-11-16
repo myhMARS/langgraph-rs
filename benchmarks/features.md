@@ -116,7 +116,7 @@ below is the complete audit.
 
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
-| Subgraphs | ⚠️ `add_subgraph` | ✅ first-class | shared parent state type; changed channels published as direct replacements; **no** state mapping, `checkpoint_ns`, nested interrupts, subgraph streaming |
+| Subgraphs | ⚠️ `add_subgraph` (shared state) + `add_subgraph_mapped` (different state types); child checkpoint namespaces and nested interrupts/resume supported | ✅ first-class | subgraph **streaming** (`subgraphs=True`) is still missing; the interrupt surfaces as the parent subgraph node |
 | Node-level cache | ⚠️ `CachePolicy` + `NodeCache` port, `InMemoryCache`, sync only | ✅ `CachePolicy(key_func, ttl)` + `BaseCache` (`InMemoryCache`, `RedisCache`) passed to `compile(cache=...)` | ours: in-memory only, no async cache, no size limits, no cache adapters |
 | Long-term memory (`BaseStore`) | ❌ | ✅ `compile(store=...)`, `Runtime.store` | absent |
 | Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |

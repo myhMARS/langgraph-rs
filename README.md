@@ -298,8 +298,12 @@ let outer = StateGraph::<WorkState>::new()
     .unwrap();
 ```
 
-Subgraphs share the parent's state type; they have no separate checkpointer or state
-mapping yet, and an `interrupt()` inside a subgraph surfaces as a node failure.
+`add_subgraph` shares the parent's state type; `add_subgraph_mapped` accepts a subgraph
+with a different state type plus input/output mapping closures. Subgraphs inherit the
+parent thread and run in a child checkpoint namespace (`<parent_ns>|<name>`), so an
+`interrupt()` inside a subgraph pauses the parent run and the next `resume` continues the
+subgraph from its own checkpoint. Subgraph streaming (`subgraphs=True`) is not implemented
+yet.
 
 ## Node-level caching
 

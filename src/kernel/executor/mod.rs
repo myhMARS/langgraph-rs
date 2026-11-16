@@ -58,6 +58,7 @@ pub(crate) fn execute<S: State>(
         .unwrap_or_else(|| graph.recursion_limit());
     let thread_id = config.thread_id.clone();
     let namespace = config.checkpoint_ns.clone().unwrap_or_default();
+    let _run_guard = crate::kernel::context::install_run(thread_id.clone(), namespace.clone());
 
     if thread_id.is_some() && graph.checkpointer().is_none() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
@@ -102,7 +103,7 @@ pub(crate) fn execute<S: State>(
                 .ok_or(Error::MissingCheckpointer("resume"))?;
             let checkpoint = match checkpoint_id {
                 Some(id) => checkpointer.get(&resume_thread, &id)?,
-                None => checkpointer.latest(&resume_thread)?,
+                None => checkpointer.latest_in(&resume_thread, &namespace)?,
             }
             .ok_or_else(|| {
                 Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
@@ -140,7 +141,9 @@ pub(crate) fn execute<S: State>(
 
     if fresh {
         if let (Some(checkpointer), Some(tid)) = (graph.checkpointer(), thread_id.as_deref()) {
-            parent = checkpointer.latest(tid)?.map(|checkpoint| checkpoint.id);
+            parent = checkpointer
+                .latest_in(tid, &namespace)?
+                .map(|checkpoint| checkpoint.id);
         }
         save_checkpoint(
             graph,

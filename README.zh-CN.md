@@ -282,8 +282,10 @@ let outer = StateGraph::<WorkState>::new()
     .unwrap();
 ```
 
-子图共享父状态类型；目前没有独立 checkpointer 或状态映射，子图内调用 `interrupt()` 会以节点
-失败的形式暴露。
+`add_subgraph` 共享父状态类型；`add_subgraph_mapped` 支持不同状态类型的子图并提供输入/输出映射
+闭包。子图继承父线程，并在子 checkpoint 命名空间（`<parent_ns>|<name>`）中运行，因此子图内
+`interrupt()` 会暂停父运行，下一次 `resume` 从子图自己的 checkpoint 继续。子图流式
+（`subgraphs=True`）尚未实现。
 
 ## 节点级缓存
 
