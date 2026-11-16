@@ -17,6 +17,38 @@ pub struct Interrupt {
     pub node: String,
     /// Payload the node attached to the interrupt (usually a question).
     pub value: Value,
+    /// Unique id, used to resume several pending interrupts with a value map.
+    #[serde(default)]
+    pub id: String,
+}
+
+impl Interrupt {
+    /// Create an interrupt with a fresh unique id.
+    pub fn new(node: impl Into<String>, value: Value) -> Self {
+        let node = node.into();
+        Self {
+            id: new_interrupt_id(&node),
+            node,
+            value,
+        }
+    }
+
+    /// Resume value for this interrupt inside a multi-interrupt resume map.
+    pub fn resume_from(&self, map: &serde_json::Map<String, Value>) -> Option<Value> {
+        map.get(&self.id).cloned()
+    }
+}
+
+fn new_interrupt_id(node: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("{node}-{millis}-{sequence}")
 }
 
 impl fmt::Display for Interrupt {

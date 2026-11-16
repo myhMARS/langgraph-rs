@@ -543,6 +543,10 @@ SQLite 适配器在 CI 中运行测试；Redis/Postgres 测试通过 `LANGGRAPH_
 `get_state_in` / `get_state_history_in` / `resume_in` / `update_state_in`）；已存储的线程可用
 `CompiledGraph::delete_thread` 与 `copy_thread` 管理（Python 同样暴露）。
 
+同一 superstep 内的多个待处理中断会一起出现在 `get_state(...).interrupts` 中（每个带唯一
+`id`）；恢复时传入 `{interrupt_id: value}` 映射：`resume(thread_id, json!({ id: value, ... }))`。
+单中断仍可接受任意 payload（包括 JSON object）。
+
 ## 流式
 
 `stream` 收集全部 chunk；`stream_with` 在调用线程把 chunk 推给 sink，因此无需异步运行时即可转发

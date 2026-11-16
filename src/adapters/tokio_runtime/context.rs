@@ -137,10 +137,7 @@ impl AsyncContext {
         if let Some(resume) = slot.take() {
             return Ok(resume);
         }
-        Err(Error::Interrupt(Interrupt {
-            node: self.node.clone(),
-            value,
-        }))
+        Err(Error::Interrupt(Interrupt::new(self.node.clone(), value)))
     }
 
     /// Serializing variant of [`AsyncContext::interrupt`].

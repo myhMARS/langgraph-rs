@@ -531,9 +531,20 @@ impl<S: State> AsyncCompiledGraph<S> {
                     )?;
                 }
                 let state = values_to_state::<S>(&values)?;
+                let interrupt_map = match (&resume, checkpoint.interrupts.len() > 1) {
+                    (Some(Value::Object(map)), true) => Some(map.clone()),
+                    _ => None,
+                };
                 let mut tasks = checkpoint.next.clone();
                 for task in &mut tasks {
-                    task.resume = resume.clone();
+                    task.resume = match &interrupt_map {
+                        Some(map) => checkpoint
+                            .interrupts
+                            .iter()
+                            .find(|interrupt| interrupt.node == task.node)
+                            .and_then(|interrupt| interrupt.resume_from(map)),
+                        None => resume.clone(),
+                    };
                 }
                 (values, state, tasks, checkpoint.step)
             }
@@ -582,10 +593,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             };
             skip_interrupt_before = false;
             if let Some(interrupted) = paused {
-                let interrupted_interrupt = Interrupt {
-                    node: interrupted.node.clone(),
-                    value: Value::Null,
-                };
+                let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &namespace,
@@ -595,17 +603,14 @@ impl<S: State> AsyncCompiledGraph<S> {
                     step,
                     true,
                     true,
-                    vec![interrupted_interrupt],
+                    vec![interrupted_interrupt.clone()],
                     sink,
                 )?;
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
                     value: Value::Null,
                 });
-                return Err(Error::Interrupt(Interrupt {
-                    node: interrupted.node,
-                    value: Value::Null,
-                }));
+                return Err(Error::Interrupt(interrupted_interrupt));
             }
 
             let outcomes = join_all(
@@ -625,27 +630,91 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }
             }
 
-            if let Some(interrupted) = outcomes.iter().find_map(|outcome| match outcome {
-                TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
-                _ => None,
-            }) {
+            let interrupts: Vec<Interrupt> = outcomes
+                .iter()
+                .filter_map(|outcome| match outcome {
+                    TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
+                    _ => None,
+                })
+                .collect();
+            if !interrupts.is_empty() {
+                if interrupts.len() == 1 {
+                    let interrupted = interrupts.into_iter().next().expect("one interrupt");
+                    self.save_checkpoint(
+                        thread_id.as_deref(),
+                        &namespace,
+                        &mut parent,
+                        &values,
+                        &tasks,
+                        step,
+                        true,
+                        false,
+                        vec![interrupted.clone()],
+                        sink,
+                    )?;
+                    sink(StreamChunk::Interrupt {
+                        node: interrupted.node.clone(),
+                        value: interrupted.value.clone(),
+                    });
+                    return Err(Error::Interrupt(interrupted));
+                }
+                let interrupted_nodes: HashSet<String> = interrupts
+                    .iter()
+                    .map(|interrupt| interrupt.node.clone())
+                    .collect();
+                let successful: Vec<TaskOutcome> = outcomes
+                    .into_iter()
+                    .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
+                    .collect();
+                let processed = self.process_outcomes(successful, step, &mut report, sink)?;
+                let mut immediate = Vec::with_capacity(processed.channel_updates.len());
+                for update in processed.channel_updates {
+                    if self.schema.is_finish_value(&update.channel) {
+                        finish_updates.insert(update.channel, update.value);
+                    } else {
+                        immediate.push(update);
+                    }
+                }
+                apply_updates(&self.schema, &mut values, immediate)?;
+                for (channel, value) in processed.replacements {
+                    self.schema.resolve(&channel)?;
+                    values.insert(channel, value);
+                }
+                sink(StreamChunk::Values {
+                    step,
+                    values: Value::Object(values.clone()),
+                });
+                let mut next_tasks: Vec<Task> = tasks
+                    .iter()
+                    .filter(|task| interrupted_nodes.contains(&task.node))
+                    .cloned()
+                    .collect();
+                for task in processed.next_tasks {
+                    if !next_tasks.iter().any(|existing| existing.node == task.node) {
+                        next_tasks.push(task);
+                    }
+                }
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &namespace,
                     &mut parent,
                     &values,
-                    &tasks,
+                    &next_tasks,
                     step,
                     true,
                     false,
-                    vec![interrupted.clone()],
+                    interrupts.clone(),
                     sink,
                 )?;
-                sink(StreamChunk::Interrupt {
-                    node: interrupted.node.clone(),
-                    value: interrupted.value.clone(),
-                });
-                return Err(Error::Interrupt(interrupted));
+                for interrupt in &interrupts {
+                    sink(StreamChunk::Interrupt {
+                        node: interrupt.node.clone(),
+                        value: interrupt.value.clone(),
+                    });
+                }
+                return Err(Error::Interrupt(
+                    interrupts.into_iter().next().expect("interrupt"),
+                ));
             }
 
             let processed = self.process_outcomes(outcomes, step, &mut report, sink)?;
@@ -742,10 +811,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 false,
                 interrupt_after
                     .iter()
-                    .map(|node| Interrupt {
-                        node: node.clone(),
-                        value: Value::Null,
-                    })
+                    .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
                 sink,
             )?;
@@ -754,10 +820,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     node: node.clone(),
                     value: Value::Null,
                 });
-                return Err(Error::Interrupt(Interrupt {
-                    node,
-                    value: Value::Null,
-                }));
+                return Err(Error::Interrupt(Interrupt::new(node, Value::Null)));
             }
 
             if next_tasks.is_empty() {
@@ -942,6 +1005,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }
                 Err(Error::Interrupt(interrupt)) => {
                     return TaskOutcome::Interrupted(Interrupt {
+                        id: interrupt.id,
                         node: task.node.clone(),
                         value: interrupt.value,
                     });

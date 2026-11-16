@@ -582,6 +582,11 @@ Runs can be bound to a checkpoint namespace with `RunConfig::with_checkpoint_ns(
 stored threads can be managed with `CompiledGraph::delete_thread` and `copy_thread` (also
 exposed from Python).
 
+Multiple pending interrupts in one superstep are reported together in
+`get_state(...).interrupts` (each with a unique `id`); resume them with a value map
+`resume(thread_id, json!({ interrupt_id: value, ... }))`. A single interrupt keeps accepting
+arbitrary payloads, including JSON objects, unchanged.
+
 ## Streaming
 
 `stream` collects every chunk; `stream_with` pushes them to a sink on the calling thread, so it

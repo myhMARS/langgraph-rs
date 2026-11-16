@@ -204,6 +204,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
             }
             Err(Error::Interrupt(interrupt)) => {
                 return TaskOutcome::Interrupted(Interrupt {
+                    id: interrupt.id,
                     node: task.node.clone(),
                     value: interrupt.value,
                 });

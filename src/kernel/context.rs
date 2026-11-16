@@ -244,10 +244,10 @@ pub fn interrupt(value: Value) -> Result<Value> {
                 return Ok(value);
             }
         }
-        Err(Error::Interrupt(Interrupt {
-            node: context.node.clone(),
+        Err(Error::Interrupt(Interrupt::new(
+            context.node.clone(),
             value,
-        }))
+        )))
     })
 }
 

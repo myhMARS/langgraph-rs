@@ -140,9 +140,20 @@ pub(crate) fn execute<S: State>(
                 )?;
             }
             let state = values_to_state::<S>(&values)?;
+            let interrupt_map = match (&resume, checkpoint.interrupts.len() > 1) {
+                (Some(Value::Object(map)), true) => Some(map.clone()),
+                _ => None,
+            };
             let mut tasks = checkpoint.next.clone();
             for task in &mut tasks {
-                task.resume = resume.clone();
+                task.resume = match &interrupt_map {
+                    Some(map) => checkpoint
+                        .interrupts
+                        .iter()
+                        .find(|interrupt| interrupt.node == task.node)
+                        .and_then(|interrupt| interrupt.resume_from(map)),
+                    None => resume.clone(),
+                };
             }
             (values, state, tasks, checkpoint.step)
         }
@@ -197,10 +208,7 @@ pub(crate) fn execute<S: State>(
         };
         skip_interrupt_before = false;
         if let Some(interrupted) = paused {
-            let interrupted_interrupt = Interrupt {
-                node: interrupted.node.clone(),
-                value: Value::Null,
-            };
+            let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
@@ -218,10 +226,7 @@ pub(crate) fn execute<S: State>(
                 node: interrupted.node.clone(),
                 value: Value::Null,
             });
-            return Err(Error::Interrupt(Interrupt {
-                node: interrupted.node,
-                value: Value::Null,
-            }));
+            return Err(Error::Interrupt(interrupted_interrupt));
         }
 
         let outcomes = run_superstep(graph, &state, &tasks);
@@ -236,30 +241,97 @@ pub(crate) fn execute<S: State>(
             }
         }
 
-        // An interrupt aborts the superstep: the checkpoint keeps the pre-superstep
-        // values and the whole task list, so a resume replays the superstep.
-        if let Some(interrupted) = outcomes.iter().find_map(|outcome| match outcome {
-            TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
-            _ => None,
-        }) {
+        // An interrupt aborts the superstep. A single interrupt keeps the pre-superstep
+        // values and the whole task list (a resume replays the superstep); several
+        // pending interrupts commit the successful writes and keep only the interrupted
+        // tasks, resumable through an `{interrupt id: value}` map.
+        let interrupts: Vec<Interrupt> = outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
+                _ => None,
+            })
+            .collect();
+        if !interrupts.is_empty() {
+            if interrupts.len() == 1 {
+                let interrupted = interrupts.into_iter().next().expect("one interrupt");
+                save_checkpoint(
+                    graph,
+                    thread_id.as_deref(),
+                    &namespace,
+                    &mut parent,
+                    &values,
+                    &tasks,
+                    step,
+                    true,
+                    false,
+                    vec![interrupted.clone()],
+                    sink,
+                )?;
+                sink(StreamChunk::Interrupt {
+                    node: interrupted.node.clone(),
+                    value: interrupted.value.clone(),
+                });
+                return Err(Error::Interrupt(interrupted));
+            }
+            let interrupted_nodes: HashSet<String> = interrupts
+                .iter()
+                .map(|interrupt| interrupt.node.clone())
+                .collect();
+            let successful: Vec<TaskOutcome> = outcomes
+                .into_iter()
+                .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
+                .collect();
+            let processed = process_outcomes(graph, successful, step, &mut report, sink)?;
+            let mut immediate = Vec::with_capacity(processed.channel_updates.len());
+            for update in processed.channel_updates {
+                if graph.schema().is_finish_value(&update.channel) {
+                    finish_updates.insert(update.channel, update.value);
+                } else {
+                    immediate.push(update);
+                }
+            }
+            apply_updates(graph.schema(), &mut values, immediate)?;
+            for (channel, value) in processed.replacements {
+                graph.schema().resolve(&channel)?;
+                values.insert(channel, value);
+            }
+            sink(StreamChunk::Values {
+                step,
+                values: Value::Object(values.clone()),
+            });
+            let mut next_tasks: Vec<Task> = tasks
+                .iter()
+                .filter(|task| interrupted_nodes.contains(&task.node))
+                .cloned()
+                .collect();
+            for task in processed.next_tasks {
+                if !next_tasks.iter().any(|existing| existing.node == task.node) {
+                    next_tasks.push(task);
+                }
+            }
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
                 &namespace,
                 &mut parent,
                 &values,
-                &tasks,
+                &next_tasks,
                 step,
                 true,
                 false,
-                vec![interrupted.clone()],
+                interrupts.clone(),
                 sink,
             )?;
-            sink(StreamChunk::Interrupt {
-                node: interrupted.node.clone(),
-                value: interrupted.value.clone(),
-            });
-            return Err(Error::Interrupt(interrupted));
+            for interrupt in &interrupts {
+                sink(StreamChunk::Interrupt {
+                    node: interrupt.node.clone(),
+                    value: interrupt.value.clone(),
+                });
+            }
+            return Err(Error::Interrupt(
+                interrupts.into_iter().next().expect("interrupt"),
+            ));
         }
 
         let processed = process_outcomes(graph, outcomes, step, &mut report, sink)?;
@@ -372,10 +444,7 @@ pub(crate) fn execute<S: State>(
                 false,
                 interrupt_after
                     .iter()
-                    .map(|node| Interrupt {
-                        node: node.clone(),
-                        value: Value::Null,
-                    })
+                    .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
                 sink,
             )?;
@@ -385,10 +454,7 @@ pub(crate) fn execute<S: State>(
                 node: node.clone(),
                 value: Value::Null,
             });
-            return Err(Error::Interrupt(Interrupt {
-                node,
-                value: Value::Null,
-            }));
+            return Err(Error::Interrupt(Interrupt::new(node, Value::Null)));
         }
 
         if next_tasks.is_empty() {

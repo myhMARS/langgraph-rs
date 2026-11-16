@@ -164,10 +164,7 @@ pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
             .and_then(|args| args.get_item(0).ok())
             .and_then(|payload| py_to_value(&payload).ok())
             .unwrap_or(Value::Null);
-        Error::Interrupt(Interrupt {
-            node: String::new(),
-            value,
-        })
+        Error::Interrupt(Interrupt::new(String::new(), value))
     } else {
         Error::other(format!(
             "python node raised {}: {error}",
@@ -436,6 +433,7 @@ pub(super) fn snapshot_to_py(
         .iter()
         .map(|interrupt| {
             let item = PyDict::new(py);
+            item.set_item("id", interrupt.id.clone())?;
             item.set_item("node", interrupt.node.clone())?;
             item.set_item("value", value_to_py(py, &interrupt.value)?)?;
             Ok(item.into_any().unbind())

@@ -735,5 +735,31 @@ class PythonParityRound2Tests(unittest.TestCase):
                 self.assertTrue(callable(getattr(lg, name)))
 
 
+    def test_multiple_interrupts_resume_by_id_map(self):
+        graph = lg.StateGraph({"a": "last_value", "b": "last_value"})
+        graph.add_node("a", lambda state: {"a": lg.interrupt({"q": "a"})})
+        graph.add_node("b", lambda state: {"b": lg.interrupt({"q": "b"})})
+        graph.add_edge("START", "a")
+        graph.add_edge("START", "b")
+        graph.set_finish_point("a")
+        graph.set_finish_point("b")
+        compiled = graph.compile(checkpointer=True)
+
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"a": 0, "b": 0}, thread_id="py-multi")
+        snapshot = compiled.get_state("py-multi")
+        interrupts = snapshot["interrupts"]
+        self.assertEqual(len(interrupts), 2)
+        self.assertTrue(all(item["id"] for item in interrupts))
+
+        mapping = {
+            item["id"]: (5 if item["node"] == "a" else 7)
+            for item in interrupts
+        }
+        output = compiled.resume("py-multi", mapping)
+        self.assertEqual(output["a"], 5)
+        self.assertEqual(output["b"], 7)
+
+
 if __name__ == "__main__":
     unittest.main()

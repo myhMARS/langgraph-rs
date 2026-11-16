@@ -126,12 +126,12 @@ below is the complete audit.
 | Runtime / context | ⚠️ `Runtime`, `current_runtime()`, `current_context()`, `current_thread_id()`, `current_namespace()`, `get_store()`; `RunConfig::with_context` carries a JSON context | ✅ `Runtime`, `context_schema`, `get_config`, `get_store` | no context schema validation |
 | Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |
 | Per-node usage/report (`RunReport`, `TraceSink`) | ✅ first-class (extension) | ⚠️ callbacks / metadata / LangSmith | not a LangGraph feature; superset here |
-| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume`, `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`, `RedisSaver`/`PostgresSaver` with the matching features), `InMemoryStore` + `get_store`, subgraphs (namespaces, nested interrupts, streaming), runtime context, functional API (`lg.entrypoint` / `lg.task`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: async API, `Command(graph=PARENT)`, multi-resume interrupts |
+| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume` (including multiple pending interrupts via an `{id: value}` map), `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`, `RedisSaver`/`PostgresSaver` with the matching features), `InMemoryStore` + `get_store`, subgraphs (namespaces, nested interrupts, streaming), runtime context, functional API (`lg.entrypoint` / `lg.task`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: async API, `Command(graph=PARENT)` |
 
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/multi_interrupt.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,
