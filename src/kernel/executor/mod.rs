@@ -121,6 +121,7 @@ pub(crate) fn execute<S: State>(
             .ok_or_else(|| {
                 Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
             })?;
+            crate::kernel::context::load_task_results(&checkpoint.task_results);
 
             parent = Some(checkpoint.id.clone());
             skip_interrupt_before = checkpoint.paused_before;
@@ -171,6 +172,7 @@ pub(crate) fn execute<S: State>(
     }
 
     if fresh {
+        crate::kernel::context::clear_task_results();
         if let (Some(checkpointer), Some(tid)) = (graph.checkpointer(), thread_id.as_deref()) {
             parent = checkpointer
                 .latest_in(tid, &namespace)?

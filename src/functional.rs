@@ -54,16 +54,24 @@ where
 
     /// Run the task, reusing a previously stored result for the same input when possible.
     pub fn call(&self, input: I) -> Result<O> {
-        let Some(store) = get_store() else {
-            return (self.run)(input);
-        };
         let key = task_cache_key(&input)?;
+        let cache_key = format!("{}:{}", self.name, key);
+        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+            return Ok(serde_json::from_value(cached)?);
+        }
+        let store = get_store();
         let namespace = ["functional".to_string(), self.name.clone()];
-        if let Some(cached) = store.get(&namespace, &key)? {
+        if let Some(store) = &store
+            && let Some(cached) = store.get(&namespace, &key)?
+        {
             return Ok(serde_json::from_value(cached)?);
         }
         let output = (self.run)(input)?;
-        store.put(&namespace, &key, serde_json::to_value(&output)?)?;
+        let value = serde_json::to_value(&output)?;
+        crate::kernel::context::task_result_put(cache_key, value.clone());
+        if let Some(store) = store {
+            store.put(&namespace, &key, value)?;
+        }
         Ok(output)
     }
 }

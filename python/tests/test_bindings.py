@@ -1252,5 +1252,29 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(snapshot["values"]["value"], 1)
 
 
+    def test_functional_tasks_persist_in_checkpoints_without_store(self):
+        saver = lg.InMemorySaver()
+        calls = []
+
+        def first(value):
+            calls.append(value)
+            return value * 10
+
+        first_task = lg.task(first, name="first")
+
+        def entry(state):
+            head = first_task(state["value"])
+            delta = lg.interrupt({"question": "delta"})
+            return {"value": head + delta}
+
+        compiled = lg.entrypoint(entry).compile(checkpointer=saver)
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 1}, thread_id="py-functional-checkpoint")
+        self.assertEqual(calls, [1])
+        output = compiled.resume("py-functional-checkpoint", 4)
+        self.assertEqual(output["value"], 14)
+        self.assertEqual(calls, [1])
+
+
 if __name__ == "__main__":
     unittest.main()

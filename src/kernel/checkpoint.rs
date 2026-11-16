@@ -47,6 +47,9 @@ pub struct Checkpoint {
     /// Checkpoint namespace (`""` for the root graph), LangGraph's `checkpoint_ns`.
     #[serde(default)]
     pub namespace: String,
+    /// Memoized functional-API task results (task key -> JSON value).
+    #[serde(default)]
+    pub task_results: Map<String, Value>,
 }
 
 impl Checkpoint {
@@ -70,6 +73,7 @@ impl Checkpoint {
             interrupts: Vec::new(),
             metadata: Map::new(),
             namespace: String::new(),
+            task_results: Map::new(),
         }
     }
 

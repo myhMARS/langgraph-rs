@@ -387,27 +387,33 @@ impl PyTask {
         self.name.clone()
     }
 
-    /// Call the task; results are cached when the run has a store.
+    /// Call the task; results are cached in the checkpoint task cache / run store.
     fn __call__(&self, py: Python<'_>, input: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let Some(store) = crate::get_store() else {
-            return self.function.call1(py, (input,));
-        };
         let value = py_to_value(input)?;
         let mut hasher = DefaultHasher::new();
         value.to_string().hash(&mut hasher);
         let key = format!("{:x}", hasher.finish());
+        let cache_key = format!("{}:{}", self.name, key);
+        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+            return value_to_py(py, &cached);
+        }
+        let store = crate::get_store();
         let namespace = vec!["functional".to_string(), self.name.clone()];
-        if let Some(cached) = store
-            .get(&namespace, &key)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))?
+        if let Some(store) = &store
+            && let Some(cached) = store
+                .get(&namespace, &key)
+                .map_err(|error| PyTypeError::new_err(error.to_string()))?
         {
             return value_to_py(py, &cached);
         }
         let result = self.function.call1(py, (input,))?;
         let stored = py_to_value(result.bind(py))?;
-        store
-            .put(&namespace, &key, stored)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        crate::kernel::context::task_result_put(cache_key, stored.clone());
+        if let Some(store) = store {
+            store
+                .put(&namespace, &key, stored)
+                .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        }
         Ok(result)
     }
 

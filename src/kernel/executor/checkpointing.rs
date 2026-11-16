@@ -46,6 +46,7 @@ pub(super) fn save_checkpoint<S: State>(
         interrupts,
         metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
         namespace: namespace.to_string(),
+        task_results: crate::kernel::context::snapshot_task_results(),
     };
     checkpointer.put(checkpoint)?;
     *parent = Some(id.clone());

@@ -755,6 +755,7 @@ impl<S: State> CompiledGraph<S> {
             interrupts: Vec::new(),
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: namespace.to_string(),
+            task_results: checkpoint.task_results.clone(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         checkpointer.put(updated)?;

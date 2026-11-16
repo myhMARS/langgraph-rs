@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::kernel::error::NodeFailure;
 use crate::kernel::store::{BaseStore, Runtime};
@@ -23,6 +23,7 @@ thread_local! {
     static SUBGRAPH_COLLECTOR: RefCell<Option<Arc<Mutex<Vec<StreamChunk>>>>> =
         const { RefCell::new(None) };
     static PARENT_COMMAND: RefCell<Option<ParentCommand>> = const { RefCell::new(None) };
+    static TASK_RESULTS: RefCell<Map<String, Value>> = RefCell::new(Map::new());
 }
 
 /// `Command(graph=PARENT)` collected from a subgraph node.
@@ -450,6 +451,37 @@ pub(crate) fn install_subgraph_collector(
 /// Collector installed by the running executor, when subgraph streaming is enabled.
 pub(crate) fn current_subgraph_collector() -> Option<Arc<Mutex<Vec<StreamChunk>>>> {
     SUBGRAPH_COLLECTOR.with(|slot| slot.borrow().clone())
+}
+
+/// Read a memoized functional-API task result for `key`.
+pub(crate) fn task_result_get(key: &str) -> Option<Value> {
+    TASK_RESULTS.with(|slot| slot.borrow().get(key).cloned())
+}
+
+/// Store a functional-API task result under `key`.
+pub(crate) fn task_result_put(key: String, value: Value) {
+    TASK_RESULTS.with(|slot| {
+        slot.borrow_mut().insert(key, value);
+    });
+}
+
+/// Reset the task-result cache at the start of a fresh run.
+pub(crate) fn clear_task_results() {
+    TASK_RESULTS.with(|slot| slot.borrow_mut().clear());
+}
+
+/// Restore memoized task results from a resumed checkpoint.
+pub(crate) fn load_task_results(results: &Map<String, Value>) {
+    TASK_RESULTS.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        slot.clear();
+        slot.extend(results.clone());
+    });
+}
+
+/// Snapshot of the memoized task results for checkpoint persistence.
+pub(crate) fn snapshot_task_results() -> Map<String, Value> {
+    TASK_RESULTS.with(|slot| slot.borrow().clone())
 }
 
 #[cfg(test)]

@@ -804,9 +804,9 @@ memory scenarios.
 Known limitations (documented in `benchmarks/features.md`): graph definitions and checkpoints are
 not byte-compatible with LangGraph; async checkpointers offload synchronous savers through
 `BlockingSaver` instead of native async DB drivers; the
-functional API executes tasks inline and memoizes them in a `BaseStore` instead of recording
-per-task checkpoints; LangGraph's prebuilt agents (`create_react_agent`, `ToolNode`) are out of
-scope; Python nodes are plain callables (not coroutines); custom reducers are supported as Python
+functional API executes tasks inline; completed task results are persisted in
+`checkpoint.task_results` (and optionally a `BaseStore`) instead of separate pending writes;
+Python nodes are plain callables (not coroutines); custom reducers are supported as Python
 callables in the schema.
 
 ## Differences from LangGraph

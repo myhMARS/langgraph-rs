@@ -129,3 +129,36 @@ fn tasks_run_every_time_without_a_store() {
     graph.invoke(&Demo { value: 0 }, &RunConfig::new()).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn completed_tasks_persist_in_checkpoints_without_a_store() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let first = task("first", move |input: i64| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Ok(input * 10)
+    });
+    let saver = Arc::new(InMemorySaver::new());
+
+    let graph = entrypoint(move |state: Demo| {
+        let first = first.call(state.value)?;
+        let delta = interrupt(json!({ "question": "delta" }))?;
+        Ok(Demo {
+            value: first + delta.as_i64().unwrap_or_default(),
+        })
+    })
+    .compile_with(CompileOptions::new().with_checkpointer(saver))
+    .unwrap();
+
+    let _ = graph
+        .run(
+            &Demo { value: 1 },
+            &RunConfig::new().with_thread("functional-checkpoint"),
+        )
+        .unwrap_err();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let output = graph.resume("functional-checkpoint", json!(4)).unwrap();
+    assert_eq!(output.value, 14);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

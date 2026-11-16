@@ -539,6 +539,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 .ok_or_else(|| {
                     Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
                 })?;
+                crate::kernel::context::load_task_results(&checkpoint.task_results);
 
                 parent = Some(checkpoint.id.clone());
                 skip_interrupt_before = checkpoint.paused_before;
@@ -587,6 +588,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
 
         if fresh {
+            crate::kernel::context::clear_task_results();
             if let Some(tid) = thread_id.as_deref()
                 && self.has_checkpointer()
             {
@@ -1411,6 +1413,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             interrupts,
             metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
             namespace: namespace.to_string(),
+            task_results: crate::kernel::context::snapshot_task_results(),
         };
         self.saver_put(checkpoint).await?;
         *parent = Some(id.clone());

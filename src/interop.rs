@@ -55,6 +55,7 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
             "metadata": checkpoint.metadata,
             "created_at_millis": checkpoint.created_at_millis,
             "parent_id": checkpoint.parent_id,
+            "task_results": checkpoint.task_results,
         }),
     );
     json!({
@@ -177,6 +178,11 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
             .map_err(|error| Error::other(format!("invalid interrupts: {error}")))?,
         None => Vec::new(),
     };
+    let task_results = extra
+        .and_then(|extra| extra.get("task_results"))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     Ok(Checkpoint {
         id,
         thread_id,
@@ -200,6 +206,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         interrupts,
         metadata: checkpoint_metadata,
         namespace,
+        task_results,
     })
 }
 
