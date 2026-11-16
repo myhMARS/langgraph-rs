@@ -135,7 +135,7 @@ impl PyStateGraph {
 
     /// Validate and compile the graph.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None))]
     fn compile(
         &self,
         py: Python<'_>,
@@ -145,8 +145,12 @@ impl PyStateGraph {
         interrupt_after: Option<Vec<String>>,
         cache: Option<bool>,
         store: Option<&Bound<'_, PyAny>>,
+        name: Option<String>,
     ) -> PyResult<PyCompiledGraph> {
         let mut options = CompileOptions::new();
+        if let Some(name) = name {
+            options = options.with_name(name);
+        }
         let mut saver = None;
         let mut builder = self.inner.clone();
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
@@ -183,6 +187,30 @@ impl PyStateGraph {
 pub struct PyCompiledGraph {
     graph: Arc<CompiledGraph<JsonState>>,
     saver: Option<Arc<dyn Checkpointer>>,
+}
+
+/// Graph description object returned by `CompiledGraph.get_graph()`.
+#[pyclass(name = "Graph")]
+pub struct PyGraph {
+    mermaid: String,
+    spec: Value,
+}
+
+#[pymethods]
+impl PyGraph {
+    /// Mermaid flowchart source.
+    fn draw_mermaid(&self) -> String {
+        self.mermaid.clone()
+    }
+
+    /// Serializable graph description (nodes, edges, conditional edges).
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        value_to_py(py, &self.spec)
+    }
+
+    fn __repr__(&self) -> String {
+        "Graph()".to_string()
+    }
 }
 
 #[pymethods]
@@ -447,6 +475,20 @@ impl PyCompiledGraph {
     /// Render the graph as a Mermaid `graph TD` diagram.
     fn to_mermaid(&self) -> String {
         self.graph.to_mermaid()
+    }
+
+    /// Optional name given at compile time.
+    #[getter]
+    fn name(&self) -> Option<String> {
+        self.graph.name().map(str::to_owned)
+    }
+
+    /// Graph description object (`draw_mermaid()` / `to_dict()`).
+    fn get_graph(&self) -> PyGraph {
+        PyGraph {
+            mermaid: self.graph.to_mermaid(),
+            spec: self.graph.graph_spec(),
+        }
     }
 
     /// Delete every checkpoint of a thread.

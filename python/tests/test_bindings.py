@@ -891,5 +891,41 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(len(output["messages"]), 1)
 
 
+    def test_node_can_interrupt_repeatedly_across_resumes(self):
+        saver = lg.InMemorySaver()
+
+        def ask(state):
+            first = lg.interrupt({"q": 1})
+            second = lg.interrupt({"q": 2})
+            return {"value": first + second}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(checkpointer=saver)
+
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="py-sequential")
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.resume("py-sequential", 3)
+        output = compiled.resume("py-sequential", 4)
+        self.assertEqual(output["value"], 7)
+
+
+    def test_compile_name_and_graph_export(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("work", lambda state: {"value": 1})
+        graph.set_entry_point("work")
+        graph.set_finish_point("work")
+        compiled = graph.compile(name="demo")
+        self.assertEqual(compiled.name, "demo")
+        description = compiled.get_graph()
+        self.assertIn("work", description.draw_mermaid())
+        spec = description.to_dict()
+        self.assertIn("work", [node["id"] for node in spec["nodes"]])
+        self.assertTrue(hasattr(lg, "AsyncInMemorySaver"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -557,6 +557,7 @@ impl<S: State> StateGraph<S> {
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),
+            name: options.name,
         })
     }
 

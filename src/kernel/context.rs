@@ -148,14 +148,15 @@ pub fn current_resume() -> Option<Value> {
     CURRENT_TASK.with(|slot| {
         slot.borrow()
             .as_ref()
-            .and_then(|context| context.resume_value.clone())
+            .and_then(|context| context.resume_values.get(context.resume_index).cloned())
     })
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct TaskContext {
     node: String,
-    resume_value: Option<Value>,
+    resume_values: Vec<Value>,
+    resume_index: usize,
     resume_consumed: bool,
     custom: Vec<Value>,
     messages: Vec<Value>,
@@ -164,10 +165,11 @@ pub(crate) struct TaskContext {
 }
 
 impl TaskContext {
-    pub(crate) fn new(node: impl Into<String>, resume_value: Option<Value>) -> Self {
+    pub(crate) fn new(node: impl Into<String>, resume_values: Vec<Value>) -> Self {
         Self {
             node: node.into(),
-            resume_value,
+            resume_values,
+            resume_index: 0,
             resume_consumed: false,
             custom: Vec::new(),
             messages: Vec::new(),
@@ -238,11 +240,11 @@ pub fn interrupt(value: Value) -> Result<Value> {
                 "interrupt() can only be called from inside a running graph node",
             ));
         };
-        if !context.resume_consumed {
-            if let Some(value) = context.resume_value.take() {
-                context.resume_consumed = true;
-                return Ok(value);
-            }
+        if context.resume_index < context.resume_values.len() {
+            let value = context.resume_values[context.resume_index].clone();
+            context.resume_index += 1;
+            context.resume_consumed = true;
+            return Ok(value);
         }
         Err(Error::Interrupt(Interrupt::new(
             context.node.clone(),
@@ -355,9 +357,10 @@ mod tests {
 
     #[test]
     fn interrupt_without_resume_returns_the_payload() {
-        let (result, _custom, _messages, _usage) = with_task(TaskContext::new("ask", None), || {
-            interrupt(json!({ "question": "approve?" }))
-        });
+        let (result, _custom, _messages, _usage) =
+            with_task(TaskContext::new("ask", Vec::new()), || {
+                interrupt(json!({ "question": "approve?" }))
+            });
         let error = result.unwrap_err();
         assert_eq!(
             error.interrupt().map(|interrupt| interrupt.node.as_str()),
@@ -372,7 +375,7 @@ mod tests {
     #[test]
     fn interrupt_with_resume_value_returns_it() {
         let (result, _custom, _messages, _usage) =
-            with_task(TaskContext::new("ask", Some(json!("yes"))), || {
+            with_task(TaskContext::new("ask", vec![json!("yes")]), || {
                 interrupt(json!({ "question": "approve?" }))
             });
         assert_eq!(result.unwrap(), json!("yes"));
@@ -380,13 +383,14 @@ mod tests {
 
     #[test]
     fn custom_values_are_collected() {
-        let (result, custom, messages, usage) = with_task(TaskContext::new("emit", None), || {
-            custom(json!({ "progress": 0.5 })).unwrap();
-            push_custom(json!("done")).unwrap();
-            record_usage(Usage::new().with_input_tokens(3)).unwrap();
-            record_tokens(1, 2).unwrap();
-            current_node()
-        });
+        let (result, custom, messages, usage) =
+            with_task(TaskContext::new("emit", Vec::new()), || {
+                custom(json!({ "progress": 0.5 })).unwrap();
+                push_custom(json!("done")).unwrap();
+                record_usage(Usage::new().with_input_tokens(3)).unwrap();
+                record_tokens(1, 2).unwrap();
+                current_node()
+            });
         assert_eq!(result.as_deref(), Some("emit"));
         assert_eq!(custom, vec![json!({ "progress": 0.5 }), json!("done")]);
         assert!(messages.is_empty());

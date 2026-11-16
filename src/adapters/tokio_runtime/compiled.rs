@@ -546,6 +546,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                         None => resume.clone(),
                     };
                 }
+                for task in &mut tasks {
+                    if let Some(value) = task.resume.take() {
+                        task.resume_history.push(value);
+                    }
+                }
                 (values, state, tasks, checkpoint.step)
             }
         };
@@ -935,7 +940,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 task.node.clone(),
                 step,
                 task.error.clone(),
-                task.resume.clone(),
+                task.resume_history.clone(),
             )
             .with_run_info(
                 run.thread_id.clone(),
@@ -1085,6 +1090,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                                 node: handler.clone(),
                                 input: None,
                                 resume: None,
+                                resume_history: Vec::new(),
                                 error: Some(failure.failure),
                                 timeout_millis: None,
                             });
@@ -1213,6 +1219,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                             node: send.node,
                             input,
                             resume: None,
+                            resume_history: Vec::new(),
                             error: None,
                             timeout_millis: send.timeout_millis,
                         });

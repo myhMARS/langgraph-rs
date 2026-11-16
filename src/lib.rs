@@ -106,6 +106,19 @@ pub use adapters::memory::{InMemoryCache, InMemorySaver, InMemoryStore, MemorySa
 #[cfg(feature = "sqlite")]
 pub use adapters::sqlite::SqliteSaver;
 
+/// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
+#[cfg(feature = "async")]
+pub type AsyncInMemorySaver = InMemorySaver;
+/// Alias for [`SqliteSaver`] used from async graphs (same synchronous implementation).
+#[cfg(all(feature = "async", feature = "sqlite"))]
+pub type AsyncSqliteSaver = SqliteSaver;
+/// Alias for [`RedisSaver`] used from async graphs (same synchronous implementation).
+#[cfg(all(feature = "async", feature = "redis"))]
+pub type AsyncRedisSaver = RedisSaver;
+/// Alias for [`PostgresSaver`] used from async graphs (same synchronous implementation).
+#[cfg(all(feature = "async", feature = "postgres"))]
+pub type AsyncPostgresSaver = PostgresSaver;
+
 #[cfg(feature = "redis")]
 pub use adapters::redis::RedisSaver;
 

@@ -156,7 +156,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
         let (result, custom, messages, mut reported) = match timeout {
             Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
             None => {
-                let context = TaskContext::new(task.node.clone(), task.resume.clone())
+                let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
                     .with_error(task.error.clone());
                 crate::kernel::context::with_task(context, || node(&node_state))
             }
@@ -262,7 +262,7 @@ fn run_node_timed<S: State>(
 ) {
     let (sender, receiver) = std::sync::mpsc::channel();
     let node_name = task.node.clone();
-    let resume = task.resume.clone();
+    let resume = task.resume_history.clone();
     let error = task.error.clone();
     std::thread::spawn(move || {
         let context = TaskContext::new(node_name.clone(), resume).with_error(error);

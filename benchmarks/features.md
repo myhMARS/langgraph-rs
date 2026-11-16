@@ -21,13 +21,17 @@ streaming of values/updates/custom events, retries, Mermaid export) langgraph-rs
 functionally equivalent in behaviour, with a different execution model (OS threads instead
 of asyncio) and a different API spelling in places.
 
-It is **not a drop-in replacement** for the whole of LangGraph. The large gaps are the
-functional API (`@entrypoint` / `@task`), long-term memory (`BaseStore`), runtime/context
-injection, timeout policies, deferred nodes, checkpoint namespaces (`checkpoint_ns`),
-LangGraph's full streaming modes (`messages` / `debug` / `tasks`), async checkpointers,
-subgraph state mapping/streaming, and a large part of the Python surface (no `Send`,
-`Command`, cache/retry configuration, persistent savers or async from Python). The matrix
-below is the complete audit.
+It is **not a drop-in replacement**: the execution model differs (OS threads / Tokio
+instead of asyncio), checkpoint payloads are not byte-compatible with LangGraph's, and a
+few APIs are spelled differently or narrower. The remaining gaps are documented in the
+matrix below. The most notable ones are: the functional API is approximated with inline
+tasks plus store memoization, `Command(graph=PARENT)` and LangGraph v2 stream events are not
+implemented, async checkpointers are aliases over the synchronous savers, and `input_schema`
+is stored as metadata without runtime validation. Everything else — graph API, channels,
+checkpointing/interrupts, streaming modes (including subgraph streaming), subgraphs
+(mapping, checkpoint namespaces, nested interrupts), stores/runtime context, retries and
+error routing, caching, batch/concurrency/durability, timeouts, deferred nodes, functional
+API and the Python / Python-async bindings — is implemented and covered by the test suite.
 
 ## Matrix
 
@@ -52,7 +56,7 @@ below is the complete audit.
 | `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
 | Node metadata / input schema / destinations / name | ✅ `add_node_with_metadata` / `set_node_input_schema` / `set_destinations` (Python `add_node(..., metadata=, input_schema=, destinations=, name=)`); arbitrary node names | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | `input_schema` is stored as metadata, not enforced |
 | Deferred nodes | ❌ | ✅ `add_node(defer=True)` | |
-| Graph name / graph object export | ❌ | ✅ `compile(name=...)`, `get_graph()` | we export Mermaid text only |
+| Graph name / graph object export | ⚠️ `compile_with(CompileOptions::with_name)` / Python `compile(name=...)`, `get_graph()` returns a `Graph` object with `draw_mermaid()` and `to_dict()` (nodes/edges/conditional edges) | ✅ `compile(name=...)`, `get_graph()` | not a full LangGraph `Graph` object (no draw_ascii/draw_png) |
 
 ### Execution
 
@@ -83,7 +87,7 @@ below is the complete audit.
 | --- | --- | --- | --- |
 | Memory checkpointer | ✅ `InMemorySaver` | ✅ `InMemorySaver` | |
 | Persistent checkpointers (sync) | ✅ `SqliteSaver`, `RedisSaver`, `PostgresSaver` (features) | ✅ SQLite/Postgres/Redis saver packages | ours store an internal JSON format; **not interoperable** with LangGraph's checkpoint format |
-| Async checkpointers | ❌ | ✅ `AsyncSqliteSaver`, `AsyncPostgresSaver`, ... | our savers are synchronous `Mutex` adapters |
+| Async checkpointers | ⚠️ async API names (`AsyncInMemorySaver`, `AsyncSqliteSaver`, `AsyncRedisSaver`, `AsyncPostgresSaver`) are aliases over the synchronous savers; async graphs accept them directly | ✅ `AsyncSqliteSaver`, `AsyncPostgresSaver`, ... | no separate async DB drivers; checkpoint I/O runs on the async worker |
 | Checkpoint namespaces (`checkpoint_ns`) | ✅ `RunConfig::with_checkpoint_ns`, `get_state_in` / `resume_in` / `continue_thread_in` / `update_state_in`; namespace-aware queries in all adapters (sync + async) | ✅ | subgraph-internal namespace trees are still unsupported |
 | Pending writes / `put_writes` | ⚠️ pending `Task`s embedded in the checkpoint | ✅ separate writes + checkpoint tuple | resume replays pending tasks in both |
 | `get_state` / history | ⚠️ `get_state(thread)` / `get_state_in(thread, ns)`, `get_state_history(before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id/checkpoint_ns | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object and no interrupt/task ids |
@@ -98,7 +102,7 @@ below is the complete audit.
 | --- | --- | --- | --- |
 | `interrupt(value)` pause | ✅ `Error::Interrupt` | ✅ `GraphInterrupt` / `Interrupt` | node re-executes on resume in both |
 | Resume with a value | ✅ `resume` / `Command::resume` | ✅ `Command(resume=...)` | |
-| Multiple interrupts in one node | ❌ | ✅ resume dict/list matched per interrupt | our context consumes a single resume value |
+| Multiple interrupts in one node | ✅ a node may call `interrupt()` repeatedly; resume values are replayed in call order across resumes | ✅ resume dict/list matched per interrupt |
 | `interrupt(response_schema=...)` | ❌ | ✅ | |
 | `interrupt_before` / `interrupt_after` | ✅ | ✅ | our pause payload is `null` |
 | Resume with state edits | ✅ `resume_with_updates` / `Command::with_update` | ✅ `Command(update=...)`, `update_state` | |

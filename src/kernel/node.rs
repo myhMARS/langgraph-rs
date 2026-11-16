@@ -506,6 +506,9 @@ pub struct Task {
     /// Value handed to the node's next `interrupt()` call when resuming.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume: Option<Value>,
+    /// Resume values already consumed by earlier interrupts of this task, in call order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resume_history: Vec<Value>,
     /// Failure that scheduled this task (set by error routing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<NodeFailure>,
@@ -521,6 +524,7 @@ impl Task {
             node: node.into(),
             input: None,
             resume: None,
+            resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
         }
@@ -532,6 +536,7 @@ impl Task {
             node: node.into(),
             input: Some(input),
             resume: None,
+            resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
         }

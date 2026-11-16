@@ -155,6 +155,13 @@ pub(crate) fn execute<S: State>(
                     None => resume.clone(),
                 };
             }
+            // Fold the new resume value into the task's consumed history so a node that
+            // calls interrupt() several times sees earlier answers again on re-runs.
+            for task in &mut tasks {
+                if let Some(value) = task.resume.take() {
+                    task.resume_history.push(value);
+                }
+            }
             (values, state, tasks, checkpoint.step)
         }
     };
@@ -569,6 +576,7 @@ fn process_outcomes<S: State>(
                             node: handler.clone(),
                             input: None,
                             resume: None,
+                            resume_history: Vec::new(),
                             error: Some(failure),
                             timeout_millis: None,
                         });
@@ -708,6 +716,7 @@ fn process_outcomes<S: State>(
                         node: send.node,
                         input,
                         resume: None,
+                        resume_history: Vec::new(),
                         error: None,
                         timeout_millis: send.timeout_millis,
                     });

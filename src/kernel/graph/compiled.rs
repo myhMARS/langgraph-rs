@@ -51,6 +51,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) recursion_limit: usize,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
+    pub(crate) name: Option<String>,
 }
 
 impl<S: State> Clone for CompiledGraph<S> {
@@ -75,6 +76,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             recursion_limit: self.recursion_limit,
             interrupt_before: self.interrupt_before.clone(),
             interrupt_after: self.interrupt_after.clone(),
+            name: self.name.clone(),
         }
     }
 }
@@ -88,6 +90,56 @@ impl<S: State> CompiledGraph<S> {
     /// Registered node names in insertion order.
     pub fn node_names(&self) -> impl Iterator<Item = &str> {
         self.nodes.keys().map(String::as_str)
+    }
+
+    /// Name given at compile time, when any.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Serializable graph description (nodes, static edges, conditional edges).
+    pub fn graph_spec(&self) -> Value {
+        let nodes: Vec<Value> = self
+            .nodes
+            .keys()
+            .map(|node| {
+                let mut spec = serde_json::Map::new();
+                spec.insert("id".to_string(), Value::String(node.clone()));
+                if self.deferred.contains(node) {
+                    spec.insert("deferred".to_string(), Value::Bool(true));
+                }
+                if let Some(metadata) = self.node_metadata.get(node)
+                    && !metadata.is_empty()
+                {
+                    spec.insert("metadata".to_string(), Value::Object(metadata.clone()));
+                }
+                Value::Object(spec)
+            })
+            .collect();
+        let edges: Vec<Value> = self
+            .edges
+            .iter()
+            .flat_map(|(source, targets)| {
+                targets.iter().map(move |target| {
+                    serde_json::json!({
+                        "source": source,
+                        "target": target,
+                        "conditional": false,
+                    })
+                })
+            })
+            .collect();
+        let conditional: Vec<Value> = self
+            .conditional
+            .keys()
+            .map(|source| serde_json::json!({ "source": source, "conditional": true }))
+            .collect();
+        serde_json::json!({
+            "name": self.name,
+            "nodes": nodes,
+            "edges": edges,
+            "conditional_edges": conditional,
+        })
     }
 
     /// Returns `true` when checkpointing is enabled.

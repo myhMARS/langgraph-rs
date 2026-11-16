@@ -21,7 +21,7 @@ pub struct AsyncContext {
     node: String,
     step: usize,
     error: Option<NodeFailure>,
-    resume: Arc<Mutex<Option<Value>>>,
+    resume: Arc<Mutex<(Vec<Value>, usize)>>,
     capture: Arc<Mutex<Capture>>,
     thread_id: Option<String>,
     namespace: String,
@@ -42,13 +42,13 @@ impl AsyncContext {
         node: String,
         step: usize,
         error: Option<NodeFailure>,
-        resume: Option<Value>,
+        resume: Vec<Value>,
     ) -> Self {
         Self {
             node,
             step,
             error,
-            resume: Arc::new(Mutex::new(resume)),
+            resume: Arc::new(Mutex::new((resume, 0))),
             capture: Arc::new(Mutex::new(Capture::default())),
             thread_id: None,
             namespace: String::new(),
@@ -100,12 +100,15 @@ impl AsyncContext {
         self.collector.clone()
     }
 
-    /// Take the resume value stamped onto this task (used by subgraph nodes).
-    pub fn take_resume(&self) -> Option<Value> {
-        self.resume
+    /// Take the remaining resume values stamped onto this task.
+    pub fn take_resume(&self) -> Vec<Value> {
+        let mut slot = self
+            .resume
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let remaining = slot.0[slot.1..].to_vec();
+        slot.1 = slot.0.len();
+        remaining
     }
 
     /// Node currently executing.
@@ -134,7 +137,9 @@ impl AsyncContext {
             .resume
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(resume) = slot.take() {
+        if slot.1 < slot.0.len() {
+            let resume = slot.0[slot.1].clone();
+            slot.1 += 1;
             return Ok(resume);
         }
         Err(Error::Interrupt(Interrupt::new(self.node.clone(), value)))

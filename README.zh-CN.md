@@ -418,6 +418,10 @@ std::fs::write("graph.mmd", mermaid)?;
 渲染结果可粘贴到 GitHub、GitLab、Notion 或任意 Mermaid 渲染器。Python 绑定同样提供
 `compiled.to_mermaid()`。
 
+`compile_with(CompileOptions::new().with_name("demo"))` 可为编译图命名，`graph_spec()` 返回
+JSON 描述（节点、静态/条件边）。Python 对应 `compile(name=...)` 与 `compiled.get_graph()`
+（`draw_mermaid()` / `to_dict()`）。
+
 ## Tokio 异步
 
 启用 `async` feature 获得异步运行时适配器。节点是异步闭包，接收按值传递的状态与 `AsyncContext`；

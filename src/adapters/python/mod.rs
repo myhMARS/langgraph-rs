@@ -208,6 +208,13 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInMemoryStore>()?;
     module.add_class::<PyTask>()?;
     module.add_class::<PyRemoveMessage>()?;
+    module.add("AsyncInMemorySaver", module.getattr("InMemorySaver")?)?;
+    #[cfg(feature = "sqlite")]
+    module.add("AsyncSqliteSaver", module.getattr("SqliteSaver")?)?;
+    #[cfg(feature = "redis")]
+    module.add("AsyncRedisSaver", module.getattr("RedisSaver")?)?;
+    #[cfg(feature = "postgres")]
+    module.add("AsyncPostgresSaver", module.getattr("PostgresSaver")?)?;
     #[cfg(feature = "python-async")]
     {
         module.add_class::<PyAsyncStateGraph>()?;

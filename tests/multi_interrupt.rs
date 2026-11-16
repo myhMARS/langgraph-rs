@@ -155,6 +155,43 @@ fn a_single_interrupt_still_accepts_object_payloads() {
     assert_eq!(output.a, 9);
 }
 
+#[test]
+fn one_node_can_interrupt_repeatedly_across_resumes() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<MultiState>::new()
+        .add_node("ask", |_state: &MultiState| {
+            let first = interrupt(json!({ "q": 1 }))?;
+            let second = interrupt(json!({ "q": 2 }))?;
+            Ok(NodeOutput::new().set(
+                "a",
+                first.as_i64().unwrap_or_default() + second.as_i64().unwrap_or_default(),
+            ))
+        })
+        .set_entry_point("ask")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &MultiState::default(),
+            &RunConfig::new().with_thread("sequential-interrupts"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let error = graph.resume("sequential-interrupts", json!(3)).unwrap_err();
+    assert!(
+        error.is_interrupt(),
+        "the second interrupt must pause again"
+    );
+    let snapshot = graph.get_state("sequential-interrupts").unwrap().unwrap();
+    assert_eq!(snapshot.interrupts.len(), 1);
+
+    let output = graph.resume("sequential-interrupts", json!(4)).unwrap();
+    assert_eq!(output.a, 7);
+}
+
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn async_multiple_interrupts_resume_by_id() {

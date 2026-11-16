@@ -449,7 +449,7 @@ async fn run_async_subgraph<S: State>(
     let thread = context.thread_id().map(str::to_string);
     let parent_namespace = context.namespace();
     let namespace = child_namespace(parent_namespace, &name);
-    let resume = context.take_resume();
+    let resume = context.take_resume().into_iter().next_back();
     let mut config = RunConfig::new().with_checkpoint_ns(namespace.clone());
     if let Some(store) = context.store() {
         config = config.with_store(store);

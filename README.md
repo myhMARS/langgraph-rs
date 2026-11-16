@@ -448,6 +448,11 @@ std::fs::write("graph.mmd", mermaid)?;
 Paste the result into GitHub, GitLab, Notion or any Mermaid renderer. The Python binding
 exposes the same method (`compiled.to_mermaid()`).
 
+`compile_with(CompileOptions::new().with_name("demo"))` names a compiled graph, and
+`CompiledGraph::graph_spec()` returns a JSON description (nodes, static and conditional
+edges). Python exposes both as `compile(name=...)` and `compiled.get_graph()` with
+`draw_mermaid()` / `to_dict()`.
+
 ## Async with Tokio
 
 Enable the `async` feature for an async runtime adapter. Nodes are async closures that

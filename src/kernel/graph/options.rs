@@ -92,6 +92,8 @@ pub struct CompileOptions {
     pub interrupt_after: Vec<String>,
     /// Long-term memory store available through [`get_store`](crate::get_store).
     pub store: Option<Arc<dyn BaseStore>>,
+    /// Optional graph name (LangGraph `compile(name=...)`).
+    pub name: Option<String>,
 }
 
 impl Default for CompileOptions {
@@ -103,6 +105,7 @@ impl Default for CompileOptions {
             interrupt_before: Vec::new(),
             interrupt_after: Vec::new(),
             store: None,
+            name: None,
         }
     }
 }
@@ -116,6 +119,7 @@ impl fmt::Debug for CompileOptions {
             .field("interrupt_before", &self.interrupt_before)
             .field("interrupt_after", &self.interrupt_after)
             .field("store", &self.store.is_some())
+            .field("name", &self.name)
             .finish()
     }
 }
@@ -151,6 +155,12 @@ impl CompileOptions {
         T: Into<String>,
     {
         self.interrupt_before = nodes.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Name the compiled graph (LangGraph `compile(name=...)`).
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 
