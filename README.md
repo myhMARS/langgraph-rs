@@ -472,6 +472,11 @@ The SQLite adapter runs in CI; the Redis and Postgres tests are opt-in through
 `LANGGRAPH_RS_REDIS_URL` / `LANGGRAPH_RS_POSTGRES_URL` and skip when the variables are
 unset. On Debian/Ubuntu install `libsqlite3-dev` before building the `sqlite` feature.
 
+Runs can be bound to a checkpoint namespace with `RunConfig::with_checkpoint_ns(...)`
+(queries use `get_state_in` / `get_state_history_in` / `resume_in` / `update_state_in`), and
+stored threads can be managed with `CompiledGraph::delete_thread` and `copy_thread` (also
+exposed from Python).
+
 ## Streaming
 
 `stream` collects every chunk; `stream_with` pushes them to a sink on the calling thread, so it

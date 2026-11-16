@@ -212,7 +212,12 @@ impl<S: State> CompiledGraph<S> {
 
     /// Continue an interrupted thread by handing `value` to the pending `interrupt()`.
     pub fn resume(&self, thread_id: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, None, Some(value), None)
+        self.resume_inner(thread_id, None, Some(value), None, None)
+    }
+
+    /// Resume an interrupted thread bound to a checkpoint namespace.
+    pub fn resume_in(&self, thread_id: &str, namespace: &str, value: Value) -> Result<S> {
+        self.resume_inner(thread_id, None, Some(value), None, Some(namespace))
     }
 
     /// Resume an interrupted thread and apply state writes (e.g. human edits) first.
@@ -225,17 +230,41 @@ impl<S: State> CompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_inner(thread_id, None, Some(value), Some(updates))
+        self.resume_inner(thread_id, None, Some(value), Some(updates), None)
+    }
+
+    /// Resume an interrupted namespace-bound thread after applying state writes.
+    pub fn resume_with_updates_in<I, K>(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        value: Value,
+        updates: I,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        self.resume_inner(thread_id, None, Some(value), Some(updates), Some(namespace))
     }
 
     /// Resume from a specific checkpoint (time travel).
     pub fn resume_from(&self, thread_id: &str, checkpoint_id: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, Some(checkpoint_id), Some(value), None)
+        self.resume_inner(thread_id, Some(checkpoint_id), Some(value), None, None)
     }
 
     /// Continue a thread that stopped on an `interrupt_before` / `interrupt_after` hook.
     pub fn continue_thread(&self, thread_id: &str) -> Result<S> {
-        self.resume_inner(thread_id, None, None, None)
+        self.resume_inner(thread_id, None, None, None, None)
+    }
+
+    /// Continue a namespace-bound thread paused by an interrupt hook.
+    pub fn continue_thread_in(&self, thread_id: &str, namespace: &str) -> Result<S> {
+        self.resume_inner(thread_id, None, None, None, Some(namespace))
     }
 
     /// Resume a checkpointed thread with an explicit [`Command`].
@@ -283,7 +312,7 @@ impl<S: State> CompiledGraph<S> {
         let updates = command
             .update
             .map(|updates| updates.into_iter().collect::<Map<String, Value>>());
-        self.resume_inner(thread_id, None, command.resume, updates)
+        self.resume_inner(thread_id, None, command.resume, updates, None)
     }
 
     fn resume_inner(
@@ -292,8 +321,12 @@ impl<S: State> CompiledGraph<S> {
         checkpoint_id: Option<&str>,
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
+        namespace: Option<&str>,
     ) -> Result<S> {
-        let config = RunConfig::new().with_thread(thread_id);
+        let mut config = RunConfig::new().with_thread(thread_id);
+        if let Some(namespace) = namespace {
+            config = config.with_checkpoint_ns(namespace);
+        }
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute(
             self,
@@ -311,10 +344,19 @@ impl<S: State> CompiledGraph<S> {
 
     /// Read the latest checkpoint of a thread.
     pub fn get_state(&self, thread_id: &str) -> Result<Option<StateSnapshot<S>>> {
+        self.get_state_in(thread_id, "")
+    }
+
+    /// Read the latest checkpoint of a thread inside a checkpoint namespace.
+    pub fn get_state_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state"))?;
-        match checkpointer.latest(thread_id)? {
+        match checkpointer.latest_in(thread_id, namespace)? {
             Some(checkpoint) => Ok(Some(StateSnapshot::from_checkpoint(checkpoint)?)),
             None => Ok(None),
         }
@@ -323,6 +365,15 @@ impl<S: State> CompiledGraph<S> {
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
         self.get_state_history_filtered(thread_id, None, None)
+    }
+
+    /// Read history inside a checkpoint namespace.
+    pub fn get_state_history_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        self.get_state_history_filtered_in(thread_id, namespace, None, None)
     }
 
     /// Read history with an optional `before` checkpoint id and a result limit.
@@ -334,10 +385,21 @@ impl<S: State> CompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
+        self.get_state_history_filtered_in(thread_id, "", before, limit)
+    }
+
+    /// History inside a namespace with `before` / `limit` filters.
+    pub fn get_state_history_filtered_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        let mut checkpoints = checkpointer.history(thread_id)?;
+        let mut checkpoints = checkpointer.history_in(thread_id, namespace)?;
         if let Some(before) = before {
             if let Some(index) = checkpoints.iter().position(|cp| cp.id == before) {
                 checkpoints.drain(0..=index);
@@ -367,12 +429,29 @@ impl<S: State> CompiledGraph<S> {
         I: IntoIterator<Item = (K, Value)>,
         K: Into<String>,
     {
+        self.update_state_in(thread_id, "", updates, as_node)
+    }
+
+    /// Apply state updates inside a checkpoint namespace.
+    pub fn update_state_in<I, K>(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        updates: I,
+        as_node: Option<&str>,
+    ) -> Result<StateSnapshot<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("update_state"))?;
-        let checkpoint = checkpointer.latest(thread_id)?.ok_or_else(|| {
-            Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
-        })?;
+        let checkpoint = checkpointer
+            .latest_in(thread_id, namespace)?
+            .ok_or_else(|| {
+                Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
+            })?;
 
         let mut values = checkpoint.values.clone();
         let updates: Vec<ChannelUpdate> = updates
@@ -421,6 +500,7 @@ impl<S: State> CompiledGraph<S> {
             created_at_millis: now_millis(),
             interrupts: Vec::new(),
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
+            namespace: namespace.to_string(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         checkpointer.put(updated)?;
@@ -452,6 +532,22 @@ impl<S: State> CompiledGraph<S> {
     /// Error-handler node for a node, if one was configured.
     pub fn error_handler(&self, node: &str) -> Option<&String> {
         self.error_edges.get(node)
+    }
+
+    /// Delete every checkpoint of a thread.
+    pub fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("delete_thread"))?;
+        checkpointer.delete_thread(thread_id)
+    }
+
+    /// Copy every checkpoint of one thread to another thread id.
+    pub fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("copy_thread"))?;
+        checkpointer.copy_thread(source_thread, target_thread)
     }
 
     /// Cache backend, when node caching is enabled.

@@ -169,7 +169,14 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Resume an interrupted thread.
     pub async fn resume(&self, thread_id: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, None, Some(value), None)
+        self.resume_inner(thread_id, None, Some(value), None, None)
+            .await
+            .map(|outcome| outcome.state)
+    }
+
+    /// Resume an interrupted thread inside a checkpoint namespace.
+    pub async fn resume_in(&self, thread_id: &str, namespace: &str, value: Value) -> Result<S> {
+        self.resume_inner(thread_id, None, Some(value), None, Some(namespace))
             .await
             .map(|outcome| outcome.state)
     }
@@ -189,25 +196,41 @@ impl<S: State> AsyncCompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_inner(thread_id, None, Some(value), Some(updates))
+        self.resume_inner(thread_id, None, Some(value), Some(updates), None)
             .await
             .map(|outcome| outcome.state)
     }
 
     /// Continue a thread paused by an `interrupt_before` / `interrupt_after` hook.
     pub async fn continue_thread(&self, thread_id: &str) -> Result<S> {
-        self.resume_inner(thread_id, None, None, None)
+        self.resume_inner(thread_id, None, None, None, None)
+            .await
+            .map(|outcome| outcome.state)
+    }
+
+    /// Continue a namespace-bound thread paused by an interrupt hook.
+    pub async fn continue_thread_in(&self, thread_id: &str, namespace: &str) -> Result<S> {
+        self.resume_inner(thread_id, None, None, None, Some(namespace))
             .await
             .map(|outcome| outcome.state)
     }
 
     /// Read the latest checkpoint of a thread.
     pub fn get_state(&self, thread_id: &str) -> Result<Option<StateSnapshot<S>>> {
+        self.get_state_in(thread_id, "")
+    }
+
+    /// Read the latest checkpoint of a thread inside a checkpoint namespace.
+    pub fn get_state_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
         let checkpointer = self
             .checkpointer
             .as_ref()
             .ok_or(Error::MissingCheckpointer("get_state"))?;
-        match checkpointer.latest(thread_id)? {
+        match checkpointer.latest_in(thread_id, namespace)? {
             Some(checkpoint) => Ok(Some(StateSnapshot::from_checkpoint(checkpoint)?)),
             None => Ok(None),
         }
@@ -232,8 +255,12 @@ impl<S: State> AsyncCompiledGraph<S> {
         checkpoint_id: Option<&str>,
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
+        namespace: Option<&str>,
     ) -> Result<RunOutcome<S>> {
-        let config = RunConfig::new().with_thread(thread_id);
+        let mut config = RunConfig::new().with_thread(thread_id);
+        if let Some(namespace) = namespace {
+            config = config.with_checkpoint_ns(namespace);
+        }
         let mut sink = |_chunk: StreamChunk| {};
         self.execute(
             StartInput::Resume {
@@ -258,6 +285,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         let mut report = RunReport::new();
         let recursion_limit = config.recursion_limit.unwrap_or(self.recursion_limit);
         let thread_id = config.thread_id.clone();
+        let namespace = config.checkpoint_ns.clone().unwrap_or_default();
 
         if thread_id.is_some() && self.checkpointer.is_none() {
             return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
@@ -303,7 +331,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .ok_or(Error::MissingCheckpointer("resume"))?;
                 let checkpoint = match checkpoint_id {
                     Some(id) => checkpointer.get(&resume_thread, &id)?,
-                    None => checkpointer.latest(&resume_thread)?,
+                    None => checkpointer.latest_in(&resume_thread, &namespace)?,
                 }
                 .ok_or_else(|| {
                     Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
@@ -345,6 +373,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
             self.save_checkpoint(
                 thread_id.as_deref(),
+                &namespace,
                 &mut parent,
                 &values,
                 &tasks,
@@ -379,6 +408,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 };
                 self.save_checkpoint(
                     thread_id.as_deref(),
+                    &namespace,
                     &mut parent,
                     &values,
                     &tasks,
@@ -407,6 +437,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             }) {
                 self.save_checkpoint(
                     thread_id.as_deref(),
+                    &namespace,
                     &mut parent,
                     &values,
                     &tasks,
@@ -471,6 +502,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 .cloned();
             self.save_checkpoint(
                 thread_id.as_deref(),
+                &namespace,
                 &mut parent,
                 &values,
                 &next_tasks,
@@ -762,6 +794,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     fn save_checkpoint(
         &self,
         thread_id: Option<&str>,
+        namespace: &str,
         parent: &mut Option<String>,
         values: &Map<String, Value>,
         next: &[Task],
@@ -787,6 +820,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             created_at_millis: now_millis(),
             interrupts,
             metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
+            namespace: namespace.to_string(),
         };
         checkpointer.put(checkpoint)?;
         *parent = Some(id.clone());

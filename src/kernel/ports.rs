@@ -28,6 +28,37 @@ pub trait Checkpointer: Send + Sync {
     fn threads(&self) -> Result<Vec<String>> {
         Ok(Vec::new())
     }
+
+    /// Newest checkpoint of a thread in a namespace (`""` is the root graph).
+    ///
+    /// The default implementation ignores namespaces; adapters that store the
+    /// namespace (all bundled adapters do) override it.
+    fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        let _ = namespace;
+        self.latest(thread_id)
+    }
+
+    /// Full history of a thread in a namespace, newest first.
+    fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        let _ = namespace;
+        self.history(thread_id)
+    }
+
+    /// Delete every checkpoint of a thread.
+    fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        let _ = thread_id;
+        Err(crate::kernel::error::Error::Checkpoint(
+            "delete_thread is not supported by this checkpointer".to_string(),
+        ))
+    }
+
+    /// Copy every checkpoint of one thread to another thread id.
+    fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let _ = (source_thread, target_thread);
+        Err(crate::kernel::error::Error::Checkpoint(
+            "copy_thread is not supported by this checkpointer".to_string(),
+        ))
+    }
 }
 
 /// Output port for per-node execution records (duration + consumption).

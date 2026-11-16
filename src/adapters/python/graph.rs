@@ -310,4 +310,23 @@ impl PyCompiledGraph {
     fn to_mermaid(&self) -> String {
         self.graph.to_mermaid()
     }
+
+    /// Delete every checkpoint of a thread.
+    fn delete_thread(&self, py: Python<'_>, thread_id: String) -> PyResult<()> {
+        self.graph
+            .delete_thread(&thread_id)
+            .map_err(|error| to_pyerr(py, error))
+    }
+
+    /// Copy every checkpoint of one thread to another thread id.
+    fn copy_thread(
+        &self,
+        py: Python<'_>,
+        source_thread: String,
+        target_thread: String,
+    ) -> PyResult<()> {
+        self.graph
+            .copy_thread(&source_thread, &target_thread)
+            .map_err(|error| to_pyerr(py, error))
+    }
 }

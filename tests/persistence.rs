@@ -91,6 +91,46 @@ mod sqlite_tests {
     }
 
     #[test]
+    fn sqlite_namespaces_and_thread_management() {
+        let path = temp_path("namespaces");
+        let saver = Arc::new(SqliteSaver::open(&path).unwrap());
+        let graph = graph_with(saver.clone());
+        let thread = "sqlite-ns";
+        graph
+            .run(
+                &PersistState::default(),
+                &RunConfig::new()
+                    .with_thread(thread)
+                    .with_checkpoint_ns("sub/one"),
+            )
+            .unwrap();
+        graph
+            .run(
+                &PersistState { value: 10 },
+                &RunConfig::new()
+                    .with_thread(thread)
+                    .with_checkpoint_ns("sub/two"),
+            )
+            .unwrap();
+
+        let one = saver.latest_in(thread, "sub/one").unwrap().unwrap();
+        let two = saver.latest_in(thread, "sub/two").unwrap().unwrap();
+        assert_eq!(one.values.get("value"), Some(&serde_json::json!(1)));
+        assert_eq!(two.values.get("value"), Some(&serde_json::json!(11)));
+        assert!(saver.latest_in(thread, "sub/missing").unwrap().is_none());
+        assert_eq!(saver.history_in(thread, "sub/one").unwrap().len(), 2);
+
+        saver.copy_thread(thread, "sqlite-copy").unwrap();
+        let copied = saver.latest_in("sqlite-copy", "sub/two").unwrap().unwrap();
+        assert_eq!(copied.values.get("value"), Some(&serde_json::json!(11)));
+
+        saver.delete_thread(thread).unwrap();
+        assert!(saver.latest_in(thread, "sub/one").unwrap().is_none());
+        assert!(saver.latest_in("sqlite-copy", "sub/two").unwrap().is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn sqlite_resume_after_reopen() {
         let path = temp_path("resume");
         {

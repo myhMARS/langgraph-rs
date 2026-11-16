@@ -15,6 +15,7 @@ use crate::kernel::stream::StreamChunk;
 pub(super) fn save_checkpoint<S: State>(
     graph: &CompiledGraph<S>,
     thread_id: Option<&str>,
+    namespace: &str,
     parent: &mut Option<String>,
     values: &Map<String, Value>,
     next: &[Task],
@@ -44,6 +45,7 @@ pub(super) fn save_checkpoint<S: State>(
         created_at_millis: now_millis(),
         interrupts,
         metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
+        namespace: namespace.to_string(),
     };
     checkpointer.put(checkpoint)?;
     *parent = Some(id.clone());

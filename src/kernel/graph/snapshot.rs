@@ -42,6 +42,8 @@ pub struct StateSnapshot<S: State> {
     pub parent_checkpoint_id: Option<String>,
     /// Free-form checkpoint metadata.
     pub metadata: Map<String, Value>,
+    /// Checkpoint namespace of this snapshot.
+    pub checkpoint_ns: String,
 }
 
 impl<S: State> StateSnapshot<S> {
@@ -67,6 +69,7 @@ impl<S: State> StateSnapshot<S> {
             interrupts: checkpoint.interrupts,
             parent_checkpoint_id: checkpoint.parent_id,
             metadata: checkpoint.metadata,
+            checkpoint_ns: checkpoint.namespace,
         })
     }
 

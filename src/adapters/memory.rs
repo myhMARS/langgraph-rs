@@ -75,6 +75,65 @@ impl Checkpointer for InMemorySaver {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         Ok(inner.keys().cloned().collect())
     }
+
+    fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner.get(thread_id).and_then(|checkpoints| {
+            checkpoints
+                .iter()
+                .rev()
+                .find(|checkpoint| checkpoint.namespace == namespace)
+                .cloned()
+        }))
+    }
+
+    fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner
+            .get(thread_id)
+            .map(|checkpoints| {
+                checkpoints
+                    .iter()
+                    .rev()
+                    .filter(|checkpoint| checkpoint.namespace == namespace)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(thread_id);
+        Ok(())
+    }
+
+    fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(source) = inner.get(source_thread).cloned() else {
+            return Ok(());
+        };
+        let copies = source
+            .into_iter()
+            .map(|mut checkpoint| {
+                checkpoint.thread_id = target_thread.to_string();
+                checkpoint
+            })
+            .collect::<Vec<_>>();
+        inner.insert(target_thread.to_string(), copies);
+        Ok(())
+    }
 }
 
 /// LangGraph-compatible alias for [`InMemorySaver`].

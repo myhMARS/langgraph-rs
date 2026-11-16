@@ -13,13 +13,14 @@ const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_checkpoints (
     thread_id TEXT NOT NULL,
     id TEXT NOT NULL,
+    namespace TEXT NOT NULL DEFAULT '',
     step BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     payload TEXT NOT NULL,
     PRIMARY KEY (thread_id, id)
 );
 CREATE INDEX IF NOT EXISTS langgraph_rs_checkpoints_thread
-    ON langgraph_rs_checkpoints (thread_id, step DESC, created_at DESC);
+    ON langgraph_rs_checkpoints (thread_id, namespace, step DESC, created_at DESC);
 ";
 
 /// Checkpointer backed by Postgres.
@@ -45,6 +46,11 @@ impl PostgresSaver {
         client
             .batch_execute(SCHEMA)
             .map_err(|error| Error::Checkpoint(format!("postgres: create schema: {error}")))?;
+        // Migration for databases created before namespace support.
+        let _ = client.batch_execute(
+            "ALTER TABLE langgraph_rs_checkpoints
+             ADD COLUMN IF NOT EXISTS namespace TEXT NOT NULL DEFAULT ''",
+        );
         Ok(Self {
             client: Mutex::new(client),
         })
@@ -76,15 +82,18 @@ impl Checkpointer for PostgresSaver {
         })?;
         self.lock()
             .execute(
-                "INSERT INTO langgraph_rs_checkpoints (thread_id, id, step, created_at, payload)
-                 VALUES ($1, $2, $3, $4, $5)
+                "INSERT INTO langgraph_rs_checkpoints
+                     (thread_id, id, namespace, step, created_at, payload)
+                 VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (thread_id, id) DO UPDATE SET
+                     namespace = EXCLUDED.namespace,
                      step = EXCLUDED.step,
                      created_at = EXCLUDED.created_at,
                      payload = EXCLUDED.payload",
                 &[
                     &checkpoint.thread_id,
                     &checkpoint.id,
+                    &checkpoint.namespace,
                     &(checkpoint.step as i64),
                     &(checkpoint.created_at_millis as i64),
                     &payload,
@@ -132,6 +141,54 @@ impl Checkpointer for PostgresSaver {
             )
             .map_err(|error| Error::Checkpoint(format!("postgres: read history: {error}")))?;
         Self::collect(rows)
+    }
+
+    fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        let mut client = self.lock();
+        let row = client
+            .query_opt(
+                "SELECT payload FROM langgraph_rs_checkpoints
+                 WHERE thread_id = $1 AND namespace = $2
+                 ORDER BY step DESC, created_at DESC, id DESC
+                 LIMIT 1",
+                &[&thread_id, &namespace],
+            )
+            .map_err(|error| {
+                Error::Checkpoint(format!("postgres: read latest checkpoint: {error}"))
+            })?;
+        row.as_ref().map(Self::decode).transpose()
+    }
+
+    fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        let mut client = self.lock();
+        let rows = client
+            .query(
+                "SELECT payload FROM langgraph_rs_checkpoints
+                 WHERE thread_id = $1 AND namespace = $2
+                 ORDER BY step DESC, created_at DESC, id DESC",
+                &[&thread_id, &namespace],
+            )
+            .map_err(|error| Error::Checkpoint(format!("postgres: read history: {error}")))?;
+        Self::collect(rows)
+    }
+
+    fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        self.lock()
+            .execute(
+                "DELETE FROM langgraph_rs_checkpoints WHERE thread_id = $1",
+                &[&thread_id],
+            )
+            .map_err(|error| Error::Checkpoint(format!("postgres: delete thread: {error}")))?;
+        Ok(())
+    }
+
+    fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let checkpoints = self.history(source_thread)?;
+        for mut checkpoint in checkpoints.into_iter().rev() {
+            checkpoint.thread_id = target_thread.to_string();
+            self.put(checkpoint)?;
+        }
+        Ok(())
     }
 
     fn threads(&self) -> Result<Vec<String>> {

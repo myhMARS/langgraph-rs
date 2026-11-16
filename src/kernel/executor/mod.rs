@@ -57,6 +57,7 @@ pub(crate) fn execute<S: State>(
         .recursion_limit
         .unwrap_or_else(|| graph.recursion_limit());
     let thread_id = config.thread_id.clone();
+    let namespace = config.checkpoint_ns.clone().unwrap_or_default();
 
     if thread_id.is_some() && graph.checkpointer().is_none() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
@@ -144,6 +145,7 @@ pub(crate) fn execute<S: State>(
         save_checkpoint(
             graph,
             thread_id.as_deref(),
+            &namespace,
             &mut parent,
             &values,
             &tasks,
@@ -182,6 +184,7 @@ pub(crate) fn execute<S: State>(
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
+                &namespace,
                 &mut parent,
                 &values,
                 &tasks,
@@ -212,6 +215,7 @@ pub(crate) fn execute<S: State>(
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
+                &namespace,
                 &mut parent,
                 &values,
                 &tasks,
@@ -281,6 +285,7 @@ pub(crate) fn execute<S: State>(
         save_checkpoint(
             graph,
             thread_id.as_deref(),
+            &namespace,
             &mut parent,
             &values,
             &next_tasks,

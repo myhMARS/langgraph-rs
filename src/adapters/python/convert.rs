@@ -369,6 +369,7 @@ pub(super) fn snapshot_to_py(
         "parent_checkpoint_id",
         snapshot.parent_checkpoint_id.clone(),
     )?;
+    dict.set_item("checkpoint_ns", snapshot.checkpoint_ns.clone())?;
     dict.set_item(
         "metadata",
         value_to_py(py, &Value::Object(snapshot.metadata.clone()))?,

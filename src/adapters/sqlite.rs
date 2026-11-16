@@ -16,13 +16,14 @@ const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_checkpoints (
     thread_id TEXT NOT NULL,
     id TEXT NOT NULL,
+    namespace TEXT NOT NULL DEFAULT '',
     step INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     payload TEXT NOT NULL,
     PRIMARY KEY (thread_id, id)
 );
 CREATE INDEX IF NOT EXISTS langgraph_rs_checkpoints_thread
-    ON langgraph_rs_checkpoints (thread_id, step DESC, created_at DESC);
+    ON langgraph_rs_checkpoints (thread_id, namespace, step DESC, created_at DESC);
 ";
 
 /// Checkpointer backed by a SQLite database file.
@@ -55,6 +56,11 @@ impl SqliteSaver {
         connection
             .execute_batch(SCHEMA)
             .map_err(|error| Error::Checkpoint(format!("sqlite: create schema: {error}")))?;
+        // Migration for databases created before namespace support.
+        let _ = connection.execute(
+            "ALTER TABLE langgraph_rs_checkpoints ADD COLUMN namespace TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -88,15 +94,18 @@ impl Checkpointer for SqliteSaver {
         let payload = encode(&checkpoint)?;
         self.lock()
             .execute(
-                "INSERT INTO langgraph_rs_checkpoints (thread_id, id, step, created_at, payload)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO langgraph_rs_checkpoints
+                     (thread_id, id, namespace, step, created_at, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT (thread_id, id) DO UPDATE SET
+                     namespace = excluded.namespace,
                      step = excluded.step,
                      created_at = excluded.created_at,
                      payload = excluded.payload",
                 params![
                     checkpoint.thread_id,
                     checkpoint.id,
+                    checkpoint.namespace,
                     checkpoint.step as i64,
                     checkpoint.created_at_millis as i64,
                     payload
@@ -150,6 +159,62 @@ impl Checkpointer for SqliteSaver {
             );
         }
         Ok(checkpoints)
+    }
+
+    fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        self.lock()
+            .query_row(
+                "SELECT payload FROM langgraph_rs_checkpoints
+                 WHERE thread_id = ?1 AND namespace = ?2
+                 ORDER BY step DESC, created_at DESC, id DESC
+                 LIMIT 1",
+                params![thread_id, namespace],
+                SqliteSaver::decode,
+            )
+            .optional()
+            .map_err(|error| Error::Checkpoint(format!("sqlite: read latest checkpoint: {error}")))
+    }
+
+    fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT payload FROM langgraph_rs_checkpoints
+                 WHERE thread_id = ?1 AND namespace = ?2
+                 ORDER BY step DESC, created_at DESC, id DESC",
+            )
+            .map_err(|error| Error::Checkpoint(format!("sqlite: prepare history: {error}")))?;
+        let rows = statement
+            .query_map(params![thread_id, namespace], |row| {
+                SqliteSaver::decode(row)
+            })
+            .map_err(|error| Error::Checkpoint(format!("sqlite: read history: {error}")))?;
+        let mut checkpoints = Vec::new();
+        for row in rows {
+            checkpoints.push(
+                row.map_err(|error| Error::Checkpoint(format!("sqlite: decode row: {error}")))?,
+            );
+        }
+        Ok(checkpoints)
+    }
+
+    fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        self.lock()
+            .execute(
+                "DELETE FROM langgraph_rs_checkpoints WHERE thread_id = ?1",
+                params![thread_id],
+            )
+            .map_err(|error| Error::Checkpoint(format!("sqlite: delete thread: {error}")))?;
+        Ok(())
+    }
+
+    fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let checkpoints = self.history(source_thread)?;
+        for mut checkpoint in checkpoints.into_iter().rev() {
+            checkpoint.thread_id = target_thread.to_string();
+            self.put(checkpoint)?;
+        }
+        Ok(())
     }
 
     fn threads(&self) -> Result<Vec<String>> {

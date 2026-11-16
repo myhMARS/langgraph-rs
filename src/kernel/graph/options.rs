@@ -166,6 +166,8 @@ pub struct RunConfig {
     pub thread_id: Option<String>,
     /// Overrides the compiled recursion limit for this run.
     pub recursion_limit: Option<usize>,
+    /// Checkpoint namespace (`""` for the root graph). LangGraph's `checkpoint_ns`.
+    pub checkpoint_ns: Option<String>,
 }
 
 impl RunConfig {
@@ -183,6 +185,12 @@ impl RunConfig {
     /// Override the superstep budget for this run.
     pub fn with_recursion_limit(mut self, limit: usize) -> Self {
         self.recursion_limit = Some(limit);
+        self
+    }
+
+    /// Bind the run to a checkpoint namespace (`""` is the root graph).
+    pub fn with_checkpoint_ns(mut self, namespace: impl Into<String>) -> Self {
+        self.checkpoint_ns = Some(namespace.into());
         self
     }
 }

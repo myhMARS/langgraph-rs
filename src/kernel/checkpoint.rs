@@ -44,6 +44,9 @@ pub struct Checkpoint {
     /// Free-form checkpoint metadata (`source`, ...).
     #[serde(default)]
     pub metadata: Map<String, Value>,
+    /// Checkpoint namespace (`""` for the root graph), LangGraph's `checkpoint_ns`.
+    #[serde(default)]
+    pub namespace: String,
 }
 
 impl Checkpoint {
@@ -66,6 +69,7 @@ impl Checkpoint {
             created_at_millis: now_millis(),
             interrupts: Vec::new(),
             metadata: Map::new(),
+            namespace: String::new(),
         }
     }
 

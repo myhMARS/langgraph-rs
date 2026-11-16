@@ -119,6 +119,67 @@ impl Checkpointer for RedisSaver {
         Ok(checkpoints)
     }
 
+    fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        let mut connection = self.lock();
+        let ids: Vec<String> = connection
+            .zrevrange(index_key(thread_id), 0, -1)
+            .map_err(|error| Error::Checkpoint(format!("redis: read latest ids: {error}")))?;
+        for id in ids {
+            if let Some(checkpoint) = Self::load(&mut connection, &checkpoint_key(thread_id, &id))?
+            {
+                if checkpoint.namespace == namespace {
+                    return Ok(Some(checkpoint));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        let mut connection = self.lock();
+        let ids: Vec<String> = connection
+            .zrevrange(index_key(thread_id), 0, -1)
+            .map_err(|error| Error::Checkpoint(format!("redis: read history ids: {error}")))?;
+        let mut checkpoints = Vec::new();
+        for id in ids {
+            if let Some(checkpoint) = Self::load(&mut connection, &checkpoint_key(thread_id, &id))?
+            {
+                if checkpoint.namespace == namespace {
+                    checkpoints.push(checkpoint);
+                }
+            }
+        }
+        Ok(checkpoints)
+    }
+
+    fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        let mut connection = self.lock();
+        let ids: Vec<String> = connection
+            .zrevrange(index_key(thread_id), 0, -1)
+            .map_err(|error| Error::Checkpoint(format!("redis: read thread ids: {error}")))?;
+        let mut pipeline = redis::pipe();
+        for id in &ids {
+            pipeline.del(checkpoint_key(thread_id, id)).ignore();
+        }
+        pipeline
+            .del(index_key(thread_id))
+            .ignore()
+            .srem(THREADS_KEY, thread_id)
+            .ignore()
+            .query::<()>(&mut *connection)
+            .map_err(|error| Error::Checkpoint(format!("redis: delete thread: {error}")))?;
+        Ok(())
+    }
+
+    fn copy_thread(&self, source_thread: &str, target_thread: &str) -> Result<()> {
+        let checkpoints = self.history(source_thread)?;
+        for mut checkpoint in checkpoints.into_iter().rev() {
+            checkpoint.thread_id = target_thread.to_string();
+            self.put(checkpoint)?;
+        }
+        Ok(())
+    }
+
     fn threads(&self) -> Result<Vec<String>> {
         let mut connection = self.lock();
         connection

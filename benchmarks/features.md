@@ -80,11 +80,11 @@ below is the complete audit.
 | Memory checkpointer | ✅ `InMemorySaver` | ✅ `InMemorySaver` | |
 | Persistent checkpointers (sync) | ✅ `SqliteSaver`, `RedisSaver`, `PostgresSaver` (features) | ✅ SQLite/Postgres/Redis saver packages | ours store an internal JSON format; **not interoperable** with LangGraph's checkpoint format |
 | Async checkpointers | ❌ | ✅ `AsyncSqliteSaver`, `AsyncPostgresSaver`, ... | our savers are synchronous `Mutex` adapters |
-| Checkpoint namespaces (`checkpoint_ns`) | ❌ | ✅ | subgraph checkpoint trees unsupported |
+| Checkpoint namespaces (`checkpoint_ns`) | ✅ `RunConfig::with_checkpoint_ns`, `get_state_in` / `resume_in` / `continue_thread_in` / `update_state_in`; namespace-aware queries in all adapters (sync + async) | ✅ | subgraph-internal namespace trees are still unsupported |
 | Pending writes / `put_writes` | ⚠️ pending `Task`s embedded in the checkpoint | ✅ separate writes + checkpoint tuple | resume replays pending tasks in both |
-| `get_state` / history | ⚠️ `get_state(thread)`, `get_state_history(thread, before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object, no `checkpoint_ns` and no interrupt/task ids |
+| `get_state` / history | ⚠️ `get_state(thread)` / `get_state_in(thread, ns)`, `get_state_history(before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id/checkpoint_ns | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object and no interrupt/task ids |
 | `update_state` (`as_node`, `task_id`) | ⚠️ `update_state(thread, values, as_node=)` / Python; no `task_id` | ✅ | recomputes next tasks from `as_node`'s edges, or keeps pending tasks |
-| Thread management | ⚠️ `threads()` in the port | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
+| Thread management | ⚠️ `delete_thread` + `copy_thread` (all adapters, exposed from Python); no `prune` / filtered `list` | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
 | Time travel | ⚠️ `resume_from(thread, checkpoint_id, value)` | ✅ `get_state_history` + replay from any config | history now supports `before`/`limit`; still no `StateSnapshot.config` |
 | Checkpoint metadata / created_at semantics | ⚠️ basic (`parent_id`, `created_at_millis`, `source`) | ✅ rich metadata, versions/versions_seen | our checkpoint model is simpler |
 
