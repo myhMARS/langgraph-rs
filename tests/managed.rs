@@ -154,3 +154,98 @@ async fn async_fast_nodes_finish_under_timeout() {
         .state;
     assert_eq!(output.value, 4);
 }
+
+#[test]
+fn managed_values_are_injected_as_private_state_channels() {
+    use langgraph_rs::{CompileOptions, InMemorySaver, JsonState, json};
+
+    let saver = std::sync::Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic().with_managed_values())
+        .add_node("inspect", |state: &JsonState| {
+            let remaining = state
+                .get("remaining_steps")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            let last = state
+                .get("is_last_step")
+                .and_then(|value| value.as_bool())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("seen", json!(format!("{remaining}/{last}"))))
+        })
+        .set_entry_point("inspect")
+        .set_finish_point("inspect")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let output = graph
+        .run(
+            &JsonState::new(),
+            &RunConfig::new()
+                .with_thread("managed-injected")
+                .with_recursion_limit(5),
+        )
+        .unwrap();
+    assert_eq!(output.state.get("seen"), Some(&json!("5/false")));
+    assert_eq!(output.state.get("remaining_steps"), None);
+    let snapshot = graph.get_state("managed-injected").unwrap().unwrap();
+    assert_eq!(snapshot.values.get("remaining_steps"), None);
+    assert_eq!(snapshot.values.get("seen"), Some(&json!("5/false")));
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_idle_timeout_resets_on_progress() {
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+    use langgraph_rs::{JsonState, json};
+
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("chatty", |_state: JsonState, ctx| async move {
+            for _ in 0..5 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                ctx.custom(json!({"tick": true}))?;
+            }
+            Ok(NodeOutput::new().update("value", json!(1)))
+        })
+        .set_entry_point("chatty")
+        .set_finish_point("chatty")
+        .set_timeout(
+            "chatty",
+            TimeoutPolicy::new().with_idle_timeout(Duration::from_millis(60)),
+        )
+        .compile()
+        .unwrap();
+
+    let outcome = graph
+        .run(&JsonState::new(), &RunConfig::new())
+        .await
+        .unwrap();
+    assert_eq!(outcome.state.get("value"), Some(&json!(1)));
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_idle_timeout_fires_without_progress() {
+    use langgraph_rs::JsonState;
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("silent", |_state: JsonState, _ctx| async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            Ok(NodeOutput::new())
+        })
+        .set_entry_point("silent")
+        .set_finish_point("silent")
+        .set_timeout(
+            "silent",
+            TimeoutPolicy::new().with_idle_timeout(Duration::from_millis(40)),
+        )
+        .compile()
+        .unwrap();
+
+    let error = graph
+        .run(&JsonState::new(), &RunConfig::new())
+        .await
+        .unwrap_err();
+    let message = error.to_string().to_lowercase();
+    assert!(message.contains("timed out") || message.contains("timeout"));
+}

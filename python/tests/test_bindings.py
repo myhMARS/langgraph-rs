@@ -1606,5 +1606,21 @@ class AsyncPythonTests(unittest.TestCase):
             cache.clear()
 
 
+    def test_managed_values_injection(self):
+        graph = lg.StateGraph({"seen": "last_value"}, managed_values=True)
+        graph.add_node(
+            "inspect",
+            lambda state: {
+                "seen": f"{state['remaining_steps']}/{state['is_last_step']}"
+            },
+        )
+        graph.set_entry_point("inspect")
+        graph.set_finish_point("inspect")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver(), recursion_limit=5)
+        output = compiled.invoke({}, thread_id="py-managed")
+        self.assertEqual(output["seen"], "5/False")
+        self.assertNotIn("remaining_steps", output)
+
+
 if __name__ == "__main__":
     unittest.main()

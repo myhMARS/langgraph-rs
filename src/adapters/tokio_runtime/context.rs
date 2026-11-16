@@ -31,6 +31,7 @@ pub struct AsyncContext {
     store: Option<Arc<dyn BaseStore>>,
     context: Option<Value>,
     collector: Option<Arc<Mutex<Vec<StreamChunk>>>>,
+    progress: Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[derive(Default)]
@@ -58,6 +59,7 @@ impl AsyncContext {
             store: None,
             context: None,
             collector: None,
+            progress: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -169,6 +171,7 @@ impl AsyncContext {
 
     /// Record consumption for this execution (multiple records are summed).
     pub fn record_usage(&self, usage: Usage) {
+        self.bump_progress();
         self.capture
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -187,6 +190,7 @@ impl AsyncContext {
 
     /// Emit a streamed message (e.g. an LLM token) into the graph stream.
     pub fn message(&self, value: impl Serialize) -> Result<()> {
+        self.bump_progress();
         let value = serde_json::to_value(value)?;
         self.capture
             .lock()
@@ -198,6 +202,7 @@ impl AsyncContext {
 
     /// Emit a custom value into the stream.
     pub fn custom(&self, value: impl Serialize) -> Result<()> {
+        self.bump_progress();
         let value = serde_json::to_value(value)?;
         self.capture
             .lock()
@@ -205,6 +210,15 @@ impl AsyncContext {
             .custom
             .push(value);
         Ok(())
+    }
+
+    fn bump_progress(&self) {
+        self.progress
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn progress_counter(&self) -> Arc<std::sync::atomic::AtomicU64> {
+        self.progress.clone()
     }
 
     pub(crate) fn take(&self) -> (Vec<Usage>, Vec<Value>, Vec<Value>) {

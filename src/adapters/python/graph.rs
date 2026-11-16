@@ -31,12 +31,13 @@ impl PyStateGraph {
     /// Create a graph. `schema` maps channel names to a merge policy
     /// (`"last_value"`, `"topic"`, `"append"`, `"add"` or `"messages"`).
     #[new]
-    #[pyo3(signature = (schema=None, input_schema=None, output_schema=None, private_schema=None))]
+    #[pyo3(signature = (schema=None, input_schema=None, output_schema=None, private_schema=None, managed_values=false))]
     fn new(
         schema: Option<&Bound<'_, PyAny>>,
         input_schema: Option<Vec<String>>,
         output_schema: Option<Vec<String>>,
         private_schema: Option<Vec<String>>,
+        managed_values: bool,
     ) -> PyResult<Self> {
         let mut schema = schema_from_py(schema)?;
         if let Some(channels) = input_schema {
@@ -47,6 +48,9 @@ impl PyStateGraph {
         }
         if let Some(channels) = private_schema {
             schema = schema.with_private_channels(channels);
+        }
+        if managed_values {
+            schema = schema.with_managed_values();
         }
         Ok(Self {
             inner: crate::StateGraph::with_schema(schema),

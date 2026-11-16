@@ -41,4 +41,9 @@ impl TimeoutPolicy {
     pub fn effective_timeout(&self) -> Option<Duration> {
         self.run_timeout.or(self.idle_timeout)
     }
+
+    /// Configured idle timeout.
+    pub fn idle_timeout(&self) -> Option<Duration> {
+        self.idle_timeout
+    }
 }

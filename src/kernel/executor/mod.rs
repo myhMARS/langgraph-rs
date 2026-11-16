@@ -241,6 +241,13 @@ pub(crate) fn execute<S: State>(
         {
             return Err(Error::other("run aborted by RunControl"));
         }
+        apply_managed_values(
+            graph.schema(),
+            &mut values,
+            &mut state,
+            step,
+            recursion_limit,
+        )?;
         if iteration >= recursion_limit {
             return Err(Error::RecursionLimit(recursion_limit));
         }
@@ -548,6 +555,24 @@ pub(crate) fn execute<S: State>(
         state = values_to_state::<S>(&values)?;
         tasks = next_tasks;
     }
+}
+
+/// Inject managed values (`remaining_steps`, `is_last_step`) before a superstep.
+pub(crate) fn apply_managed_values<S: State>(
+    schema: &crate::kernel::state::StateSchema,
+    values: &mut Map<String, Value>,
+    state: &mut S,
+    step: usize,
+    recursion_limit: usize,
+) -> Result<()> {
+    if !schema.managed_values() {
+        return Ok(());
+    }
+    let remaining = recursion_limit.saturating_sub(step);
+    values.insert("remaining_steps".to_string(), json!(remaining));
+    values.insert("is_last_step".to_string(), json!(remaining <= 1));
+    *state = values_to_state::<S>(values)?;
+    Ok(())
 }
 
 fn finish<S: State>(

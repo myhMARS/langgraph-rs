@@ -744,6 +744,13 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
             iteration += 1;
             let _step_guard = crate::kernel::context::install_step(step, recursion_limit);
+            crate::kernel::executor::apply_managed_values(
+                &self.schema,
+                &mut values,
+                &mut state,
+                step,
+                recursion_limit,
+            )?;
 
             let paused = if skip_interrupt_before {
                 None
@@ -1124,19 +1131,25 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.collector.clone(),
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
-            let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
-                self.timeout_of(&task.node)
-                    .and_then(|policy| policy.effective_timeout())
-            });
-            let result = match timeout {
-                Some(timeout) => match tokio::time::timeout(timeout, future).await {
+            let timeout_policy = self.timeout_of(&task.node).cloned().unwrap_or_default();
+            let run_timeout = task
+                .timeout_millis
+                .map(Duration::from_millis)
+                .or_else(|| timeout_policy.run_timeout());
+            let idle_timeout = timeout_policy.idle_timeout();
+            let result = if let Some(timeout) = run_timeout {
+                match tokio::time::timeout(timeout, future).await {
                     Ok(result) => result,
                     Err(_) => Err(Error::Timeout {
                         node: task.node.clone(),
                         millis: timeout.as_millis() as u64,
                     }),
-                },
-                None => future.await,
+                }
+            } else if let Some(idle) = idle_timeout {
+                run_with_idle_timeout(future, idle, context.progress_counter(), task.node.clone())
+                    .await
+            } else {
+                future.await
             };
             let (mut reported, custom, messages) = context.take();
             usage.append(&mut reported);
@@ -1580,6 +1593,29 @@ fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
         combined.get_or_insert_with(Usage::new).merge(&item);
     }
     combined
+}
+
+/// Await a node future, resetting the idle timer whenever the node reports progress.
+async fn run_with_idle_timeout(
+    mut future: BoxNodeFuture,
+    idle: Duration,
+    progress: Arc<std::sync::atomic::AtomicU64>,
+    node: String,
+) -> Result<crate::kernel::node::NodeOutput> {
+    loop {
+        let seen = progress.load(std::sync::atomic::Ordering::Relaxed);
+        tokio::select! {
+            result = &mut future => return result,
+            _ = tokio::time::sleep(idle) => {
+                if progress.load(std::sync::atomic::Ordering::Relaxed) == seen {
+                    return Err(Error::Timeout {
+                        node,
+                        millis: idle.as_millis() as u64,
+                    });
+                }
+            }
+        }
+    }
 }
 
 fn finish<S: State>(

@@ -27,6 +27,7 @@ pub struct StateSchema {
     input_channels: Option<std::collections::HashSet<String>>,
     output_channels: Option<std::collections::HashSet<String>>,
     private_channels: std::collections::HashSet<String>,
+    managed_values: bool,
 }
 
 impl StateSchema {
@@ -64,6 +65,22 @@ impl StateSchema {
     {
         self.output_channels = Some(names.into_iter().map(Into::into).collect());
         self
+    }
+
+    /// Inject LangGraph managed values (`remaining_steps`, `is_last_step`) into node state.
+    ///
+    /// The injected channels are private: they are visible to nodes but never persisted or
+    /// returned to the caller.
+    pub fn with_managed_values(mut self) -> Self {
+        self.managed_values = true;
+        self.private_channels.insert("remaining_steps".to_string());
+        self.private_channels.insert("is_last_step".to_string());
+        self
+    }
+
+    /// Whether managed values are injected before each superstep.
+    pub(crate) fn managed_values(&self) -> bool {
+        self.managed_values
     }
 
     /// Mark channels as internal: never returned and never persisted.
