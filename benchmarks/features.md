@@ -46,7 +46,7 @@ below is the complete audit.
 | Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
 | `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
-| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; no `input_schema` / `destinations` validation | ✅ | |
+| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; destination allow-lists via `set_destinations` / `add_node_with_destinations` (Python `add_node(..., destinations=...)`); no `input_schema` or custom node names | ✅ | |
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` / `Send::with_timeout` (per-task timeout; Python `lg.Send(..., timeout=seconds)`) | ✅ `Send` (node, arg, timeout) | |
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
@@ -62,8 +62,8 @@ below is the complete audit.
 | Supersteps + recursion limit | ✅ default 25, per compile/run | ✅ default 25 | |
 | Parallel superstep execution | ✅ scoped OS threads | ✅ asyncio tasks | CPU parallelism vs cooperative concurrency |
 | Deterministic channel merge | ✅ task-order merge | ✅ | |
-| Async engine | ⚠️ separate `AsyncStateGraph` adapter: checkpoints/HITL/retry/error routing, stream modes, store/context, per-node timeouts, subgraphs (namespaces + nested interrupts), node cache | ✅ native `ainvoke`/`astream` | still missing: async batch, async checkpointers, subgraph streaming, async from Python |
-| Batch (`batch` / `abatch`) | ⚠️ sync `batch` / `batch_run` (+ Python `batch`); no async batch | ✅ | results stay in input order, failures are per item |
+| Async engine | ⚠️ separate `AsyncStateGraph` adapter: checkpoints/HITL/retry/error routing, stream modes, store/context, per-node timeouts, subgraphs (namespaces + nested interrupts), node cache, batch | ✅ native `ainvoke`/`astream` | still missing: async batch, async checkpointers, subgraph streaming, async from Python |
+| Batch (`batch` / `abatch`) | ✅ sync `batch` / `batch_run`, async `batch` / `batch_run` (bounded by `max_concurrency`), Python `batch` | ✅ | async `batch_run` is sequential; Python has no `abatch` |
 | `max_concurrency` / run control | ⚠️ `RunConfig::max_concurrency` bounds `batch` workers; no `RunControl` | ✅ `max_concurrency`, `RunControl` | |
 | Durability modes | ⚠️ `Durability::{Sync, Async, Exit}` (`Async` behaves like `Sync`) | ✅ `durability=` | `Exit` persists only initial/interrupt/final checkpoints |
 | Managed values (`IsLastStep` / `RemainingSteps`) | ⚠️ `remaining_steps()` / `is_last_step()` accessors (Rust + Python) | ✅ managed values in state annotations | no `RemainingSteps` state annotation / `deferred` nodes |
@@ -132,7 +132,7 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

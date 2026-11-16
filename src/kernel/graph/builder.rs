@@ -61,6 +61,7 @@ pub struct StateGraph<S: State> {
     pub(crate) node_metadata: IndexMap<String, Map<String, Value>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) deferred: HashSet<String>,
+    pub(crate) destinations: IndexMap<String, Vec<String>>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -87,6 +88,7 @@ impl<S: State> StateGraph<S> {
             node_metadata: IndexMap::new(),
             timeouts: IndexMap::new(),
             deferred: HashSet::new(),
+            destinations: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -123,6 +125,36 @@ impl<S: State> StateGraph<S> {
     pub fn set_timeout(mut self, name: impl Into<String>, policy: TimeoutPolicy) -> Self {
         self.timeouts.insert(name.into(), policy);
         self
+    }
+
+    /// Restrict the nodes an edge from `name` may target (LangGraph node `destinations`).
+    pub fn set_destinations<I, T>(mut self, name: impl Into<String>, destinations: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.destinations.insert(
+            name.into(),
+            destinations.into_iter().map(Into::into).collect(),
+        );
+        self
+    }
+
+    /// Register a node together with an explicit destination allow-list.
+    pub fn add_node_with_destinations<F, I, T>(
+        self,
+        name: impl Into<String>,
+        destinations: I,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        let name = name.into();
+        self.set_destinations(name.clone(), destinations)
+            .add_node(name, node)
     }
 
     /// Register a node that runs after every regular node finished (LangGraph `deferred=True`).
@@ -434,6 +466,20 @@ impl<S: State> StateGraph<S> {
         for node in self.timeouts.keys() {
             self.require_node("timeout policy", node)?;
         }
+        for (node, destinations) in &self.destinations {
+            self.require_node("destination list", node)?;
+            for target in destinations {
+                if target == END {
+                    continue;
+                }
+                if target == START {
+                    return Err(Error::validation(format!(
+                        "`{START}` is not a valid destination of `{node}`"
+                    )));
+                }
+                self.require_node("destination", target)?;
+            }
+        }
         for node in &self.deferred {
             self.require_node("deferred node", node)?;
             if self.entry.contains(node) {
@@ -482,6 +528,7 @@ impl<S: State> StateGraph<S> {
             node_metadata: self.node_metadata,
             timeouts: self.timeouts,
             deferred: self.deferred,
+            destinations: self.destinations,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

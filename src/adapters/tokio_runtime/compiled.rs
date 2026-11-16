@@ -99,6 +99,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) deferred: HashSet<String>,
+    pub(crate) destinations: IndexMap<String, Vec<String>>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
@@ -109,6 +110,11 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Timeout policy of one node, when configured.
     pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
         self.timeouts.get(node)
+    }
+
+    /// Allowed destinations of a node, when an allow-list is configured.
+    pub fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.destinations.get(node).map(Vec::as_slice)
     }
 
     /// Whether the node is deferred until the graph has no regular work left.
@@ -155,6 +161,52 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
         self.checkpointer.is_some()
+    }
+
+    /// Run the graph over several inputs concurrently (bounded by `max_concurrency`).
+    ///
+    /// Results keep the input order; a failed invocation does not abort the batch.
+    pub async fn batch<I>(&self, inputs: I, config: &RunConfig) -> Vec<Result<S>>
+    where
+        I: IntoIterator<Item = S>,
+    {
+        use futures::StreamExt;
+
+        let inputs: Vec<S> = inputs.into_iter().collect();
+        let max_concurrency = config.max_concurrency.unwrap_or(1).max(1);
+        if max_concurrency <= 1 || inputs.len() <= 1 {
+            let mut results = Vec::with_capacity(inputs.len());
+            for input in inputs {
+                results.push(self.run(&input, config).await.map(|outcome| outcome.state));
+            }
+            return results;
+        }
+        let mut indexed: Vec<(usize, Result<S>)> =
+            futures::stream::iter(inputs.into_iter().enumerate().map(
+                |(index, input)| async move {
+                    (
+                        index,
+                        self.run(&input, config).await.map(|outcome| outcome.state),
+                    )
+                },
+            ))
+            .buffer_unordered(max_concurrency)
+            .collect()
+            .await;
+        indexed.sort_by_key(|(index, _)| *index);
+        indexed.into_iter().map(|(_, result)| result).collect()
+    }
+
+    /// Batch variant of [`Self::run`] that also returns run reports.
+    pub async fn batch_run<I>(&self, inputs: I, config: &RunConfig) -> Vec<Result<RunOutcome<S>>>
+    where
+        I: IntoIterator<Item = S>,
+    {
+        let mut results = Vec::new();
+        for input in inputs {
+            results.push(self.run(&input, config).await);
+        }
+        results
     }
 
     /// Run the graph to completion.
@@ -575,6 +627,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 |node| self.edges_of(node),
                 |node| self.conditional_of(node),
                 |node| self.nodes.contains_key(node),
+                |node| self.destinations_of(node),
             )?;
             let mut next_tasks = next_tasks;
             let handler_nodes: HashSet<String> = next_tasks
@@ -595,6 +648,14 @@ impl<S: State> AsyncCompiledGraph<S> {
                         &source,
                         format!("unknown destination node `{}`", task.node),
                     ));
+                }
+                if let Some(allowed) = self.destinations_of(&source) {
+                    if !allowed.iter().any(|node| node == &task.node) {
+                        return Err(Error::routing(
+                            &source,
+                            format!("`{}` is not a declared destination", task.node),
+                        ));
+                    }
                 }
                 next_tasks.push(task);
             }
@@ -1012,6 +1073,14 @@ impl<S: State> AsyncCompiledGraph<S> {
                                 &result.node,
                                 format!("Send targets unknown node `{}`", send.node),
                             ));
+                        }
+                        if let Some(allowed) = self.destinations_of(&result.node) {
+                            if !allowed.iter().any(|candidate| candidate == &send.node) {
+                                return Err(Error::routing(
+                                    &result.node,
+                                    format!("`{}` is not a declared destination", send.node),
+                                ));
+                            }
                         }
                         next_tasks.push(Task {
                             node: send.node,

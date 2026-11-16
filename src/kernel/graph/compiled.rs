@@ -45,6 +45,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) node_metadata: indexmap::IndexMap<String, serde_json::Map<String, Value>>,
     pub(crate) timeouts: indexmap::IndexMap<String, TimeoutPolicy>,
     pub(crate) deferred: std::collections::HashSet<String>,
+    pub(crate) destinations: indexmap::IndexMap<String, Vec<String>>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
@@ -68,6 +69,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             node_metadata: self.node_metadata.clone(),
             timeouts: self.timeouts.clone(),
             deferred: self.deferred.clone(),
+            destinations: self.destinations.clone(),
             cache: self.cache.clone(),
             cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
@@ -623,6 +625,7 @@ impl<S: State> CompiledGraph<S> {
                     |candidate| self.edges_of(candidate),
                     |candidate| self.conditional_of(candidate),
                     |candidate| self.nodes.contains_key(candidate),
+                    |candidate| self.destinations_of(candidate),
                 )?;
                 let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
                 for (source, send) in router_sends {
@@ -694,6 +697,11 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("copy_thread"))?;
         checkpointer.copy_thread(source_thread, target_thread)
+    }
+
+    /// Allowed destinations of a node, when an allow-list is configured.
+    pub fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.destinations.get(node).map(Vec::as_slice)
     }
 
     /// Whether the node is deferred until the graph has no regular work left.

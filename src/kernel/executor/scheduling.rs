@@ -18,6 +18,7 @@ pub(crate) type NextTargets = (Vec<String>, Vec<(String, Send)>);
 /// A node that used an explicit `goto` contributes only its goto targets; every other
 /// node contributes its static edges followed by its conditional edges, evaluated
 /// against the already merged state.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_next_nodes<'a, S: State>(
     state: &S,
     executed: &[String],
@@ -26,6 +27,7 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
     edges_of: impl Fn(&str) -> Option<&'a [String]>,
     conditional_of: impl Fn(&str) -> Option<&'a [ConditionalEdge<S>]>,
     node_exists: impl Fn(&str) -> bool,
+    destinations_of: impl Fn(&str) -> Option<&'a [String]>,
 ) -> Result<NextTargets> {
     let mut next_nodes: Vec<String> = Vec::new();
     let mut router_sends: Vec<(String, Send)> = Vec::new();
@@ -36,7 +38,7 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
         }
         if let Some(targets) = edges_of(node) {
             for target in targets {
-                check_target(node, target, &node_exists)?;
+                check_target(node, target, &node_exists, &destinations_of)?;
                 next_nodes.push(target.clone());
             }
         }
@@ -44,7 +46,7 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
             for edge in edges {
                 let (targets, sends) = edge.resolve(state, node)?;
                 for target in targets {
-                    check_target(node, &target, &node_exists)?;
+                    check_target(node, &target, &node_exists, &destinations_of)?;
                     next_nodes.push(target);
                 }
                 router_sends.extend(sends.into_iter().map(|send| (node.clone(), send)));
@@ -56,7 +58,7 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
         if target == END {
             continue;
         }
-        check_target(source, target, &node_exists)?;
+        check_target(source, target, &node_exists, &destinations_of)?;
         next_nodes.push(target.clone());
     }
 
@@ -102,7 +104,12 @@ pub(crate) fn dedupe(nodes: Vec<String>) -> Vec<String> {
     scheduled
 }
 
-fn check_target(source: &str, target: &str, node_exists: impl Fn(&str) -> bool) -> Result<()> {
+fn check_target<'a>(
+    source: &str,
+    target: &str,
+    node_exists: impl Fn(&str) -> bool,
+    destinations_of: impl Fn(&str) -> Option<&'a [String]>,
+) -> Result<()> {
     if target == END {
         return Ok(());
     }
@@ -117,6 +124,14 @@ fn check_target(source: &str, target: &str, node_exists: impl Fn(&str) -> bool) 
             source,
             format!("unknown destination node `{target}`"),
         ));
+    }
+    if let Some(allowed) = destinations_of(source) {
+        if !allowed.iter().any(|node| node == target) {
+            return Err(Error::routing(
+                source,
+                format!("`{target}` is not a declared destination"),
+            ));
+        }
     }
     Ok(())
 }

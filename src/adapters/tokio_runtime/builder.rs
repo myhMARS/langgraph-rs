@@ -42,6 +42,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) deferred: HashSet<String>,
+    pub(crate) destinations: IndexMap<String, Vec<String>>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
@@ -78,6 +79,7 @@ impl<S: State> AsyncStateGraph<S> {
             cache: None,
             cache_policies: IndexMap::new(),
             deferred: HashSet::new(),
+            destinations: IndexMap::new(),
             interrupt_before: HashSet::new(),
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
@@ -136,6 +138,19 @@ impl<S: State> AsyncStateGraph<S> {
     /// Enable checkpointing (required for resume and state queries).
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Restrict the nodes an edge from `name` may target.
+    pub fn set_destinations<I, T>(mut self, name: impl Into<String>, destinations: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.destinations.insert(
+            name.into(),
+            destinations.into_iter().map(Into::into).collect(),
+        );
         self
     }
 
@@ -304,6 +319,7 @@ impl<S: State> AsyncStateGraph<S> {
             cache: self.cache,
             cache_policies: self.cache_policies,
             deferred: self.deferred,
+            destinations: self.destinations,
             interrupt_before: self.interrupt_before,
             interrupt_after: self.interrupt_after,
             trace_sinks: self.kernel.trace_sinks().to_vec(),

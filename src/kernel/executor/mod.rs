@@ -273,6 +273,7 @@ pub(crate) fn execute<S: State>(
             |node| graph.edges_of(node),
             |node| graph.conditional_of(node),
             |node| graph.node(node).is_some(),
+            |node| graph.destinations_of(node),
         )?;
         let mut next_tasks = next_tasks;
         // A node that already has an error-handler task in this superstep must not run
@@ -295,6 +296,14 @@ pub(crate) fn execute<S: State>(
                     &source,
                     format!("unknown destination node `{}`", task.node),
                 ));
+            }
+            if let Some(allowed) = graph.destinations_of(&source) {
+                if !allowed.iter().any(|node| node == &task.node) {
+                    return Err(Error::routing(
+                        &source,
+                        format!("`{}` is not a declared destination", task.node),
+                    ));
+                }
             }
             next_tasks.push(task);
         }
@@ -588,6 +597,14 @@ fn process_outcomes<S: State>(
                             &node,
                             format!("Send targets unknown node `{}`", send.node),
                         ));
+                    }
+                    if let Some(allowed) = graph.destinations_of(&node) {
+                        if !allowed.iter().any(|candidate| candidate == &send.node) {
+                            return Err(Error::routing(
+                                &node,
+                                format!("`{}` is not a declared destination", send.node),
+                            ));
+                        }
                     }
                     next_tasks.push(Task {
                         node: send.node,

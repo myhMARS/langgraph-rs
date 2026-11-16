@@ -255,6 +255,11 @@ assert_eq!(output.log.len(), 3);
 `Send::with_arg` replaces the target task's whole state (it must deserialize into `S`); `Send::to`
 forwards the current state. Distinct `Send`s run concurrently and merge via reducers.
 
+Nodes can declare an explicit destination allow-list (`set_destinations` /
+`add_node_with_destinations`): static edges, conditional routes, `goto` targets and `Send`
+targets that fall outside the list fail the run with a routing error (`END` is always
+allowed). The async adapter exposes `batch` / `batch_run` as well.
+
 ## Batch execution, concurrency and durability
 
 `CompiledGraph::batch` runs one graph over many inputs and returns results in input order;

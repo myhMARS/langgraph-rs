@@ -240,6 +240,10 @@ assert_eq!(output.log.len(), 3);
 `Send::with_arg` 替换目标任务的全部状态（必须能反序列化为 `S`）；`Send::to` 转发当前状态。不同的
 `Send` 并发执行并通过 reducer 合并。
 
+节点可声明显式的目标允许列表（`set_destinations` / `add_node_with_destinations`）：
+静态边、条件路由、`goto` 与 `Send` 若指向列表之外的目标，会在运行时以 routing 错误失败
+（`END` 始终允许）。异步适配器同样提供 `batch` / `batch_run`。
+
 ## 批量执行、并发与持久化策略
 
 `CompiledGraph::batch` 在一组输入上运行同一张图，结果按输入顺序返回；

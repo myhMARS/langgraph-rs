@@ -615,5 +615,18 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["log"], ["inc", "summary after 1"])
 
 
+    def test_destinations_reject_undeclared_target(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {}, destinations=["b"])
+        graph.add_node("b", lambda state: {})
+        graph.add_node("c", lambda state: {})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "c")
+        graph.set_finish_point("b")
+        graph.set_finish_point("c")
+        with self.assertRaises(RuntimeError):
+            graph.compile().invoke({"value": 0})
+
+
 if __name__ == "__main__":
     unittest.main()
