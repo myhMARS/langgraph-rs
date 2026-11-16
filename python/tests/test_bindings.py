@@ -869,5 +869,27 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertTrue(any(chunk.get("type") == "updates" for chunk in updates))
 
 
+    def test_async_batch_and_message_graph(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+            graph.set_entry_point("inc")
+            graph.set_finish_point("inc")
+            compiled = graph.compile()
+            return await compiled.abatch([{"value": 0}, {"value": 10}])
+
+        results = asyncio.run(scenario())
+        self.assertEqual([item["value"] for item in results], [1, 11])
+
+        graph = lg.message_graph()
+        graph.add_node("add", lambda state: {"messages": [{"id": "1", "content": "hi"}]})
+        graph.set_entry_point("add")
+        graph.set_finish_point("add")
+        output = graph.compile().invoke({"messages": []})
+        self.assertEqual(len(output["messages"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

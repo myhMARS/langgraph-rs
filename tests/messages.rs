@@ -1,8 +1,8 @@
 //! `RemoveMessage`, `MessagesState` and node input-schema metadata.
 
 use langgraph_rs::{
-    JsonState, MessagesState, NodeOutput, RemoveMessage, RunConfig, StateGraph, StateSchema, json,
-    reducers,
+    JsonState, MessageGraph, MessagesState, NodeOutput, RemoveMessage, RunConfig, StateGraph,
+    StateSchema, json, reducers,
 };
 
 fn state_with_messages() -> JsonState {
@@ -86,4 +86,21 @@ fn node_input_schema_is_stored_as_metadata() {
 
     assert_eq!(graph.node_input_schema("work"), Some(&schema));
     assert!(graph.node_input_schema("missing").is_none());
+}
+
+#[test]
+fn message_graph_alias_exposes_messages_state() {
+    let graph = MessageGraph::new()
+        .add_node("add", |_state: &MessagesState| {
+            Ok(NodeOutput::new().set("messages", vec![json!({ "id": "1", "content": "hi" })]))
+        })
+        .set_entry_point("add")
+        .set_finish_point("add")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .invoke(&MessagesState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.messages.len(), 1);
 }

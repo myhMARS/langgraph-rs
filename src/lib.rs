@@ -121,6 +121,9 @@ pub use kernel::context::{
     push_custom, push_message, record_tokens, record_usage, remaining_steps,
 };
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
+/// Convenience graph whose state is [`MessagesState`] (LangGraph `MessageGraph`).
+pub type MessageGraph = StateGraph<MessagesState>;
+
 pub use kernel::graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, StateGraph,
     StateSnapshot, Targets,

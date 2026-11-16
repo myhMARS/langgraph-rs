@@ -92,6 +92,14 @@ fn task(function: Py<PyAny>, name: Option<String>) -> PyResult<PyTask> {
     PyTask::from_function(function, name)
 }
 
+/// Create a graph whose state has a single `messages` channel (LangGraph `MessageGraph`).
+#[pyfunction]
+fn message_graph() -> PyStateGraph {
+    PyStateGraph::from_inner(crate::StateGraph::<crate::JsonState>::with_schema(
+        crate::StateSchema::new().with_reducer("messages", crate::reducers::messages()),
+    ))
+}
+
 /// Build a one-node graph whose `entrypoint` node runs the Python callable.
 #[pyfunction]
 fn entrypoint(function: Py<PyAny>) -> PyResult<PyStateGraph> {
@@ -212,6 +220,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyRedisSaver>()?;
     #[cfg(feature = "postgres")]
     module.add_class::<PyPostgresSaver>()?;
+    module.add_function(wrap_pyfunction!(message_graph, module)?)?;
     module.add_function(wrap_pyfunction!(task, module)?)?;
     module.add_function(wrap_pyfunction!(entrypoint, module)?)?;
     module.add_function(wrap_pyfunction!(get_store, module)?)?;

@@ -178,8 +178,9 @@ A channel is one field of the state and decides how a superstep's writes become 
 (LangGraph's `Overwrite`). `Channel::delta(reducer)` accepts a snapshot frequency for API compatibility; this engine always snapshots the full value.
 
 Built-ins: `reducers::append()`, `reducers::add()`, `reducers::messages()` (merge by `id`,
-`RemoveMessage` removes a message). `MessagesState` is the convenience state for chat
-transcripts; Python exposes `lg.MessagesState` and `lg.RemoveMessage`.
+`RemoveMessage` removes a message). `MessageGraph` (a `StateGraph<MessagesState>` type alias) and
+`lg.message_graph()` are the message-only graph helpers. `MessagesState` is the convenience state
+for chat transcripts; Python exposes `lg.MessagesState` and `lg.RemoveMessage`.
 `JsonState` is the schemaless alternative: a JSON map whose undeclared channels behave like
 `LastValue` (build with `StateGraph::<JsonState>::with_schema` to register reducers).
 
@@ -695,7 +696,7 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   `lg.PostgresSaver(url)` with the `redis` / `postgres` features.
 - Async bindings (`python-async` feature): `lg.AsyncStateGraph` mirrors the builder (including
   `add_subgraph`), `await compiled.astream(...)` collects stream chunks (`stream_mode=` and
-  `subgraphs=` supported), and
+  `subgraphs=` supported), `abatch(...)` runs inputs concurrently, and
   `await compiled.ainvoke(...)` / `await compiled.aresume(...)` are awaitables backed by the
   Tokio adapter (`compiled.get_state(...)` stays synchronous).
 - Functional API: `task = lg.task(fn, name="...")` memoizes results in the run's store;

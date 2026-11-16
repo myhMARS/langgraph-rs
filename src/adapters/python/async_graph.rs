@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyList};
 
@@ -241,6 +242,42 @@ impl PyAsyncCompiledGraph {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
                 Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
             }
+        })
+    }
+
+    /// Awaitable batch invocation returning the final state of every input.
+    #[pyo3(signature = (inputs, thread_id=None, context=None))]
+    fn abatch<'py>(
+        &self,
+        py: Python<'py>,
+        inputs: &Bound<'_, PyAny>,
+        thread_id: Option<String>,
+        context: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let list = inputs
+            .cast::<PyList>()
+            .map_err(|_| PyTypeError::new_err("abatch expects a list of state dicts"))?;
+        let states: Vec<JsonState> = list
+            .iter()
+            .map(|item| state_from_py(Some(&item)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let mut config = run_config(thread_id);
+        if let Some(context) = context {
+            config = config.with_context(py_to_value(context)?);
+        }
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let results = graph.batch(states, &config).await;
+            Python::attach(|py| {
+                let output = PyList::empty(py);
+                for result in results {
+                    match result {
+                        Ok(state) => output.append(json_state_to_py(py, &state)?)?,
+                        Err(error) => return Err(to_pyerr(py, error)),
+                    }
+                }
+                Ok(output.into_any().unbind())
+            })
         })
     }
 

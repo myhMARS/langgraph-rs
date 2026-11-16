@@ -173,8 +173,9 @@ deferred，在全部常规节点结束后执行；deferred 节点支持中断/re
 `Overwrite`）。`Channel::delta(reducer)` 接受 snapshot frequency 参数以兼容 API；本引擎始终快照完整值。
 
 内置 reducer：`reducers::append()`、`reducers::add()`、`reducers::messages()`（按 `id` 合并，
-`RemoveMessage` 可删除消息）。`MessagesState` 是聊天记录的便捷状态类型；Python 提供
-`lg.MessagesState` 与 `lg.RemoveMessage`。
+`RemoveMessage` 可删除消息）。`MessageGraph`（`StateGraph<MessagesState>` 类型别名）与
+`lg.message_graph()` 提供消息专用图便捷入口；`MessagesState` 是聊天记录的便捷状态类型；
+Python 提供 `lg.MessagesState` 与 `lg.RemoveMessage`。
 `JsonState` 是无 schema 的替代方案：JSON map，未声明的 channel 按 `LastValue` 处理（用
 `StateGraph::<JsonState>::with_schema` 注册 reducer）。
 
@@ -651,7 +652,7 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   `lg.RedisSaver(url)` / `lg.PostgresSaver(url)`。
 - 异步绑定（`python-async` feature）：`lg.AsyncStateGraph` 与同步 builder 对应（含
   `add_subgraph`），`await compiled.astream(...)` 收集流式 chunk（支持 `stream_mode=` 与
-  `subgraphs=`），
+  `subgraphs=`），`abatch(...)` 并发执行多组输入，
   `await compiled.ainvoke(...)` / `await compiled.aresume(...)` 返回由 Tokio 适配器驱动的
   awaitable（`compiled.get_state(...)` 保持同步）。
 - Functional API：`task = lg.task(fn, name="...")` 将结果记忆化到运行的 store；
