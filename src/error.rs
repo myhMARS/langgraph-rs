@@ -1,0 +1,114 @@
+//! Error types produced while building or executing a graph.
+
+use std::fmt;
+
+use serde_json::Value;
+
+/// Result alias used throughout the crate.
+pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// An interrupt raised by a node that is waiting for human input.
+///
+/// Interrupts are not failures: the graph state is checkpointed and execution
+/// can be continued with [`CompiledGraph::resume`](crate::CompiledGraph::resume).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Interrupt {
+    /// Node that raised the interrupt.
+    pub node: String,
+    /// Payload the node attached to the interrupt (usually a question).
+    pub value: Value,
+}
+
+impl fmt::Display for Interrupt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "node `{}` interrupted with {}", self.node, self.value)
+    }
+}
+
+impl std::error::Error for Interrupt {}
+
+/// Errors returned while building or executing a graph.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// The graph definition is inconsistent (missing entry point, unknown edge target, ...).
+    #[error("graph validation failed: {0}")]
+    Validation(String),
+    /// The configured superstep budget was exhausted.
+    #[error("recursion limit of {0} supersteps exceeded")]
+    RecursionLimit(usize),
+    /// A node returned an error.
+    #[error("node `{node}` failed: {message}")]
+    Node { node: String, message: String },
+    /// A node wrote to a channel that is not part of the state schema.
+    #[error("channel `{0}` is not declared in the state schema")]
+    UnknownChannel(String),
+    /// Two nodes wrote to a plain `LastValue` channel within the same superstep.
+    #[error(
+        "conflicting concurrent writes to channel `{channel}` (nodes: {nodes}); declare a reducer for this channel"
+    )]
+    ConcurrentUpdate { channel: String, nodes: String },
+    /// A node requested human input.
+    #[error(transparent)]
+    Interrupt(#[from] Interrupt),
+    /// A router returned a target that does not exist or is not a valid destination.
+    #[error("invalid route from `{node}`: {message}")]
+    Routing { node: String, message: String },
+    /// The checkpointer failed.
+    #[error("checkpoint failure: {0}")]
+    Checkpoint(String),
+    /// Serializing or deserializing state failed.
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    /// The two sides of a graph disagree about the state type.
+    #[error("state must serialize to a JSON object, found {0}")]
+    NonObjectState(String),
+    /// An API that needs a checkpointer was called without one.
+    #[error(
+        "{0} requires a checkpointer; compile the graph with CompileOptions::with_checkpointer"
+    )]
+    MissingCheckpointer(&'static str),
+    /// Generic error used for user supplied failures.
+    #[error("{0}")]
+    Other(String),
+}
+
+impl Error {
+    /// Build a graph validation error.
+    pub fn validation(message: impl Into<String>) -> Self {
+        Error::Validation(message.into())
+    }
+
+    /// Build a generic error.
+    pub fn other(message: impl Into<String>) -> Self {
+        Error::Other(message.into())
+    }
+
+    /// Build a node error.
+    pub fn node(node: impl Into<String>, message: impl fmt::Display) -> Self {
+        Error::Node {
+            node: node.into(),
+            message: message.to_string(),
+        }
+    }
+
+    /// Build a routing error.
+    pub fn routing(node: impl Into<String>, message: impl fmt::Display) -> Self {
+        Error::Routing {
+            node: node.into(),
+            message: message.to_string(),
+        }
+    }
+
+    /// Returns `true` when the error is a human-in-the-loop interrupt.
+    pub fn is_interrupt(&self) -> bool {
+        matches!(self, Error::Interrupt(_))
+    }
+
+    /// Returns the interrupt payload when this error is an interrupt.
+    pub fn interrupt(&self) -> Option<&Interrupt> {
+        match self {
+            Error::Interrupt(interrupt) => Some(interrupt),
+            _ => None,
+        }
+    }
+}
