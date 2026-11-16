@@ -297,8 +297,10 @@ pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Re
     })
 }
 
-/// Validate a resume value against a (small) subset of JSON schema: `type`, `enum`,
-/// `required`, `properties` and `items`.
+/// Validate a resume value against the supported JSON-schema subset:
+/// `type` (string or array), `const`, `enum`, `anyOf`/`oneOf`/`allOf`, `not`,
+/// `required`, `properties`, `additionalProperties`, `items`, numeric bounds,
+/// string lengths, array size/unique items and object property counts.
 pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result<()> {
     let Some(schema) = schema else {
         return Ok(());
@@ -306,22 +308,24 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     let Some(object) = schema.as_object() else {
         return Ok(());
     };
-    if let Some(kind) = object.get("type").and_then(Value::as_str) {
-        let matches = match kind {
-            "string" => value.is_string(),
-            "number" => value.is_number(),
-            "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
-            "boolean" => value.is_boolean(),
-            "array" => value.is_array(),
-            "object" => value.is_object(),
-            "null" => value.is_null(),
-            _ => true,
+    if let Some(kind) = object.get("type") {
+        let types: Vec<&str> = match kind {
+            Value::String(kind) => vec![kind.as_str()],
+            Value::Array(kinds) => kinds.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
         };
-        if !matches {
+        if !types.is_empty() && !types.iter().any(|kind| matches_type(value, kind)) {
             return Err(Error::other(format!(
-                "resume value does not match response_schema type `{kind}`: {value}"
+                "resume value does not match response_schema type {types:?}: {value}"
             )));
         }
+    }
+    if let Some(expected) = object.get("const")
+        && expected != value
+    {
+        return Err(Error::other(format!(
+            "resume value does not match response_schema const `{expected}`: {value}"
+        )));
     }
     if let Some(enum_values) = object.get("enum").and_then(Value::as_array)
         && !enum_values.iter().any(|candidate| candidate == value)
@@ -330,30 +334,197 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
             "resume value is not one of the response_schema enum values: {value}"
         )));
     }
-    if let Some(required) = object.get("required").and_then(Value::as_array) {
-        for key in required.iter().filter_map(Value::as_str) {
-            if value.get(key).is_none() {
-                return Err(Error::other(format!(
-                    "resume value is missing required response_schema property `{key}`"
-                )));
+    if let Some(any_of) = object.get("anyOf").and_then(Value::as_array)
+        && !any_of
+            .iter()
+            .any(|candidate| validate_response(value, Some(candidate)).is_ok())
+    {
+        return Err(Error::other(format!(
+            "resume value does not match any response_schema anyOf branch: {value}"
+        )));
+    }
+    if let Some(one_of) = object.get("oneOf").and_then(Value::as_array) {
+        let matches = one_of
+            .iter()
+            .filter(|candidate| validate_response(value, Some(candidate)).is_ok())
+            .count();
+        if matches != 1 {
+            return Err(Error::other(format!(
+                "resume value matches {matches} response_schema oneOf branches (expected 1): {value}"
+            )));
+        }
+    }
+    if let Some(all_of) = object.get("allOf").and_then(Value::as_array) {
+        for candidate in all_of {
+            validate_response(value, Some(candidate))?;
+        }
+    }
+    if let Some(not) = object.get("not")
+        && validate_response(value, Some(not)).is_ok()
+    {
+        return Err(Error::other(format!(
+            "resume value matches a response_schema `not` branch: {value}"
+        )));
+    }
+    if let Some(number) = value.as_f64() {
+        if let Some(minimum) = object.get("minimum").and_then(Value::as_f64)
+            && number < minimum
+        {
+            return Err(Error::other(format!(
+                "resume value is below response_schema minimum {minimum}: {value}"
+            )));
+        }
+        if let Some(maximum) = object.get("maximum").and_then(Value::as_f64)
+            && number > maximum
+        {
+            return Err(Error::other(format!(
+                "resume value is above response_schema maximum {maximum}: {value}"
+            )));
+        }
+        if let Some(minimum) = object.get("exclusiveMinimum").and_then(Value::as_f64)
+            && number <= minimum
+        {
+            return Err(Error::other(format!(
+                "resume value is not above response_schema exclusiveMinimum {minimum}: {value}"
+            )));
+        }
+        if let Some(maximum) = object.get("exclusiveMaximum").and_then(Value::as_f64)
+            && number >= maximum
+        {
+            return Err(Error::other(format!(
+                "resume value is not below response_schema exclusiveMaximum {maximum}: {value}"
+            )));
+        }
+        if let Some(step) = object.get("multipleOf").and_then(Value::as_f64)
+            && step > 0.0
+            && (number / step - (number / step).round()).abs() > 1e-9
+        {
+            return Err(Error::other(format!(
+                "resume value is not a multiple of response_schema multipleOf {step}: {value}"
+            )));
+        }
+    }
+    if let Some(string) = value.as_str() {
+        let length = string.chars().count();
+        if let Some(min_length) = object.get("minLength").and_then(Value::as_u64)
+            && (length as u64) < min_length
+        {
+            return Err(Error::other(format!(
+                "resume value is shorter than response_schema minLength {min_length}: {value}"
+            )));
+        }
+        if let Some(max_length) = object.get("maxLength").and_then(Value::as_u64)
+            && (length as u64) > max_length
+        {
+            return Err(Error::other(format!(
+                "resume value is longer than response_schema maxLength {max_length}: {value}"
+            )));
+        }
+    }
+    if let Some(array) = value.as_array() {
+        if let Some(min_items) = object.get("minItems").and_then(Value::as_u64)
+            && (array.len() as u64) < min_items
+        {
+            return Err(Error::other(format!(
+                "resume value has fewer than response_schema minItems {min_items}: {value}"
+            )));
+        }
+        if let Some(max_items) = object.get("maxItems").and_then(Value::as_u64)
+            && (array.len() as u64) > max_items
+        {
+            return Err(Error::other(format!(
+                "resume value has more than response_schema maxItems {max_items}: {value}"
+            )));
+        }
+        if object
+            .get("uniqueItems")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            for (index, item) in array.iter().enumerate() {
+                if array[..index].iter().any(|candidate| candidate == item) {
+                    return Err(Error::other(format!(
+                        "resume value violates response_schema uniqueItems: {value}"
+                    )));
+                }
             }
         }
     }
-    if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-        for (key, property_schema) in properties {
-            if let Some(property) = value.get(key) {
-                validate_response(property, Some(property_schema))?;
+    if let Some(object_value) = value.as_object() {
+        if let Some(required) = object.get("required").and_then(Value::as_array) {
+            for key in required.iter().filter_map(Value::as_str) {
+                if object_value.get(key).is_none() {
+                    return Err(Error::other(format!(
+                        "resume value is missing required response_schema property `{key}`"
+                    )));
+                }
             }
+        }
+        if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+            for (key, property_schema) in properties {
+                if let Some(property) = object_value.get(key) {
+                    validate_response(property, Some(property_schema))?;
+                }
+            }
+        }
+        if object.get("additionalProperties").and_then(Value::as_bool) == Some(false)
+            && let Some(properties) = object.get("properties").and_then(Value::as_object)
+        {
+            for key in object_value.keys() {
+                if !properties.contains_key(key) {
+                    return Err(Error::other(format!(
+                        "resume value has response_schema additionalProperties=false but contains `{key}`"
+                    )));
+                }
+            }
+        }
+        if let Some(min_properties) = object.get("minProperties").and_then(Value::as_u64)
+            && (object_value.len() as u64) < min_properties
+        {
+            return Err(Error::other(format!(
+                "resume value has fewer than response_schema minProperties {min_properties}: {value}"
+            )));
+        }
+        if let Some(max_properties) = object.get("maxProperties").and_then(Value::as_u64)
+            && (object_value.len() as u64) > max_properties
+        {
+            return Err(Error::other(format!(
+                "resume value has more than response_schema maxProperties {max_properties}: {value}"
+            )));
         }
     }
     if let Some(items) = object.get("items")
         && let Some(array) = value.as_array()
     {
-        for item in array {
-            validate_response(item, Some(items))?;
+        match items {
+            Value::Array(tuple_schemas) => {
+                for (index, item) in array.iter().enumerate() {
+                    if let Some(item_schema) = tuple_schemas.get(index) {
+                        validate_response(item, Some(item_schema))?;
+                    }
+                }
+            }
+            schema => {
+                for item in array {
+                    validate_response(item, Some(schema))?;
+                }
+            }
         }
     }
     Ok(())
+}
+
+fn matches_type(value: &Value, kind: &str) -> bool {
+    match kind {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "boolean" => value.is_boolean(),
+        "array" => value.is_array(),
+        "object" => value.is_object(),
+        "null" => value.is_null(),
+        _ => true,
+    }
 }
 
 /// LangGraph-style config of the current run (`configurable.thread_id` / `checkpoint_ns`).
@@ -499,6 +670,88 @@ pub(crate) fn load_task_results(results: &Map<String, Value>) {
 /// Snapshot of the memoized task results for checkpoint persistence.
 pub(crate) fn snapshot_task_results() -> Map<String, Value> {
     TASK_RESULTS.with(|slot| slot.borrow().clone())
+}
+
+#[cfg(test)]
+mod response_schema_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn validates_rich_keywords() {
+        let schema = json!({
+            "type": "object",
+            "required": ["choice"],
+            "additionalProperties": false,
+            "properties": {
+                "choice": {
+                    "anyOf": [
+                        {"const": "yes"},
+                        {"type": "integer", "minimum": 1}
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 2}
+                },
+                "code": {"type": ["string", "null"], "maxLength": 4}
+            }
+        });
+        validate_response(
+            &json!({"choice": "yes", "tags": ["ab", "cd"], "code": null}),
+            Some(&schema),
+        )
+        .unwrap();
+        validate_response(&json!({"choice": 2, "tags": ["ab"]}), Some(&schema)).unwrap();
+        assert!(validate_response(&json!({"choice": 0}), Some(&schema)).is_err());
+        assert!(
+            validate_response(&json!({"choice": "yes", "tags": ["a"]}), Some(&schema)).is_err()
+        );
+        assert!(
+            validate_response(
+                &json!({"choice": "yes", "tags": ["ab", "ab"]}),
+                Some(&schema)
+            )
+            .is_err()
+        );
+        assert!(
+            validate_response(
+                &json!({"choice": "yes", "tags": ["ab"], "extra": 1}),
+                Some(&schema)
+            )
+            .is_err()
+        );
+        assert!(
+            validate_response(
+                &json!({"choice": "yes", "tags": ["ab"], "code": "toolong"}),
+                Some(&schema)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn validates_one_of_all_of_not_and_bounds() {
+        let one_of = json!({"oneOf": [{"type": "integer"}, {"type": "string"}]});
+        assert!(validate_response(&json!(true), Some(&one_of)).is_err());
+        validate_response(&json!(1), Some(&one_of)).unwrap();
+
+        let all_of = json!({"allOf": [{"type": "integer"}, {"minimum": 2}]});
+        validate_response(&json!(3), Some(&all_of)).unwrap();
+        assert!(validate_response(&json!(1), Some(&all_of)).is_err());
+
+        let not = json!({"not": {"type": "string"}});
+        validate_response(&json!(1), Some(&not)).unwrap();
+        assert!(validate_response(&json!("x"), Some(&not)).is_err());
+
+        let bounds =
+            json!({"type": "number", "exclusiveMinimum": 0, "maximum": 10, "multipleOf": 2});
+        validate_response(&json!(4), Some(&bounds)).unwrap();
+        assert!(validate_response(&json!(0), Some(&bounds)).is_err());
+        assert!(validate_response(&json!(3), Some(&bounds)).is_err());
+    }
 }
 
 #[cfg(test)]

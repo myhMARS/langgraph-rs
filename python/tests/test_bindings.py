@@ -1465,5 +1465,42 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIsNone(store.get(["mem"], "greeting"))
 
 
+    def test_interrupt_response_schema_rich(self):
+        schema = {
+            "type": "object",
+            "required": ["choice"],
+            "properties": {
+                "choice": {
+                    "anyOf": [
+                        {"const": "yes"},
+                        {"type": "integer", "minimum": 2},
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 2},
+                },
+            },
+        }
+
+        def ask(state):
+            lg.interrupt({"question": "pick"}, response_schema=schema)
+            return {}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({}, thread_id="py-schema-rich")
+        with self.assertRaises(Exception):
+            compiled.resume("py-schema-rich", {"choice": "no"})
+        with self.assertRaises(Exception):
+            compiled.resume("py-schema-rich", {"choice": 2, "tags": ["a"]})
+        compiled.resume("py-schema-rich", {"choice": 2, "tags": ["ok"]})
+
+
 if __name__ == "__main__":
     unittest.main()
