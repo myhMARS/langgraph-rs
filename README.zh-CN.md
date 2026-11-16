@@ -620,6 +620,7 @@ for execution in report.executions() {
 ```bash
 pip install maturin
 maturin develop --features python     # 安装 `langgraph_rs` 到当前 venv
+maturin develop --features "python python-async"   # 增加 AsyncStateGraph/ainvoke/aresume
 python python/examples/quickstart.py
 ```
 
@@ -648,6 +649,9 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`；启用 `sqlite` feature 时支持
   `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`，启用 `redis` / `postgres` feature 时支持
   `lg.RedisSaver(url)` / `lg.PostgresSaver(url)`。
+- 异步绑定（`python-async` feature）：`lg.AsyncStateGraph` 与同步 builder 对应，
+  `await compiled.ainvoke(...)` / `await compiled.aresume(...)` 返回由 Tokio 适配器驱动的
+  awaitable（`compiled.get_state(...)` 保持同步）。
 - Functional API：`task = lg.task(fn, name="...")` 将结果记忆化到运行的 store；
   `lg.entrypoint(fn)` 返回带单个 `entrypoint` 节点的 `StateGraph`，checkpoint、interrupt 与
   store 均可继续使用；resume 后已完成任务不会重复执行。

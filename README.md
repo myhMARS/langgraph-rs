@@ -664,6 +664,7 @@ Enable the `python` feature (PyO3) to build a native extension module. With
 ```bash
 pip install maturin
 maturin develop --features python     # installs `langgraph_rs` into the active venv
+maturin develop --features "python python-async"   # adds AsyncStateGraph/ainvoke/aresume
 python python/examples/quickstart.py
 ```
 
@@ -692,6 +693,9 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())`, `lg.SqliteSaver` /
   `lg.SqliteSaver.in_memory()` with the `sqlite` feature, and `lg.RedisSaver(url)` /
   `lg.PostgresSaver(url)` with the `redis` / `postgres` features.
+- Async bindings (`python-async` feature): `lg.AsyncStateGraph` mirrors the builder and
+  `await compiled.ainvoke(...)` / `await compiled.aresume(...)` are awaitables backed by the
+  Tokio adapter (`compiled.get_state(...)` stays synchronous).
 - Functional API: `task = lg.task(fn, name="...")` memoizes results in the run's store;
   `lg.entrypoint(fn)` returns a `StateGraph` with one `entrypoint` node, so checkpoints,
   interrupts and stores keep working. Completed tasks are not re-run after resume.

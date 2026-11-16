@@ -23,6 +23,7 @@ thiserror = "2"
 # Optional Python bindings. Build with `--features python` and import the resulting
 # extension module (or use maturin with the bundled pyproject.toml).
 pyo3 = { version = "0.29", optional = true, features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.29", optional = true, features = ["tokio-runtime"] }
 
 # Optional Tokio integration: `AsyncStateGraph` for async nodes and concurrent
 # supersteps on a Tokio runtime.
@@ -37,6 +38,7 @@ postgres = { version = "0.19", optional = true }
 [features]
 default = []
 python = ["dep:pyo3"]
+python-async = ["python", "async", "dep:pyo3-async-runtimes"]
 async = ["dep:tokio", "dep:futures"]
 sqlite = ["dep:rusqlite"]
 redis = ["dep:redis"]

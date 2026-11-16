@@ -16,6 +16,8 @@
 //! compiled.invoke({"count": 0, "log": []})
 //! ```
 
+#[cfg(feature = "python-async")]
+mod async_graph;
 mod convert;
 mod graph;
 mod types;
@@ -25,6 +27,8 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
+#[cfg(feature = "python-async")]
+use async_graph::{PyAsyncCompiledGraph, PyAsyncStateGraph};
 use convert::*;
 use graph::{PyCompiledGraph, PyStateGraph};
 #[cfg(feature = "postgres")]
@@ -196,6 +200,11 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInMemoryStore>()?;
     module.add_class::<PyTask>()?;
     module.add_class::<PyRemoveMessage>()?;
+    #[cfg(feature = "python-async")]
+    {
+        module.add_class::<PyAsyncStateGraph>()?;
+        module.add_class::<PyAsyncCompiledGraph>()?;
+    }
     let messages_state = PyDict::new(module.py());
     messages_state.set_item("messages", "add_messages")?;
     module.add("MessagesState", messages_state)?;

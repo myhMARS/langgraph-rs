@@ -62,7 +62,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build the extension module
-        run: cargo build --features python
+        run: cargo build --features "python python-async"
 
       - name: Make the module importable
         run: |

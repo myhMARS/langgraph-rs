@@ -27,6 +27,7 @@ use crate::{END, START};
 /// Mirrors the synchronous [`StateGraph`](crate::StateGraph) surface for async node
 /// closures and adds checkpointing, interrupts, retries and error routing. See the
 /// [module docs](crate::tokio_runtime) for an example.
+#[derive(Clone)]
 pub struct AsyncStateGraph<S: State> {
     pub(crate) schema: StateSchema,
     pub(crate) nodes: IndexMap<String, AsyncNodeFn<S>>,
