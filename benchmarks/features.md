@@ -23,8 +23,10 @@ capability exists but with documented differences (see the notes column and
 | Streaming (`astream` / `stream`) | ✅ `StreamChunk` (values/updates/custom/interrupt/checkpoint/usage) | ✅ `stream_mode` values/updates/custom/messages/debug | Rust eager chunks, synchronous sink |
 | Node-level consumption tracking | ✅ `Usage` + `NodeExecution` + `RunReport` + `TraceSink` | ⚠️ via callbacks/metadata, not first-class | Rust reports duration + tokens/model/cost per node automatically |
 | Trace/metering adapters | ✅ `TraceSink` port | ✅ callbacks / LangSmith | plug any sink (logging, metrics, OTel) |
-| Subgraphs | ⚠️ call a compiled graph inside a node manually | ✅ first-class subgraphs | no state mapping / checkpoint namespacing yet |
-| Async nodes / runtime integration | ⚠️ block inside a sync node | ✅ native async | planned |
+| Subgraphs | ✅ `add_subgraph` | ✅ first-class subgraphs | shares the parent state type; publishes changed channels as replacements; no state mapping, checkpoint namespacing or nested interrupts yet |
+| Async nodes / runtime integration | ✅ Tokio adapter (`async` feature) | ✅ native async | the default engine is synchronous; async nodes use `AsyncContext` and the async adapter has no checkpoints/HITL/retries yet |
+| Retry policies | ✅ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy` | interrupts are never retried |
+| Error routing / fallback nodes | ✅ `add_error_edge` + `last_error()` | ✅ conditional edges / error handling | handler runs in the next superstep and receives a `NodeFailure` |
 | Python API | ✅ PyO3 bindings (`python` feature) | ✅ native | Rust exposes `StateGraph`/`CompiledGraph`, `interrupt`, `resume`, `run` reports; only built-in reducers from Python |
 | Graph visualisation | ❌ (Mermaid can be generated from the builder later) | ✅ `get_graph().draw_mermaid()` | roadmap |
 | Durable/remote checkpoint backends | ⚠️ trait only, memory saver ships | ✅ SQLite/Postgres/Redis | roadmap |

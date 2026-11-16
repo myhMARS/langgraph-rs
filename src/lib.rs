@@ -22,6 +22,10 @@
 //!   per-node usage records
 //! - per-node consumption tracking ([`record_usage`], [`Usage`], [`RunReport`]): tokens,
 //!   cost, wall-clock duration and aggregated totals per node and per run
+//! - retry policies ([`RetryPolicy`]) with exponential backoff, and error routing to
+//!   handler nodes ([`StateGraph::add_error_edge`] / [`last_error`])
+//! - subgraphs: embed a compiled graph as a node with [`StateGraph::add_subgraph`]
+//! - an optional Tokio async adapter (`async` feature, module [`tokio_runtime`])
 //! - optional Python bindings behind the `python` feature (PyO3), exposing the same engine
 //!   to Python callables
 //!
@@ -88,6 +92,9 @@ mod kernel;
 
 #[cfg(feature = "python")]
 pub use adapters::python;
+
+#[cfg(feature = "async")]
+pub use adapters::tokio_runtime;
 
 pub use adapters::memory::{InMemorySaver, MemorySaver};
 pub use kernel::channel::{Channel, Reducer, reducers};

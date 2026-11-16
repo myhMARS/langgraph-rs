@@ -26,6 +26,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
 | `kernel::stream` | `StreamChunk` and accessors, produced by the executor. |
 | `adapters::python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
+| `adapters::tokio_runtime` | Tokio async adapter (feature `async`): `AsyncStateGraph`, `AsyncCompiledGraph`, `AsyncContext`; reuses kernel state/scheduling. |
 | `kernel::ports` | Ports: `Checkpointer` (persistence) and `TraceSink` (consumption records); the only contracts the kernel depends on. |
 | `kernel::plugin` | Microkernel registry: `Kernel`, `KernelBuilder`, `Plugin`, `ChannelFactory`, `BuiltinChannels`. |
 | `adapters::memory` | `InMemorySaver` / `MemorySaver`: the in-memory checkpointer adapter. |
@@ -84,9 +85,12 @@ As implemented in `executor::execute`:
    with a `null` payload and return `Error::Interrupt`.
 8. **Run the superstep.** One task runs inline; two or more run on `std::thread::scope`
    handles joined in task order. `run_task` picks the node, chooses `task.input` (for
-   `Send`) or a clone of the state, installs `TaskContext { node, resume_value }`, measures the
-   wall-clock duration and calls the node. `Error::Interrupt` is re-tagged with the node name;
-   other errors become `Error::Node { node, message }`.
+   `Send`) or a clone of the state, installs `TaskContext { node, resume_value, error }`,
+   measures the wall-clock duration and calls the node. Node errors are retried according to
+   the node's `RetryPolicy` (interrupts are never retried). A permanent failure becomes a
+   `NodeFailure { node, message, attempts }`; if the graph has an `add_error_edge` handler the
+   failure is queued as a handler task (visible through `last_error()`), otherwise the run
+   aborts with `Error::Node`.
 9. **Record usage.** Each result's `record_usage` / `record_tokens` calls and any
    `NodeOutput::with_usage` value are merged into one `Usage`; a `NodeExecution` (node, step,
    duration, usage) is appended to the run's `RunReport` and emitted as
@@ -277,6 +281,48 @@ translation layer over the Rust engine:
   `{"state": ..., "report": ...}`; `stream` returns chunk dicts; checkpoint queries return
   snapshot dicts.
 
+## Retries, error routing and subgraphs
+
+- **Retries.** `StateGraph::set_retry` / `add_node_with_retry` attach a `RetryPolicy`
+  (`max_attempts`, `initial_backoff`, `multiplier`, `max_backoff`). `superstep::run_task`
+  loops over attempts, sleeps the backoff between them, sums the usage of all attempts and
+  records the attempt count on `NodeExecution`. `Error::Interrupt` short-circuits the retry
+  loop.
+- **Error routing.** `add_error_edge(from, handler)` registers a fallback node. When a node
+  fails permanently, the executor records the failure (trace sink + `NodeExecution.error`),
+  queues `Task { node: handler, error: Some(failure) }` for the next superstep and skips the
+  failed node's outgoing edges. The handler sees the failure through the thread-local
+  `last_error()`. Handler tasks are de-duplicated per superstep and take precedence over a
+  normal edge to the same node; the failure travels through checkpoints, so resuming a run
+  paused inside a handler keeps the error context.
+- **Subgraphs.** `add_subgraph(name, Arc<CompiledGraph<S>>)` wraps the compiled graph in a
+  normal node: it invokes the subgraph with the parent state, compares the serialized
+  before/after states and emits `NodeOutput::replace` writes for every changed channel.
+  `replace` bypasses reducers, so parent reducer channels are not appended twice; the
+  executor applies replacements after the regular channel merge (and still validates that
+  strict schemas declare them). Subgraphs share the state type and have no own checkpointer,
+  state mapping or nested interrupts — an interrupt inside a subgraph surfaces as a node
+  failure.
+
+## Async runtime adapter (Tokio)
+
+`src/adapters/tokio_runtime/` implements the `async` feature without touching the kernel:
+
+- **Builder.** `AsyncStateGraph` mirrors the sync builder for async node closures
+  `Fn(S, AsyncContext) -> impl Future<Output = Result<NodeOutput>>`; it validates the same
+  structural rules (entry point, targets, reserved names, conditional path maps).
+- **Supersteps.** All tasks of a superstep are awaited together with
+  `futures::future::join_all`, so pending I/O overlaps; results are folded in task order and
+  merged through the same `state::apply_updates` used by the sync engine. Scheduling reuses
+  `executor::scheduling::collect_next_nodes` through closures, keeping one implementation of
+  edge evaluation and de-duplication.
+- **Context.** Futures interleave, so the sync thread-local context cannot be used.
+  `AsyncContext` is an `Arc<Mutex<..>>` handle that nodes use to report usage
+  (`record_usage` / `record_tokens`), emit `custom` values, and read `last_error()`.
+- **Scope.** Nodes, static/conditional edges, goto, `Send`, usage/trace reporting and
+  streaming are supported. Checkpoints, interrupts, retries and error routing are not part of
+  the async adapter yet; use the sync engine for human-in-the-loop and durable runs.
+
 ## Extension points
 
 - **Custom checkpointer (adapter).** Implement `kernel::ports::Checkpointer` for `Send + Sync`
@@ -310,11 +356,15 @@ translation layer over the Rust engine:
 
 ## Known limitations and divergences
 
-- **Synchronous and thread-local.** Nodes cannot be `async`; there is no tokio integration or
-  cooperative cancellation, and `interrupt()`/`custom()`/`current_node()` only work on the
-  thread executing the node, so work spawned elsewhere in a node loses the context.
-- **No subgraphs.** A node may invoke another compiled graph manually, but state mapping,
-  checkpoint namespacing and nested interrupts are unsupported.
+- **Sync engine is thread-local.** The default engine runs sync nodes; `interrupt()`,
+  `custom()` and `current_node()` only work on the thread executing the node, so work spawned
+  elsewhere in a node loses the context. Async nodes live in the separate Tokio adapter and
+  use an explicit `AsyncContext` instead.
+- **Async adapter scope.** The `async` adapter has no checkpoints, interrupts, retries or error
+  routing yet, and its nodes receive the state by value (a clone per execution).
+- **Subgraphs share the state type.** `add_subgraph` embeds a compiled graph as a node with
+  `replace` writes for changed channels; per-subgraph state mapping, checkpoint namespacing
+  and nested interrupts are unsupported.
 - **All-or-nothing supersteps.** An interrupt discards the superstep's writes and re-runs its
   whole task list on resume, so side effects must be idempotent.
 - **JSON state.** No non-serializable handles; integer/float fidelity is JSON's.
@@ -330,6 +380,9 @@ translation layer over the Rust engine:
   UI — time travel is `resume_from(thread, id, value)`.
 - **Reducer errors are unwrapped**: they surface as `Error::Other` without the node name,
   unlike node errors, which are wrapped in `Error::Node`.
+- **Retry/error timing.** Backoff sleeps happen on the task thread (a parallel superstep's
+  other nodes have already joined before scheduling proceeds); only one failure per handler is
+  routed per superstep, and handler failures are not retried by the handler's own policy.
 - **Python specifics.** Only built-in reducers are available from Python; state is JSON
   (`JsonState`), `Send` is not exposed yet, and nodes/`__goto__`/`__usage__` are the supported
   return shape. Each Python node call re-acquires the GIL, so CPU-bound Python nodes do not

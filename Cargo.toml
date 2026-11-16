@@ -24,9 +24,15 @@ thiserror = "2"
 # extension module (or use maturin with the bundled pyproject.toml).
 pyo3 = { version = "0.29", optional = true, features = ["extension-module"] }
 
+# Optional Tokio integration: `AsyncStateGraph` for async nodes and concurrent
+# supersteps on a Tokio runtime.
+tokio = { version = "1", optional = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
+futures = { version = "0.3", optional = true }
+
 [features]
 default = []
 python = ["dep:pyo3"]
+async = ["dep:tokio", "dep:futures"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

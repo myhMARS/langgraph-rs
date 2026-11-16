@@ -10,7 +10,7 @@
 //! concern.
 
 mod checkpointing;
-mod scheduling;
+pub(crate) mod scheduling;
 mod superstep;
 
 use std::collections::HashSet;
@@ -242,7 +242,15 @@ pub(crate) fn execute<S: State>(
             values: Value::Object(values.clone()),
         });
 
-        let next_nodes = collect_next_nodes(graph, &state, &executed, &goto_nodes, &goto_targets)?;
+        let next_nodes = collect_next_nodes(
+            &state,
+            &executed,
+            &goto_nodes,
+            &goto_targets,
+            |node| graph.edges_of(node),
+            |node| graph.conditional_of(node),
+            |node| graph.node(node).is_some(),
+        )?;
         let mut next_tasks = next_tasks;
         // A node that already has an error-handler task in this superstep must not run
         // a second time through a regular edge.

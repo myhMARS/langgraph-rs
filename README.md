@@ -15,6 +15,12 @@ bindings for teams that need them.
   keys resolved through a `PathMap`, conditional entry points, `goto` overrides.
 - **Parallel supersteps + `Send` map/reduce** — nodes scheduled together run on scoped threads in
   one wall-clock window; `Send` adds a task per item with its own state, reduced by channel.
+- **Retries + error routing** — a per-node `RetryPolicy` (attempts, exponential backoff) and
+  `add_error_edge` fallback handlers that read the failure with `last_error()`.
+- **Subgraphs** — `add_subgraph` embeds a compiled graph as a node; it shares the state type
+  and publishes the channels it changed.
+- **Tokio async runtime (feature `async`)** — `AsyncStateGraph` runs async nodes and awaits
+  concurrent supersteps on a Tokio runtime; the sync path stays dependency-free.
 - **Checkpointing + thread history** — `InMemorySaver`, typed snapshots, parent-linked
   history and `resume_from` time travel.
 - **Human-in-the-loop** — `interrupt()` parks a run with a payload, `resume` re-executes the
@@ -224,6 +230,99 @@ assert_eq!(output.log.len(), 3);
 `Send::with_arg` replaces the target task's whole state (it must deserialize into `S`); `Send::to`
 forwards the current state. Distinct `Send`s run concurrently and merge via reducers.
 
+## Reliability: retries and error routing
+
+A node can be given a retry policy; the engine retries it automatically while it keeps
+failing. Interrupts are never retried. Once attempts are exhausted the run fails — unless
+an error edge routes the failure to a handler node, which runs in the next superstep and
+can read the failure with `last_error()`.
+
+```rust
+use std::time::Duration;
+use langgraph_rs::{Error, NodeOutput, RetryPolicy, StateGraph, WorkState, last_error};
+
+let graph = StateGraph::<WorkState>::new()
+    .add_node_with_retry(
+        "call_model",
+        RetryPolicy::new(3)
+            .with_backoff(Duration::from_millis(200))
+            .with_multiplier(2.0),
+        |state: &WorkState| call_model(state),
+    )
+    .add_node("fallback", |_state: &WorkState| {
+        let failure = last_error().expect("handler sees the failure");
+        Ok(NodeOutput::new().set("answer", format!("degraded: {}", failure.message)))
+    })
+    .add_error_edge("call_model", "fallback")
+    .set_entry_point("call_model")
+    .set_finish_point("fallback")
+    .compile()
+    .unwrap();
+```
+
+## Subgraphs
+
+`add_subgraph` embeds a compiled graph as a node. The subgraph runs against the parent
+state, and every channel it changed is written back as a **direct replacement** (bypassing
+the parent reducer), so reducer channels are not appended twice.
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{NodeOutput, RunConfig, StateGraph};
+
+let inner = Arc::new(
+    StateGraph::<WorkState>::new()
+        .add_node("step", |state: &WorkState| Ok(NodeOutput::new().set("value", state.value + 1)))
+        .set_entry_point("step")
+        .set_finish_point("step")
+        .compile()
+        .unwrap(),
+);
+
+let outer = StateGraph::<WorkState>::new()
+    .add_node("seed", |_state: &WorkState| Ok(NodeOutput::new().set("value", 10)))
+    .add_subgraph("inner", inner)
+    .set_entry_point("seed")
+    .add_edge("seed", "inner")
+    .set_finish_point("inner")
+    .compile()
+    .unwrap();
+```
+
+Subgraphs share the parent's state type; they have no separate checkpointer or state
+mapping yet, and an `interrupt()` inside a subgraph surfaces as a node failure.
+
+## Async with Tokio
+
+Enable the `async` feature for an async runtime adapter. Nodes are async closures that
+receive the state (by value) and an `AsyncContext`; supersteps are awaited concurrently
+with `futures::future::join_all`.
+
+```rust
+use langgraph_rs::tokio_runtime::AsyncStateGraph;
+use langgraph_rs::{JsonState, NodeOutput};
+
+async fn example() -> langgraph_rs::Result<()> {
+    let graph = AsyncStateGraph::<JsonState>::new()
+        .add_node("call", |_state: JsonState, ctx| async move {
+            // do async I/O here, e.g. an HTTP request to an LLM
+            ctx.record_tokens(120, 24);
+            Ok(NodeOutput::new().set("answer", "42"))
+        })
+        .set_entry_point("call")
+        .set_finish_point("call")
+        .compile()?;
+
+    let outcome = graph.run(&JsonState::default(), &Default::default()).await?;
+    assert_eq!(outcome.report.total_tokens(), 144);
+    Ok(())
+}
+```
+
+The async adapter currently covers nodes, static/conditional edges, goto, `Send`,
+usage/trace reporting and streaming. Checkpointing, interrupts, retries and error routing
+remain on the synchronous path (use the sync graph for human-in-the-loop workflows).
+
 ## Checkpointing and human-in-the-loop
 
 Attach a saver with `CompileOptions` and bind each run to a `thread_id`. The run start, every
@@ -387,13 +486,15 @@ Implemented and tested: microkernel + hexagonal layout (kernel ports, adapters, 
 strict or dynamic channel schemas; static, multi-target and conditional edges with path maps and
 conditional entry points; parallel supersteps, `Send`, `goto`; the recursion limit (25 supersteps);
 checkpointing, thread history, snapshots; `interrupt()` with before/after hooks; resume, updates,
-time travel; streaming; per-node duration/usage tracing with run reports and trace-sink adapters;
-validation and merge errors; optional Python bindings (PyO3).
+time travel; retry policies with backoff and `last_error()` error routing; subgraphs; streaming;
+per-node duration/usage tracing with run reports and trace-sink adapters; optional Tokio async
+adapter (`async` feature); validation and merge errors; optional Python bindings (PyO3); a
+functional/performance benchmark against Python LangGraph.
 
 Not implemented yet:
 
-- async nodes/tokio integration, and subgraphs as first-class nodes (drive futures inside a node,
-  or invoke a compiled graph inside one)
+- async checkpointing/HITL (the `async` adapter covers execution, streaming and usage; the sync
+  engine owns checkpoints, interrupts, retries and error routing)
 - durable checkpoint backends beyond memory (the `Checkpointer` trait is ready)
 - external persistence of graph definitions, cross-process time travel, a time-travel UI,
   node-level retries/caching, checkpoint namespaces, `Send` from routers
@@ -402,7 +503,9 @@ Not implemented yet:
 
 ## Differences from LangGraph
 
-- **Sync-first.** Nodes are `Fn(&S) -> Result<NodeOutput>`; no async Python, no event loop.
+- **Sync-first, async opt-in.** The default engine runs `Fn(&S) -> Result<NodeOutput>` nodes on
+  scoped threads; the `async` feature adds a Tokio adapter for async nodes. There is no event
+  loop in the default path.
 - **Thread-local node context.** `interrupt()`, `custom()` and `current_node()` read a
   thread-local installed per node call, so they only work on the executing thread.
 - **State must serialize to a JSON object.** Channel values are `serde_json::Value`; non-object
@@ -410,6 +513,8 @@ Not implemented yet:
 - **Supersteps run nodes during the same wall-clock window via scoped threads** — real OS
   parallelism over a shared `&State`, not cooperatively scheduled tasks.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
+- **Subgraphs share the state type** and publish changed channels as replacements; there is no
+  per-subgraph state mapping or checkpoint namespace yet.
 - **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON, and
   custom reducers must be expressed with the built-in policies (`last_value`, `topic`, `append`,
   `add`, `messages`) for now. The GIL is released around the engine, so Python callables only
@@ -419,6 +524,7 @@ Not implemented yet:
 
 ```bash
 cargo test                 # unit + integration tests
+cargo test --features async   # async (Tokio) adapter tests
 cargo test --doc           # doctests, including the quick start above
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check

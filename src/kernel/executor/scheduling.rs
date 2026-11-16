@@ -1,9 +1,12 @@
 //! Scheduling of the superstep that follows a completed one.
+//!
+//! The helpers are generic over closures instead of the compiled graph so both the
+//! synchronous kernel executor and the async runtime adapter share one implementation.
 
 use std::collections::HashSet;
 
 use crate::kernel::error::{Error, Result};
-use crate::kernel::graph::CompiledGraph;
+use crate::kernel::node::ConditionalEdge;
 use crate::kernel::state::State;
 use crate::{END, START};
 
@@ -12,12 +15,14 @@ use crate::{END, START};
 /// A node that used an explicit `goto` contributes only its goto targets; every other
 /// node contributes its static edges followed by its conditional edges, evaluated
 /// against the already merged state.
-pub(super) fn collect_next_nodes<S: State>(
-    graph: &CompiledGraph<S>,
+pub(crate) fn collect_next_nodes<'a, S: State>(
     state: &S,
     executed: &[String],
     goto_nodes: &HashSet<String>,
     goto_targets: &[(String, String)],
+    edges_of: impl Fn(&str) -> Option<&'a [String]>,
+    conditional_of: impl Fn(&str) -> Option<&'a [ConditionalEdge<S>]>,
+    node_exists: impl Fn(&str) -> bool,
 ) -> Result<Vec<String>> {
     let mut next_nodes: Vec<String> = Vec::new();
 
@@ -25,16 +30,16 @@ pub(super) fn collect_next_nodes<S: State>(
         if goto_nodes.contains(node) {
             continue;
         }
-        if let Some(targets) = graph.edges_of(node) {
+        if let Some(targets) = edges_of(node) {
             for target in targets {
-                check_target(graph, node, target)?;
+                check_target(node, target, &node_exists)?;
                 next_nodes.push(target.clone());
             }
         }
-        if let Some(edges) = graph.conditional_of(node) {
+        if let Some(edges) = conditional_of(node) {
             for edge in edges {
                 for target in edge.resolve(state, node)? {
-                    check_target(graph, node, &target)?;
+                    check_target(node, &target, &node_exists)?;
                     next_nodes.push(target);
                 }
             }
@@ -45,7 +50,7 @@ pub(super) fn collect_next_nodes<S: State>(
         if target == END {
             continue;
         }
-        check_target(graph, source, target)?;
+        check_target(source, target, &node_exists)?;
         next_nodes.push(target.clone());
     }
 
@@ -53,7 +58,7 @@ pub(super) fn collect_next_nodes<S: State>(
 }
 
 /// Drop `END`/`START` markers and de-duplicate node names, preserving first-seen order.
-pub(super) fn dedupe(nodes: Vec<String>) -> Vec<String> {
+pub(crate) fn dedupe(nodes: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut scheduled = Vec::new();
     for node in nodes {
@@ -67,7 +72,7 @@ pub(super) fn dedupe(nodes: Vec<String>) -> Vec<String> {
     scheduled
 }
 
-fn check_target<S: State>(graph: &CompiledGraph<S>, source: &str, target: &str) -> Result<()> {
+fn check_target(source: &str, target: &str, node_exists: impl Fn(&str) -> bool) -> Result<()> {
     if target == END {
         return Ok(());
     }
@@ -77,7 +82,7 @@ fn check_target<S: State>(graph: &CompiledGraph<S>, source: &str, target: &str) 
             format!("`{START}` is not a valid destination"),
         ));
     }
-    if graph.node(target).is_none() {
+    if !node_exists(target) {
         return Err(Error::routing(
             source,
             format!("unknown destination node `{target}`"),
