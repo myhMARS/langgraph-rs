@@ -239,6 +239,21 @@ assert_eq!(output.log.len(), 3);
 `Send::with_arg` replaces the target task's whole state (it must deserialize into `S`); `Send::to`
 forwards the current state. Distinct `Send`s run concurrently and merge via reducers.
 
+## Batch execution, concurrency and durability
+
+`CompiledGraph::batch` runs one graph over many inputs and returns results in input order;
+`RunConfig::with_max_concurrency(n)` bounds the number of concurrent invocations (scoped
+threads). `batch_run` additionally returns `RunOutcome` reports. `RunConfig::with_durability`
+selects `Durability::Sync` (checkpoint every superstep), `Async` (currently behaves like
+`Sync`) or `Exit` (only the initial, interrupt and final checkpoints). `add_sequence` registers
+a chain of nodes in one call and `add_edges_from` fans several sources into one target.
+
+```rust
+let results = graph.batch(inputs, &RunConfig::new().with_max_concurrency(4));
+let outcomes = graph.batch_run(inputs, &RunConfig::new());
+let config = RunConfig::new().with_durability(Durability::Exit);
+```
+
 ## Reliability: retries and error routing
 
 A node can be given a retry policy; the engine retries it automatically while it keeps

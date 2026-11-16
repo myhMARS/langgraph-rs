@@ -437,5 +437,14 @@ class PythonApiParityTests(unittest.TestCase):
         compiled.invoke({"value": 0}, thread_id="sqlite-saver")
         self.assertEqual(compiled.get_state("sqlite-saver")["values"]["value"], 1)
 
+    def test_batch_invokes_each_input(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        results = graph.compile().batch([{"value": 0}, {"value": 5}, {"value": 10}])
+        self.assertEqual([item["value"] for item in results], [1, 6, 11])
+
+
 if __name__ == "__main__":
     unittest.main()

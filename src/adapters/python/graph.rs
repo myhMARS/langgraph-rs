@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict};
+use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::*;
 use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py};
@@ -237,6 +237,26 @@ impl PyCompiledGraph {
             })
             .map_err(|error| to_pyerr(py, error))?;
         chunks.iter().map(|chunk| chunk_to_py(py, chunk)).collect()
+    }
+
+    /// Invoke the graph over a list of inputs.
+    fn batch(&self, py: Python<'_>, inputs: &Bound<'_, PyAny>) -> PyResult<Vec<Py<PyAny>>> {
+        let list = inputs
+            .cast::<PyList>()
+            .map_err(|_| PyTypeError::new_err("batch expects a list of state dicts"))?;
+        let states: Vec<JsonState> = list
+            .iter()
+            .map(|item| state_from_py(Some(&item)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let config = RunConfig::new();
+        let results = py.detach(|| self.graph.batch(states, &config));
+        results
+            .into_iter()
+            .map(|result| match result {
+                Ok(state) => json_state_to_py(py, &state),
+                Err(error) => Err(to_pyerr(py, error)),
+            })
+            .collect()
     }
 
     /// Resume an interrupted thread.

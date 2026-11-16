@@ -171,6 +171,30 @@ impl CompileOptions {
     }
 }
 
+/// Checkpoint durability policy for a run (LangGraph `durability`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Durability {
+    /// Persist a checkpoint after every superstep (default).
+    #[default]
+    Sync,
+    /// Persist asynchronously (behaves like [`Durability::Sync`] in this engine).
+    Async,
+    /// Only persist the initial, interrupt and final checkpoints.
+    Exit,
+}
+
+impl Durability {
+    /// Parse a LangGraph durability name.
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "sync" => Self::Sync,
+            "async" => Self::Async,
+            "exit" => Self::Exit,
+            _ => return None,
+        })
+    }
+}
+
 /// Per-run configuration.
 #[derive(Clone, Default)]
 pub struct RunConfig {
@@ -184,6 +208,10 @@ pub struct RunConfig {
     pub store: Option<Arc<dyn BaseStore>>,
     /// User context visible to nodes through [`current_context`](crate::current_context).
     pub context: Option<Value>,
+    /// Maximum number of concurrent graph invocations for `batch`.
+    pub max_concurrency: Option<usize>,
+    /// Checkpoint durability policy.
+    pub durability: Durability,
 }
 
 impl std::fmt::Debug for RunConfig {
@@ -194,6 +222,8 @@ impl std::fmt::Debug for RunConfig {
             .field("checkpoint_ns", &self.checkpoint_ns)
             .field("store", &self.store.is_some())
             .field("context", &self.context)
+            .field("max_concurrency", &self.max_concurrency)
+            .field("durability", &self.durability)
             .finish()
     }
 }
@@ -231,6 +261,18 @@ impl RunConfig {
     /// Provide user context visible to nodes for this run.
     pub fn with_context(mut self, context: Value) -> Self {
         self.context = Some(context);
+        self
+    }
+
+    /// Limit the number of concurrent invocations used by `batch`.
+    pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
+        self.max_concurrency = Some(max_concurrency.max(1));
+        self
+    }
+
+    /// Select the checkpoint durability policy.
+    pub fn with_durability(mut self, durability: Durability) -> Self {
+        self.durability = durability;
         self
     }
 }

@@ -22,7 +22,7 @@ use self::checkpointing::save_checkpoint;
 use self::scheduling::{collect_next_nodes, dedupe};
 use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
 use crate::kernel::error::{Error, Interrupt, Result};
-use crate::kernel::graph::{CompiledGraph, RunConfig};
+use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
 use crate::kernel::node::Task;
 use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
 use crate::kernel::stream::StreamChunk;
@@ -58,6 +58,7 @@ pub(crate) fn execute<S: State>(
         .unwrap_or_else(|| graph.recursion_limit());
     let thread_id = config.thread_id.clone();
     let namespace = config.checkpoint_ns.clone().unwrap_or_default();
+    let durability = config.durability;
     let store = config.store.clone().or_else(|| graph.store().cloned());
     let _run_guard = crate::kernel::context::install_run(
         thread_id.clone(),
@@ -301,25 +302,27 @@ pub(crate) fn execute<S: State>(
             .iter()
             .find(|node| graph.interrupts_after(node))
             .cloned();
-        save_checkpoint(
-            graph,
-            thread_id.as_deref(),
-            &namespace,
-            &mut parent,
-            &values,
-            &next_tasks,
-            step,
-            interrupt_after.is_some(),
-            false,
-            interrupt_after
-                .iter()
-                .map(|node| Interrupt {
-                    node: node.clone(),
-                    value: Value::Null,
-                })
-                .collect(),
-            sink,
-        )?;
+        if durability != Durability::Exit || interrupt_after.is_some() {
+            save_checkpoint(
+                graph,
+                thread_id.as_deref(),
+                &namespace,
+                &mut parent,
+                &values,
+                &next_tasks,
+                step,
+                interrupt_after.is_some(),
+                false,
+                interrupt_after
+                    .iter()
+                    .map(|node| Interrupt {
+                        node: node.clone(),
+                        value: Value::Null,
+                    })
+                    .collect(),
+                sink,
+            )?;
+        }
         if let Some(node) = interrupt_after {
             sink(StreamChunk::Interrupt {
                 node: node.clone(),
@@ -332,6 +335,21 @@ pub(crate) fn execute<S: State>(
         }
 
         if next_tasks.is_empty() {
+            if durability == Durability::Exit && thread_id.is_some() {
+                save_checkpoint(
+                    graph,
+                    thread_id.as_deref(),
+                    &namespace,
+                    &mut parent,
+                    &values,
+                    &[],
+                    step,
+                    false,
+                    false,
+                    Vec::new(),
+                    sink,
+                )?;
+            }
             return Ok(finish(state, report, started));
         }
         tasks = next_tasks;

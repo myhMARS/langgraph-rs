@@ -19,7 +19,7 @@ use crate::kernel::node::ConditionalEdge;
 
 pub use builder::StateGraph;
 pub use compiled::CompiledGraph;
-pub use options::{CompileOptions, DEFAULT_RECURSION_LIMIT, RunConfig, Targets};
+pub use options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, Targets};
 pub use snapshot::StateSnapshot;
 
 /// How the first superstep is chosen.

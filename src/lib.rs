@@ -121,8 +121,8 @@ pub use kernel::context::{
 };
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 pub use kernel::graph::{
-    CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, RunConfig, StateGraph, StateSnapshot,
-    Targets,
+    CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, StateGraph,
+    StateSnapshot, Targets,
 };
 pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
 pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};

@@ -213,6 +213,64 @@ impl<S: State> CompiledGraph<S> {
             .map(|outcome| outcome.state)
     }
 
+    /// Invoke the graph over several inputs, respecting `RunConfig::max_concurrency`.
+    ///
+    /// Results are returned in input order; a failed invocation does not abort the batch.
+    pub fn batch<I>(&self, inputs: I, config: &RunConfig) -> Vec<Result<S>>
+    where
+        I: IntoIterator<Item = S>,
+    {
+        let inputs: Vec<S> = inputs.into_iter().collect();
+        let max_concurrency = config.max_concurrency.unwrap_or(1).max(1);
+        if max_concurrency <= 1 || inputs.len() <= 1 {
+            return inputs
+                .into_iter()
+                .map(|input| self.invoke(&input, config))
+                .collect();
+        }
+        let mut results: Vec<Option<Result<S>>> = (0..inputs.len()).map(|_| None).collect();
+        let chunks: Vec<Vec<(usize, S)>> = inputs
+            .into_iter()
+            .enumerate()
+            .collect::<Vec<_>>()
+            .chunks(max_concurrency)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = chunks
+                .into_iter()
+                .map(|chunk| {
+                    scope.spawn(|| {
+                        chunk
+                            .into_iter()
+                            .map(|(index, input)| (index, self.invoke(&input, config)))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for handle in handles {
+                for (index, result) in handle.join().expect("batch worker panicked") {
+                    results[index] = Some(result);
+                }
+            }
+        });
+        results
+            .into_iter()
+            .map(|result| result.expect("every batch entry produced a result"))
+            .collect()
+    }
+
+    /// Batch variant of [`CompiledGraph::run`] that also returns run reports.
+    pub fn batch_run<I>(&self, inputs: I, config: &RunConfig) -> Vec<Result<RunOutcome<S>>>
+    where
+        I: IntoIterator<Item = S>,
+    {
+        inputs
+            .into_iter()
+            .map(|input| self.run(&input, config))
+            .collect()
+    }
+
     /// Stream only the selected LangGraph stream modes.
     pub fn stream_modes(
         &self,

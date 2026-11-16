@@ -211,6 +211,45 @@ impl<S: State> StateGraph<S> {
         self
     }
 
+    /// Add nodes as a sequence, chaining static edges and setting the entry/finish points.
+    ///
+    /// Nodes are passed as `(name, node_fn)` pairs; use `Arc::new(closure)` for the node
+    /// function when the sequence contains different closures (`NodeFn` is a type alias).
+    pub fn add_sequence<I, N>(mut self, nodes: I) -> Self
+    where
+        I: IntoIterator<Item = (N, crate::kernel::node::NodeFn<S>)>,
+        N: Into<String>,
+    {
+        let mut previous: Option<String> = None;
+        for (name, node) in nodes {
+            let name = name.into();
+            let node = node.clone();
+            self = self.add_node(name.clone(), move |state: &S| node(state));
+            match previous.take() {
+                Some(previous) => self = self.add_edge(previous, name.clone()),
+                None => self = self.set_entry_point(name.clone()),
+            }
+            previous = Some(name);
+        }
+        if let Some(last) = previous {
+            self = self.set_finish_point(last);
+        }
+        self
+    }
+
+    /// Add static edges from several sources to one target.
+    pub fn add_edges_from<I, N>(mut self, sources: I, to: impl Into<String>) -> Self
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        let target = to.into();
+        for source in sources {
+            self = self.add_edge(source.into(), target.clone());
+        }
+        self
+    }
+
     /// Add a conditional edge whose router returns node names directly.
     pub fn add_conditional_edges<F>(self, from: impl Into<String>, router: F) -> Self
     where

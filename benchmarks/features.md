@@ -41,10 +41,11 @@ below is the complete audit.
 | Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
 | Extra channel types | ❌ | ✅ `EphemeralValue`, `AnyValue`, `NamedBarrierValue`, `UntrackedValue`, `LastValueAfterFinish`, `DeltaChannel` | |
 | `add_messages` semantics | ⚠️ id-based replace/append (`reducers::messages`) | ✅ `add_messages` incl. `RemoveMessage` | no remove/delete messages; no `MessagesState` / `MessageGraph` |
-| Static edges | ✅ | ✅ | `add_edge` takes one source string; LangGraph also accepts a list of sources |
+| Static edges | ✅ | ✅ | `add_edge` takes one source; `add_edges_from` fans several sources into one target |
 | Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
-| `add_sequence` | ❌ | ✅ | |
+| `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
+| Node metadata / `input_schema` / `destinations` / custom names | ❌ | ✅ | node options are not modelled |
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` | ✅ `Send` (node, arg, timeout) | ours has no per-`Send` timeout |
 | `Send` from routers / conditional edges | ❌ | ✅ | our routers return destinations only |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
@@ -61,9 +62,9 @@ below is the complete audit.
 | Parallel superstep execution | ✅ scoped OS threads | ✅ asyncio tasks | CPU parallelism vs cooperative concurrency |
 | Deterministic channel merge | ✅ task-order merge | ✅ | |
 | Async engine | ⚠️ separate `AsyncStateGraph` adapter | ✅ native `ainvoke`/`astream` | see Async row |
-| Batch (`batch` / `abatch`) | ❌ | ✅ | |
-| `max_concurrency` / run control | ❌ | ✅ `max_concurrency`, `RunControl` | |
-| Durability modes | ❌ | ✅ `durability=` | |
+| Batch (`batch` / `abatch`) | ⚠️ sync `batch` / `batch_run` (+ Python `batch`); no async batch | ✅ | results stay in input order, failures are per item |
+| `max_concurrency` / run control | ⚠️ `RunConfig::max_concurrency` bounds `batch` workers; no `RunControl` | ✅ `max_concurrency`, `RunControl` | |
+| Durability modes | ⚠️ `Durability::{Sync, Async, Exit}` (`Async` behaves like `Sync`) | ✅ `durability=` | `Exit` persists only initial/interrupt/final checkpoints |
 | Context / runtime injection (`Runtime`, `context_schema`) | ❌ | ✅ | |
 | `get_config` / `get_stream_writer` | ⚠️ thread-local `custom()` only | ✅ context helpers | no config object |
 | Managed values (`IsLastStep`, `RemainingSteps`) | ❌ | ✅ `langgraph.managed` | |

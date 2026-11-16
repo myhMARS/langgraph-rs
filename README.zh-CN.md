@@ -226,6 +226,20 @@ assert_eq!(output.log.len(), 3);
 `Send::with_arg` 替换目标任务的全部状态（必须能反序列化为 `S`）；`Send::to` 转发当前状态。不同的
 `Send` 并发执行并通过 reducer 合并。
 
+## 批量执行、并发与持久化策略
+
+`CompiledGraph::batch` 在一组输入上运行同一张图，结果按输入顺序返回；
+`RunConfig::with_max_concurrency(n)` 限制并发调用数（scoped 线程）。`batch_run` 额外返回
+`RunOutcome` 报告。`RunConfig::with_durability` 选择 `Durability::Sync`（每个 superstep 写
+checkpoint）、`Async`（当前等同 `Sync`）或 `Exit`（只写初始、中断和最终 checkpoint）。
+`add_sequence` 一次注册链式节点，`add_edges_from` 支持多源汇入同一目标。
+
+```rust
+let results = graph.batch(inputs, &RunConfig::new().with_max_concurrency(4));
+let outcomes = graph.batch_run(inputs, &RunConfig::new());
+let config = RunConfig::new().with_durability(Durability::Exit);
+```
+
 ## 可靠性：重试与错误路由
 
 节点可配置重试策略；失败时引擎自动重试。中断永不重试。重试耗尽后运行失败——除非配置了错误边，
