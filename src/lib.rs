@@ -85,6 +85,9 @@ mod state;
 mod stream;
 mod usage;
 
+#[cfg(feature = "python")]
+pub mod python;
+
 pub use channel::{Channel, Reducer, reducers};
 pub use checkpoint::{Checkpoint, Checkpointer, InMemorySaver, MemorySaver};
 pub use command::Command;

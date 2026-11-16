@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "langgraph-rs"
+version = "0.1.0"
+description = "Python bindings for langgraph-rs, a Rust port of LangGraph's stateful node orchestration engine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "myhMARS" }]
+keywords = ["langgraph", "graph", "agent", "orchestration", "workflow"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Repository = "https://github.com/myhMARS/langgraph-rs"
+
+[tool.maturin]
+features = ["python"]
+module-name = "langgraph_rs"

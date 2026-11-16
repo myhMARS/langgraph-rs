@@ -10,11 +10,23 @@ readme = "README.md"
 keywords = ["langgraph", "graph", "agent", "orchestration", "workflow"]
 categories = ["asynchronous", "data-structures"]
 
+[lib]
+name = "langgraph_rs"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 indexmap = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# Optional Python bindings. Build with `--features python` and import the resulting
+# extension module (or use maturin with the bundled pyproject.toml).
+pyo3 = { version = "0.29", optional = true, features = ["extension-module"] }
+
+[features]
+default = []
+python = ["dep:pyo3"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

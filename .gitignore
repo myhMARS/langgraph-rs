@@ -2,3 +2,11 @@
 .idea/
 *.iml
 .DS_Store
+/vendor
+/.cargo/config.toml
+*.pyd
+
+__pycache__/
+*.pyc
+*.pyo
+
