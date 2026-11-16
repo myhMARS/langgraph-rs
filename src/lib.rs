@@ -135,8 +135,24 @@ pub type AsyncPostgresSaver = PostgresSaver;
 #[cfg(feature = "redis")]
 pub use adapters::redis::RedisSaver;
 
+#[cfg(feature = "redis")]
+/// Redis-backed long-term memory store.
+pub use adapters::redis_store::RedisStore;
+
+#[cfg(feature = "redis")]
+/// Redis-backed node cache.
+pub use adapters::redis_cache::RedisCache;
+
 #[cfg(feature = "postgres")]
 pub use adapters::postgres::PostgresSaver;
+
+#[cfg(feature = "postgres")]
+/// Postgres-backed long-term memory store.
+pub use adapters::postgres_store::PostgresStore;
+
+#[cfg(feature = "postgres")]
+/// Postgres-backed node cache.
+pub use adapters::postgres_cache::PostgresCache;
 pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
 pub use kernel::checkpoint::Checkpoint;

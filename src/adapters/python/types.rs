@@ -850,6 +850,201 @@ impl PySqliteCache {
     }
 }
 
+/// Redis-backed long-term memory store (feature `redis`).
+#[cfg(feature = "redis")]
+#[pyclass(name = "RedisStore")]
+pub struct PyRedisStore {
+    pub(crate) store: Arc<dyn BaseStore>,
+}
+
+#[cfg(feature = "redis")]
+#[pymethods]
+impl PyRedisStore {
+    #[new]
+    fn new(url: &str) -> PyResult<Self> {
+        let store = crate::RedisStore::connect(url)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        namespace: Vec<String>,
+        key: String,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let value = self
+            .store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        value.map(|value| value_to_py(py, &value)).transpose()
+    }
+
+    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.store
+            .put(&namespace, &key, py_to_value(value)?)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
+        self.store
+            .delete(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let items: Vec<StoreItem> = self
+            .store
+            .search(&namespace_prefix, query.as_deref(), limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        items
+            .iter()
+            .map(|item| store_item_to_py(py, item))
+            .collect()
+    }
+
+    fn namespaces(&self) -> PyResult<Vec<Vec<String>>> {
+        self.store
+            .namespaces()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+}
+
+/// Postgres-backed long-term memory store (feature `postgres`).
+#[cfg(feature = "postgres")]
+#[pyclass(name = "PostgresStore")]
+pub struct PyPostgresStore {
+    pub(crate) store: Arc<dyn BaseStore>,
+}
+
+#[cfg(feature = "postgres")]
+#[pymethods]
+impl PyPostgresStore {
+    #[new]
+    fn new(url: &str) -> PyResult<Self> {
+        let store = crate::PostgresStore::connect(url)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        Ok(Self {
+            store: Arc::new(store),
+        })
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        namespace: Vec<String>,
+        key: String,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let value = self
+            .store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        value.map(|value| value_to_py(py, &value)).transpose()
+    }
+
+    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.store
+            .put(&namespace, &key, py_to_value(value)?)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
+        self.store
+            .delete(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let items: Vec<StoreItem> = self
+            .store
+            .search(&namespace_prefix, query.as_deref(), limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        items
+            .iter()
+            .map(|item| store_item_to_py(py, item))
+            .collect()
+    }
+
+    fn namespaces(&self) -> PyResult<Vec<Vec<String>>> {
+        self.store
+            .namespaces()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+}
+
+/// Redis-backed node cache (feature `redis`).
+#[cfg(feature = "redis")]
+#[pyclass(name = "RedisCache")]
+pub struct PyRedisCache {
+    pub(crate) inner: Arc<crate::RedisCache>,
+}
+
+#[cfg(feature = "redis")]
+#[pymethods]
+impl PyRedisCache {
+    #[new]
+    fn new(url: &str) -> PyResult<Self> {
+        let cache = crate::RedisCache::connect(url)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(cache),
+        })
+    }
+
+    fn clear(&self) -> PyResult<()> {
+        self.inner
+            .clear()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+}
+
+/// Postgres-backed node cache (feature `postgres`).
+#[cfg(feature = "postgres")]
+#[pyclass(name = "PostgresCache")]
+pub struct PyPostgresCache {
+    pub(crate) inner: Arc<crate::PostgresCache>,
+}
+
+#[cfg(feature = "postgres")]
+#[pymethods]
+impl PyPostgresCache {
+    #[new]
+    #[pyo3(signature = (url, max_entries=None))]
+    fn new(url: &str, max_entries: Option<usize>) -> PyResult<Self> {
+        let cache = crate::PostgresCache::connect(url)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        let cache = match max_entries {
+            Some(max_entries) => cache.with_max_entries(max_entries),
+            None => cache,
+        };
+        Ok(Self {
+            inner: Arc::new(cache),
+        })
+    }
+
+    fn clear(&self) -> PyResult<()> {
+        self.inner
+            .clear()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+}
+
 /// Resolve a Python `store=` keyword into a kernel store.
 pub(super) fn store_from_py(
     obj: Option<&Bound<'_, PyAny>>,
@@ -871,7 +1066,15 @@ pub(super) fn store_from_py(
     if let Ok(store) = obj.extract::<PyRef<'_, PySqliteStore>>() {
         return Ok(Some(store.store.clone()));
     }
+    #[cfg(feature = "redis")]
+    if let Ok(store) = obj.extract::<PyRef<'_, PyRedisStore>>() {
+        return Ok(Some(store.store.clone()));
+    }
+    #[cfg(feature = "postgres")]
+    if let Ok(store) = obj.extract::<PyRef<'_, PyPostgresStore>>() {
+        return Ok(Some(store.store.clone()));
+    }
     Err(PyTypeError::new_err(
-        "store must be an InMemoryStore, Store or SqliteStore object",
+        "store must be an InMemoryStore, Store, SqliteStore, RedisStore or PostgresStore object",
     ))
 }

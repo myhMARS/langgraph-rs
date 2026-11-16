@@ -42,6 +42,10 @@ use types::{
     PyCachePolicy, PyCommand, PyInMemoryCache, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage,
     PyRetryPolicy, PyRunControl, PySend, PyStore, PyStreamWriter, PyTask,
 };
+#[cfg(feature = "postgres")]
+use types::{PyPostgresCache, PyPostgresStore};
+#[cfg(feature = "redis")]
+use types::{PyRedisCache, PyRedisStore};
 #[cfg(feature = "sqlite")]
 use types::{PySqliteCache, PySqliteStore};
 
@@ -238,11 +242,25 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInMemoryCache>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteSaver>()?;
+    #[cfg(feature = "redis")]
+    module.add_class::<PyRedisSaver>()?;
+    #[cfg(feature = "postgres")]
+    module.add_class::<PyPostgresSaver>()?;
     module.add_class::<PyStore>()?;
     module.add_class::<PyInMemoryStore>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteStore>()?;
     module.add_class::<PySqliteCache>()?;
+    #[cfg(feature = "redis")]
+    {
+        module.add_class::<PyRedisStore>()?;
+        module.add_class::<PyRedisCache>()?;
+    }
+    #[cfg(feature = "postgres")]
+    {
+        module.add_class::<PyPostgresStore>()?;
+        module.add_class::<PyPostgresCache>()?;
+    }
     module.add_class::<PyTask>()?;
     module.add_class::<prebuilt::PyToolNode>()?;
     module.add_function(wrap_pyfunction!(prebuilt::tools_condition, module)?)?;
@@ -264,10 +282,6 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     let messages_state = PyDict::new(module.py());
     messages_state.set_item("messages", "add_messages")?;
     module.add("MessagesState", messages_state)?;
-    #[cfg(feature = "redis")]
-    module.add_class::<PyRedisSaver>()?;
-    #[cfg(feature = "postgres")]
-    module.add_class::<PyPostgresSaver>()?;
     module.add_function(wrap_pyfunction!(message_graph, module)?)?;
     module.add_function(wrap_pyfunction!(task, module)?)?;
     module.add_function(wrap_pyfunction!(entrypoint, module)?)?;

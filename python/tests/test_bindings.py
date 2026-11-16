@@ -12,6 +12,7 @@ or with a plain cargo build::
     python -m unittest discover -s python/tests -v
 """
 
+import os
 import unittest
 
 import langgraph_rs as lg
@@ -1575,6 +1576,34 @@ class AsyncPythonTests(unittest.TestCase):
         compiled.invoke({"value": 0})
         self.assertGreaterEqual(len(calls), 2)
         cache.clear()
+
+
+    def test_redis_and_postgres_adapters(self):
+        if not hasattr(lg, "RedisStore"):
+            self.skipTest("redis/postgres features are not built")
+        pid = str(os.getpid())
+
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            store = lg.RedisStore(redis_url)
+            namespace = ["lgrs", "py-test", pid]
+            store.put(namespace, "name", {"first": "Ada"})
+            self.assertEqual(store.get(namespace, "name"), {"first": "Ada"})
+            self.assertTrue(store.search(namespace, query="first"))
+            self.assertIn(namespace, store.namespaces())
+            cache = lg.RedisCache(redis_url)
+            cache.clear()
+
+        postgres_url = os.environ.get("POSTGRES_URL")
+        if postgres_url:
+            store = lg.PostgresStore(postgres_url)
+            namespace = ["lgrs", "py-test", pid]
+            store.put(namespace, "name", {"first": "Ada"})
+            self.assertEqual(store.get(namespace, "name"), {"first": "Ada"})
+            self.assertTrue(store.search(namespace, query="first"))
+            self.assertIn(namespace, store.namespaces())
+            cache = lg.PostgresCache(postgres_url)
+            cache.clear()
 
 
 if __name__ == "__main__":

@@ -810,8 +810,7 @@ async checkpointers offload synchronous savers through `BlockingSaver` instead o
 DB drivers; `RunControl` aborts cooperatively at superstep boundaries; the functional API
 executes tasks inline and persists completed task results in `checkpoint.task_results` (and
 optionally a `BaseStore`) instead of separate pending writes; `update_state(task_id=...)`
-infers `as_node` from the matching pending task rather than replaying task writes; node caches
-and long-term stores ship in-memory/SQLite adapters (no Redis/Postgres store or cache);
+infers `as_node` from the matching pending task rather than replaying task writes;
 `Durability::Async` currently matches `Sync`; Python nodes can be sync callables or coroutine
 functions; custom reducers are supported as Python callables in the schema.
 

@@ -14,6 +14,31 @@ jobs:
   test:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: langgraph_rs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+      POSTGRES_URL: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=langgraph_rs
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +66,10 @@ jobs:
         run: cargo test --all-targets --features async
 
       - name: Run persistence tests (SQLite)
-        run: cargo test --all-targets --features "async sqlite"
+        run: cargo test --all-targets --features "async sqlite sqlite"
+
+      - name: Run persistence tests (Redis/Postgres)
+        run: cargo test --all-targets --features "async redis postgres"
 
       - name: Run doctests
         run: cargo test --doc
@@ -52,6 +80,31 @@ jobs:
   python:
     name: python bindings
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: langgraph_rs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
+      POSTGRES_URL: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=langgraph_rs
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +118,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Build the extension module
-        run: cargo build --features "python python-async sqlite"
+        run: cargo build --features "python python-async sqlite redis postgres"
 
       - name: Make the module importable
         run: |

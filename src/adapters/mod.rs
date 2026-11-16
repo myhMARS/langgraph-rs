@@ -27,6 +27,22 @@ pub mod sqlite_cache;
 #[cfg(feature = "redis")]
 pub mod redis;
 
+/// Redis long-term memory store (feature `redis`).
+#[cfg(feature = "redis")]
+pub mod redis_store;
+
+/// Redis node cache (feature `redis`).
+#[cfg(feature = "redis")]
+pub mod redis_cache;
+
 /// Postgres checkpoint persistence (feature `postgres`).
 #[cfg(feature = "postgres")]
 pub mod postgres;
+
+/// Postgres long-term memory store (feature `postgres`).
+#[cfg(feature = "postgres")]
+pub mod postgres_store;
+
+/// Postgres node cache (feature `postgres`).
+#[cfg(feature = "postgres")]
+pub mod postgres_cache;

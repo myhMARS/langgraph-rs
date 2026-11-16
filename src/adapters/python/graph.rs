@@ -187,6 +187,10 @@ impl PyStateGraph {
                 builder = builder.with_cache(cache.inner.clone());
             } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PySqliteCache>>() {
                 builder = builder.with_cache(cache.inner.clone());
+            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyRedisCache>>() {
+                builder = builder.with_cache(cache.inner.clone());
+            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyPostgresCache>>() {
+                builder = builder.with_cache(cache.inner.clone());
             } else {
                 return Err(PyTypeError::new_err(
                     "cache must be True or an InMemoryCache object",
