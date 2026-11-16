@@ -948,5 +948,43 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(output["value"], 101)
 
 
+    def test_v2_stream_parts(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile()
+        chunks = compiled.stream(
+            {"value": 0}, stream_mode=["values", "updates"], version="v2"
+        )
+        self.assertTrue(chunks)
+        for chunk in chunks:
+            self.assertIn("type", chunk)
+            self.assertIn("ns", chunk)
+            self.assertIn("data", chunk)
+        types = {chunk["type"] for chunk in chunks}
+        self.assertIn("values", types)
+        self.assertIn("updates", types)
+
+    def test_async_v2_stream_parts(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+            graph.set_entry_point("inc")
+            graph.set_finish_point("inc")
+            compiled = graph.compile()
+            return await compiled.astream(
+                {"value": 0}, stream_mode=["values"], version="v2"
+            )
+
+        chunks = asyncio.run(scenario())
+        self.assertTrue(chunks)
+        values = [chunk for chunk in chunks if chunk["type"] == "values"]
+        self.assertTrue(values)
+        self.assertIn("data", values[0])
+
+
 if __name__ == "__main__":
     unittest.main()

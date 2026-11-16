@@ -290,7 +290,8 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[allow(clippy::too_many_arguments)]
     fn stream(
         &self,
         py: Python<'_>,
@@ -299,6 +300,7 @@ impl PyCompiledGraph {
         stream_mode: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
+        version: Option<String>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
@@ -315,7 +317,25 @@ impl PyCompiledGraph {
                 None => self.graph.stream(&state, &config),
             })
             .map_err(|error| to_pyerr(py, error))?;
-        chunks.iter().map(|chunk| chunk_to_py(py, chunk)).collect()
+        let v2 = match version.as_deref() {
+            None | Some("v1") => false,
+            Some("v2") => true,
+            Some(other) => {
+                return Err(PyTypeError::new_err(format!(
+                    "stream version must be 'v1' or 'v2', got {other:?}"
+                )));
+            }
+        };
+        chunks
+            .iter()
+            .map(|chunk| {
+                if v2 {
+                    chunk_to_py_v2(py, chunk)
+                } else {
+                    chunk_to_py(py, chunk)
+                }
+            })
+            .collect()
     }
 
     /// Invoke the graph over a list of inputs.

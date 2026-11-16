@@ -466,6 +466,93 @@ pub(super) fn snapshot_to_py(
     Ok(dict.into_any().unbind())
 }
 
+/// LangGraph v2 stream-part shape: `{type, ns, data}`.
+pub(super) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    match chunk {
+        StreamChunk::Subgraph { namespace, chunk } => {
+            let inner = chunk_to_py_v2(py, chunk)?;
+            let inner = inner.bind(py).cast::<PyDict>()?;
+            let ns: Vec<String> = if namespace.is_empty() {
+                Vec::new()
+            } else {
+                namespace.split('|').map(str::to_owned).collect()
+            };
+            inner.set_item("ns", ns)?;
+            return Ok(inner.clone().into_any().unbind());
+        }
+        StreamChunk::Values { values, .. } => {
+            dict.set_item("type", "values")?;
+            dict.set_item("data", value_to_py(py, values)?)?;
+        }
+        StreamChunk::Updates { node, update, .. } => {
+            dict.set_item("type", "updates")?;
+            let data = PyDict::new(py);
+            data.set_item(node, value_to_py(py, update)?)?;
+            dict.set_item("data", data)?;
+        }
+        StreamChunk::Custom { value, .. } => {
+            dict.set_item("type", "custom")?;
+            dict.set_item("data", value_to_py(py, value)?)?;
+        }
+        StreamChunk::Message { message, .. } => {
+            dict.set_item("type", "messages")?;
+            let data = PyList::empty(py);
+            data.append(value_to_py(py, message)?)?;
+            data.append(PyDict::new(py))?;
+            dict.set_item("data", data)?;
+        }
+        StreamChunk::Debug { payload, .. } => {
+            dict.set_item("type", "debug")?;
+            dict.set_item("data", value_to_py(py, payload)?)?;
+        }
+        StreamChunk::Task {
+            node,
+            input,
+            result,
+            error,
+            ..
+        } => {
+            dict.set_item("type", "tasks")?;
+            let data = PyDict::new(py);
+            data.set_item("node", node)?;
+            if let Some(input) = input {
+                data.set_item("input", value_to_py(py, input)?)?;
+            }
+            if let Some(result) = result {
+                data.set_item("result", value_to_py(py, result)?)?;
+            }
+            if let Some(error) = error {
+                let error = serde_json::to_value(error)
+                    .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+                data.set_item("error", value_to_py(py, &error)?)?;
+            }
+            dict.set_item("data", data)?;
+        }
+        StreamChunk::Checkpoint { checkpoint_id } => {
+            dict.set_item("type", "checkpoints")?;
+            let data = PyDict::new(py);
+            data.set_item("checkpoint_id", checkpoint_id)?;
+            dict.set_item("data", data)?;
+        }
+        StreamChunk::Interrupt { node, value } => {
+            dict.set_item("type", "interrupt")?;
+            let data = PyDict::new(py);
+            data.set_item("node", node)?;
+            data.set_item("value", value_to_py(py, value)?)?;
+            dict.set_item("data", data)?;
+        }
+        StreamChunk::Usage { execution } => {
+            dict.set_item("type", "usage")?;
+            let execution = serde_json::to_value(execution)
+                .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+            dict.set_item("data", value_to_py(py, &execution)?)?;
+        }
+    }
+    dict.set_item("ns", Vec::<String>::new())?;
+    Ok(dict.into_any().unbind())
+}
+
 pub(super) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     match chunk {

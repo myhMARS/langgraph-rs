@@ -25,7 +25,7 @@ It is **not a drop-in replacement**: the execution model differs (OS threads / T
 instead of asyncio), checkpoint payloads are not byte-compatible with LangGraph's, and a
 few APIs are spelled differently or narrower. The remaining gaps are documented in the
 matrix below. The most notable ones are: the functional API is approximated with inline
-tasks plus store memoization, LangGraph v2 stream events are not implemented,
+tasks plus store memoization, v2 stream parts are Python-only (Rust exposes the typed enum),
 `Command(graph=PARENT)` works in synchronous subgraphs but is rejected by async graphs,
 async checkpointers are aliases over the synchronous savers, and `input_schema`
 is stored as metadata without runtime validation. Everything else — graph API, channels,
@@ -118,7 +118,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `debug` / `tasks` / `checkpoints` stream modes | ✅ `StreamChunk::{Debug,Task}` + checkpoint chunks, filterable via `stream_modes` / Python `stream_mode` | ✅ | debug payloads carry step/executed/next rather than LangGraph's full payload schema |
 | Subgraph streaming (`subgraphs=True`) | ✅ `RunConfig::with_stream_subgraphs(true)` wraps child chunks in `StreamChunk::Subgraph` with a checkpoint namespace (nested namespaces joined with `|`); Python `stream(..., subgraphs=True)`; sync + async | ✅ | enable per run; default hides subgraph chunks |
 | Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` / `stream_modes` | ✅ | same chunk shapes, no v2 events |
-| v2 stream events | ❌ | ✅ `version="v2"` | |
+| v2 stream events | ⚠️ Python `stream(..., version="v2")` / `astream(..., version="v2")` return `{type, ns, data}` stream parts (values/updates/custom/messages/debug/tasks/checkpoints/interrupt/usage; subgraph chunks carry the namespace) | ✅ `version="v2"` | messages parts have no LangChain callback metadata; Rust exposes the typed `StreamChunk` enum |
 | Stream writer from arbitrary helpers | ⚠️ thread-local `custom()` | ✅ `get_stream_writer()` | |
 
 ### Subgraphs, caching, async, extras

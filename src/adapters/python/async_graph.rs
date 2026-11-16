@@ -282,7 +282,8 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable stream collection returning a list of chunk dicts.
-    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None))]
+    #[allow(clippy::too_many_arguments)]
     fn astream<'py>(
         &self,
         py: Python<'py>,
@@ -291,7 +292,17 @@ impl PyAsyncCompiledGraph {
         context: Option<&Bound<'_, PyAny>>,
         stream_mode: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
+        version: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let v2 = match version.as_deref() {
+            None | Some("v1") => false,
+            Some("v2") => true,
+            Some(other) => {
+                return Err(PyTypeError::new_err(format!(
+                    "stream version must be 'v1' or 'v2', got {other:?}"
+                )));
+            }
+        };
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
         if let Some(context) = context {
@@ -322,7 +333,12 @@ impl PyAsyncCompiledGraph {
             Python::attach(|py| {
                 let list = PyList::empty(py);
                 for chunk in &collected {
-                    list.append(chunk_to_py(py, chunk)?)?;
+                    let item = if v2 {
+                        chunk_to_py_v2(py, chunk)?
+                    } else {
+                        chunk_to_py(py, chunk)?
+                    };
+                    list.append(item)?;
                 }
                 Ok(list.into_any().unbind())
             })
