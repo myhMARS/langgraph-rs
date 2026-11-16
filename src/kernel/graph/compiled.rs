@@ -152,6 +152,28 @@ impl<S: State> CompiledGraph<S> {
         self.checkpointer.as_ref()
     }
 
+    /// Export the latest checkpoint of a thread as LangGraph-shaped JSON.
+    pub fn export_checkpoint(&self, thread_id: &str) -> Result<Option<Value>> {
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or(crate::Error::MissingCheckpointer("export_checkpoint"))?;
+        Ok(checkpointer
+            .latest(thread_id)?
+            .map(|checkpoint| crate::interop::checkpoint_to_langgraph(&checkpoint)))
+    }
+
+    /// Import a LangGraph-shaped checkpoint document as a checkpoint of `thread_id`.
+    pub fn import_checkpoint(&self, thread_id: &str, document: &Value) -> Result<()> {
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or(crate::Error::MissingCheckpointer("import_checkpoint"))?;
+        let mut checkpoint = crate::interop::checkpoint_from_langgraph(document)?;
+        checkpoint.thread_id = thread_id.to_string();
+        checkpointer.put(checkpoint)
+    }
+
     /// Default superstep budget.
     pub fn recursion_limit(&self) -> usize {
         self.recursion_limit

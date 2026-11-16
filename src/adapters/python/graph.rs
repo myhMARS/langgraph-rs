@@ -497,6 +497,44 @@ impl PyCompiledGraph {
         self.graph.to_mermaid()
     }
 
+    /// Export the latest checkpoint of a thread as LangGraph-shaped JSON.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn export_checkpoint(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let document = match checkpoint_ns {
+            Some(namespace) => self
+                .graph
+                .checkpointer()
+                .and_then(|checkpointer| checkpointer.latest_in(&thread_id, &namespace).ok())
+                .flatten()
+                .map(|checkpoint| crate::interop::checkpoint_to_langgraph(&checkpoint)),
+            None => self
+                .graph
+                .export_checkpoint(&thread_id)
+                .map_err(|error| to_pyerr(py, error))?,
+        };
+        document
+            .map(|document| value_to_py(py, &document))
+            .transpose()
+    }
+
+    /// Import a LangGraph-shaped checkpoint document as a checkpoint of `thread_id`.
+    fn import_checkpoint(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        document: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let document = py_to_value(document)?;
+        self.graph
+            .import_checkpoint(&thread_id, &document)
+            .map_err(|error| to_pyerr(py, error))
+    }
+
     /// Optional name given at compile time.
     #[getter]
     fn name(&self) -> Option<String> {

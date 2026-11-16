@@ -1237,5 +1237,20 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIn("tags", metadata)
 
 
+    def test_checkpoint_langgraph_export_import(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, thread_id="export-src")
+        document = compiled.export_checkpoint("export-src")
+        self.assertEqual(document["config"]["configurable"]["thread_id"], "export-src")
+        self.assertEqual(document["checkpoint"]["channel_values"]["value"], 1)
+        compiled.import_checkpoint("export-dst", document)
+        snapshot = compiled.get_state("export-dst")
+        self.assertEqual(snapshot["values"]["value"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

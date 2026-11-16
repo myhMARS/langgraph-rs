@@ -93,6 +93,7 @@
 
 mod adapters;
 pub mod functional;
+pub mod interop;
 mod kernel;
 pub mod prebuilt;
 

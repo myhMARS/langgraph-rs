@@ -541,6 +541,8 @@ schema 并对 resume 值做校验（`type`/`enum`/`required`/`properties`/`items
 `resume_with_updates` 在继续前应用
 人工编辑；`resume_command(thread, Command::resume(v).with_update([...]))` 是同一意图的显式 builder
 形式；`resume_from` 从旧 checkpoint 重放；`get_state_history` 返回按父链组织、最新在前的历史。
+`export_checkpoint(thread)` 以 LangGraph checkpoint tuple JSON 导出最新 checkpoint，
+`import_checkpoint(thread, doc)` 可导入该文档（JSON 级转换，非 LangGraph msgpack 数据库格式）。
 粗粒度闸门可用 `.interrupt_before(["finish"])` 或 `.interrupt_after(["ask"])`，这类暂停携带
 `null` payload，并通过 `graph.continue_thread("demo")` 继续。
 

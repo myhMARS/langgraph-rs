@@ -22,7 +22,7 @@ functionally equivalent in behaviour, with a different execution model (OS threa
 of asyncio) and a different API spelling in places.
 
 It is **not a drop-in replacement**: the execution model differs (OS threads / Tokio
-instead of asyncio), checkpoint payloads are not byte-compatible with LangGraph's, and a
+instead of asyncio), checkpoint payloads are JSON documents (LangGraph-tuple JSON export/import is provided, not its msgpack database format), and a
 few APIs are spelled differently or narrower. The remaining gaps are documented in the
 matrix below. The most notable ones are: the functional API is approximated with inline
 tasks plus store memoization, v2 stream parts are Python-only (Rust exposes the typed enum),
@@ -87,6 +87,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
 | Memory checkpointer | ✅ `InMemorySaver` | ✅ `InMemorySaver` | |
+| LangGraph checkpoint-tuple JSON interop | ⚠️ `interop::checkpoint_to_langgraph` / `checkpoint_from_langgraph`, `CompiledGraph::{export_checkpoint, import_checkpoint}` (Python `export_checkpoint`/`import_checkpoint`); `metadata.langgraph_rs` keeps pending tasks/interrupts | ✅ checkpoint tuple | JSON-level conversion; LangGraph's msgpack serializer/database formats are not read directly |
 | Persistent checkpointers (sync) | ✅ `SqliteSaver`, `RedisSaver`, `PostgresSaver` (features) | ✅ SQLite/Postgres/Redis saver packages | ours store an internal JSON format; **not interoperable** with LangGraph's checkpoint format |
 | Async checkpointers | ✅ `AsyncCheckpointer` port + `BlockingSaver` adapter (offloads a sync saver to a blocking pool on a private runtime); `AsyncStateGraph::with_async_checkpointer`; Python async graphs wrap `compile(checkpointer=...)` automatically; `Async*Saver` aliases remain | ✅ `AsyncSqliteSaver`, `AsyncPostgresSaver`, ... | I/O is offloaded rather than using native async DB drivers |
 | Checkpoint namespaces (`checkpoint_ns`) | ✅ `RunConfig::with_checkpoint_ns`, `get_state_in` / `resume_in` / `continue_thread_in` / `update_state_in`; namespace-aware queries in all adapters (sync + async) | ✅ | subgraph-internal namespace trees are still unsupported |
