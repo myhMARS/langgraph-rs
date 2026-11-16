@@ -172,6 +172,23 @@ impl Checkpointer for PostgresSaver {
         Self::collect(rows)
     }
 
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        self.lock()
+            .execute(
+                "DELETE FROM langgraph_rs_checkpoints
+                 WHERE thread_id = $1
+                   AND id NOT IN (
+                       SELECT id FROM langgraph_rs_checkpoints
+                       WHERE thread_id = $1
+                       ORDER BY step DESC, created_at DESC, id DESC
+                       LIMIT $2
+                   )",
+                &[&thread_id, &(keep_last as i64)],
+            )
+            .map_err(|error| Error::Checkpoint(format!("postgres: prune thread: {error}")))?;
+        Ok(())
+    }
+
     fn delete_thread(&self, thread_id: &str) -> Result<()> {
         self.lock()
             .execute(

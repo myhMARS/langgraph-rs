@@ -152,6 +152,29 @@ impl Checkpointer for RedisSaver {
         Ok(checkpoints)
     }
 
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        let mut connection = self.lock();
+        let ids: Vec<String> = connection
+            .zrevrange(index_key(thread_id), 0, -1)
+            .map_err(|error| Error::Checkpoint(format!("redis: read thread ids: {error}")))?;
+        let excess: Vec<&String> = ids.iter().skip(keep_last).collect();
+        if excess.is_empty() {
+            return Ok(());
+        }
+        let mut pipeline = redis::pipe();
+        for id in &excess {
+            pipeline.del(checkpoint_key(thread_id, id)).ignore();
+            pipeline.zrem(index_key(thread_id), *id).ignore();
+        }
+        if keep_last == 0 {
+            pipeline.srem(THREADS_KEY, thread_id).ignore();
+        }
+        pipeline
+            .query::<()>(&mut *connection)
+            .map_err(|error| Error::Checkpoint(format!("redis: prune thread: {error}")))?;
+        Ok(())
+    }
+
     fn delete_thread(&self, thread_id: &str) -> Result<()> {
         let mut connection = self.lock();
         let ids: Vec<String> = connection

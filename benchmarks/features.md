@@ -94,7 +94,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Pending writes / `put_writes` | ⚠️ pending `Task`s embedded in the checkpoint | ✅ separate writes + checkpoint tuple | resume replays pending tasks in both |
 | `get_state` / history | ⚠️ `get_state(thread)` / `get_state_in(thread, ns)`, `get_state_history(before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id/checkpoint_ns | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object and no interrupt/task ids |
 | `update_state` (`as_node`, `task_id`) | ⚠️ `update_state(thread, values, as_node=)` / Python; no `task_id` | ✅ | recomputes next tasks from `as_node`'s edges, or keeps pending tasks |
-| Thread management | ✅ `threads()` list, `delete_thread`, `prune_thread(thread, keep_last)` (memory/sqlite/BlockingSaver) and `copy_thread`, Rust and Python | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | redis/postgres prune falls back to unsupported |
+| Thread management | ✅ `threads()` list, `delete_thread`, `prune_thread(thread, keep_last)` (memory/sqlite/redis/postgres/BlockingSaver) and `copy_thread`, Rust and Python | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
 | Time travel | ⚠️ `resume_from(thread, checkpoint_id, value)` | ✅ `get_state_history` + replay from any config | history supports `before`/`limit`; snapshots expose LangGraph-style `config` |
 | Checkpoint metadata / created_at semantics | ⚠️ basic (`parent_id`, `created_at_millis`, `source`) | ✅ rich metadata, versions/versions_seen | our checkpoint model is simpler |
 
