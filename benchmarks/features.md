@@ -56,7 +56,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
 | `Command` | ⚠️ `Command::resume` + `with_update` for invoke input; node output supports `NodeOutput::goto` / `goto_parent` and Python `Command(update=, goto=, graph=PARENT)` in sync graphs | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | async graphs reject `graph=PARENT`; typed `Command(goto=)` node returns are spelled `NodeOutput::goto` in Rust |
 | Node metadata / input schema / destinations / name | ✅ `add_node_with_metadata` / `set_node_input_schema` / `set_destinations` (Python `add_node(..., metadata=, input_schema=, destinations=, name=)`); arbitrary node names | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | `input_schema` is stored as metadata, not enforced |
-| Deferred nodes | ❌ | ✅ `add_node(defer=True)` | |
+| Deferred nodes | ✅ `add_node_deferred` / `set_deferred` / Python `add_node(..., deferred=True)` | ✅ `add_node(defer=True)` | deferred nodes may not be entry points or have outgoing edges |
 | Graph name / graph object export | ⚠️ `compile_with(CompileOptions::with_name)` / Python `compile(name=...)`, `get_graph()` returns a `Graph` object with `draw_mermaid()` and `to_dict()` (nodes/edges/conditional edges) | ✅ `compile(name=...)`, `get_graph()` | not a full LangGraph `Graph` object (no draw_ascii/draw_png) |
 
 ### Execution
