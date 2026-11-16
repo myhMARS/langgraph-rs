@@ -2,7 +2,12 @@
 
 //! Reading a LangGraph SQLite checkpointer database.
 
-use langgraph_rs::{LangGraphSqliteReader, json};
+use std::sync::Arc;
+
+use langgraph_rs::{
+    CompileOptions, InMemorySaver, JsonState, LangGraphSqliteReader, NodeOutput, StateGraph,
+    StateSchema, interrupt, json,
+};
 
 fn fixture() -> String {
     format!(
@@ -47,4 +52,36 @@ fn reads_langgraph_checkpoints_and_normalizes_channels() {
             .iter()
             .any(|write| write.channel == "__root__" && write.value.get("value").is_some())
     );
+}
+
+#[test]
+fn reads_interrupts_and_resumes_from_an_imported_checkpoint() {
+    let path = format!(
+        "{}/tests/fixtures/langgraph_interrupt.sqlite",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let reader = LangGraphSqliteReader::open(path).unwrap();
+    let mut checkpoint = reader.latest("t1", "").unwrap().expect("latest");
+    assert_eq!(checkpoint.values.get("value"), Some(&json!(1)));
+    assert!(checkpoint.interrupted);
+    assert_eq!(checkpoint.next.len(), 1);
+    assert_eq!(checkpoint.next[0].node, "ask");
+    assert_eq!(checkpoint.interrupts.len(), 1);
+    assert_eq!(checkpoint.interrupts[0].value["q"], json!("?"));
+
+    checkpoint.thread_id = "imported-interrupt".to_string();
+    let saver = Arc::new(InMemorySaver::new());
+    langgraph_rs::Checkpointer::put(saver.as_ref(), checkpoint).unwrap();
+
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("ask", |_state: &JsonState| {
+            let answer = interrupt(json!({"q": "?"}))?;
+            Ok(NodeOutput::new().update("value", answer))
+        })
+        .set_entry_point("ask")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+    let output = graph.resume("imported-interrupt", json!(5)).unwrap();
+    assert_eq!(output.get("value"), Some(&json!(5)));
 }

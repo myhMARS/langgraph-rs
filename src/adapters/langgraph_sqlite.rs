@@ -12,7 +12,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Map, Value};
 
 use crate::kernel::checkpoint::{Checkpoint, PendingWrite};
+use crate::kernel::error::Interrupt;
 use crate::kernel::error::{Error, Result};
+use crate::kernel::node::Task;
 
 type CheckpointRow = (
     String,
@@ -99,7 +101,11 @@ impl LangGraphSqliteReader {
             .optional()
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: latest: {error}")))?;
         drop(connection);
-        row.map(Self::convert_row).transpose()
+        let Some(mut checkpoint) = row.map(Self::convert_row).transpose()? else {
+            return Ok(None);
+        };
+        self.enrich(&mut checkpoint)?;
+        Ok(Some(checkpoint))
     }
 
     /// Full history of a thread in a namespace, newest first.
@@ -126,11 +132,19 @@ impl LangGraphSqliteReader {
                 ))
             })
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: history: {error}")))?;
-        let mut checkpoints = Vec::new();
+        let mut collected: Vec<CheckpointRow> = Vec::new();
         for row in rows {
-            checkpoints.push(Self::convert_row(row.map_err(|error| {
-                Error::Checkpoint(format!("langgraph sqlite row: {error}"))
-            })?)?);
+            collected.push(
+                row.map_err(|error| Error::Checkpoint(format!("langgraph sqlite row: {error}")))?,
+            );
+        }
+        drop(statement);
+        drop(connection);
+        let mut checkpoints = Vec::with_capacity(collected.len());
+        for row in collected {
+            let mut checkpoint = Self::convert_row(row)?;
+            self.enrich(&mut checkpoint)?;
+            checkpoints.push(checkpoint);
         }
         Ok(checkpoints)
     }
@@ -164,7 +178,11 @@ impl LangGraphSqliteReader {
             .optional()
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: get: {error}")))?;
         drop(connection);
-        row.map(Self::convert_row).transpose()
+        let Some(mut checkpoint) = row.map(Self::convert_row).transpose()? else {
+            return Ok(None);
+        };
+        self.enrich(&mut checkpoint)?;
+        Ok(Some(checkpoint))
     }
 
     /// Pending writes recorded for a checkpoint.
@@ -220,6 +238,62 @@ impl LangGraphSqliteReader {
         Ok(writes)
     }
 
+    /// Fill LangGraph pending tasks from the `writes` table.
+    fn enrich(&self, checkpoint: &mut Checkpoint) -> Result<()> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare(
+                "SELECT task_id, task_path FROM writes
+                 WHERE thread_id = ?1 AND checkpoint_ns = ?2 AND checkpoint_id = ?3
+                 ORDER BY task_id, idx",
+            )
+            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
+        let rows = statement
+            .query_map(
+                params![checkpoint.thread_id, checkpoint.namespace, checkpoint.id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
+        let mut collected: Vec<(String, String)> = Vec::new();
+        for row in rows {
+            collected.push(row.map_err(|error| {
+                Error::Checkpoint(format!("langgraph sqlite writes row: {error}"))
+            })?);
+        }
+        drop(statement);
+        drop(connection);
+        let mut seen = std::collections::HashSet::new();
+        for (task_id, task_path) in collected {
+            if !seen.insert(task_id.clone()) {
+                continue;
+            }
+            let node = task_path
+                .rsplit(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if node.is_empty()
+                || node == "__start__"
+                || node == "__input__"
+                || node.starts_with("~__pregel")
+                || node.starts_with("__pregel")
+            {
+                continue;
+            }
+            checkpoint.next.push(Task {
+                id: task_id,
+                node,
+                input: None,
+                resume: None,
+                resume_history: Vec::new(),
+                error: None,
+                timeout_millis: None,
+            });
+        }
+        Ok(())
+    }
+
     fn convert_row(row: CheckpointRow) -> Result<Checkpoint> {
         let (thread_id, namespace, checkpoint_id, parent_id, checkpoint_blob, metadata_blob) = row;
         let checkpoint_blob = checkpoint_blob.ok_or_else(|| {
@@ -234,6 +308,7 @@ impl LangGraphSqliteReader {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
+        let interrupts = extract_interrupts(&channel_values);
         let values = normalize_channel_values(channel_values);
         let channel_versions = object
             .get("channel_versions")
@@ -278,6 +353,8 @@ impl LangGraphSqliteReader {
         checkpoint.channel_versions = channel_versions;
         checkpoint.versions_seen = versions_seen;
         checkpoint.updated_channels = updated_channels;
+        checkpoint.interrupted = !interrupts.is_empty();
+        checkpoint.interrupts = interrupts;
         Ok(checkpoint)
     }
 }
@@ -286,13 +363,18 @@ fn normalize_channel_values(channel_values: Map<String, Value>) -> Map<String, V
     let mut values = Map::new();
     for channel in ["__root__", "__start__"] {
         if let Some(root) = channel_values.get(channel).and_then(Value::as_object) {
-            values.extend(root.clone());
+            for (key, value) in root {
+                if key != "__interrupt__" {
+                    values.insert(key.clone(), value.clone());
+                }
+            }
         }
     }
     for (channel, value) in channel_values {
         if channel == "__root__"
             || channel == "__start__"
             || channel == "__end__"
+            || channel == "__interrupt__"
             || channel.starts_with("branch:to:")
             || value.is_null()
         {
@@ -301,6 +383,42 @@ fn normalize_channel_values(channel_values: Map<String, Value>) -> Map<String, V
         values.insert(channel, value);
     }
     values
+}
+
+fn extract_interrupts(channel_values: &Map<String, Value>) -> Vec<Interrupt> {
+    let mut raw: Vec<Value> = Vec::new();
+    if let Some(root) = channel_values.get("__root__").and_then(Value::as_object) {
+        if let Some(values) = root.get("__interrupt__").and_then(Value::as_array) {
+            raw.extend(values.clone());
+        }
+    }
+    if let Some(values) = channel_values
+        .get("__interrupt__")
+        .and_then(Value::as_array)
+    {
+        raw.extend(values.clone());
+    }
+    raw.iter()
+        .filter_map(|value| {
+            let object = value.as_object()?;
+            let payload = object.get("value").cloned().unwrap_or(Value::Null);
+            let id = object
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let response_schema = object
+                .get("response_schema")
+                .filter(|schema| !schema.is_null())
+                .cloned();
+            Some(Interrupt {
+                node: String::new(),
+                value: payload,
+                id,
+                response_schema,
+            })
+        })
+        .collect()
 }
 
 fn parse_rfc3339_millis(value: &str) -> Option<u64> {

@@ -236,10 +236,64 @@ impl<'a> Reader<'a> {
                 let len = self.read_u32()? as usize;
                 self.read_map(len)
             }
+            0xd4 => self.read_ext(1),
+            0xd5 => self.read_ext(2),
+            0xd6 => self.read_ext(4),
+            0xd7 => self.read_ext(8),
+            0xd8 => self.read_ext(16),
+            0xc7 => {
+                let len = self.read_u8()? as usize;
+                self.read_ext(len)
+            }
+            0xc8 => {
+                let len = self.read_u16()? as usize;
+                self.read_ext(len)
+            }
+            0xc9 => {
+                let len = self.read_u32()? as usize;
+                self.read_ext(len)
+            }
             other => Err(Error::other(format!(
-                "msgpack: unsupported marker 0x{other:02x} (binary/ext values are not JSON)"
+                "msgpack: unsupported marker 0x{other:02x}"
             ))),
         }
+    }
+
+    fn read_ext(&mut self, len: usize) -> Result<Value> {
+        let type_code = self.read_u8()?;
+        let data = self.read_bytes(len)?;
+        // LangGraph's JsonPlusSerializer wraps custom types (e.g. Interrupt) as
+        // ext type 2 containing `[module, class, payload]` MessagePack.
+        if type_code == 2 {
+            let mut ext_reader = Reader {
+                bytes: data,
+                position: 0,
+            };
+            if let Ok(Value::Array(parts)) = ext_reader.read_value() {
+                if parts.len() == 3 {
+                    let class = parts[1].as_str().unwrap_or_default().to_string();
+                    let payload = parts[2].clone();
+                    return Ok(match payload {
+                        Value::Object(mut object) => {
+                            object.insert("__langgraph_type__".to_string(), Value::String(class));
+                            Value::Object(object)
+                        }
+                        other => serde_json::json!({
+                            "__langgraph_type__": class,
+                            "data": other,
+                        }),
+                    });
+                }
+            }
+        }
+        let hex = data
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        Ok(serde_json::json!({
+            "__msgpack_ext__": type_code,
+            "hex": hex,
+        }))
     }
 
     fn read_array(&mut self, len: usize) -> Result<Value> {
