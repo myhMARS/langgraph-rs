@@ -1,10 +1,13 @@
 //! Per-node execution context for async nodes.
 
+use std::cell::RefCell;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::kernel::context::ParentCommand;
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::StreamChunk;
@@ -201,4 +204,41 @@ impl AsyncContext {
             std::mem::take(&mut capture.messages),
         )
     }
+}
+
+tokio::task_local! {
+    static PARENT_COMMAND: RefCell<Option<ParentCommand>>;
+}
+
+/// Run `future` with a fresh parent-command slot and return what the child recorded.
+pub(crate) async fn run_with_parent_scope<F>(future: F) -> (F::Output, Option<ParentCommand>)
+where
+    F: Future,
+{
+    PARENT_COMMAND
+        .scope(RefCell::new(None), async move {
+            let output = future.await;
+            let command = PARENT_COMMAND.with(|slot| slot.borrow_mut().take());
+            (output, command)
+        })
+        .await
+}
+
+/// Record a `Command(graph=PARENT)` inside the current async subgraph scope.
+pub(crate) fn record_parent_command(updates: Vec<(String, Value)>, goto: Vec<String>) -> bool {
+    PARENT_COMMAND
+        .try_with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let command = slot.get_or_insert_with(ParentCommand::default);
+            command.updates.extend(updates);
+            command.goto.extend(goto);
+        })
+        .is_ok()
+}
+
+/// Returns `true` when a parent command was recorded in the current task scope.
+pub(crate) fn has_parent_command() -> bool {
+    PARENT_COMMAND
+        .try_with(|slot| slot.borrow().is_some())
+        .unwrap_or(false)
 }

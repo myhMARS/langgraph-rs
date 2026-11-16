@@ -457,50 +457,74 @@ async fn run_async_subgraph<S: State>(
     if let Some(user_context) = context.context() {
         config = config.with_context(user_context.clone());
     }
-    let output = if let Some(collector) = context.collector() {
-        config = config.with_stream_subgraphs(true);
-        let chunk_namespace = namespace.clone();
-        let mut sink = move |chunk: StreamChunk| {
-            let wrapped = match chunk {
-                StreamChunk::Subgraph {
-                    namespace: inner,
-                    chunk,
-                } => StreamChunk::Subgraph {
-                    namespace: format!("{chunk_namespace}|{inner}"),
-                    chunk,
-                },
-                other => StreamChunk::Subgraph {
-                    namespace: chunk_namespace.clone(),
-                    chunk: Box::new(other),
-                },
+    let collector = context.collector();
+    let (output, parent_command) = super::context::run_with_parent_scope(async {
+        if let Some(collector) = collector {
+            config = config.with_stream_subgraphs(true);
+            let chunk_namespace = namespace.clone();
+            let mut sink = move |chunk: StreamChunk| {
+                let wrapped = match chunk {
+                    StreamChunk::Subgraph {
+                        namespace: inner,
+                        chunk,
+                    } => StreamChunk::Subgraph {
+                        namespace: format!("{chunk_namespace}|{inner}"),
+                        chunk,
+                    },
+                    other => StreamChunk::Subgraph {
+                        namespace: chunk_namespace.clone(),
+                        chunk: Box::new(other),
+                    },
+                };
+                collector
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(wrapped);
             };
-            collector
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(wrapped);
-        };
-        if !child.has_checkpointer() {
-            child.stream_with(&state, &config, sink).await?
-        } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
+            if !child.has_checkpointer() {
+                child.stream_with(&state, &config, sink).await
+            } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
+                child
+                    .resume_in_streaming(&thread, &namespace, resume, Some(&config), &mut sink)
+                    .await
+            } else if let Some(thread) = thread {
+                child
+                    .stream_with(&state, &config.with_thread(thread), sink)
+                    .await
+            } else {
+                child.stream_with(&state, &config, sink).await
+            }
+        } else if !child.has_checkpointer() {
             child
-                .resume_in_streaming(&thread, &namespace, resume, Some(&config), &mut sink)
-                .await?
+                .run(&state, &config)
+                .await
+                .map(|outcome| outcome.state)
+        } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
+            child.resume_in(&thread, &namespace, resume).await
         } else if let Some(thread) = thread {
             child
-                .stream_with(&state, &config.with_thread(thread), sink)
-                .await?
+                .run(&state, &config.with_thread(thread))
+                .await
+                .map(|outcome| outcome.state)
         } else {
-            child.stream_with(&state, &config, sink).await?
+            child
+                .run(&state, &config)
+                .await
+                .map(|outcome| outcome.state)
         }
-    } else if !child.has_checkpointer() {
-        child.run(&state, &config).await?.state
-    } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
-        child.resume_in(&thread, &namespace, resume).await?
-    } else if let Some(thread) = thread {
-        child.run(&state, &config.with_thread(thread)).await?.state
-    } else {
-        child.run(&state, &config).await?.state
-    };
+    })
+    .await;
+    if let Some(command) = parent_command {
+        let mut result = NodeOutput::new();
+        for (channel, value) in command.updates {
+            result = result.replace(channel, value);
+        }
+        for target in command.goto {
+            result = result.goto(target);
+        }
+        return Ok(result);
+    }
+    let output = output?;
     let after = state_to_values(&output)?;
     let mut result = NodeOutput::new();
     for (channel, value) in after {

@@ -36,20 +36,37 @@ fn subgraph_node_can_route_to_the_parent_graph() {
 
 #[cfg(feature = "async")]
 #[tokio::test]
-async fn async_graphs_reject_parent_commands() {
+async fn async_subgraph_can_route_to_the_parent_graph() {
     use langgraph_rs::tokio_runtime::AsyncStateGraph;
+    use std::sync::Arc;
 
-    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+    let child = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
         .add_node("jump", |_state: JsonState, _ctx| async move {
-            Ok(NodeOutput::new().goto_parent("parent_after"))
+            Ok(NodeOutput::new()
+                .update("value", json!(100))
+                .goto_parent("parent_after"))
         })
         .set_entry_point("jump")
         .compile()
         .unwrap();
 
-    let error = graph
+    let parent = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_subgraph("child", Arc::new(child))
+        .add_node("parent_after", |state: JsonState, _ctx| async move {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("child")
+        .set_finish_point("parent_after")
+        .compile()
+        .unwrap();
+
+    let output = parent
         .run(&JsonState::new(), &RunConfig::new())
         .await
-        .unwrap_err();
-    assert!(error.to_string().contains("PARENT"));
+        .unwrap();
+    assert_eq!(output.state.get("value"), Some(&json!(101)));
 }

@@ -346,8 +346,7 @@ state, and every channel it changed is written back as a **direct replacement** 
 the parent reducer), so reducer channels are not appended twice. A child node may also return
 `NodeOutput::goto_parent("parent_node")` (Python `Command(update=..., goto="parent_node",
 graph=Command.PARENT)`): the child graph stops, its writes are applied to the parent state and
-the parent schedules the target node. This is supported for synchronous graphs; async graphs
-reject `graph=PARENT`.
+the parent schedules the target node. This is supported for both synchronous and asynchronous graphs.
 
 ```rust
 use std::sync::Arc;
@@ -781,8 +780,8 @@ functional/performance benchmark against Python LangGraph, including scaling, th
 memory scenarios.
 
 Known limitations (documented in `benchmarks/features.md`): graph definitions and checkpoints are
-not byte-compatible with LangGraph; async graphs reject `Command(graph=PARENT)`; async
-checkpointers are API aliases over the synchronous savers (no separate async DB drivers); the
+not byte-compatible with LangGraph; async checkpointers are API aliases over the synchronous
+savers (no separate async DB drivers); the
 functional API executes tasks inline and memoizes them in a `BaseStore` instead of recording
 per-task checkpoints; LangGraph's prebuilt agents (`create_react_agent`, `ToolNode`) are out of
 scope; Python nodes are plain callables (not coroutines) and custom reducers are limited to the
@@ -804,8 +803,7 @@ built-in policies.
   supersteps as Tokio tasks instead.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
 - **Subgraphs** support same or mapped state, per-subgraph checkpoint namespaces, nested
-  interrupts, streaming and `Command(graph=PARENT)` in synchronous graphs; async graphs reject
-  parent commands.
+  interrupts, streaming and `Command(graph=PARENT)` in synchronous and asynchronous graphs.
 - **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON, and
   custom reducers must be expressed with the built-in policies (`last_value`, `topic`, `append`,
   `add`, `messages`) for now. Python nodes are plain callables; async graphs call them from the

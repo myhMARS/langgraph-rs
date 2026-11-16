@@ -350,7 +350,7 @@ let outer = StateGraph::<WorkState>::new()
 `interrupt()` 会暂停父运行，下一次 `resume` 从子图自己的 checkpoint 继续；子图流式
 （`subgraphs=True`）可把子图 chunk 带命名空间输出。子图节点返回
 `NodeOutput::goto_parent("parent_node")`（Python `Command(..., graph=Command.PARENT)`）时，
-子图中止、写入应用到父状态并调度父图目标节点（仅同步图；异步图会拒绝）。
+子图中止、写入应用到父状态并调度父图目标节点（同步图与异步图均支持）。
 
 ## 节点级缓存
 
@@ -723,8 +723,7 @@ Python 绑定（同步与异步，含 store、saver、functional API 与流式�
 场景的功能/性能基准。
 
 已知限制（详见 `benchmarks/features.md`）：图定义与 checkpoint 与 LangGraph 不保证字节互操作；
-async 图拒绝 `Command(graph=PARENT)`；async checkpointer 是同步 saver 的 API 别名（无独立 async
-DB 驱动）；functional API 内联执行任务并用 `BaseStore` 记忆化，而非逐任务 checkpoint；LangGraph
+async checkpointer 是同步 saver 的 API 别名（无独立 async DB 驱动）；functional API 内联执行任务并用 `BaseStore` 记忆化，而非逐任务 checkpoint；LangGraph
 的 prebuilt agents（`create_react_agent`、`ToolNode`）超出范围；Python 节点是普通 callable
 （非 coroutine），自定义 reducer 仅限内置策略。
 
@@ -741,7 +740,7 @@ DB 驱动）；functional API 内联执行任务并用 `BaseStore` 记忆化，�
   协作式调度任务；异步适配器则用 Tokio task 运行 superstep。
 - **router 是纯函数**，只返回目标（或 path-map 键）。
 - **子图**支持同状态或映射状态、子图独立 checkpoint 命名空间、嵌套中断、流式，以及同步图中的
-  `Command(graph=PARENT)`；异步图拒绝 parent command。
+  `Command(graph=PARENT)`（同步与异步图均支持）。
 - **Python 绑定使用 `JsonState`。** Python 节点交换普通 dict，状态是 JSON；自定义 reducer 目前需用
   内置策略（`last_value`、`topic`、`append`、`add`、`messages`）表达。Python 节点是普通 callable，
   异步图会从 Tokio 适配器调用它们但不会 `await` Python coroutine。引擎执行期间释放 GIL，因此

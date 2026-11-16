@@ -986,5 +986,32 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIn("data", values[0])
 
 
+    def test_async_subgraph_command_parent(self):
+        import asyncio
+
+        def jump(state):
+            return lg.Command(
+                update={"value": 100},
+                goto="parent_after",
+                graph=lg.Command.PARENT,
+            )
+
+        async def scenario():
+            child = lg.AsyncStateGraph({"value": "last_value"})
+            child.add_node("jump", jump)
+            child.set_entry_point("jump")
+            child_compiled = child.compile()
+
+            parent = lg.AsyncStateGraph({"value": "last_value"})
+            parent.add_subgraph("child", child_compiled)
+            parent.add_node("parent_after", lambda state: {"value": state["value"] + 1})
+            parent.set_entry_point("child")
+            parent.set_finish_point("parent_after")
+            compiled = parent.compile()
+            return await compiled.ainvoke({"value": 0})
+
+        self.assertEqual(asyncio.run(scenario())["value"], 101)
+
+
 if __name__ == "__main__":
     unittest.main()

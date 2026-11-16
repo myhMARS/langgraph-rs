@@ -748,6 +748,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 step,
                 values: Value::Object(values.clone()),
             });
+            if super::context::has_parent_command() {
+                return Ok(finish(state, report, started));
+            }
 
             let (next_nodes, router_sends) = collect_next_nodes(
                 &state,
@@ -1160,9 +1163,16 @@ impl<S: State> AsyncCompiledGraph<S> {
                         error: None,
                     });
                     if result.output.is_parent() {
-                        return Err(Error::other(
-                            "Command(graph=PARENT) is not supported in async graphs",
-                        ));
+                        let (updates, replaces, goto, _sends) = result.output.into_parts();
+                        let mut parent_updates: Vec<(String, Value)> =
+                            updates.into_iter().collect();
+                        parent_updates.extend(replaces);
+                        if !super::context::record_parent_command(parent_updates, goto) {
+                            return Err(Error::other(
+                                "Command(graph=PARENT) must be returned inside a subgraph",
+                            ));
+                        }
+                        continue;
                     }
                     let (updates, replaces, goto, sends) = result.output.into_parts();
                     if !updates.is_empty() {
