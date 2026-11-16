@@ -212,6 +212,7 @@ pub struct PyCompiledGraph {
 #[pyclass(name = "Graph")]
 pub struct PyGraph {
     mermaid: String,
+    ascii: String,
     spec: Value,
 }
 
@@ -220,6 +221,11 @@ impl PyGraph {
     /// Mermaid flowchart source.
     fn draw_mermaid(&self) -> String {
         self.mermaid.clone()
+    }
+
+    /// Compact ASCII map of the graph.
+    fn draw_ascii(&self) -> String {
+        self.ascii.clone()
     }
 
     /// Serializable graph description (nodes, edges, conditional edges).
@@ -631,6 +637,7 @@ impl PyCompiledGraph {
     fn get_graph(&self) -> PyGraph {
         PyGraph {
             mermaid: self.graph.to_mermaid(),
+            ascii: self.graph.to_ascii(),
             spec: self.graph.graph_spec(),
         }
     }

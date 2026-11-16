@@ -39,3 +39,25 @@ fn async_saver_aliases_are_available() {
     let saver = AsyncInMemorySaver::new();
     let _: InMemorySaver = saver;
 }
+
+#[test]
+fn ascii_export_lists_nodes_and_edges() {
+    let graph = langgraph_rs::StateGraph::<langgraph_rs::JsonState>::with_schema(
+        langgraph_rs::StateSchema::dynamic(),
+    )
+    .add_node("a", |_state: &langgraph_rs::JsonState| {
+        Ok(langgraph_rs::NodeOutput::new())
+    })
+    .add_node("b", |_state: &langgraph_rs::JsonState| {
+        Ok(langgraph_rs::NodeOutput::new())
+    })
+    .set_entry_point("a")
+    .add_edge("a", "b")
+    .set_finish_point("b")
+    .compile()
+    .unwrap();
+    let ascii = graph.to_ascii();
+    assert!(ascii.contains("START"));
+    assert!(ascii.contains("a -> b"));
+    assert!(ascii.contains("b -> END"));
+}

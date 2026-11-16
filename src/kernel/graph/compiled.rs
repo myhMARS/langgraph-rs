@@ -217,6 +217,22 @@ impl<S: State> CompiledGraph<S> {
     /// assert!(mermaid.contains("graph TD"));
     /// assert!(mermaid.contains("START --> n_work"));
     /// ```
+    /// Render the graph as a compact ASCII map.
+    pub fn to_ascii(&self) -> String {
+        crate::kernel::graph::visualize::render_ascii(
+            crate::kernel::graph::visualize::GraphLayout {
+                nodes: self.nodes.keys().map(String::as_str).collect(),
+                edges: &self.edges,
+                conditional: &self.conditional,
+                entry: &self.entry,
+                retries: &self.retries,
+                error_edges: &self.error_edges,
+                interrupt_before: &self.interrupt_before,
+                interrupt_after: &self.interrupt_after,
+            },
+        )
+    }
+
     pub fn to_mermaid(&self) -> String {
         crate::kernel::graph::visualize::render_mermaid(
             crate::kernel::graph::visualize::GraphLayout {

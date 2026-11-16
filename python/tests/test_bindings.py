@@ -1521,5 +1521,19 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(subgraphs["sub/one"]["values"]["value"], 11)
 
 
+    def test_graph_draw_ascii(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        compiled = graph.compile()
+        ascii_map = compiled.get_graph().draw_ascii()
+        self.assertIn("START", ascii_map)
+        self.assertIn("a -> b", ascii_map)
+        self.assertIn("b -> END", ascii_map)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -50,14 +50,14 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
 | `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
-| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; destination allow-lists via `set_destinations` / `add_node_with_destinations` (Python `add_node(..., destinations=...)`); JSON `input_schema` stored via `set_node_input_schema` / `add_node(..., input_schema=...)` (not enforced); arbitrary node names supported | ✅ | `input_schema` is metadata only, no runtime validation |
+| Node metadata / `input_schema` / `destinations` / custom names | ✅ metadata via `add_node_with_metadata` / `node_metadata()`; destination allow-lists via `set_destinations` / `add_node_with_destinations` (Python `add_node(..., destinations=...)`); JSON `input_schema` stored via `set_node_input_schema` / `add_node(..., input_schema=...)`; arbitrary node names supported | ✅ | `input_schema` is descriptive metadata (not runtime validation), matching LangGraph's use |
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` / `Send::with_timeout` (per-task timeout; Python `lg.Send(..., timeout=seconds)`) | ✅ `Send` (node, arg, timeout) | |
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
 | `Command` | ⚠️ `Command::{resume, update, goto, goto_parent}`; nodes may return one via `add_command_node` or `From<Command> for NodeOutput`; invoke input supports resume+update; Python `Command(update=, goto=, graph=PARENT)` | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | `invoke(Command(goto=...))` starts at the given nodes; parent commands are meaningful only inside subgraphs |
 | Node metadata / input schema / destinations / name | ✅ `add_node_with_metadata` / `set_node_input_schema` / `set_destinations` (Python `add_node(..., metadata=, input_schema=, destinations=, name=)`); arbitrary node names | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | `input_schema` is stored as metadata, not enforced |
 | Deferred nodes | ✅ `add_node_deferred` / `set_deferred` / Python `add_node(..., deferred=True)` | ✅ `add_node(defer=True)` | deferred nodes may not be entry points or have outgoing edges |
-| Graph name / graph object export | ⚠️ `compile_with(CompileOptions::with_name)` / Python `compile(name=...)`, `get_graph()` returns a `Graph` object with `draw_mermaid()` and `to_dict()` (nodes/edges/conditional edges) | ✅ `compile(name=...)`, `get_graph()` | not a full LangGraph `Graph` object (no draw_ascii/draw_png) |
+| Graph name / graph object export | ⚠️ `compile_with(CompileOptions::with_name)` / Python `compile(name=...)`, `get_graph()` returns a `Graph` object with `draw_mermaid()`, `draw_ascii()` and `to_dict()` (nodes/edges/conditional edges) | ✅ `compile(name=...)`, `get_graph()` | no PNG rendering / full LangGraph `Graph` object |
 
 ### Execution
 
@@ -67,10 +67,10 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Parallel superstep execution | ✅ scoped OS threads | ✅ asyncio tasks | CPU parallelism vs cooperative concurrency |
 | Deterministic channel merge | ✅ task-order merge | ✅ | |
 | Async engine | ⚠️ separate `AsyncStateGraph` adapter: checkpoints/HITL/retry/error routing, stream modes, store/context, per-node timeouts, subgraphs (namespaces + nested interrupts), node cache, batch, subgraph streaming; Python async bindings (`AsyncStateGraph`/`ainvoke`/`aresume`) behind `python-async` | ✅ native `ainvoke`/`astream` | async graphs use the `AsyncCheckpointer`/`BlockingSaver` adapter or sync savers directly |
-| Batch (`batch` / `abatch`) | ✅ sync `batch` / `batch_run`, async `batch` / `batch_run` (bounded by `max_concurrency`), Python `batch` and async `abatch` | ✅ | async `batch_run` runs sequentially (only the run report is collected) |
+| Batch (`batch` / `abatch`) | ✅ sync `batch` / `batch_run`, async `batch` / `batch_run` (both bounded by `max_concurrency`, order preserved), Python `batch` and async `abatch` | ✅ | |
 | `max_concurrency` / run control | ⚠️ `RunConfig::max_concurrency` bounds `batch` workers; `RunControl` supports cooperative `abort()` checked between supersteps (Rust/Python) | ✅ `max_concurrency`, `RunControl` | abort happens at superstep boundaries; no pause/resume control modes |
 | Durability modes | ⚠️ `Durability::{Sync, Async, Exit}` (`Async` behaves like `Sync`) | ✅ `durability=` | `Exit` persists only initial/interrupt/final checkpoints |
-| Managed values (`IsLastStep` / `RemainingSteps`) | ⚠️ `remaining_steps()` / `is_last_step()` accessors (Rust + Python) | ✅ managed values in state annotations | no `RemainingSteps` state annotation / `deferred` nodes |
+| Managed values (`IsLastStep` / `RemainingSteps`) | ⚠️ `remaining_steps()` / `is_last_step()` accessors (Rust + Python) | ✅ managed values in state annotations | no `RemainingSteps` state annotation (deferred nodes are supported) |
 | TimeoutPolicy | ⚠️ `TimeoutPolicy` with `run_timeout` enforced (sync helper thread, async `tokio::time::timeout`); `idle_timeout` is used as the per-attempt fallback when `run_timeout` is absent | ✅ `TimeoutPolicy` (`run_timeout`, `idle_timeout`) | sync timeout cannot cancel a blocking closure; idle is not reset by progress events |
 | Deferred nodes (`deferred=True`) | ✅ sync + async (`add_node_deferred` / `set_deferred`, Python `add_node(..., deferred=True)`); run after all regular work, may interrupt/resume | ✅ | deferred nodes may not be entry points or have outgoing/conditional edges |
 | Context / runtime injection (`Runtime`, `context_schema`) | ✅ `Runtime` + `current_runtime` / `current_context` / `current_thread_id` / `current_namespace` / `get_store`; `RunConfig::with_context`; Python `context=` with `current_context`/`current_runtime`; no `context_schema` validation | ✅ | |
@@ -118,9 +118,9 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `messages` (LLM token streaming) | ⚠️ `message()` / `ctx.message()` emitted by nodes; `stream_mode="messages"` | ✅ `stream_mode="messages"` (LangChain callback tokens) | payloads are node-supplied, no automatic LLM callback capture |
 | `debug` / `tasks` / `checkpoints` stream modes | ✅ `StreamChunk::{Debug,Task}` + checkpoint chunks, filterable via `stream_modes` / Python `stream_mode` | ✅ | debug payloads carry step/executed/next rather than LangGraph's full payload schema |
 | Subgraph streaming (`subgraphs=True`) | ✅ `RunConfig::with_stream_subgraphs(true)` wraps child chunks in `StreamChunk::Subgraph` with a checkpoint namespace (nested namespaces joined with `|`); Python `stream(..., subgraphs=True)`; sync + async | ✅ | enable per run; default hides subgraph chunks |
-| Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` / `stream_modes` | ✅ | same chunk shapes, no v2 events |
+| Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` / `stream_modes`; Python `astream(..., version="v2")` | ✅ | same chunk shapes as sync streaming |
 | v2 stream events | ⚠️ Python `stream(..., version="v2")` / `astream(..., version="v2")` return `{type, ns, data}` stream parts (values/updates/custom/messages/debug/tasks/checkpoints/interrupt/usage; subgraph chunks carry the namespace); messages parts carry `{langgraph_node, tags}` metadata | ✅ `version="v2"` | metadata is minimal (no full LangChain callback metadata); Rust exposes the typed `StreamChunk` enum |
-| Stream writer from arbitrary helpers | ⚠️ thread-local `custom()` | ✅ `get_stream_writer()` | |
+| Stream writer from arbitrary helpers | ✅ `get_stream_writer()` (Rust closure / Python object) plus thread-local `custom()` | ✅ `get_stream_writer()` | |
 
 ### Subgraphs, caching, async, extras
 

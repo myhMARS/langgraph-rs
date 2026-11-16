@@ -152,6 +152,67 @@ fn render_conditional_targets<S>(
     }
 }
 
+/// Render a compiled graph as a compact ASCII map (nodes plus outgoing edges).
+pub(crate) fn render_ascii<S: State>(layout: GraphLayout<'_, S>) -> String {
+    let mut output = String::new();
+    output.push_str("START\n");
+    match layout.entry {
+        Entry::Static(entries) => {
+            for entry in entries {
+                let entry = if entry == START || entry == END {
+                    entry.to_uppercase()
+                } else {
+                    entry.clone()
+                };
+                let _ = writeln!(output, "  -> {entry}");
+            }
+        }
+        Entry::Conditional(_) => output.push_str("  -> (entry router)\n"),
+    }
+    for node in &layout.nodes {
+        let mut targets: Vec<String> = layout
+            .edges
+            .get(*node)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .map(|target| {
+                        if target == END {
+                            "END".to_string()
+                        } else {
+                            target.clone()
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if layout.conditional.contains_key(*node) {
+            targets.push("(router)".to_string());
+        }
+        if let Some(handler) = layout.error_edges.get(*node) {
+            targets.push(format!("on_error:{handler}"));
+        }
+        targets.sort();
+        targets.dedup();
+        let _ = write!(output, "{node}");
+        if layout.interrupt_before.contains(*node) {
+            output.push_str(" [pause before]");
+        }
+        if layout.interrupt_after.contains(*node) {
+            output.push_str(" [pause after]");
+        }
+        if targets.is_empty() {
+            output.push_str(" -> END");
+        } else {
+            for target in targets {
+                let _ = write!(output, " -> {target}");
+            }
+        }
+        output.push('\n');
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
