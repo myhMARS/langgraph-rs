@@ -776,12 +776,22 @@ impl<S: State> AsyncCompiledGraph<S> {
                 return Err(Error::Interrupt(interrupted_interrupt));
             }
 
-            let outcomes = join_all(
+            let run_tasks = join_all(
                 tasks
                     .iter()
                     .map(|task| self.run_task(task, &state, step, &run_info)),
-            )
-            .await;
+            );
+            let outcomes = match &config.control {
+                Some(control) => {
+                    tokio::select! {
+                        outcomes = run_tasks => outcomes,
+                        _ = control.wait_aborted() => {
+                            return Err(Error::other("run aborted by RunControl"));
+                        }
+                    }
+                }
+                None => run_tasks.await,
+            };
             if let Some(collector) = &collector {
                 let chunks: Vec<StreamChunk> = collector
                     .lock()
