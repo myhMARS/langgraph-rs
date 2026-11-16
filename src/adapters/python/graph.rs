@@ -158,7 +158,7 @@ impl PyStateGraph {
         recursion_limit: Option<usize>,
         interrupt_before: Option<Vec<String>>,
         interrupt_after: Option<Vec<String>>,
-        cache: Option<bool>,
+        cache: Option<&Bound<'_, PyAny>>,
         store: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
         context_schema: Option<&Bound<'_, PyAny>>,
@@ -176,8 +176,20 @@ impl PyStateGraph {
             options = options.with_checkpointer(checkpointer.clone());
             saver = Some(checkpointer);
         }
-        if cache == Some(true) {
-            builder = builder.with_cache(Arc::new(crate::InMemoryCache::new()));
+        if let Some(cache) = cache {
+            if cache.is_none() {
+                // no cache object
+            } else if let Ok(flag) = cache.extract::<bool>() {
+                if flag {
+                    builder = builder.with_cache(Arc::new(crate::InMemoryCache::new()));
+                }
+            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyInMemoryCache>>() {
+                builder = builder.with_cache(cache.inner.clone());
+            } else {
+                return Err(PyTypeError::new_err(
+                    "cache must be True or an InMemoryCache object",
+                ));
+            }
         }
         if let Some(store) = store_from_py(store)? {
             options = options.with_store(store);

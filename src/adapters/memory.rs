@@ -192,16 +192,27 @@ mod tests {
     }
 }
 
-/// In-memory node cache adapter with optional per-entry TTL.
+/// Entry stored by the in-memory cache: output, expiry and LRU sequence.
+type CacheEntry = (CachedOutput, Option<Instant>, u64);
+
+/// In-memory node cache adapter with optional per-entry TTL and a bounded LRU size.
 #[derive(Debug, Default)]
 pub struct InMemoryCache {
-    entries: Mutex<HashMap<String, (CachedOutput, Option<Instant>)>>,
+    entries: Mutex<HashMap<String, CacheEntry>>,
+    sequence: std::sync::atomic::AtomicU64,
+    max_entries: Option<usize>,
 }
 
 impl InMemoryCache {
     /// Create an empty cache.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bound the cache to `max_entries`, evicting the least-recently-used entry.
+    pub fn with_max_entries(mut self, max_entries: usize) -> Self {
+        self.max_entries = Some(max_entries.max(1));
+        self
     }
 
     /// Number of entries (expired entries are not pruned eagerly).
@@ -216,6 +227,11 @@ impl InMemoryCache {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    fn next_sequence(&self) -> u64 {
+        self.sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 impl NodeCache for InMemoryCache {
@@ -224,24 +240,38 @@ impl NodeCache for InMemoryCache {
             .entries
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Some((output, expires_at)) = entries.get(key) else {
+        let now = Instant::now();
+        let Some((output, expires_at, last_used)) = entries.get_mut(key) else {
             return Ok(None);
         };
         if let Some(expires_at) = expires_at {
-            if Instant::now() >= *expires_at {
+            if now >= *expires_at {
                 entries.remove(key);
                 return Ok(None);
             }
         }
+        *last_used = self.next_sequence();
         Ok(Some(output.clone()))
     }
 
     fn put(&self, key: &str, output: CachedOutput, ttl: Option<Duration>) -> Result<()> {
         let expires_at = ttl.map(|ttl| Instant::now() + ttl);
-        self.entries
+        let sequence = self.next_sequence();
+        let mut entries = self
+            .entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(key.to_string(), (output, expires_at));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(max_entries) = self.max_entries
+            && entries.len() >= max_entries
+            && !entries.contains_key(key)
+            && let Some(oldest) = entries
+                .iter()
+                .min_by_key(|(_, (_, _, last_used))| *last_used)
+                .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        }
+        entries.insert(key.to_string(), (output, expires_at, sequence));
         Ok(())
     }
 

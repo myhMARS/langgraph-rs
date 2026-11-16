@@ -153,3 +153,28 @@ fn cache_can_expose_node_usage() {
     assert_eq!(second.report.total_tokens(), 4);
     assert!(second.report.executions()[0].cached);
 }
+
+#[test]
+fn in_memory_cache_evicts_least_recently_used() {
+    use langgraph_rs::CachedOutput;
+    use langgraph_rs::InMemoryCache;
+    use langgraph_rs::IndexMap;
+    use langgraph_rs::NodeCache;
+
+    let cache = InMemoryCache::new().with_max_entries(2);
+    let output = || CachedOutput {
+        updates: IndexMap::new(),
+        replaces: IndexMap::new(),
+        goto: Vec::new(),
+        sends: Vec::new(),
+        usage: None,
+    };
+    cache.put("a", output(), None).unwrap();
+    cache.put("b", output(), None).unwrap();
+    cache.get("a").unwrap();
+    cache.put("c", output(), None).unwrap();
+    assert_eq!(cache.len(), 2);
+    assert!(cache.get("a").unwrap().is_some());
+    assert!(cache.get("b").unwrap().is_none());
+    assert!(cache.get("c").unwrap().is_some());
+}

@@ -18,6 +18,7 @@ use crate::InMemoryStore;
 use crate::PostgresSaver;
 #[cfg(feature = "redis")]
 use crate::RedisSaver;
+use crate::kernel::cache::NodeCache;
 use crate::kernel::node::{NodeOutput, Send};
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::store::{BaseStore, StoreItem};
@@ -775,6 +776,42 @@ impl PySqliteStore {
 
     fn __repr__(&self) -> String {
         "SqliteStore()".to_string()
+    }
+}
+
+/// In-memory node cache object for `compile(cache=...)`.
+#[pyclass(name = "InMemoryCache")]
+pub struct PyInMemoryCache {
+    pub(crate) inner: Arc<crate::InMemoryCache>,
+}
+
+#[pymethods]
+impl PyInMemoryCache {
+    #[new]
+    #[pyo3(signature = (max_entries=None))]
+    fn new(max_entries: Option<usize>) -> Self {
+        let cache = crate::InMemoryCache::new();
+        let cache = match max_entries {
+            Some(max_entries) => cache.with_max_entries(max_entries),
+            None => cache,
+        };
+        Self {
+            inner: Arc::new(cache),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn clear(&self) -> PyResult<()> {
+        self.inner
+            .clear()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("InMemoryCache(len={})", self.inner.len())
     }
 }
 

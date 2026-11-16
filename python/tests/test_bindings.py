@@ -1535,5 +1535,27 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIn("b -> END", ascii_map)
 
 
+    def test_in_memory_cache_max_entries(self):
+        calls = []
+
+        def node(state):
+            calls.append(state["value"])
+            return {"value": state["value"] + 1}
+
+        cache = lg.InMemoryCache(max_entries=1)
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "inc", node, cache_policy=lg.CachePolicy()
+        )
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(cache=cache)
+        compiled.invoke({"value": 0})
+        compiled.invoke({"value": 1})
+        compiled.invoke({"value": 0})
+        self.assertLessEqual(cache.len(), 1)
+        self.assertGreaterEqual(len(calls), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
