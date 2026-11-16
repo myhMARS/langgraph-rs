@@ -365,6 +365,45 @@ pub(super) fn snapshot_to_py(
     dict.set_item("step", snapshot.step)?;
     dict.set_item("interrupted", snapshot.interrupted)?;
     dict.set_item("created_at_millis", snapshot.created_at_millis)?;
+    dict.set_item(
+        "parent_checkpoint_id",
+        snapshot.parent_checkpoint_id.clone(),
+    )?;
+    dict.set_item(
+        "metadata",
+        value_to_py(py, &Value::Object(snapshot.metadata.clone()))?,
+    )?;
+    let interrupts = snapshot
+        .interrupts
+        .iter()
+        .map(|interrupt| {
+            let item = PyDict::new(py);
+            item.set_item("node", interrupt.node.clone())?;
+            item.set_item("value", value_to_py(py, &interrupt.value)?)?;
+            Ok(item.into_any().unbind())
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    dict.set_item("interrupts", interrupts)?;
+    let tasks = snapshot
+        .tasks
+        .iter()
+        .map(|task| {
+            let item = PyDict::new(py);
+            item.set_item("node", task.node.clone())?;
+            if let Some(error) = &task.error {
+                let failure = PyDict::new(py);
+                failure.set_item("node", error.node.clone())?;
+                failure.set_item("message", error.message.clone())?;
+                failure.set_item("attempts", error.attempts)?;
+                item.set_item("error", failure)?;
+            }
+            if let Some(resume) = &task.resume {
+                item.set_item("resume", value_to_py(py, resume)?)?;
+            }
+            Ok(item.into_any().unbind())
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    dict.set_item("tasks", tasks)?;
     Ok(dict.into_any().unbind())
 }
 

@@ -247,11 +247,48 @@ impl PyCompiledGraph {
             .transpose()
     }
 
-    /// Return the full checkpoint history of a thread, newest first.
-    fn get_state_history(&self, py: Python<'_>, thread_id: String) -> PyResult<Vec<Py<PyAny>>> {
+    /// Apply state updates to the latest checkpoint of a thread.
+    ///
+    /// With ``as_node`` the next tasks are derived from that node's outgoing edges.
+    #[pyo3(signature = (thread_id, values, as_node=None))]
+    fn update_state(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        values: &Bound<'_, PyAny>,
+        as_node: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_value(values)?;
+        let map = value
+            .as_object()
+            .ok_or_else(|| PyTypeError::new_err("update_state expects a dict of channel writes"))?;
+        let updates: Vec<(String, crate::Value)> = map
+            .iter()
+            .map(|(channel, value)| (channel.clone(), value.clone()))
+            .collect();
+        let snapshot = py
+            .detach(|| {
+                self.graph
+                    .update_state(&thread_id, updates, as_node.as_deref())
+            })
+            .map_err(|error| to_pyerr(py, error))?;
+        snapshot_to_py(py, &snapshot)
+    }
+
+    /// Return the checkpoint history of a thread, newest first.
+    ///
+    /// ``before`` is an exclusive checkpoint id and ``limit`` caps the result size.
+    #[pyo3(signature = (thread_id, before=None, limit=None))]
+    fn get_state_history(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        before: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
         let history = self
             .graph
-            .get_state_history(&thread_id)
+            .get_state_history_filtered(&thread_id, before.as_deref(), limit)
             .map_err(|error| to_pyerr(py, error))?;
         history
             .iter()

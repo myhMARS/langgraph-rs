@@ -372,8 +372,10 @@ async fn example() -> langgraph_rs::Result<()> {
 }
 ```
 
-The async adapter has the same engine features as the sync path: checkpointing and
-thread history, human-in-the-loop (`ctx.interrupt(...)` + `graph.resume(thread, value)`),
+The async adapter covers the same checkpoint, HITL, retry, error-routing and streaming
+surface as the sync path (node caching and subgraphs remain sync-only):
+checkpointing and thread history, human-in-the-loop (`ctx.interrupt(...)` +
+`graph.resume(thread, value)`),
 `interrupt_before` / `interrupt_after`, per-node `RetryPolicy`, error routing with
 `ctx.last_error()`, goto/`Send`, streaming and usage/trace reporting. Checkpointing is
 enabled with `.with_checkpointer(Arc::new(InMemorySaver::new()))` and needs a
@@ -589,8 +591,9 @@ see [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 These measure orchestration overhead only (no LLM or I/O calls): native Rust is one to two
 orders of magnitude faster, the bindings pay Python callable dispatch per node, and the
 fan-out scenario is the narrowest margin because native Rust spawns real threads per
-superstep. The functional matrix — what reaches parity and what does not (subgraphs, async
-nodes, durable backends) — is in [benchmarks/features.md](benchmarks/features.md).
+superstep. The functional matrix — what reaches parity and what does not (functional API,
+store, stream modes, subgraphs, async, Python surface) — is in
+[benchmarks/features.md](benchmarks/features.md).
 
 ## Status / roadmap
 

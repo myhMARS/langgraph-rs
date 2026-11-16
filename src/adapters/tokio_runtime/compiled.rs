@@ -351,6 +351,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 step,
                 false,
                 false,
+                Vec::new(),
                 sink,
             )?;
         }
@@ -372,6 +373,10 @@ impl<S: State> AsyncCompiledGraph<S> {
             };
             skip_interrupt_before = false;
             if let Some(interrupted) = paused {
+                let interrupted_interrupt = Interrupt {
+                    node: interrupted.node.clone(),
+                    value: Value::Null,
+                };
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &mut parent,
@@ -380,6 +385,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     step,
                     true,
                     true,
+                    vec![interrupted_interrupt],
                     sink,
                 )?;
                 sink(StreamChunk::Interrupt {
@@ -407,6 +413,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     step,
                     true,
                     false,
+                    vec![interrupted.clone()],
                     sink,
                 )?;
                 sink(StreamChunk::Interrupt {
@@ -470,6 +477,13 @@ impl<S: State> AsyncCompiledGraph<S> {
                 step,
                 interrupt_after.is_some(),
                 false,
+                interrupt_after
+                    .iter()
+                    .map(|node| Interrupt {
+                        node: node.clone(),
+                        value: Value::Null,
+                    })
+                    .collect(),
                 sink,
             )?;
             if let Some(node) = interrupt_after {
@@ -754,6 +768,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         step: usize,
         interrupted: bool,
         paused_before: bool,
+        interrupts: Vec<Interrupt>,
         sink: &mut dyn FnMut(StreamChunk),
     ) -> Result<()> {
         let (Some(thread_id), Some(checkpointer)) = (thread_id, self.checkpointer.as_ref()) else {
@@ -770,6 +785,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             paused_before,
             parent_id: parent.clone(),
             created_at_millis: now_millis(),
+            interrupts,
+            metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
         };
         checkpointer.put(checkpoint)?;
         *parent = Some(id.clone());

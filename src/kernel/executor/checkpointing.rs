@@ -4,6 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::Result;
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::kernel::error::Interrupt;
 use crate::kernel::graph::CompiledGraph;
 use crate::kernel::node::Task;
 use crate::kernel::state::State;
@@ -20,6 +21,7 @@ pub(super) fn save_checkpoint<S: State>(
     step: usize,
     interrupted: bool,
     paused_before: bool,
+    interrupts: Vec<Interrupt>,
     sink: &mut dyn FnMut(StreamChunk),
 ) -> Result<()> {
     let Some(thread_id) = thread_id else {
@@ -40,6 +42,8 @@ pub(super) fn save_checkpoint<S: State>(
         paused_before,
         parent_id: parent.clone(),
         created_at_millis: now_millis(),
+        interrupts,
+        metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
     };
     checkpointer.put(checkpoint)?;
     *parent = Some(id.clone());

@@ -150,6 +150,7 @@ pub(crate) fn execute<S: State>(
             step,
             false,
             false,
+            Vec::new(),
             sink,
         )?;
     }
@@ -174,6 +175,10 @@ pub(crate) fn execute<S: State>(
         };
         skip_interrupt_before = false;
         if let Some(interrupted) = paused {
+            let interrupted_interrupt = Interrupt {
+                node: interrupted.node.clone(),
+                value: Value::Null,
+            };
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
@@ -183,6 +188,7 @@ pub(crate) fn execute<S: State>(
                 step,
                 true,
                 true,
+                vec![interrupted_interrupt.clone()],
                 sink,
             )?;
             sink(StreamChunk::Interrupt {
@@ -212,6 +218,7 @@ pub(crate) fn execute<S: State>(
                 step,
                 true,
                 false,
+                vec![interrupted.clone()],
                 sink,
             )?;
             sink(StreamChunk::Interrupt {
@@ -280,6 +287,13 @@ pub(crate) fn execute<S: State>(
             step,
             interrupt_after.is_some(),
             false,
+            interrupt_after
+                .iter()
+                .map(|node| Interrupt {
+                    node: node.clone(),
+                    value: Value::Null,
+                })
+                .collect(),
             sink,
         )?;
         if let Some(node) = interrupt_after {

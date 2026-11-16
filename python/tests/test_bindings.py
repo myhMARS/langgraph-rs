@@ -150,6 +150,32 @@ class HumanInTheLoopTests(unittest.TestCase):
         result = compiled.resume_with_updates("edits", 7, {"value": 100})
         self.assertEqual(result["value"], 107)
 
+    def test_update_state_and_history_filters(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": state["value"] + 1})
+        graph.add_node("b", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        compiled = graph.compile(checkpointer=True)
+        compiled.invoke({"value": 0}, thread_id="patch")
+
+        snapshot = compiled.update_state("patch", {"value": 10}, as_node="a")
+        self.assertEqual(snapshot["values"]["value"], 10)
+        self.assertEqual(snapshot["next"], ["b"])
+        self.assertIsNotNone(snapshot["parent_checkpoint_id"])
+        self.assertEqual(snapshot["metadata"]["source"], "update")
+
+        continued = compiled.continue_thread("patch")
+        self.assertEqual(continued["value"], 11)
+
+        limited = compiled.get_state_history("patch", limit=1)
+        self.assertEqual(len(limited), 1)
+        full = compiled.get_state_history("patch")
+        before = full[1]["checkpoint_id"]
+        filtered = compiled.get_state_history("patch", before=before)
+        self.assertNotIn(before, [item["checkpoint_id"] for item in filtered])
+
     def test_checkpoint_history(self):
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("a", lambda state: {"value": 1})

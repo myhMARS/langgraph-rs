@@ -1,45 +1,134 @@
 # Functional comparison with LangGraph
 
-Compared against Python **LangGraph 1.2.22** (the reference implementation). "Parity"
-means the same workflow can be expressed and behaves equivalently; "partial" means the
-capability exists but with documented differences (see the notes column and
-[`docs/architecture.md`](../docs/architecture.md#known-limitations-and-divergences)).
+Audited against **Python LangGraph 1.2.22** (with `langgraph-checkpoint` 4.3.2) on
+2026-11-16. The LangGraph side was checked by introspecting the installed package
+(`langgraph.graph.StateGraph`, `langgraph.types`, `langgraph.channels`,
+`langgraph.pregel.Pregel`, `langgraph.func`, `langgraph.managed`, `langgraph.config`,
+`langgraph.store`, `langgraph.cache`); the Rust side by reading the public API and the
+integration tests in `tests/` and `python/tests/`.
+
+Status definitions:
+
+- ✅ **parity** — the same workflow can be expressed and behaves equivalently.
+- ⚠️ **partial** — the capability exists but is narrower than LangGraph (documented in Notes).
+- ❌ **missing** — not implemented in langgraph-rs.
+
+## Headline verdict
+
+For **single-graph orchestration** (typed state, channels/reducers, static and conditional
+edges, parallel supersteps, `Send`, `goto`, recursion limit, checkpoint/resume, interrupts,
+streaming of values/updates/custom events, retries, Mermaid export) langgraph-rs is
+functionally equivalent in behaviour, with a different execution model (OS threads instead
+of asyncio) and a different API spelling in places.
+
+It is **not a drop-in replacement** for the whole of LangGraph. The large gaps are the
+functional API (`@entrypoint` / `@task`), long-term memory (`BaseStore`), runtime/context
+injection, timeout policies, deferred nodes, checkpoint namespaces (`checkpoint_ns`),
+LangGraph's full streaming modes (`messages` / `debug` / `tasks`), async checkpointers,
+subgraph state mapping/streaming, and a large part of the Python surface (no `Send`,
+`Command`, cache/retry configuration, persistent savers or async from Python). The matrix
+below is the complete audit.
+
+## Matrix
+
+### Graph model and construction
 
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
-| State schema + channel reducers | ✅ `LastValue` / `Topic` / custom reducer plugins | ✅ `Annotated[..., reducer]` | Rust channels are declared in `State::schema` or a `StateSchema`; custom policies are microkernel plugins |
-| `add_messages` merge-by-id reducer | ✅ `reducers::messages()` | ✅ `add_messages` | same id-based replace/append semantics |
-| Static edges, `START` / `END` | ✅ | ✅ | |
-| Conditional edges | ✅ node names, lists, symbolic path maps | ✅ `path_map` | |
+| Typed state + channels | ⚠️ `State::schema` / `StateSchema`, `JsonState` | ✅ `StateGraph(StateT)` with annotated channels | one state schema per graph; no separate input/output/private schemas |
+| `LastValue` channel | ✅ | ✅ `LastValue` | concurrent writes fail in both |
+| `Topic` channel | ⚠️ always appends | ✅ `Topic(accumulate=...)` | no `accumulate=False` mode |
+| Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
+| Extra channel types | ❌ | ✅ `EphemeralValue`, `AnyValue`, `NamedBarrierValue`, `UntrackedValue`, `LastValueAfterFinish`, `DeltaChannel` | |
+| `add_messages` semantics | ⚠️ id-based replace/append (`reducers::messages`) | ✅ `add_messages` incl. `RemoveMessage` | no remove/delete messages; no `MessagesState` / `MessageGraph` |
+| Static edges | ✅ | ✅ | `add_edge` takes one source string; LangGraph also accepts a list of sources |
+| Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
-| Parallel supersteps | ✅ scoped OS threads | ✅ asyncio tasks | Rust runs nodes on real threads; Python cooperatively |
-| `Send` map/reduce fan-out | ✅ | ✅ | Rust `Send` carries a JSON-object state override |
-| `Command(goto)` | ✅ `NodeOutput::goto` | ✅ `Command` | Rust supports goto + resume value via `Command` |
-| Recursion limit | ✅ default 25, per compile/run | ✅ default 25 | |
-| Checkpointing | ✅ `Checkpointer` port + `InMemorySaver` adapter | ✅ `MemorySaver` etc. | Rust has no durable backend shipped yet; the port is ready for SQLite/Redis/Postgres |
-| Thread history / time travel | ✅ `get_state`, `get_state_history`, `resume_from` | ✅ | |
-| Human-in-the-loop `interrupt` / `resume` | ✅ | ✅ | Rust re-executes the interrupted node; resume value returned by the same `interrupt()` call |
-| `interrupt_before` / `interrupt_after` | ✅ | ✅ | hook payload is `null` |
-| Streaming (`astream` / `stream`) | ✅ `StreamChunk` (values/updates/custom/interrupt/checkpoint/usage) | ✅ `stream_mode` values/updates/custom/messages/debug | Rust eager chunks, synchronous sink |
-| Node-level consumption tracking | ✅ `Usage` + `NodeExecution` + `RunReport` + `TraceSink` | ⚠️ via callbacks/metadata, not first-class | Rust reports duration + tokens/model/cost per node automatically |
-| Trace/metering adapters | ✅ `TraceSink` port | ✅ callbacks / LangSmith | plug any sink (logging, metrics, OTel) |
-| Subgraphs | ✅ `add_subgraph` | ✅ first-class subgraphs | shares the parent state type; publishes changed channels as replacements; no state mapping, checkpoint namespacing or nested interrupts yet |
-| Async nodes / runtime integration | ✅ Tokio adapter (`async` feature) with checkpoints, HITL, retries and error routing | ✅ native async | the default engine stays synchronous; async nodes use `AsyncContext`; async subgraphs/Python bindings are not exposed yet |
-| Retry policies | ✅ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy` | interrupts are never retried |
-| Node-level cache | ✅ `CachePolicy` + `NodeCache` port (`InMemoryCache`, TTL, custom keys) | ✅ `CachePolicy` per node | sync engine only for now; the in-memory adapter is unbounded |
-| Persistent checkpointers | ✅ SQLite / Redis / Postgres adapters (`sqlite` / `redis` / `postgres` features) | ✅ `SqliteSaver` / `PostgresSaver` / `RedisSaver` | synchronous adapters; Redis/Postgres integration tests are env-var gated |
-| Error routing / fallback nodes | ✅ `add_error_edge` + `last_error()` | ✅ conditional edges / error handling | handler runs in the next superstep and receives a `NodeFailure` |
-| Python API | ✅ PyO3 bindings (`python` feature) | ✅ native | Rust exposes `StateGraph`/`CompiledGraph`, `interrupt`, `resume`, `run` reports; only built-in reducers from Python |
-| Graph visualisation | ✅ `to_mermaid()` on sync and async graphs (+ Python) | ✅ `get_graph().draw_mermaid()` | static rendering from the compiled topology, including retries/error edges/interrupt hooks |
-| Durable/remote checkpoint backends | ⚠️ trait only, memory saver ships | ✅ SQLite/Postgres/Redis | roadmap |
-| Retries / caching / deferred nodes | ❌ | ✅ | roadmap |
+| `add_sequence` | ❌ | ✅ | |
+| `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` | ✅ `Send` (node, arg, timeout) | ours has no per-`Send` timeout |
+| `Send` from routers / conditional edges | ❌ | ✅ | our routers return destinations only |
+| `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
+| `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
+| Node metadata / input schema / destinations / name | ❌ | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | |
+| Deferred nodes | ❌ | ✅ `add_node(defer=True)` | |
+| Graph name / graph object export | ❌ | ✅ `compile(name=...)`, `get_graph()` | we export Mermaid text only |
 
-Legend: ✅ supported · ⚠️ partial / documented difference · ❌ not implemented.
+### Execution
+
+| Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
+| --- | --- | --- | --- |
+| Supersteps + recursion limit | ✅ default 25, per compile/run | ✅ default 25 | |
+| Parallel superstep execution | ✅ scoped OS threads | ✅ asyncio tasks | CPU parallelism vs cooperative concurrency |
+| Deterministic channel merge | ✅ task-order merge | ✅ | |
+| Async engine | ⚠️ separate `AsyncStateGraph` adapter | ✅ native `ainvoke`/`astream` | see Async row |
+| Batch (`batch` / `abatch`) | ❌ | ✅ | |
+| `max_concurrency` / run control | ❌ | ✅ `max_concurrency`, `RunControl` | |
+| Durability modes | ❌ | ✅ `durability=` | |
+| Context / runtime injection (`Runtime`, `context_schema`) | ❌ | ✅ | |
+| `get_config` / `get_stream_writer` | ⚠️ thread-local `custom()` only | ✅ context helpers | no config object |
+| Managed values (`IsLastStep`, `RemainingSteps`) | ❌ | ✅ `langgraph.managed` | |
+| Retry policy | ⚠️ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | ours has no jitter and no `retry_on` exception selector |
+| Error handling of nodes | ✅ `add_error_edge` + `last_error()` | ✅ per-node `add_node(error_handler=...)` | equivalent capability, different API; our handler runs in the next superstep |
+| Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ❌ | ✅ | |
+| Functional API (`@entrypoint` / `@task`) | ❌ | ✅ `langgraph.func` | separate programming model; not implemented |
+| Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ❌ | ✅ `langgraph.prebuilt` | outside the current scope |
+
+### Checkpointing and state management
+
+| Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
+| --- | --- | --- | --- |
+| Memory checkpointer | ✅ `InMemorySaver` | ✅ `InMemorySaver` | |
+| Persistent checkpointers (sync) | ✅ `SqliteSaver`, `RedisSaver`, `PostgresSaver` (features) | ✅ SQLite/Postgres/Redis saver packages | ours store an internal JSON format; **not interoperable** with LangGraph's checkpoint format |
+| Async checkpointers | ❌ | ✅ `AsyncSqliteSaver`, `AsyncPostgresSaver`, ... | our savers are synchronous `Mutex` adapters |
+| Checkpoint namespaces (`checkpoint_ns`) | ❌ | ✅ | subgraph checkpoint trees unsupported |
+| Pending writes / `put_writes` | ⚠️ pending `Task`s embedded in the checkpoint | ✅ separate writes + checkpoint tuple | resume replays pending tasks in both |
+| `get_state` / history | ⚠️ `get_state(thread)`, `get_state_history(thread, before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object, no `checkpoint_ns` and no interrupt/task ids |
+| `update_state` (`as_node`, `task_id`) | ⚠️ `update_state(thread, values, as_node=)` / Python; no `task_id` | ✅ | recomputes next tasks from `as_node`'s edges, or keeps pending tasks |
+| Thread management | ⚠️ `threads()` in the port | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
+| Time travel | ⚠️ `resume_from(thread, checkpoint_id, value)` | ✅ `get_state_history` + replay from any config | history now supports `before`/`limit`; still no `StateSnapshot.config` |
+| Checkpoint metadata / created_at semantics | ⚠️ basic (`parent_id`, `created_at_millis`, `source`) | ✅ rich metadata, versions/versions_seen | our checkpoint model is simpler |
+
+### Interrupts / HITL
+
+| Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
+| --- | --- | --- | --- |
+| `interrupt(value)` pause | ✅ `Error::Interrupt` | ✅ `GraphInterrupt` / `Interrupt` | node re-executes on resume in both |
+| Resume with a value | ✅ `resume` / `Command::resume` | ✅ `Command(resume=...)` | |
+| Multiple interrupts in one node | ❌ | ✅ resume dict/list matched per interrupt | our context consumes a single resume value |
+| `interrupt(response_schema=...)` | ❌ | ✅ | |
+| `interrupt_before` / `interrupt_after` | ✅ | ✅ | our pause payload is `null` |
+| Resume with state edits | ✅ `resume_with_updates` / `Command::with_update` | ✅ `Command(update=...)`, `update_state` | |
+
+### Streaming
+
+| Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
+| --- | --- | --- | --- |
+| `values` / `updates` / `custom` chunks | ✅ `StreamChunk::{Values,Updates,Custom}` | ✅ `stream_mode` | ours is a single eager chunk list / sync sink |
+| `interrupt` / `checkpoint` chunks | ✅ | ✅ (via stream modes) | |
+| `messages` (LLM token streaming) | ❌ | ✅ `stream_mode="messages"` | |
+| `debug` / `tasks` / `checkpoints` stream modes | ❌ | ✅ | |
+| Subgraph streaming (`subgraphs=True`) | ❌ | ✅ | |
+| Async streaming (`astream`) | ✅ `AsyncCompiledGraph::stream` | ✅ | same chunk shapes, no `stream_mode` selection |
+| v2 stream events | ❌ | ✅ `version="v2"` | |
+| Stream writer from arbitrary helpers | ⚠️ thread-local `custom()` | ✅ `get_stream_writer()` | |
+
+### Subgraphs, caching, async, extras
+
+| Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
+| --- | --- | --- | --- |
+| Subgraphs | ⚠️ `add_subgraph` | ✅ first-class | shared parent state type; changed channels published as direct replacements; **no** state mapping, `checkpoint_ns`, nested interrupts, subgraph streaming |
+| Node-level cache | ⚠️ `CachePolicy` + `NodeCache` port, `InMemoryCache`, sync only | ✅ `CachePolicy(key_func, ttl)` + `BaseCache` (`InMemoryCache`, `RedisCache`) passed to `compile(cache=...)` | ours: in-memory only, no async cache, no size limits, no cache adapters |
+| Long-term memory (`BaseStore`) | ❌ | ✅ `compile(store=...)`, `Runtime.store` | absent |
+| Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |
+| Per-node usage/report (`RunReport`, `TraceSink`) | ✅ first-class (extension) | ⚠️ callbacks / metadata / LangSmith | not a LangGraph feature; superset here |
+| Python bindings | ⚠️ subset (`StateGraph`, `CompiledGraph`, `interrupt`, `resume`, `run` report, `to_mermaid`, in-memory checkpointer) | ✅ full Python API | missing from Python: `Send`, `Command`, stream modes, cache/retry/error-handler config, persistent savers, subgraphs, async, `add_messages` helper |
 
 ## How the matrix was produced
 
-The row statuses are based on the public API of this crate and on the LangGraph 1.2.22
-documentation/API surface, and are exercised by the Rust integration tests
-(`tests/graph.rs`, `tests/checkpoint.rs`, `tests/usage.rs`, `tests/plugin.rs`) and the
-Python binding tests (`python/tests/test_bindings.py`). Performance is measured
-separately in [`README.md`](README.md) / [`RESULTS.md`](RESULTS.md).
+Statuses are based on the public Rust/Python APIs of this crate, its integration tests
+(`tests/graph.rs`, `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
+`tests/resilience.rs`,
+`tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,
+`tests/async_resilience.rs`, `tests/persistence.rs`, `python/tests/test_bindings.py`) and
+introspection of the installed LangGraph 1.2.22 API. Performance is measured separately in
+[`RESULTS.md`](RESULTS.md).

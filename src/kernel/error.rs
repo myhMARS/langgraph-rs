@@ -11,7 +11,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 ///
 /// Interrupts are not failures: the graph state is checkpointed and execution
 /// can be continued with [`CompiledGraph::resume`](crate::CompiledGraph::resume).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Interrupt {
     /// Node that raised the interrupt.
     pub node: String,

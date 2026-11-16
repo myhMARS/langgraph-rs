@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use super::error::Interrupt;
 use super::node::Task;
 
 /// A snapshot of a graph run, stored between supersteps.
@@ -37,6 +38,12 @@ pub struct Checkpoint {
     /// Wall clock creation time in milliseconds since the Unix epoch.
     #[serde(default)]
     pub created_at_millis: u64,
+    /// Interrupt payloads captured when the checkpoint was written.
+    #[serde(default)]
+    pub interrupts: Vec<Interrupt>,
+    /// Free-form checkpoint metadata (`source`, ...).
+    #[serde(default)]
+    pub metadata: Map<String, Value>,
 }
 
 impl Checkpoint {
@@ -57,6 +64,8 @@ impl Checkpoint {
             paused_before: false,
             parent_id: None,
             created_at_millis: now_millis(),
+            interrupts: Vec::new(),
+            metadata: Map::new(),
         }
     }
 

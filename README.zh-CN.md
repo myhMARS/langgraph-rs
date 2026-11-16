@@ -351,8 +351,8 @@ async fn example() -> langgraph_rs::Result<()> {
 }
 ```
 
-async 适配器具备与同步路径相同的引擎能力：checkpoint 与线程历史、HITL（`ctx.interrupt(...)` +
-`graph.resume(thread, value)`）、`interrupt_before` / `interrupt_after`、每节点 `RetryPolicy`、
+async 适配器覆盖与同步路径相同的 checkpoint、HITL、重试、错误路由与流式能力（节点缓存与子图仍仅
+同步路径支持）：checkpoint 与线程历史、HITL（`ctx.interrupt(...)` + `graph.resume(thread, value)`）、`interrupt_before` / `interrupt_after`、每节点 `RetryPolicy`、
 `ctx.last_error()` 错误路由、goto/`Send`、流式与 usage/trace 上报。checkpoint 通过
 `.with_checkpointer(Arc::new(InMemorySaver::new()))` 启用，并需要 `RunConfig::with_thread(...)`：
 

@@ -10,13 +10,17 @@ use super::Entry;
 use super::options::RunConfig;
 use super::snapshot::StateSnapshot;
 use crate::kernel::cache::{CachePolicy, NodeCache};
+use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
+use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe};
 use crate::kernel::executor::{self, StartInput};
 use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
 use crate::kernel::ports::{Checkpointer, TraceSink};
 use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{State, StateSchema, state_to_values};
+use crate::kernel::state::{
+    ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
+};
 use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::RunOutcome;
 use crate::{END, START};
@@ -318,14 +322,109 @@ impl<S: State> CompiledGraph<S> {
 
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
+        self.get_state_history_filtered(thread_id, None, None)
+    }
+
+    /// Read history with an optional `before` checkpoint id and a result limit.
+    ///
+    /// `before` is exclusive, matching LangGraph's `get_state_history`.
+    pub fn get_state_history_filtered(
+        &self,
+        thread_id: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        checkpointer
-            .history(thread_id)?
+        let mut checkpoints = checkpointer.history(thread_id)?;
+        if let Some(before) = before {
+            if let Some(index) = checkpoints.iter().position(|cp| cp.id == before) {
+                checkpoints.drain(0..=index);
+            }
+        }
+        if let Some(limit) = limit {
+            checkpoints.truncate(limit);
+        }
+        checkpoints
             .into_iter()
             .map(StateSnapshot::from_checkpoint)
             .collect()
+    }
+
+    /// Write state updates into the latest checkpoint without running nodes.
+    ///
+    /// With `as_node`, the next tasks are derived from that node's outgoing edges
+    /// (LangGraph `update_state(as_node=...)` semantics); without it the pending tasks
+    /// of the latest checkpoint are preserved.
+    pub fn update_state<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        as_node: Option<&str>,
+    ) -> Result<StateSnapshot<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("update_state"))?;
+        let checkpoint = checkpointer.latest(thread_id)?.ok_or_else(|| {
+            Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
+        })?;
+
+        let mut values = checkpoint.values.clone();
+        let updates: Vec<ChannelUpdate> = updates
+            .into_iter()
+            .map(|(channel, value)| ChannelUpdate {
+                channel: channel.into(),
+                value,
+                node: "<update>".to_string(),
+            })
+            .collect();
+        apply_updates(&self.schema, &mut values, updates)?;
+        let state = values_to_state::<S>(&values)?;
+
+        let next = match as_node {
+            Some(node) => {
+                if !self.nodes.contains_key(node) {
+                    return Err(Error::validation(format!(
+                        "update_state: `{node}` is not a registered node"
+                    )));
+                }
+                let executed = vec![node.to_string()];
+                let targets = collect_next_nodes(
+                    &state,
+                    &executed,
+                    &HashSet::new(),
+                    &[],
+                    |candidate| self.edges_of(candidate),
+                    |candidate| self.conditional_of(candidate),
+                    |candidate| self.nodes.contains_key(candidate),
+                )?;
+                dedupe(targets).into_iter().map(Task::new).collect()
+            }
+            None => checkpoint.next.clone(),
+        };
+
+        let id = new_checkpoint_id(thread_id, checkpoint.step);
+        let updated = Checkpoint {
+            id,
+            thread_id: thread_id.to_string(),
+            step: checkpoint.step,
+            values,
+            next,
+            interrupted: false,
+            paused_before: false,
+            parent_id: Some(checkpoint.id),
+            created_at_millis: now_millis(),
+            interrupts: Vec::new(),
+            metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
+        };
+        let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
+        checkpointer.put(updated)?;
+        Ok(snapshot)
     }
 
     pub(crate) fn node(&self, name: &str) -> Option<&NodeFn<S>> {
