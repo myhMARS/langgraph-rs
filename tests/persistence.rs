@@ -1,4 +1,7 @@
 //! Persistent checkpointer adapter tests.
+
+#![cfg(any(feature = "sqlite", feature = "redis", feature = "postgres"))]
+
 //!
 //! SQLite runs everywhere (bundled SQLite). Redis and Postgres tests are opt-in through
 //! `LANGGRAPH_RS_REDIS_URL` / `LANGGRAPH_RS_POSTGRES_URL`; without those variables the

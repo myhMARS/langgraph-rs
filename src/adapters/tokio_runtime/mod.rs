@@ -8,7 +8,7 @@
 //! - **No blocking.** Every node returns a `Send` future and supersteps use
 //!   [`futures::future::join_all`], so pending I/O overlaps.
 //! - **Explicit context.** Because futures interleave on one task, the thread-local
-//!   context of the sync API is not available; nodes receive an [`AsyncContext`] with
+//!   context of the sync API is not available; nodes receive an [`AsyncContext`](crate::tokio_runtime::AsyncContext) with
 //!   `interrupt`, `record_usage`, `record_tokens` and `custom`.
 //! - **Feature parity with the sync engine** for checkpoints, human-in-the-loop,
 //!   retries, error routing, streaming, goto and `Send`.
