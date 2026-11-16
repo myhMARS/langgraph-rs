@@ -23,7 +23,7 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
             .map(|channel| {
                 (
                     channel.clone(),
-                    Value::String(format!("{}.0.1", checkpoint.step)),
+                    Value::String(crate::kernel::checkpoint::version_string(checkpoint.step)),
                 )
             })
             .collect::<Map<String, Value>>()

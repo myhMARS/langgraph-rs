@@ -237,7 +237,15 @@ fn checkpoints_carry_channel_versions() {
             .unwrap()
             .is_empty()
     );
-    assert!(checkpoint["channel_versions"]["value"].is_string());
+    let version = checkpoint["channel_versions"]["value"]
+        .as_str()
+        .expect("string version");
+    assert_eq!(version.split('.').next().unwrap().len(), 32);
+    assert!(version.ends_with(".0.1"));
+    let seen = checkpoint["versions_seen"]["inc"]
+        .as_object()
+        .expect("per-node versions_seen");
+    assert_eq!(seen["value"], serde_json::json!(version));
     assert!(
         checkpoint["updated_channels"]
             .as_array()

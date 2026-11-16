@@ -226,6 +226,7 @@ pub(crate) fn execute<S: State>(
             false,
             Vec::new(),
             Vec::new(),
+            &[],
             sink,
             checkpoint_writer.as_ref(),
         )?;
@@ -282,6 +283,7 @@ pub(crate) fn execute<S: State>(
                 true,
                 vec![interrupted_interrupt.clone()],
                 Vec::new(),
+                &[],
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -352,6 +354,7 @@ pub(crate) fn execute<S: State>(
                     false,
                     vec![interrupted.clone()],
                     pending_writes,
+                    &[],
                     sink,
                     checkpoint_writer.as_ref(),
                 )?;
@@ -409,6 +412,7 @@ pub(crate) fn execute<S: State>(
                 false,
                 interrupts.clone(),
                 Vec::new(),
+                &[],
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -541,6 +545,7 @@ pub(crate) fn execute<S: State>(
                     .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
                 Vec::new(),
+                &executed,
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
@@ -573,6 +578,7 @@ pub(crate) fn execute<S: State>(
                     false,
                     Vec::new(),
                     Vec::new(),
+                    &executed,
                     sink,
                     checkpoint_writer.as_ref(),
                 )?;

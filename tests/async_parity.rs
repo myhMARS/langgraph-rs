@@ -79,6 +79,11 @@ async fn checkpoint_export_and_import_roundtrip() {
         .unwrap()
         .expect("checkpoint");
     assert_eq!(document["checkpoint"]["channel_values"]["value"], json!(1));
+    let version = document["checkpoint"]["channel_versions"]["value"]
+        .as_str()
+        .expect("string version");
+    assert_eq!(version.split('.').next().unwrap().len(), 32);
+    assert!(version.ends_with(".0.1"));
 
     graph
         .import_checkpoint("async-imported", &document)

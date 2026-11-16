@@ -973,6 +973,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 false,
                 false,
                 Vec::new(),
+                &[],
                 sink,
             )
             .await?;
@@ -1024,6 +1025,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     true,
                     true,
                     vec![interrupted_interrupt.clone()],
+                    &[],
                     sink,
                 )
                 .await?;
@@ -1104,6 +1106,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         false,
                         vec![interrupted.clone()],
                         pending_writes,
+                        &[],
                         sink,
                     )
                     .await?;
@@ -1159,6 +1162,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     true,
                     false,
                     interrupts.clone(),
+                    &[],
                     sink,
                 )
                 .await?;
@@ -1273,6 +1277,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         .iter()
                         .map(|node| Interrupt::new(node.clone(), Value::Null))
                         .collect(),
+                    &executed,
                     sink,
                 )
                 .await?;
@@ -1303,6 +1308,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         false,
                         false,
                         Vec::new(),
+                        &executed,
                         sink,
                     )
                     .await?;
@@ -1861,6 +1867,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         interrupted: bool,
         paused_before: bool,
         interrupts: Vec<Interrupt>,
+        executed: &[String],
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         self.save_checkpoint_inner(
@@ -1874,6 +1881,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             paused_before,
             interrupts,
             Vec::new(),
+            executed,
             sink,
         )
         .await
@@ -1892,6 +1900,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         paused_before: bool,
         interrupts: Vec<Interrupt>,
         pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+        executed: &[String],
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         let Some(thread_id) = thread_id else {
@@ -1907,7 +1916,12 @@ impl<S: State> AsyncCompiledGraph<S> {
             None => None,
         };
         let (channel_versions, versions_seen, updated_channels) =
-            crate::kernel::checkpoint::versions_for(previous.as_ref(), &persisted_values, step);
+            crate::kernel::checkpoint::versions_for(
+                previous.as_ref(),
+                &persisted_values,
+                step,
+                executed,
+            );
         let checkpoint = Checkpoint {
             id: id.clone(),
             thread_id: thread_id.to_string(),

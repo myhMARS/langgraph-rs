@@ -76,6 +76,7 @@ pub(super) fn save_checkpoint<S: State>(
     paused_before: bool,
     interrupts: Vec<Interrupt>,
     pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    executed: &[String],
     sink: &mut dyn FnMut(StreamChunk),
     writer: Option<&CheckpointWriter>,
 ) -> Result<()> {
@@ -96,7 +97,12 @@ pub(super) fn save_checkpoint<S: State>(
             .and_then(|parent_id| checkpointer.get(thread_id, parent_id).ok().flatten())
     };
     let (channel_versions, versions_seen, updated_channels) =
-        crate::kernel::checkpoint::versions_for(previous.as_ref(), &persisted_values, step);
+        crate::kernel::checkpoint::versions_for(
+            previous.as_ref(),
+            &persisted_values,
+            step,
+            executed,
+        );
     let checkpoint = Checkpoint {
         id: id.clone(),
         thread_id: thread_id.to_string(),

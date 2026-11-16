@@ -132,11 +132,17 @@ pub(crate) fn now_millis() -> u64 {
         .unwrap_or_default()
 }
 
+/// LangGraph-compatible channel version string.
+pub(crate) fn version_string(step: usize) -> String {
+    format!("{:032}.0.1", step + 1)
+}
+
 /// Compute LangGraph-style version metadata for a new checkpoint.
 pub(crate) fn versions_for(
     previous: Option<&Checkpoint>,
     values: &Map<String, Value>,
     step: usize,
+    executed: &[String],
 ) -> (Map<String, Value>, Map<String, Value>, Vec<String>) {
     let mut channel_versions = previous
         .map(|checkpoint| checkpoint.channel_versions.clone())
@@ -148,21 +154,24 @@ pub(crate) fn versions_for(
     for (channel, value) in values {
         let changed = previous.and_then(|checkpoint| checkpoint.values.get(channel)) != Some(value);
         if changed {
-            let version = Value::String(format!("{step}.0.1"));
+            let version = Value::String(version_string(step));
             channel_versions.insert(channel.clone(), version);
             updated.push(channel.clone());
         }
     }
-    if !updated.is_empty() {
-        let seen: Map<String, Value> = updated
-            .iter()
+    // LangGraph records the channel versions each executed node has observed.
+    if !executed.is_empty() {
+        let seen: Map<String, Value> = values
+            .keys()
             .filter_map(|channel| {
                 channel_versions
                     .get(channel)
                     .map(|version| (channel.clone(), version.clone()))
             })
             .collect();
-        versions_seen.insert("__updated__".to_string(), Value::Object(seen));
+        for node in executed {
+            versions_seen.insert(node.clone(), Value::Object(seen.clone()));
+        }
     }
     (channel_versions, versions_seen, updated)
 }

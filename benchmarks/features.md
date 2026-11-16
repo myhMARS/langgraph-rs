@@ -96,7 +96,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `update_state` (`as_node`, `task_id`) | ⚠️ `update_state(thread, values, as_node=)` / `update_state_with_task(..., task_id=)`; Python `update_state(..., task_id=)` infers `as_node` from the matching pending task | ✅ | recomputes next tasks from `as_node`'s edges, or keeps pending tasks; `task_id` is validated against pending tasks |
 | Thread management | ✅ `threads()` list, `delete_thread`, `prune_thread(thread, keep_last)` (memory/sqlite/redis/postgres/BlockingSaver) and `copy_thread`, Rust and Python | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
 | Time travel | ⚠️ `resume_from(thread, checkpoint_id, value)` | ✅ `get_state_history` + replay from any config | history supports `before`/`limit`; snapshots expose LangGraph-style `config` |
-| Checkpoint metadata / created_at semantics | ⚠️ `parent_id`, `created_at_millis`, `source`, plus `channel_versions` / `versions_seen` / `updated_channels` (versions are step-based, `versions_seen` simplified) | ✅ rich metadata, versions/versions_seen | our checkpoint model is simpler |
+| Checkpoint metadata / created_at semantics | ⚠️ `parent_id`, `created_at_millis`, `source`, plus `channel_versions` / `versions_seen` / `updated_channels`; versions use LangGraph's `{32-digit counter}.0.1` shape and `versions_seen` records per-node channel versions | ✅ rich metadata, versions/versions_seen | version suffix is deterministic rather than random; the engine schedules from pending tasks, not from `versions_seen` |
 
 ### Interrupts / HITL
 
