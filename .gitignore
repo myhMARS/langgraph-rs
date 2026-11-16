@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 *.pyo
 
+/benchmarks/.pydir/
+/benchmarks/results/python.json

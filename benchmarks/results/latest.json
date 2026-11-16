@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-11-16T08:19:22.795767+00:00",
+  "machine": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+  "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "python": "3.12.10",
+  "langgraph": "1.2.22",
+  "records": [
+    {
+      "engine": "rust",
+      "scenario": "linear_10",
+      "iterations": 1000,
+      "total_ms": 27.266,
+      "ns_per_op": 27266.4,
+      "ops_per_sec": 36675.2
+    },
+    {
+      "engine": "rust",
+      "scenario": "loop_50",
+      "iterations": 200,
+      "total_ms": 25.667,
+      "ns_per_op": 128334.0,
+      "ops_per_sec": 7792.2
+    },
+    {
+      "engine": "rust",
+      "scenario": "fanout_4",
+      "iterations": 1000,
+      "total_ms": 372.237,
+      "ns_per_op": 372236.5,
+      "ops_per_sec": 2686.5
+    },
+    {
+      "engine": "rust",
+      "scenario": "checkpoint_5",
+      "iterations": 200,
+      "total_ms": 3.444,
+      "ns_per_op": 17220.0,
+      "ops_per_sec": 58072.0
+    },
+    {
+      "engine": "rust",
+      "scenario": "build_compile",
+      "iterations": 500,
+      "total_ms": 4.041,
+      "ns_per_op": 8082.4,
+      "ops_per_sec": 123725.6
+    },
+    {
+      "engine": "langgraph",
+      "scenario": "linear_10",
+      "iterations": 1000,
+      "total_ms": 4792.141,
+      "ns_per_op": 4792141.1,
+      "ops_per_sec": 208.7
+    },
+    {
+      "engine": "langgraph",
+      "scenario": "loop_50",
+      "iterations": 200,
+      "total_ms": 4633.128,
+      "ns_per_op": 23165640.0,
+      "ops_per_sec": 43.2
+    },
+    {
+      "engine": "langgraph",
+      "scenario": "fanout_4",
+      "iterations": 1000,
+      "total_ms": 3455.192,
+      "ns_per_op": 3455191.5,
+      "ops_per_sec": 289.4
+    },
+    {
+      "engine": "langgraph",
+      "scenario": "checkpoint_5",
+      "iterations": 200,
+      "total_ms": 1223.369,
+      "ns_per_op": 6116846.0,
+      "ops_per_sec": 163.5
+    },
+    {
+      "engine": "langgraph",
+      "scenario": "build_compile",
+      "iterations": 500,
+      "total_ms": 519.318,
+      "ns_per_op": 1038635.8,
+      "ops_per_sec": 962.8
+    },
+    {
+      "engine": "binding",
+      "scenario": "linear_10",
+      "iterations": 1000,
+      "total_ms": 41.937,
+      "ns_per_op": 41937.2,
+      "ops_per_sec": 23845.2
+    },
+    {
+      "engine": "binding",
+      "scenario": "loop_50",
+      "iterations": 200,
+      "total_ms": 44.815,
+      "ns_per_op": 224077.0,
+      "ops_per_sec": 4462.8
+    },
+    {
+      "engine": "binding",
+      "scenario": "fanout_4",
+      "iterations": 1000,
+      "total_ms": 700.43,
+      "ns_per_op": 700429.8,
+      "ops_per_sec": 1427.7
+    },
+    {
+      "engine": "binding",
+      "scenario": "checkpoint_5",
+      "iterations": 200,
+      "total_ms": 8.81,
+      "ns_per_op": 44049.5,
+      "ops_per_sec": 22701.7
+    },
+    {
+      "engine": "binding",
+      "scenario": "build_compile",
+      "iterations": 500,
+      "total_ms": 13.951,
+      "ns_per_op": 27901.8,
+      "ops_per_sec": 35840.0
+    }
+  ]
+}

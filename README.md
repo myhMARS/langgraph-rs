@@ -28,6 +28,8 @@ bindings for teams that need them.
 - **Microkernel + hexagonal architecture** — a domain kernel (graph model, superstep
   engine, ports) with adapters for checkpointing, tracing and language bindings; channel
   merge policies are plugins registered in a `Kernel`.
+- **Benchmarked against Python LangGraph** — same scenarios across Rust native, the PyO3
+  bindings and LangGraph, plus a feature-parity matrix (see [benchmarks/](benchmarks/)).
 
 ## Why a Rust port?
 
@@ -355,6 +357,30 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - Nodes may return the reserved keys `__goto__` (node name or list) and `__usage__` (a dict
   with `model`, `input_tokens`, `output_tokens`, `cost_usd`, `metadata`).
 
+## Benchmarks vs Python LangGraph
+
+The repository ships a reproducible comparison against Python LangGraph 1.2.x: identical
+graphs, node counts and iteration counts, one protocol for all engines. See
+[benchmarks/README.md](benchmarks/README.md) for the scenarios and
+[benchmarks/RESULTS.md](benchmarks/RESULTS.md) for the current numbers; regenerate with
+`python benchmarks/run.py`.
+
+Snapshot (Windows 11, rustc 1.99.1, Python 3.12.10, LangGraph 1.2.22):
+
+| Scenario | Rust native | Rust via Python binding | Python LangGraph | Rust vs LangGraph |
+| --- | --- | --- | --- | --- |
+| linear_10 (10-node pipeline) | 27.27 µs/op | 41.94 µs/op | 4,792.14 µs/op | **175.8×** |
+| loop_50 (50-step loop) | 128.33 µs/op | 224.08 µs/op | 23,165.64 µs/op | **180.5×** |
+| fanout_4 (1 → 4 parallel → join) | 372.24 µs/op | 700.43 µs/op | 3,455.19 µs/op | **9.3×** |
+| checkpoint_5 (5 nodes + checkpoints) | 17.22 µs/op | 44.05 µs/op | 6,116.85 µs/op | **355.2×** |
+| build_compile (10-node graph) | 8.08 µs/op | 27.90 µs/op | 1,038.64 µs/op | **128.5×** |
+
+These measure orchestration overhead only (no LLM or I/O calls): native Rust is one to two
+orders of magnitude faster, the bindings pay Python callable dispatch per node, and the
+fan-out scenario is the narrowest margin because native Rust spawns real threads per
+superstep. The functional matrix — what reaches parity and what does not (subgraphs, async
+nodes, durable backends) — is in [benchmarks/features.md](benchmarks/features.md).
+
 ## Status / roadmap
 
 Implemented and tested: microkernel + hexagonal layout (kernel ports, adapters, plugin registry);
@@ -401,6 +427,9 @@ cargo fmt --check
 cargo build --features python
 maturin develop --features python   # or: pip install maturin
 python -m unittest discover -s python/tests -v
+
+# Benchmarks vs Python LangGraph (requires `pip install langgraph`)
+python benchmarks/run.py
 ```
 
 Requires Rust 1.85+ (edition 2024). Design and internals: [docs/architecture.md](docs/architecture.md).
