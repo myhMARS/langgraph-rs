@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use crate::channel::Channel;
+use crate::kernel::channel::Channel;
 use crate::{Error, Result};
 
 /// Declares every state channel and how writes to it are merged.

@@ -1,8 +1,8 @@
 //! Typed views of checkpointed thread state.
 
-use crate::checkpoint::Checkpoint;
-use crate::error::Result;
-use crate::state::{State, values_to_state};
+use crate::kernel::checkpoint::Checkpoint;
+use crate::kernel::error::Result;
+use crate::kernel::state::{State, values_to_state};
 
 /// A point-in-time view of a checkpointed thread.
 #[derive(Clone, Debug)]

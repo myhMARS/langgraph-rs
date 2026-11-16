@@ -21,12 +21,12 @@ use serde_json::{Map, Value};
 use self::checkpointing::save_checkpoint;
 use self::scheduling::{collect_next_nodes, dedupe};
 use self::superstep::{TaskResult, run_superstep};
-use crate::error::{Error, Interrupt, Result};
-use crate::graph::{CompiledGraph, RunConfig};
-use crate::node::Task;
-use crate::state::{ChannelUpdate, State, apply_updates, values_to_state};
-use crate::stream::StreamChunk;
-use crate::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+use crate::kernel::error::{Error, Interrupt, Result};
+use crate::kernel::graph::{CompiledGraph, RunConfig};
+use crate::kernel::node::Task;
+use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
+use crate::kernel::stream::StreamChunk;
+use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 /// Where a run starts from.
 pub(crate) enum StartInput {
@@ -329,6 +329,9 @@ fn process_results<S: State>(
         sink(StreamChunk::Usage {
             execution: execution.clone(),
         });
+        for trace_sink in graph.trace_sinks() {
+            trace_sink.record(&execution);
+        }
         report.record(execution);
 
         let (updates, goto, sends) = output.into_parts();

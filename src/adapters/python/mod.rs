@@ -25,8 +25,8 @@ use pyo3::types::{PyAny, PyDict, PyList};
 use serde_json::{Map, Value};
 
 use crate::{
-    CompileOptions, CompiledGraph, Error, InMemorySaver, Interrupt, JsonState, NodeOutput, PathMap,
-    Route, RunConfig, StateSchema, StreamChunk, Usage, reducers,
+    CompileOptions, CompiledGraph, Error, InMemorySaver, Interrupt, JsonState, Kernel, NodeOutput,
+    PathMap, Route, RunConfig, StateSchema, StreamChunk, Usage,
 };
 
 create_exception!(
@@ -281,7 +281,7 @@ fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<StateSchema> {
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("schema must be a dict of channel -> spec"))?;
 
-    let mut result = StateSchema::dynamic();
+    let mut entries = Vec::with_capacity(dict.len());
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
         let spec = spec.extract::<String>().map_err(|_| {
@@ -289,20 +289,15 @@ fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<StateSchema> {
                 "channel spec for `{name}` must be a string such as \"last_value\", \"topic\", \"append\""
             ))
         })?;
-        result = match spec.as_str() {
-            "last_value" | "last" | "value" => result.last_value(name),
-            "topic" => result.topic(name),
-            "append" => result.with_reducer(name, reducers::append()),
-            "add" => result.with_reducer(name, reducers::add()),
-            "messages" => result.with_reducer(name, reducers::messages()),
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "unknown channel spec `{other}` for `{name}`; use last_value, topic, append, add or messages"
-                )));
-            }
+        let spec = match spec.as_str() {
+            "last" | "value" => "last_value".to_string(),
+            other => other.to_string(),
         };
+        entries.push((name, spec));
     }
-    Ok(result)
+    Kernel::builtin()
+        .schema(entries)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 fn targets_from_py(to: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
@@ -712,7 +707,7 @@ fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
 #[pyfunction]
 fn interrupt(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let value = py_to_value(value)?;
-    match crate::context::interrupt(value) {
+    match crate::kernel::context::interrupt(value) {
         Ok(resume) => value_to_py(py, &resume),
         Err(error) => Err(to_pyerr(py, error)),
     }

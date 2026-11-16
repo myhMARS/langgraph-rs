@@ -9,14 +9,14 @@ use serde_json::{Map, Value};
 use super::Entry;
 use super::options::RunConfig;
 use super::snapshot::StateSnapshot;
-use crate::checkpoint::Checkpointer;
-use crate::command::Command;
-use crate::error::{Error, Result};
-use crate::executor::{self, StartInput};
-use crate::node::{ConditionalEdge, NodeFn, Task};
-use crate::state::{State, StateSchema, state_to_values};
-use crate::stream::StreamChunk;
-use crate::usage::RunOutcome;
+use crate::kernel::command::Command;
+use crate::kernel::error::{Error, Result};
+use crate::kernel::executor::{self, StartInput};
+use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
+use crate::kernel::ports::{Checkpointer, TraceSink};
+use crate::kernel::state::{State, StateSchema, state_to_values};
+use crate::kernel::stream::StreamChunk;
+use crate::kernel::usage::RunOutcome;
 use crate::{END, START};
 
 /// A graph that is ready to run.
@@ -30,6 +30,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) conditional: IndexMap<String, Vec<ConditionalEdge<S>>>,
     pub(crate) entry: Entry<S>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
+    pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
     pub(crate) recursion_limit: usize,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
@@ -44,6 +45,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             conditional: self.conditional.clone(),
             entry: self.entry.clone(),
             checkpointer: self.checkpointer.clone(),
+            trace_sinks: self.trace_sinks.clone(),
             recursion_limit: self.recursion_limit,
             interrupt_before: self.interrupt_before.clone(),
             interrupt_after: self.interrupt_after.clone(),
@@ -280,6 +282,11 @@ impl<S: State> CompiledGraph<S> {
 
     pub(crate) fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
         self.conditional.get(node).map(Vec::as_slice)
+    }
+
+    /// Trace sink adapters installed through the kernel.
+    pub(crate) fn trace_sinks(&self) -> &[Arc<dyn TraceSink>] {
+        &self.trace_sinks
     }
 
     pub(crate) fn interrupts_before(&self, node: &str) -> bool {

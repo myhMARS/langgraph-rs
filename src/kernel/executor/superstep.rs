@@ -5,12 +5,12 @@ use std::time::Instant;
 
 use serde_json::Value;
 
-use crate::context::TaskContext;
-use crate::error::{Error, Interrupt, Result};
-use crate::graph::CompiledGraph;
-use crate::node::{NodeOutput, Task};
-use crate::state::{State, values_to_state};
-use crate::usage::Usage;
+use crate::kernel::context::TaskContext;
+use crate::kernel::error::{Error, Interrupt, Result};
+use crate::kernel::graph::CompiledGraph;
+use crate::kernel::node::{NodeOutput, Task};
+use crate::kernel::state::{State, values_to_state};
+use crate::kernel::usage::Usage;
 
 /// Result of one node execution, before the superstep is merged.
 pub(super) struct TaskResult {
@@ -67,7 +67,8 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> Resul
 
     let context = TaskContext::new(task.node.clone(), task.resume.clone());
     let started = Instant::now();
-    let (result, custom, mut usage) = crate::context::with_task(context, || node(&node_state));
+    let (result, custom, mut usage) =
+        crate::kernel::context::with_task(context, || node(&node_state));
     let duration_millis = started.elapsed().as_millis() as u64;
 
     match result {

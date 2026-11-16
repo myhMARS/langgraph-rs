@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::usage::Usage;
+use crate::kernel::usage::Usage;
 use crate::{Error, Interrupt, Result};
 
 thread_local! {

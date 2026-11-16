@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use crate::usage::NodeExecution;
+use crate::kernel::usage::NodeExecution;
 
 /// One event in a graph run.
 ///

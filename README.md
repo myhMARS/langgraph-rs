@@ -25,6 +25,9 @@ bindings for teams that need them.
   aggregated totals.
 - **Python bindings** — the optional `python` feature exposes the same engine to Python
   (`StateGraph` / `CompiledGraph`, `interrupt` / `resume`, run reports) through PyO3.
+- **Microkernel + hexagonal architecture** — a domain kernel (graph model, superstep
+  engine, ports) with adapters for checkpointing, tracing and language bindings; channel
+  merge policies are plugins registered in a `Kernel`.
 
 ## Why a Rust port?
 
@@ -34,6 +37,69 @@ type, a node writing an undeclared channel fails the run, and an ambiguous merge
 concurrent writes to a `LastValue` channel are an error instead of a race. Nodes are synchronous
 closures, supersteps run on `std::thread::scope`, and `Checkpointer` is a trait, so persistence
 is whatever database you operate.
+
+## Architecture: microkernel + hexagonal
+
+The crate is organised as a **kernel** (pure domain logic) surrounded by **adapters**
+(infrastructure), wired through **ports** (traits):
+
+```text
+                 ┌────────────────────────── adapters ──────────────────────────┐
+   Python ─────► │ adapters::python (PyO3)   adapters::memory (checkpoint saver) │
+                 └───────────────▲───────────────────────────▲──────────────────┘
+                                 │ implements ports          │
+                 ┌───────────────┴───────────────────────────┴──────────────────┐
+                 │ kernel::ports   Checkpointer, TraceSink                      │
+                 │ kernel::plugin  Kernel / Plugin / ChannelFactory             │
+                 │ kernel          graph model, channels, state, executor,      │
+                 │                 usage, streaming, checkpoints, interrupts     │
+                 └──────────────────────────────────────────────────────────────┘
+```
+
+- **Ports** (`kernel::ports`) are the only contracts the kernel depends on:
+  `Checkpointer` for persistence and `TraceSink` for consumption records.
+- **Adapters** (`adapters::*`) implement ports: `InMemorySaver` for checkpoints, the PyO3
+  bindings for Python callers, and your own structs for Redis/Postgres/OTel/etc.
+- **Microkernel** (`kernel::plugin`): the kernel resolves capabilities from a `Kernel`
+  registry instead of constructing them. Built-in channel policies (`last_value`, `topic`,
+  `append`, `add`, `messages`) are registered by `BuiltinChannels`; downstream crates add
+  policies with a `Plugin`:
+
+```rust
+use langgraph_rs::{Channel, CompileOptions, Kernel, Plugin, StateGraph};
+
+struct MyReducer;
+
+impl Plugin for MyReducer {
+    fn name(&self) -> &'static str {
+        "my-reducer"
+    }
+
+    fn install(&self, kernel: &mut Kernel) -> langgraph_rs::Result<()> {
+        kernel.register_channel("trimmed_append", || {
+            Channel::reducer(|current, incoming| {
+                let mut values = current.as_array().cloned().unwrap_or_default();
+                if let Some(items) = incoming.as_array() {
+                    values.extend(items.iter().cloned());
+                }
+                Ok(serde_json::Value::Array(values))
+            })
+        });
+        Ok(())
+    }
+}
+
+let kernel = Kernel::builder().with_plugin(MyReducer)?.build();
+let schema = kernel.schema([("messages".to_string(), "trimmed_append".to_string())])?;
+let graph = StateGraph::<Pipeline>::with_schema(schema)
+    .add_node("node", |_state: &Pipeline| Ok(Default::default()))
+    .set_entry_point("node")
+    .set_finish_point("node")
+    .compile_with(CompileOptions::new().with_kernel(kernel))
+    .unwrap();
+```
+
+The kernel never names a concrete adapter: persistence, tracing and Python live outside it.
 
 ## Quick start
 
@@ -291,11 +357,12 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 
 ## Status / roadmap
 
-Implemented and tested: strict or dynamic channel schemas; static, multi-target and conditional
-edges with path maps and conditional entry points; parallel supersteps, `Send`, `goto`; the
-recursion limit (25 supersteps); checkpointing, thread history, snapshots; `interrupt()` with
-before/after hooks; resume, updates, time travel; streaming; per-node duration/usage tracing with
-run reports; validation and merge errors; optional Python bindings (PyO3).
+Implemented and tested: microkernel + hexagonal layout (kernel ports, adapters, plugin registry);
+strict or dynamic channel schemas; static, multi-target and conditional edges with path maps and
+conditional entry points; parallel supersteps, `Send`, `goto`; the recursion limit (25 supersteps);
+checkpointing, thread history, snapshots; `interrupt()` with before/after hooks; resume, updates,
+time travel; streaming; per-node duration/usage tracing with run reports and trace-sink adapters;
+validation and merge errors; optional Python bindings (PyO3).
 
 Not implemented yet:
 

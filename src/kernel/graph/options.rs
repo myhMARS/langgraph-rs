@@ -3,7 +3,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::checkpoint::Checkpointer;
+use crate::kernel::plugin::Kernel;
+use crate::kernel::ports::Checkpointer;
 
 /// Default number of supersteps a single graph run may execute.
 pub const DEFAULT_RECURSION_LIMIT: usize = 25;
@@ -75,10 +76,12 @@ impl<const N: usize> From<[&str; N]> for Targets {
 ///     .interrupt_before(["human_review"]);
 /// assert_eq!(options.recursion_limit, Some(10));
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CompileOptions {
     /// Enables checkpointing, thread history and human-in-the-loop resuming.
     pub checkpointer: Option<Arc<dyn Checkpointer>>,
+    /// Microkernel registry: channel policies and trace sinks used by this graph.
+    pub kernel: Kernel,
     /// Overrides [`DEFAULT_RECURSION_LIMIT`].
     pub recursion_limit: Option<usize>,
     /// Nodes that must be interrupted *before* they run.
@@ -87,10 +90,23 @@ pub struct CompileOptions {
     pub interrupt_after: Vec<String>,
 }
 
+impl Default for CompileOptions {
+    fn default() -> Self {
+        Self {
+            checkpointer: None,
+            kernel: Kernel::builtin(),
+            recursion_limit: None,
+            interrupt_before: Vec::new(),
+            interrupt_after: Vec::new(),
+        }
+    }
+}
+
 impl fmt::Debug for CompileOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CompileOptions")
             .field("checkpointer", &self.checkpointer.is_some())
+            .field("kernel", &self.kernel)
             .field("recursion_limit", &self.recursion_limit)
             .field("interrupt_before", &self.interrupt_before)
             .field("interrupt_after", &self.interrupt_after)
@@ -107,6 +123,12 @@ impl CompileOptions {
     /// Attach a checkpointer.
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Use a custom microkernel registry (channel plugins + trace sinks).
+    pub fn with_kernel(mut self, kernel: Kernel) -> Self {
+        self.kernel = kernel;
         self
     }
 

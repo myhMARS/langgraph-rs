@@ -14,7 +14,7 @@ mod compiled;
 mod options;
 mod snapshot;
 
-use crate::node::ConditionalEdge;
+use crate::kernel::node::ConditionalEdge;
 
 pub use builder::StateGraph;
 pub use compiled::CompiledGraph;

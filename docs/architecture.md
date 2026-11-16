@@ -8,29 +8,52 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 
 | Module | Responsibility |
 | --- | --- |
-| `error` | `Error`, `Interrupt`, `Result`. `Interrupt` is a `#[from]` variant and not a failure: the engine checkpoints and unwinds. |
-| `channel` | `Channel` (`LastValue` / `Topic` / `Reducer`), the `Reducer` wrapper and `reducers::{append, add, messages}`. Owns merge policy. |
-| `state` | `State`, `StateSchema` (strict or `dynamic`), `JsonState`, `ChannelUpdate`, `apply_updates` — the single point where writes become values. |
-| `node` | `NodeFn`, `NodeOutput` (writes, `goto`, `Send`), `Send`, `Route`, `PathMap`, `ConditionalEdge`, `Task`. Pure data, no execution. |
-| `context` | Thread-local `TaskContext` installed around each node call, plus `interrupt`, `custom`, `push_custom`, `current_node`. |
-| `checkpoint` | `Checkpoint`, the `Checkpointer` trait, `InMemorySaver` / `MemorySaver`, id and timestamp helpers. |
-| `command` | `Command`: an explicit resume description (value + optional patch). The `CompiledGraph` methods build the same intent in `executor::StartInput::Resume`. |
-| `graph::builder` | `StateGraph`, the mutable builder, its edges and the validation rules. |
-| `graph::compiled` | `CompiledGraph`, the immutable runnable form with `invoke` / `run` / `stream` / `resume` / state queries. |
-| `graph::options` | `CompileOptions`, `RunConfig`, `Targets`, `DEFAULT_RECURSION_LIMIT`. |
-| `graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
-| `executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
-| `executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
-| `executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
-| `executor::checkpointing` | `save_checkpoint`: the only checkpoint writer. |
-| `usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
-| `stream` | `StreamChunk` and accessors, produced by the executor. |
-| `python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
+| `kernel::error` | `Error`, `Interrupt`, `Result`. `Interrupt` is a `#[from]` variant and not a failure: the engine checkpoints and unwinds. |
+| `kernel::channel` | `Channel` (`LastValue` / `Topic` / `Reducer`), the `Reducer` wrapper and `reducers::{append, add, messages}`. Owns merge policy. |
+| `kernel::state` | `State`, `StateSchema` (strict or `dynamic`), `JsonState`, `ChannelUpdate`, `apply_updates` — the single point where writes become values. |
+| `kernel::node` | `NodeFn`, `NodeOutput` (writes, `goto`, `Send`), `Send`, `Route`, `PathMap`, `ConditionalEdge`, `Task`. Pure data, no execution. |
+| `kernel::context` | Thread-local `TaskContext` installed around each node call, plus `interrupt`, `custom`, `push_custom`, `current_node`. |
+| `kernel::checkpoint` | `Checkpoint`, the `Checkpointer` trait, `InMemorySaver` / `MemorySaver`, id and timestamp helpers. |
+| `kernel::command` | `Command`: an explicit resume description (value + optional patch). The `CompiledGraph` methods build the same intent in `executor::StartInput::Resume`. |
+| `kernel::graph::builder` | `StateGraph`, the mutable builder, its edges and the validation rules. |
+| `kernel::graph::compiled` | `CompiledGraph`, the immutable runnable form with `invoke` / `run` / `stream` / `resume` / state queries. |
+| `kernel::graph::options` | `CompileOptions`, `RunConfig`, `Targets`, `DEFAULT_RECURSION_LIMIT`. |
+| `kernel::graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
+| `kernel::executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
+| `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
+| `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
+| `kernel::executor::checkpointing` | `save_checkpoint`: the only checkpoint writer. |
+| `kernel::usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
+| `kernel::stream` | `StreamChunk` and accessors, produced by the executor. |
+| `adapters::python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
+| `kernel::ports` | Ports: `Checkpointer` (persistence) and `TraceSink` (consumption records); the only contracts the kernel depends on. |
+| `kernel::plugin` | Microkernel registry: `Kernel`, `KernelBuilder`, `Plugin`, `ChannelFactory`, `BuiltinChannels`. |
+| `adapters::memory` | `InMemorySaver` / `MemorySaver`: the in-memory checkpointer adapter. |
 
-Dependencies are acyclic: `graph` → `executor` → {`state`, `channel`, `checkpoint`, `context`,
-`node`, `stream`, `usage`} → `error`. The `graph` and `executor` packages are split internally so
-no file owns more than one concern; public paths are unchanged. `lib.rs` re-exports the public
-surface and defines `START` (`"__start__"`) and `END` (`"__end__"`).
+Dependencies point inward: `adapters` → `kernel`, and inside the kernel `graph` → `executor` →
+{`state`, `channel`, `checkpoint`, `context`, `node`, `stream`, `usage`} → `error`. The kernel
+never references a concrete adapter; adapters implement `kernel::ports` traits. `lib.rs` is a pure
+facade: it re-exports the public surface and defines `START` (`"__start__"`) and `END`
+(`"__end__"`), so moving code between layers never breaks users.
+
+## Microkernel and hexagonal architecture
+
+- **Hexagonal core.** `kernel` is domain logic; `adapters` is infrastructure. Ports
+  (`kernel::ports::Checkpointer`, `TraceSink`) are the seam. `InMemorySaver`
+  (`adapters::memory`) and the PyO3 module (`adapters::python`) implement ports or translate
+  into the domain.
+- **Microkernel composition.** `Kernel` holds named `ChannelFactory`s and `Arc<dyn TraceSink>`
+  adapters. `Kernel::builtin()` installs `BuiltinChannels` (`last_value`, `topic`, `append`,
+  `add`, `messages`); `Kernel::builder().with_plugin(..)` composes downstream plugins.
+  `Kernel::schema([(name, spec)])` turns plugin names into a `StateSchema`, so graph definitions
+  refer to capabilities by name rather than constructor.
+- **Compilation injects the kernel.** `CompileOptions::with_kernel(kernel)` copies the trace
+  sinks into the compiled graph; the executor calls every sink per node execution. The Python
+  bindings build their schema through the same built-in kernel, so both APIs resolve the same
+  plugin names.
+- **Extension rules.** To add a policy, implement `Plugin` and register a factory; to add
+  persistence or tracing, implement the port and attach the adapter via `CompileOptions` or
+  `Kernel::builder().with_trace_sink(..)`. No kernel file needs to change.
 
 ## The superstep algorithm
 
@@ -256,10 +279,16 @@ translation layer over the Rust engine:
 
 ## Extension points
 
-- **Custom checkpointer.** Implement `Checkpointer` for `Send + Sync` storage: `put`, `get`,
-  `latest`, `history`, optionally `threads`. The engine only appends and reads; `latest` must
-  be the newest checkpoint and `history` newest-first. `resume_from` uses `get(thread, id)`,
-  so retain old checkpoints.
+- **Custom checkpointer (adapter).** Implement `kernel::ports::Checkpointer` for `Send + Sync`
+  storage: `put`, `get`, `latest`, `history`, optionally `threads`. The engine only appends and
+  reads; `latest` must be the newest checkpoint and `history` newest-first. `resume_from` uses
+  `get(thread, id)`, so retain old checkpoints.
+- **Custom channel plugin (microkernel).** Implement `Plugin`, call
+  `kernel.register_channel("my_spec", || Channel::reducer(...))`, then build a schema with
+  `kernel.schema([(channel, "my_spec")])`. `BuiltinChannels` is just the first plugin.
+- **Custom trace adapter (port).** Implement `TraceSink` (or pass a closure) and attach it with
+  `CompileOptions::new().with_kernel(Kernel::builder().with_trace_sink(sink).build())`; it
+  receives every `NodeExecution` — feed logs, metrics, OTel or a database.
 - **Custom reducers.** `Reducer::new(|current, incoming| ...)` or
   `StateSchema::reducer("total", |current, incoming| ...)`, attached with `.with_reducer`.
   Keep them pure; returning `Err` fails the run at merge time.

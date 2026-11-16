@@ -7,9 +7,9 @@ use indexmap::IndexMap;
 use super::Entry;
 use super::compiled::CompiledGraph;
 use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
-use crate::error::{Error, Result};
-use crate::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
-use crate::state::{State, StateSchema};
+use crate::kernel::error::{Error, Result};
+use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
+use crate::kernel::state::{State, StateSchema};
 use crate::{END, START};
 
 /// Builder for a stateful graph.
@@ -210,6 +210,7 @@ impl<S: State> StateGraph<S> {
             conditional: self.conditional,
             entry,
             checkpointer: options.checkpointer,
+            trace_sinks: options.kernel.trace_sinks().to_vec(),
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

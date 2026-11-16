@@ -3,11 +3,11 @@
 use serde_json::{Map, Value};
 
 use crate::Result;
-use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
-use crate::graph::CompiledGraph;
-use crate::node::Task;
-use crate::state::State;
-use crate::stream::StreamChunk;
+use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::kernel::graph::CompiledGraph;
+use crate::kernel::node::Task;
+use crate::kernel::state::State;
+use crate::kernel::stream::StreamChunk;
 
 /// Persist a checkpoint when the graph is bound to a thread and has a checkpointer.
 #[allow(clippy::too_many_arguments)]

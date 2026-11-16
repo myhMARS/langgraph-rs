@@ -25,6 +25,16 @@
 //! - optional Python bindings behind the `python` feature (PyO3), exposing the same engine
 //!   to Python callables
 //!
+//! ## Architecture
+//!
+//! The crate follows a **microkernel + hexagonal** design. The domain kernel
+//! (`kernel`) owns the graph model, superstep engine, channels, state, checkpoints and
+//! usage records. It depends only on **ports** — [`Checkpointer`] and [`TraceSink`] — plus
+//! a microkernel registry: [`Kernel`], [`KernelBuilder`], [`Plugin`] and
+//! [`ChannelFactory`]. **Adapters** (`adapters`) implement those ports: the in-memory
+//! checkpoint saver and the optional PyO3 bindings. Channel merge policies are plugins
+//! resolved by name, so downstream crates extend the engine without touching it.
+//!
 //! ## Quick start
 //!
 //! ```
@@ -73,34 +83,30 @@
 //! of mutating state, which is what makes checkpointing, resuming and time travel
 //! possible.
 
-mod channel;
-mod checkpoint;
-mod command;
-mod context;
-mod error;
-mod executor;
-mod graph;
-mod node;
-mod state;
-mod stream;
-mod usage;
+mod adapters;
+mod kernel;
 
 #[cfg(feature = "python")]
-pub mod python;
+pub use adapters::python;
 
-pub use channel::{Channel, Reducer, reducers};
-pub use checkpoint::{Checkpoint, Checkpointer, InMemorySaver, MemorySaver};
-pub use command::Command;
-pub use context::{current_node, custom, interrupt, push_custom, record_tokens, record_usage};
-pub use error::{Error, Interrupt, Result};
-pub use graph::{
+pub use adapters::memory::{InMemorySaver, MemorySaver};
+pub use kernel::channel::{Channel, Reducer, reducers};
+pub use kernel::checkpoint::Checkpoint;
+pub use kernel::command::Command;
+pub use kernel::context::{
+    current_node, custom, interrupt, push_custom, record_tokens, record_usage,
+};
+pub use kernel::error::{Error, Interrupt, Result};
+pub use kernel::graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, RunConfig, StateGraph, StateSnapshot,
     Targets,
 };
-pub use node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
-pub use state::{JsonState, State, StateSchema};
-pub use stream::StreamChunk;
-pub use usage::{NodeExecution, RunOutcome, RunReport, Usage};
+pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
+pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
+pub use kernel::ports::{Checkpointer, TraceSink};
+pub use kernel::state::{JsonState, State, StateSchema};
+pub use kernel::stream::StreamChunk;
+pub use kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 pub use indexmap::IndexMap;
 pub use serde_json::{Value, json};

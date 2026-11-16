@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
-use crate::error::{Error, Result};
-use crate::graph::CompiledGraph;
-use crate::state::State;
+use crate::kernel::error::{Error, Result};
+use crate::kernel::graph::CompiledGraph;
+use crate::kernel::state::State;
 use crate::{END, START};
 
 /// Collect the outgoing destinations of the nodes executed in a superstep.
