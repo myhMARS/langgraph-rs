@@ -260,7 +260,28 @@ let outcomes = graph.batch_run(inputs, &RunConfig::new());
 let config = RunConfig::new().with_durability(Durability::Exit);
 ```
 
+## Functional API
+
+`langgraph_rs::functional` 在同一引擎上提供 `entrypoint` / `task` 编程模型。
+`entrypoint(function)` 返回带单个 `entrypoint` 节点的 `StateGraph`（checkpoint、interrupt/resume、
+流式、超时与 store 均可用）；`task(name, function)` 包装函数，其结果以「任务名 + 序列化输入」
+为键记忆化到运行的 `BaseStore` 中。`interrupt()` 后恢复 entrypoint 时，已完成任务直接从 store
+返回而不会重复执行。任务仍为内联执行（无并行任务调度、无逐任务 checkpoint 记录）。
+
+```rust
+use langgraph_rs::functional::{entrypoint, task};
+
+let fetch = task("fetch", |id: i64| Ok(id + 1));
+let graph = entrypoint(move |state: MyState| {
+    let value = fetch.call(state.id)?;
+    Ok(MyState { id: value })
+})
+.with_store(store)
+.compile()?;
+```
+
 ## 可靠性：重试与错误路由
+
 
 节点可配置重试策略；失败时引擎自动重试。中断永不重试。重试耗尽后运行失败——除非配置了错误边，
 失败会路由到 handler 节点，在下一个 superstep 执行，并可通过 `last_error()` 读取失败信息。

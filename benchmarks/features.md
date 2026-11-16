@@ -74,7 +74,7 @@ below is the complete audit.
 | Retry policy | ⚠️ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | ours has no jitter and no `retry_on` exception selector |
 | Error handling of nodes | ✅ `add_error_edge` + `last_error()` | ✅ per-node `add_node(error_handler=...)` | equivalent capability, different API; our handler runs in the next superstep |
 | Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ❌ | ✅ | |
-| Functional API (`@entrypoint` / `@task`) | ❌ | ✅ `langgraph.func` | separate programming model; not implemented |
+| Functional API (`@entrypoint` / `@task`) | ⚠️ `functional::entrypoint` compiles to a one-node graph; `functional::task` memoizes results in `BaseStore` so completed tasks are not re-run after interrupt/resume | ✅ `langgraph.func` | tasks execute inline (no parallel task scheduling), no per-task checkpoint records, not exposed from Python |
 | Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ❌ | ✅ `langgraph.prebuilt` | outside the current scope |
 
 ### Checkpointing and state management
@@ -131,7 +131,7 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

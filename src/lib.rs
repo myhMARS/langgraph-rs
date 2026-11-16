@@ -92,6 +92,7 @@
 //! possible.
 
 mod adapters;
+pub mod functional;
 mod kernel;
 
 #[cfg(feature = "python")]

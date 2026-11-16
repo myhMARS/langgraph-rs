@@ -277,6 +277,28 @@ let outcomes = graph.batch_run(inputs, &RunConfig::new());
 let config = RunConfig::new().with_durability(Durability::Exit);
 ```
 
+## Functional API
+
+`langgraph_rs::functional` provides the `entrypoint` / `task` programming model on top of the
+same engine. `entrypoint(function)` returns a `StateGraph` with one `entrypoint` node (so
+checkpoints, interrupts/resume, streaming, timeouts and stores keep working), and
+`task(name, function)` wraps a function whose result is memoized in the run's `BaseStore`,
+keyed by task name and serialized input. After an `interrupt()`, a resumed entrypoint serves
+completed tasks from the store instead of running them again. Tasks still execute inline
+(no parallel task scheduling or per-task checkpoint records).
+
+```rust
+use langgraph_rs::functional::{entrypoint, task};
+
+let fetch = task("fetch", |id: i64| Ok(id + 1));
+let graph = entrypoint(move |state: MyState| {
+    let value = fetch.call(state.id)?;
+    Ok(MyState { id: value })
+})
+.with_store(store)
+.compile()?;
+```
+
 ## Reliability: retries and error routing
 
 A node can be given a retry policy; the engine retries it automatically while it keeps
