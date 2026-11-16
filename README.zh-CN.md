@@ -728,7 +728,7 @@ Python 绑定（同步与异步，含 store、saver、functional API 与流式�
 已知限制（详见 `benchmarks/features.md`）：图定义与 checkpoint 与 LangGraph 不保证字节互操作；
 async checkpointer 是同步 saver 的 API 别名（无独立 async DB 驱动）；functional API 内联执行任务并用 `BaseStore` 记忆化，而非逐任务 checkpoint；LangGraph
 的 prebuilt agents（`create_react_agent`、`ToolNode`）超出范围；Python 节点是普通 callable
-（非 coroutine），自定义 reducer 仅限内置策略。
+（非 coroutine）；schema 支持 Python callable reducer。
 
 ## 与 LangGraph 的差异
 
@@ -744,9 +744,9 @@ async checkpointer 是同步 saver 的 API 别名（无独立 async DB 驱动）
 - **router 是纯函数**，只返回目标（或 path-map 键）。
 - **子图**支持同状态或映射状态、子图独立 checkpoint 命名空间、嵌套中断、流式，以及同步图中的
   `Command(graph=PARENT)`（同步与异步图均支持）。
-- **Python 绑定使用 `JsonState`。** Python 节点交换普通 dict，状态是 JSON；自定义 reducer 目前需用
-  内置策略（`last_value`、`topic`、`append`、`add`、`messages`）表达。Python 节点是普通 callable，
-  异步图会从 Tokio 适配器调用它们但不会 `await` Python coroutine。引擎执行期间释放 GIL，因此
+- **Python 绑定使用 `JsonState`。** Python 节点交换普通 dict，状态是 JSON；schema 值可使用内置策略
+  （`last_value`、`topic`、`append`、`add`、`messages`）或 Python callable reducer。Python 节点是
+  callable，异步图会从 Tokio 适配器调用它们但不会 `await` Python coroutine。引擎执行期间释放 GIL，因此
   Python 可调用对象只在节点执行时运行。
 
 ## 构建与测试

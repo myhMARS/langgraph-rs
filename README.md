@@ -787,8 +787,8 @@ not byte-compatible with LangGraph; async checkpointers are API aliases over the
 savers (no separate async DB drivers); the
 functional API executes tasks inline and memoizes them in a `BaseStore` instead of recording
 per-task checkpoints; LangGraph's prebuilt agents (`create_react_agent`, `ToolNode`) are out of
-scope; Python nodes are plain callables (not coroutines) and custom reducers are limited to the
-built-in policies.
+scope; Python nodes are plain callables (not coroutines); custom reducers are supported as Python
+callables in the schema.
 
 ## Differences from LangGraph
 
@@ -807,9 +807,9 @@ built-in policies.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
 - **Subgraphs** support same or mapped state, per-subgraph checkpoint namespaces, nested
   interrupts, streaming and `Command(graph=PARENT)` in synchronous and asynchronous graphs.
-- **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON, and
-  custom reducers must be expressed with the built-in policies (`last_value`, `topic`, `append`,
-  `add`, `messages`) for now. Python nodes are plain callables; async graphs call them from the
+- **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON. Schema
+  values may be built-in policy names (`last_value`, `topic`, `append`, `add`, `messages`) or
+  Python callable reducers. Python nodes are plain callables; async graphs call them from the
   Tokio adapter but do not `await` Python coroutines. The GIL is released around the engine, so
   Python callables only run while a node executes.
 

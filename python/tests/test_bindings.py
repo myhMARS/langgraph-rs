@@ -1038,5 +1038,32 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(output["value"], 9)
 
 
+    def test_python_custom_reducer(self):
+        def add(current, incoming):
+            return current + incoming
+
+        graph = lg.StateGraph({"total": add})
+        graph.add_node("one", lambda state: {"total": 1})
+        graph.add_node("two", lambda state: {"total": 2})
+        graph.set_entry_point("one")
+        graph.add_edge("one", "two")
+        graph.set_finish_point("two")
+        output = graph.compile().invoke({})
+        self.assertEqual(output["total"], 3)
+
+    def test_python_custom_reducer_merges_messages(self):
+        def merge(current, incoming):
+            return current + incoming
+
+        graph = lg.StateGraph({"items": merge})
+        graph.add_node("one", lambda state: {"items": ["a"]})
+        graph.add_node("two", lambda state: {"items": ["b", "c"]})
+        graph.set_entry_point("one")
+        graph.add_edge("one", "two")
+        graph.set_finish_point("two")
+        output = graph.compile().invoke({})
+        self.assertEqual(output["items"], ["a", "b", "c"])
+
+
 if __name__ == "__main__":
     unittest.main()

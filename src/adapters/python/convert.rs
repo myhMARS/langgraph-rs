@@ -310,27 +310,49 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("schema must be a dict of channel -> spec"))?;
 
-    let mut entries = Vec::with_capacity(dict.len());
+    let kernel = Kernel::builtin();
+    let mut out = StateSchema::dynamic();
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
-        let spec = spec.extract::<String>().map_err(|_| {
-            PyTypeError::new_err(format!(
-                "channel spec for `{name}` must be a string such as \"last_value\", \"topic\", \"append\""
-            ))
-        })?;
-        let spec = match spec.as_str() {
-            "last" | "value" => "last_value".to_string(),
-            "add_messages" | "messages" => "messages".to_string(),
-            "any" | "any_value" => "any_value".to_string(),
-            "ephemeral" | "ephemeral_value" => "ephemeral_value".to_string(),
-            "untracked" | "untracked_value" => "untracked_value".to_string(),
-            other => other.to_string(),
-        };
-        entries.push((name, spec));
+        if let Ok(spec) = spec.extract::<String>() {
+            let spec = match spec.as_str() {
+                "last" | "value" => "last_value".to_string(),
+                "add_messages" | "messages" => "messages".to_string(),
+                "any" | "any_value" => "any_value".to_string(),
+                "ephemeral" | "ephemeral_value" => "ephemeral_value".to_string(),
+                "untracked" | "untracked_value" => "untracked_value".to_string(),
+                other => other.to_string(),
+            };
+            let channel = kernel.resolve_channel(&spec).ok_or_else(|| {
+                PyValueError::new_err(format!("unknown channel spec `{spec}` for `{name}`"))
+            })?;
+            out = out.with_channel(name, channel);
+            continue;
+        }
+        if spec.is_callable() {
+            let callable = spec.clone().unbind();
+            out = out.with_channel(
+                name,
+                Channel::reducer(move |current: &Value, incoming: &Value| {
+                    Python::attach(|py| {
+                        let current =
+                            value_to_py(py, current).map_err(|error| pyerr_to_error(py, error))?;
+                        let incoming =
+                            value_to_py(py, incoming).map_err(|error| pyerr_to_error(py, error))?;
+                        let result = callable
+                            .call1(py, (current, incoming))
+                            .map_err(|error| pyerr_to_error(py, error))?;
+                        py_to_value(result.bind(py)).map_err(|error| pyerr_to_error(py, error))
+                    })
+                }),
+            );
+            continue;
+        }
+        return Err(PyTypeError::new_err(format!(
+            "channel spec for `{name}` must be a string policy or a callable reducer"
+        )));
     }
-    Kernel::builtin()
-        .schema(entries)
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+    Ok(out)
 }
 
 pub(super) fn targets_from_py(to: &Bound<'_, PyAny>) -> PyResult<Vec<String>> {
