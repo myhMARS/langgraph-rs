@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::kernel::error::NodeFailure;
+use crate::kernel::store::{BaseStore, Runtime};
 use crate::kernel::usage::Usage;
 use crate::{Error, Interrupt, Result};
 
@@ -18,11 +19,13 @@ thread_local! {
     static CURRENT_RUN: RefCell<Option<RunContext>> = const { RefCell::new(None) };
 }
 
-/// Execution context of the current run (thread id + checkpoint namespace).
-#[derive(Clone, Debug)]
+/// Execution context of the current run.
+#[derive(Clone, Default)]
 pub(crate) struct RunContext {
     pub(crate) thread_id: Option<String>,
     pub(crate) namespace: String,
+    pub(crate) store: Option<std::sync::Arc<dyn BaseStore>>,
+    pub(crate) context: Option<Value>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -40,14 +43,43 @@ impl Drop for RunGuard {
 }
 
 /// Install the run context for the duration of a graph execution.
-pub(crate) fn install_run(thread_id: Option<String>, namespace: String) -> RunGuard {
+pub(crate) fn install_run(
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<std::sync::Arc<dyn BaseStore>>,
+    context: Option<Value>,
+) -> RunGuard {
     let previous = CURRENT_RUN.with(|slot| {
         slot.borrow_mut().replace(RunContext {
             thread_id,
             namespace,
+            store,
+            context,
         })
     });
     RunGuard { previous }
+}
+
+/// Long-term memory store of the current run, when the graph was compiled with one.
+pub fn get_store() -> Option<std::sync::Arc<dyn BaseStore>> {
+    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.store.clone()))
+}
+
+/// User context passed to the current run via `RunConfig::with_context`.
+pub fn current_context() -> Option<Value> {
+    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.context.clone()))
+}
+
+/// Runtime information (thread, namespace, store, context) of the current run.
+pub fn current_runtime() -> Option<Runtime> {
+    CURRENT_RUN.with(|slot| {
+        slot.borrow().as_ref().map(|run| Runtime {
+            thread_id: run.thread_id.clone(),
+            namespace: run.namespace.clone(),
+            store: run.store.clone(),
+            context: run.context.clone(),
+        })
+    })
 }
 
 /// Thread id of the current run, when it is bound to a checkpoint thread.

@@ -100,7 +100,7 @@ pub use adapters::python;
 #[cfg(feature = "async")]
 pub use adapters::tokio_runtime;
 
-pub use adapters::memory::{InMemoryCache, InMemorySaver, MemorySaver};
+pub use adapters::memory::{InMemoryCache, InMemorySaver, InMemoryStore, MemorySaver};
 
 #[cfg(feature = "sqlite")]
 pub use adapters::sqlite::SqliteSaver;
@@ -115,8 +115,9 @@ pub use kernel::channel::{Channel, Reducer, reducers};
 pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
-    current_namespace, current_node, current_resume, current_thread_id, custom, interrupt,
-    last_error, message, push_custom, push_message, record_tokens, record_usage,
+    current_context, current_namespace, current_node, current_resume, current_runtime,
+    current_thread_id, custom, get_store, interrupt, last_error, message, push_custom,
+    push_message, record_tokens, record_usage,
 };
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 pub use kernel::graph::{
@@ -128,6 +129,7 @@ pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder,
 pub use kernel::ports::{Checkpointer, TraceSink};
 pub use kernel::retry::RetryPolicy;
 pub use kernel::state::{JsonState, State, StateSchema};
+pub use kernel::store::{BaseStore, Namespace, Runtime, StoreItem};
 pub use kernel::stream::{StreamChunk, StreamMode};
 pub use kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 

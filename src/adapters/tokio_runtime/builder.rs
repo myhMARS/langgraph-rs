@@ -15,6 +15,7 @@ use crate::kernel::plugin::Kernel;
 use crate::kernel::ports::Checkpointer;
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{State, StateSchema};
+use crate::kernel::store::BaseStore;
 use crate::{END, START};
 
 /// Builder for an async graph.
@@ -33,6 +34,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
+    pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
@@ -64,6 +66,7 @@ impl<S: State> AsyncStateGraph<S> {
             entry: Vec::new(),
             conditional_entry: None,
             checkpointer: None,
+            store: None,
             interrupt_before: HashSet::new(),
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
@@ -122,6 +125,12 @@ impl<S: State> AsyncStateGraph<S> {
     /// Enable checkpointing (required for resume and state queries).
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Attach a long-term memory store (`BaseStore`).
+    pub fn with_store(mut self, store: Arc<dyn BaseStore>) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -239,6 +248,7 @@ impl<S: State> AsyncStateGraph<S> {
             error_edges: self.error_edges,
             entry,
             checkpointer: self.checkpointer,
+            store: self.store,
             interrupt_before: self.interrupt_before,
             interrupt_after: self.interrupt_after,
             trace_sinks: self.kernel.trace_sinks().to_vec(),

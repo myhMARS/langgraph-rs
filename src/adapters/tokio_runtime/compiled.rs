@@ -20,6 +20,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{
     ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
 };
+use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 use crate::{END, START};
@@ -83,6 +84,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) entry: Entry<S>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
+    pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
@@ -325,6 +327,13 @@ impl<S: State> AsyncCompiledGraph<S> {
         let recursion_limit = config.recursion_limit.unwrap_or(self.recursion_limit);
         let thread_id = config.thread_id.clone();
         let namespace = config.checkpoint_ns.clone().unwrap_or_default();
+        let store = config.store.clone().or_else(|| self.store.clone());
+        let _run_guard = crate::kernel::context::install_run(
+            thread_id.clone(),
+            namespace.clone(),
+            store,
+            config.context.clone(),
+        );
 
         if thread_id.is_some() && self.checkpointer.is_none() {
             return Err(Error::MissingCheckpointer("a run bound to a thread_id"));

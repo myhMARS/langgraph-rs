@@ -17,5 +17,6 @@ pub mod plugin;
 pub mod ports;
 pub mod retry;
 pub mod state;
+pub mod store;
 pub mod stream;
 pub mod usage;

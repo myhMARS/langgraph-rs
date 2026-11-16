@@ -4,10 +4,13 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use serde_json::Value;
+
 use crate::kernel::cache::{CachedOutput, NodeCache};
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::Result;
 use crate::kernel::ports::Checkpointer;
+use crate::kernel::store::{BaseStore, StoreItem, item_matches, namespace_matches, store_now};
 
 /// In-memory checkpointer, useful for tests, notebooks and short-lived services.
 #[derive(Debug, Default)]
@@ -236,5 +239,116 @@ impl NodeCache for InMemoryCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
         Ok(())
+    }
+}
+
+type StoreKey = (Vec<String>, String);
+type StoreEntry = (Value, u64, u64);
+
+/// In-memory long-term memory store (LangGraph `BaseStore` adapter).
+#[derive(Debug, Default)]
+pub struct InMemoryStore {
+    items: Mutex<HashMap<StoreKey, StoreEntry>>,
+}
+
+impl InMemoryStore {
+    /// Create an empty store.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of stored items.
+    pub fn len(&self) -> usize {
+        self.items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
+    }
+
+    /// Returns `true` when the store holds no item.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl BaseStore for InMemoryStore {
+    fn get(&self, namespace: &[String], key: &str) -> Result<Option<Value>> {
+        Ok(self
+            .items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&(namespace.to_vec(), key.to_string()))
+            .map(|(value, _, _)| value.clone()))
+    }
+
+    fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
+        let now = store_now();
+        let mut items = self
+            .items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = items
+            .entry((namespace.to_vec(), key.to_string()))
+            .or_insert_with(|| (value.clone(), now, now));
+        entry.0 = value;
+        entry.2 = now;
+        Ok(())
+    }
+
+    fn delete(&self, namespace: &[String], key: &str) -> Result<()> {
+        self.items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&(namespace.to_vec(), key.to_string()));
+        Ok(())
+    }
+
+    fn search(
+        &self,
+        namespace_prefix: &[String],
+        query: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StoreItem>> {
+        let items = self
+            .items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut results: Vec<StoreItem> = items
+            .iter()
+            .filter(|((namespace, _), _)| namespace_matches(namespace_prefix, namespace))
+            .map(
+                |((namespace, key), (value, created_at, updated_at))| StoreItem {
+                    namespace: namespace.clone(),
+                    key: key.clone(),
+                    value: value.clone(),
+                    created_at_millis: *created_at,
+                    updated_at_millis: *updated_at,
+                },
+            )
+            .filter(|item| item_matches(item, query))
+            .collect();
+        results.sort_by(|left, right| {
+            left.namespace
+                .cmp(&right.namespace)
+                .then_with(|| left.key.cmp(&right.key))
+        });
+        if let Some(limit) = limit {
+            results.truncate(limit);
+        }
+        Ok(results)
+    }
+
+    fn namespaces(&self) -> Result<Vec<Vec<String>>> {
+        let items = self
+            .items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut namespaces: Vec<Vec<String>> = items
+            .keys()
+            .map(|(namespace, _)| namespace.clone())
+            .collect();
+        namespaces.sort();
+        namespaces.dedup();
+        Ok(namespaces)
     }
 }

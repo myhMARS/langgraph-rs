@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use crate::kernel::plugin::Kernel;
 use crate::kernel::ports::Checkpointer;
+use crate::kernel::store::BaseStore;
+use serde_json::Value;
 
 /// Default number of supersteps a single graph run may execute.
 pub const DEFAULT_RECURSION_LIMIT: usize = 25;
@@ -88,6 +90,8 @@ pub struct CompileOptions {
     pub interrupt_before: Vec<String>,
     /// Nodes that must be interrupted *after* they run.
     pub interrupt_after: Vec<String>,
+    /// Long-term memory store available through [`get_store`](crate::get_store).
+    pub store: Option<Arc<dyn BaseStore>>,
 }
 
 impl Default for CompileOptions {
@@ -98,6 +102,7 @@ impl Default for CompileOptions {
             recursion_limit: None,
             interrupt_before: Vec::new(),
             interrupt_after: Vec::new(),
+            store: None,
         }
     }
 }
@@ -110,6 +115,7 @@ impl fmt::Debug for CompileOptions {
             .field("recursion_limit", &self.recursion_limit)
             .field("interrupt_before", &self.interrupt_before)
             .field("interrupt_after", &self.interrupt_after)
+            .field("store", &self.store.is_some())
             .finish()
     }
 }
@@ -148,6 +154,12 @@ impl CompileOptions {
         self
     }
 
+    /// Attach a long-term memory store.
+    pub fn with_store(mut self, store: Arc<dyn BaseStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
     /// Interrupt after the given nodes ran.
     pub fn interrupt_after<I, T>(mut self, nodes: I) -> Self
     where
@@ -160,7 +172,7 @@ impl CompileOptions {
 }
 
 /// Per-run configuration.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct RunConfig {
     /// Thread id used for checkpointing. Required when the graph has a checkpointer.
     pub thread_id: Option<String>,
@@ -168,6 +180,22 @@ pub struct RunConfig {
     pub recursion_limit: Option<usize>,
     /// Checkpoint namespace (`""` for the root graph). LangGraph's `checkpoint_ns`.
     pub checkpoint_ns: Option<String>,
+    /// Overrides the compiled long-term memory store for this run.
+    pub store: Option<Arc<dyn BaseStore>>,
+    /// User context visible to nodes through [`current_context`](crate::current_context).
+    pub context: Option<Value>,
+}
+
+impl std::fmt::Debug for RunConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunConfig")
+            .field("thread_id", &self.thread_id)
+            .field("recursion_limit", &self.recursion_limit)
+            .field("checkpoint_ns", &self.checkpoint_ns)
+            .field("store", &self.store.is_some())
+            .field("context", &self.context)
+            .finish()
+    }
 }
 
 impl RunConfig {
@@ -191,6 +219,18 @@ impl RunConfig {
     /// Bind the run to a checkpoint namespace (`""` is the root graph).
     pub fn with_checkpoint_ns(mut self, namespace: impl Into<String>) -> Self {
         self.checkpoint_ns = Some(namespace.into());
+        self
+    }
+
+    /// Override the long-term memory store for this run.
+    pub fn with_store(mut self, store: Arc<dyn BaseStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// Provide user context visible to nodes for this run.
+    pub fn with_context(mut self, context: Value) -> Self {
+        self.context = Some(context);
         self
     }
 }

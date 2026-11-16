@@ -313,6 +313,34 @@ let graph = StateGraph::<WorkState>::new()
 默认 key 哈希节点名与序列化后的输入状态（只有完全相同的输入才命中）；`CachePolicy::with_key` 可
 安装更粗粒度的自定义 key。`NodeCache` 是端口，后续可接入 SQLite/Redis/Postgres 缓存。
 
+## 长期记忆与运行时上下文
+
+`BaseStore` 提供跨运行、跨线程的长期记忆。通过 `CompileOptions::with_store`（或
+`StateGraph::with_store`）挂载内置 `InMemoryStore`，节点通过 `get_store()` 读取；
+`RunConfig::with_context` 携带每次运行的用户上下文，节点通过 `current_context()` 访问。
+`current_runtime()` 汇总线程 id、命名空间、store 与 context；`current_thread_id()` /
+`current_namespace()` 供子图感知节点使用。store 与 context 会被子图继承。
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{CompileOptions, InMemoryStore, get_store, current_context, json};
+
+let store = Arc::new(InMemoryStore::new());
+let graph = StateGraph::<WorkState>::new()
+    .add_node("remember", |state: &WorkState| {
+        let store = get_store().expect("store attached");
+        store.put(&["users".to_string()], "42", json!({ "seen": true }))?;
+        let tenant = current_context().and_then(|ctx| ctx.get("tenant").cloned());
+        Ok(NodeOutput::new().set("answer", tenant.unwrap_or_default()))
+    })
+    .set_entry_point("remember")
+    .set_finish_point("remember")
+    .compile_with(CompileOptions::new().with_store(store))
+    .unwrap();
+
+let config = RunConfig::new().with_context(json!({ "tenant": "acme" }));
+```
+
 ## 可视化
 
 `CompiledGraph::to_mermaid()`（以及 `AsyncCompiledGraph::to_mermaid()`）把编译后的拓扑渲染为

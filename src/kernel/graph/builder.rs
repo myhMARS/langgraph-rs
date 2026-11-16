@@ -13,6 +13,7 @@ use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::state_to_values;
 use crate::kernel::state::{State, StateSchema};
+use crate::kernel::store::BaseStore;
 use crate::{END, START};
 
 /// Builder for a stateful graph.
@@ -53,6 +54,7 @@ pub struct StateGraph<S: State> {
     pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
+    pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -75,6 +77,7 @@ impl<S: State> StateGraph<S> {
             error_edges: IndexMap::new(),
             cache: None,
             cache_policies: IndexMap::new(),
+            store: None,
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -110,6 +113,12 @@ impl<S: State> StateGraph<S> {
     /// Attach a retry policy to an already registered node.
     pub fn set_retry(mut self, node: impl Into<String>, policy: RetryPolicy) -> Self {
         self.retries.insert(node.into(), policy);
+        self
+    }
+
+    /// Attach a long-term memory store (LangGraph `BaseStore`).
+    pub fn with_store(mut self, store: Arc<dyn BaseStore>) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -332,6 +341,7 @@ impl<S: State> StateGraph<S> {
             error_edges: self.error_edges,
             cache: self.cache,
             cache_policies: self.cache_policies,
+            store: options.store.or(self.store),
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),
@@ -448,22 +458,26 @@ fn child_namespace(parent: &str, name: &str) -> String {
 
 /// Run a subgraph with parent thread/namespace propagation and resume support.
 fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
-    if !subgraph.has_checkpointer() {
-        return subgraph
-            .run(input, &super::options::RunConfig::new())
-            .map(|outcome| outcome.state);
-    }
     let thread = crate::kernel::context::current_thread_id();
     let namespace = child_namespace(&crate::kernel::context::current_namespace(), name);
     let resume = crate::kernel::context::current_resume();
-    let config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
+    let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
+    if let Some(store) = crate::kernel::context::get_store() {
+        config = config.with_store(store);
+    }
+    if let Some(context) = crate::kernel::context::current_context() {
+        config = config.with_context(context);
+    }
+    if !subgraph.has_checkpointer() {
+        return subgraph.run(input, &config).map(|outcome| outcome.state);
+    }
     match (thread, resume) {
-        (Some(thread), Some(value)) => subgraph.resume_in(&thread, &namespace, value),
+        (Some(thread), Some(value)) => {
+            subgraph.resume_in_with_run_config(&thread, &namespace, value, &config)
+        }
         (Some(thread), None) => subgraph
             .run(input, &config.with_thread(thread))
             .map(|outcome| outcome.state),
-        (None, _) => subgraph
-            .run(input, &super::options::RunConfig::new())
-            .map(|outcome| outcome.state),
+        (None, _) => subgraph.run(input, &config).map(|outcome| outcome.state),
     }
 }

@@ -21,6 +21,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{
     ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
 };
+use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;
 use crate::{END, START};
@@ -39,6 +40,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
     pub(crate) retries: IndexMap<String, RetryPolicy>,
     pub(crate) error_edges: IndexMap<String, String>,
+    pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
@@ -58,6 +60,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             trace_sinks: self.trace_sinks.clone(),
             retries: self.retries.clone(),
             error_edges: self.error_edges.clone(),
+            store: self.store.clone(),
             cache: self.cache.clone(),
             cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
@@ -249,12 +252,12 @@ impl<S: State> CompiledGraph<S> {
 
     /// Continue an interrupted thread by handing `value` to the pending `interrupt()`.
     pub fn resume(&self, thread_id: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, None, Some(value), None, None)
+        self.resume_inner(thread_id, None, Some(value), None, None, None)
     }
 
     /// Resume an interrupted thread bound to a checkpoint namespace.
     pub fn resume_in(&self, thread_id: &str, namespace: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, None, Some(value), None, Some(namespace))
+        self.resume_inner(thread_id, None, Some(value), None, Some(namespace), None)
     }
 
     /// Resume an interrupted thread and apply state writes (e.g. human edits) first.
@@ -267,7 +270,7 @@ impl<S: State> CompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_inner(thread_id, None, Some(value), Some(updates), None)
+        self.resume_inner(thread_id, None, Some(value), Some(updates), None, None)
     }
 
     /// Resume an interrupted namespace-bound thread after applying state writes.
@@ -286,22 +289,54 @@ impl<S: State> CompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_inner(thread_id, None, Some(value), Some(updates), Some(namespace))
+        self.resume_inner(
+            thread_id,
+            None,
+            Some(value),
+            Some(updates),
+            Some(namespace),
+            None,
+        )
     }
 
     /// Resume from a specific checkpoint (time travel).
     pub fn resume_from(&self, thread_id: &str, checkpoint_id: &str, value: Value) -> Result<S> {
-        self.resume_inner(thread_id, Some(checkpoint_id), Some(value), None, None)
+        self.resume_inner(
+            thread_id,
+            Some(checkpoint_id),
+            Some(value),
+            None,
+            None,
+            None,
+        )
     }
 
     /// Continue a thread that stopped on an `interrupt_before` / `interrupt_after` hook.
     pub fn continue_thread(&self, thread_id: &str) -> Result<S> {
-        self.resume_inner(thread_id, None, None, None, None)
+        self.resume_inner(thread_id, None, None, None, None, None)
     }
 
     /// Continue a namespace-bound thread paused by an interrupt hook.
     pub fn continue_thread_in(&self, thread_id: &str, namespace: &str) -> Result<S> {
-        self.resume_inner(thread_id, None, None, None, Some(namespace))
+        self.resume_inner(thread_id, None, None, None, Some(namespace), None)
+    }
+
+    /// Resume a namespace-bound thread, inheriting store/context from `overrides`.
+    pub fn resume_in_with_run_config(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        value: Value,
+        overrides: &RunConfig,
+    ) -> Result<S> {
+        self.resume_inner(
+            thread_id,
+            None,
+            Some(value),
+            None,
+            Some(namespace),
+            Some(overrides),
+        )
     }
 
     /// Resume a checkpointed thread with an explicit [`Command`].
@@ -349,7 +384,7 @@ impl<S: State> CompiledGraph<S> {
         let updates = command
             .update
             .map(|updates| updates.into_iter().collect::<Map<String, Value>>());
-        self.resume_inner(thread_id, None, command.resume, updates, None)
+        self.resume_inner(thread_id, None, command.resume, updates, None, None)
     }
 
     fn resume_inner(
@@ -359,10 +394,15 @@ impl<S: State> CompiledGraph<S> {
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
         namespace: Option<&str>,
+        overrides: Option<&RunConfig>,
     ) -> Result<S> {
         let mut config = RunConfig::new().with_thread(thread_id);
         if let Some(namespace) = namespace {
             config = config.with_checkpoint_ns(namespace);
+        }
+        if let Some(overrides) = overrides {
+            config.store = overrides.store.clone();
+            config.context = overrides.context.clone();
         }
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute(
@@ -585,6 +625,11 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("copy_thread"))?;
         checkpointer.copy_thread(source_thread, target_thread)
+    }
+
+    /// Long-term memory store, when the graph was compiled with one.
+    pub(crate) fn store(&self) -> Option<&Arc<dyn BaseStore>> {
+        self.store.as_ref()
     }
 
     /// Cache backend, when node caching is enabled.

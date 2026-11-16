@@ -334,6 +334,35 @@ The default key hashes the node name and the serialized input state (so only ide
 inputs hit); `CachePolicy::with_key` installs a coarser custom key. `NodeCache` is a port, so
 a SQLite/Redis/Postgres cache can be plugged in later.
 
+## Long-term memory and runtime context
+
+A `BaseStore` adds memory that survives runs and threads. Attach the built-in
+`InMemoryStore` with `CompileOptions::with_store` (or `StateGraph::with_store`) and nodes read
+it through `get_store()`; `RunConfig::with_context` carries per-run user data accessible via
+`current_context()`. `current_runtime()` bundles thread id, namespace, store and context;
+`current_thread_id()` and `current_namespace()` are available for subgraph-aware nodes. Both
+the store and the context are inherited by subgraphs.
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{CompileOptions, InMemoryStore, get_store, current_context, json};
+
+let store = Arc::new(InMemoryStore::new());
+let graph = StateGraph::<WorkState>::new()
+    .add_node("remember", |state: &WorkState| {
+        let store = get_store().expect("store attached");
+        store.put(&["users".to_string()], "42", json!({ "seen": true }))?;
+        let tenant = current_context().and_then(|ctx| ctx.get("tenant").cloned());
+        Ok(NodeOutput::new().set("answer", tenant.unwrap_or_default()))
+    })
+    .set_entry_point("remember")
+    .set_finish_point("remember")
+    .compile_with(CompileOptions::new().with_store(store))
+    .unwrap();
+
+let config = RunConfig::new().with_context(json!({ "tenant": "acme" }));
+```
+
 ## Visualisation
 
 `CompiledGraph::to_mermaid()` (and `AsyncCompiledGraph::to_mermaid()`) render the compiled

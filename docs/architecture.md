@@ -23,6 +23,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
 | `kernel::graph::visualize` | Mermaid renderer shared by the sync and async compiled graphs (`to_mermaid`). |
 | `kernel::cache` | `NodeCache` port, `CachedOutput`, `CachePolicy` (TTL + custom key) for node-level caching. |
+| `kernel::store` | `BaseStore` port, `StoreItem` / `Namespace`, `Runtime` and the thread-local run context (`get_store`, `current_context`, `current_runtime`). |
 | `kernel::executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
 | `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |

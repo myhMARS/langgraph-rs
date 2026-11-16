@@ -58,7 +58,13 @@ pub(crate) fn execute<S: State>(
         .unwrap_or_else(|| graph.recursion_limit());
     let thread_id = config.thread_id.clone();
     let namespace = config.checkpoint_ns.clone().unwrap_or_default();
-    let _run_guard = crate::kernel::context::install_run(thread_id.clone(), namespace.clone());
+    let store = config.store.clone().or_else(|| graph.store().cloned());
+    let _run_guard = crate::kernel::context::install_run(
+        thread_id.clone(),
+        namespace.clone(),
+        store,
+        config.context.clone(),
+    );
 
     if thread_id.is_some() && graph.checkpointer().is_none() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
