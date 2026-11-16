@@ -1,0 +1,21 @@
+[package]
+name = "langgraph-rs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A Rust port of LangGraph: stateful node orchestration with channels, conditional routing, parallel supersteps, checkpointing and human-in-the-loop interrupts."
+license = "MIT"
+repository = "https://github.com/myhMARS/langgraph-rs"
+readme = "README.md"
+keywords = ["langgraph", "graph", "agent", "orchestration", "workflow"]
+categories = ["asynchronous", "data-structures"]
+
+[dependencies]
+indexmap = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
