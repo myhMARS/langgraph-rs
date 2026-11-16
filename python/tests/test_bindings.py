@@ -1625,7 +1625,10 @@ class AsyncPythonTests(unittest.TestCase):
     def test_msgpack_checkpoint_interop(self):
         if not hasattr(lg.CompiledGraph, "export_checkpoint_msgpack"):
             self.skipTest("msgpack feature is not built")
-        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        try:
+            from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        except ImportError:
+            self.skipTest("langgraph is not installed")
 
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("inc", lambda state: {"value": state["value"] + 1})
