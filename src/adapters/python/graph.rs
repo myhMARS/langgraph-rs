@@ -135,7 +135,7 @@ impl PyStateGraph {
 
     /// Validate and compile the graph.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None, context_schema=None))]
     fn compile(
         &self,
         py: Python<'_>,
@@ -146,10 +146,14 @@ impl PyStateGraph {
         cache: Option<bool>,
         store: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
+        context_schema: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyCompiledGraph> {
         let mut options = CompileOptions::new();
         if let Some(name) = name {
             options = options.with_name(name);
+        }
+        if let Some(schema) = context_schema {
+            options = options.with_context_schema(py_to_value(schema)?);
         }
         let mut saver = None;
         let mut builder = self.inner.clone();

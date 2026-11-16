@@ -183,3 +183,67 @@ fn update_state_with_task_id_infers_the_pending_node() {
             .is_err()
     );
 }
+
+#[test]
+fn context_schema_is_validated_before_the_run() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("noop", |_state: &JsonState| Ok(NodeOutput::new()))
+        .set_entry_point("noop")
+        .set_finish_point("noop")
+        .compile_with(CompileOptions::new().with_context_schema(json!({
+            "type": "object",
+            "required": ["tenant"]
+        })))
+        .unwrap();
+
+    graph
+        .run(
+            &JsonState::new(),
+            &RunConfig::new().with_context(json!({"tenant": "acme"})),
+        )
+        .unwrap();
+    let error = graph
+        .run(
+            &JsonState::new(),
+            &RunConfig::new().with_context(json!({"other": 1})),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("context_schema"));
+}
+
+#[test]
+fn checkpoints_carry_channel_versions() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap();
+
+    graph
+        .run(&JsonState::new(), &RunConfig::new().with_thread("versions"))
+        .unwrap();
+    let document = graph.export_checkpoint("versions").unwrap().unwrap();
+    let checkpoint = &document["checkpoint"];
+    assert!(
+        !checkpoint["channel_versions"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(checkpoint["channel_versions"]["value"].is_string());
+    assert!(
+        checkpoint["updated_channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|channel| channel == "value")
+    );
+    assert!(!checkpoint["versions_seen"].as_object().unwrap().is_empty());
+}

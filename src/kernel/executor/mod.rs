@@ -66,6 +66,11 @@ pub(crate) fn execute<S: State>(
     let namespace = config.checkpoint_ns.clone().unwrap_or_default();
     let durability = config.durability;
     let store = config.store.clone().or_else(|| graph.store().cloned());
+    if let (Some(schema), Some(context)) = (graph.context_schema(), config.context.as_ref()) {
+        crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
+            Error::validation(format!("context does not match context_schema: {error}"))
+        })?;
+    }
     let _run_guard = crate::kernel::context::install_run(
         thread_id.clone(),
         namespace.clone(),

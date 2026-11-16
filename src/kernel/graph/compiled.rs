@@ -52,6 +52,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) name: Option<String>,
+    pub(crate) context_schema: Option<Value>,
 }
 
 impl<S: State> Clone for CompiledGraph<S> {
@@ -77,6 +78,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             interrupt_before: self.interrupt_before.clone(),
             interrupt_after: self.interrupt_after.clone(),
             name: self.name.clone(),
+            context_schema: self.context_schema.clone(),
         }
     }
 }
@@ -95,6 +97,11 @@ impl<S: State> CompiledGraph<S> {
     /// Name given at compile time, when any.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// JSON schema configured for `RunConfig::context`, if any.
+    pub fn context_schema(&self) -> Option<&Value> {
+        self.context_schema.as_ref()
     }
 
     /// Serializable graph description (nodes, static edges, conditional edges).
@@ -816,6 +823,10 @@ impl<S: State> CompiledGraph<S> {
                 node: "<update>".to_string(),
             })
             .collect();
+        let updated_channels: Vec<String> = updates
+            .iter()
+            .map(|update| update.channel.clone())
+            .collect();
         apply_updates(&self.schema, &mut values, updates)?;
         let state = values_to_state::<S>(&values)?;
 
@@ -861,6 +872,9 @@ impl<S: State> CompiledGraph<S> {
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),
+            channel_versions: checkpoint.channel_versions.clone(),
+            versions_seen: checkpoint.versions_seen.clone(),
+            updated_channels,
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         checkpointer.put(updated)?;

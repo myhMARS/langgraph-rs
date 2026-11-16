@@ -14,15 +14,33 @@ use crate::kernel::error::{Error, Result};
 
 /// Export a checkpoint as a LangGraph-shaped checkpoint tuple document.
 pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
-    let mut channel_versions = Map::new();
-    let mut updated_channels = Vec::new();
-    for channel in checkpoint.values.keys() {
-        channel_versions.insert(
-            channel.clone(),
-            Value::String(format!("{}.0.1", checkpoint.step)),
-        );
-        updated_channels.push(Value::String(channel.clone()));
-    }
+    let channel_versions = if checkpoint.channel_versions.is_empty() {
+        checkpoint
+            .values
+            .keys()
+            .map(|channel| {
+                (
+                    channel.clone(),
+                    Value::String(format!("{}.0.1", checkpoint.step)),
+                )
+            })
+            .collect::<Map<String, Value>>()
+    } else {
+        checkpoint.channel_versions.clone()
+    };
+    let updated_channels = if checkpoint.updated_channels.is_empty() {
+        checkpoint
+            .values
+            .keys()
+            .map(|channel| Value::String(channel.clone()))
+            .collect::<Vec<_>>()
+    } else {
+        checkpoint
+            .updated_channels
+            .iter()
+            .map(|channel| Value::String(channel.clone()))
+            .collect::<Vec<_>>()
+    };
     let ts = format_rfc3339(checkpoint.created_at_millis);
     let source = checkpoint
         .metadata
@@ -72,7 +90,7 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
             "ts": ts,
             "channel_values": checkpoint.values,
             "channel_versions": channel_versions,
-            "versions_seen": {},
+            "versions_seen": checkpoint.versions_seen,
             "updated_channels": updated_channels,
         },
         "metadata": metadata,
@@ -207,6 +225,27 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         metadata: checkpoint_metadata,
         namespace,
         task_results,
+        channel_versions: extra
+            .and_then(|extra| extra.get("channel_versions"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default(),
+        versions_seen: extra
+            .and_then(|extra| extra.get("versions_seen"))
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default(),
+        updated_channels: extra
+            .and_then(|extra| extra.get("updated_channels"))
+            .and_then(Value::as_array)
+            .map(|channels| {
+                channels
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 

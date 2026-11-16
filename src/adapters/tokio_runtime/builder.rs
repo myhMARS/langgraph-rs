@@ -51,6 +51,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
     pub(crate) recursion_limit: Option<usize>,
+    pub(crate) context_schema: Option<serde_json::Value>,
 }
 
 impl<S: State> Default for AsyncStateGraph<S> {
@@ -89,6 +90,7 @@ impl<S: State> AsyncStateGraph<S> {
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
             recursion_limit: None,
+            context_schema: None,
         }
     }
 
@@ -218,6 +220,12 @@ impl<S: State> AsyncStateGraph<S> {
     }
 
     /// Attach a long-term memory store (`BaseStore`).
+    /// Validate `RunConfig::context` against a JSON schema before each run.
+    pub fn with_context_schema(mut self, schema: serde_json::Value) -> Self {
+        self.context_schema = Some(schema);
+        self
+    }
+
     pub fn with_store(mut self, store: Arc<dyn BaseStore>) -> Self {
         self.store = Some(store);
         self
@@ -350,6 +358,7 @@ impl<S: State> AsyncStateGraph<S> {
             recursion_limit: self
                 .recursion_limit
                 .unwrap_or(crate::DEFAULT_RECURSION_LIMIT),
+            context_schema: self.context_schema,
         })
     }
 

@@ -110,10 +110,16 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
     pub(crate) recursion_limit: usize,
+    pub(crate) context_schema: Option<Value>,
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
     /// Timeout policy of one node, when configured.
+    /// JSON schema configured for `RunConfig::context`, if any.
+    pub fn context_schema(&self) -> Option<&Value> {
+        self.context_schema.as_ref()
+    }
+
     pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
         self.timeouts.get(node)
     }
@@ -574,6 +580,11 @@ impl<S: State> AsyncCompiledGraph<S> {
             context: config.context.clone(),
             collector: collector.clone(),
         };
+        if let (Some(schema), Some(context)) = (self.context_schema(), config.context.as_ref()) {
+            crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
+                Error::validation(format!("context does not match context_schema: {error}"))
+            })?;
+        }
         let _run_guard = crate::kernel::context::install_run(
             thread_id.clone(),
             namespace.clone(),
@@ -1511,11 +1522,18 @@ impl<S: State> AsyncCompiledGraph<S> {
             return Ok(());
         }
         let id = new_checkpoint_id(thread_id, step);
+        let persisted_values = self.schema.persisted_values(values);
+        let previous = match parent.as_deref() {
+            Some(parent_id) => self.saver_get(thread_id, parent_id).await?,
+            None => None,
+        };
+        let (channel_versions, versions_seen, updated_channels) =
+            crate::kernel::checkpoint::versions_for(previous.as_ref(), &persisted_values, step);
         let checkpoint = Checkpoint {
             id: id.clone(),
             thread_id: thread_id.to_string(),
             step,
-            values: self.schema.persisted_values(values),
+            values: persisted_values,
             next: next.to_vec(),
             interrupted,
             paused_before,
@@ -1525,6 +1543,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
             namespace: namespace.to_string(),
             task_results: crate::kernel::context::snapshot_task_results(),
+            channel_versions,
+            versions_seen,
+            updated_channels,
         };
         self.saver_put(checkpoint).await?;
         *parent = Some(id.clone());

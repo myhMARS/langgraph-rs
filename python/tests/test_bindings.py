@@ -1393,5 +1393,31 @@ class AsyncPythonTests(unittest.TestCase):
             compiled.invoke(lg.Command(goto="missing"))
 
 
+    def test_context_schema_validation(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("noop", lambda state: {})
+        graph.set_entry_point("noop")
+        graph.set_finish_point("noop")
+        compiled = graph.compile(
+            context_schema={"type": "object", "required": ["tenant"]}
+        )
+        compiled.invoke({}, context={"tenant": "acme"})
+        with self.assertRaises(Exception):
+            compiled.invoke({}, context={"other": 1})
+
+    def test_checkpoint_versions_are_exported(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, thread_id="py-versions")
+        document = compiled.export_checkpoint("py-versions")
+        checkpoint = document["checkpoint"]
+        self.assertTrue(checkpoint["channel_versions"])
+        self.assertIn("value", checkpoint["updated_channels"])
+        self.assertTrue(checkpoint["versions_seen"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -589,6 +589,7 @@ impl<S: State> StateGraph<S> {
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),
             name: options.name,
+            context_schema: options.context_schema,
         })
     }
 

@@ -94,6 +94,8 @@ pub struct CompileOptions {
     pub store: Option<Arc<dyn BaseStore>>,
     /// Optional graph name (LangGraph `compile(name=...)`).
     pub name: Option<String>,
+    /// JSON schema validating `RunConfig::context` (LangGraph `context_schema`).
+    pub context_schema: Option<Value>,
 }
 
 impl Default for CompileOptions {
@@ -106,6 +108,7 @@ impl Default for CompileOptions {
             interrupt_after: Vec::new(),
             store: None,
             name: None,
+            context_schema: None,
         }
     }
 }
@@ -120,6 +123,7 @@ impl fmt::Debug for CompileOptions {
             .field("interrupt_after", &self.interrupt_after)
             .field("store", &self.store.is_some())
             .field("name", &self.name)
+            .field("context_schema", &self.context_schema.is_some())
             .finish()
     }
 }
@@ -155,6 +159,12 @@ impl CompileOptions {
         T: Into<String>,
     {
         self.interrupt_before = nodes.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Validate `RunConfig::context` against a JSON schema before each run.
+    pub fn with_context_schema(mut self, schema: Value) -> Self {
+        self.context_schema = Some(schema);
         self
     }
 

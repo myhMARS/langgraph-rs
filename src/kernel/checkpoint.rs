@@ -50,6 +50,15 @@ pub struct Checkpoint {
     /// Memoized functional-API task results (task key -> JSON value).
     #[serde(default)]
     pub task_results: Map<String, Value>,
+    /// Per-channel version map (LangGraph `channel_versions`).
+    #[serde(default)]
+    pub channel_versions: Map<String, Value>,
+    /// Per-node seen versions (LangGraph `versions_seen`, simplified).
+    #[serde(default)]
+    pub versions_seen: Map<String, Value>,
+    /// Channels whose values changed when this checkpoint was written.
+    #[serde(default)]
+    pub updated_channels: Vec<String>,
 }
 
 impl Checkpoint {
@@ -74,6 +83,9 @@ impl Checkpoint {
             metadata: Map::new(),
             namespace: String::new(),
             task_results: Map::new(),
+            channel_versions: Map::new(),
+            versions_seen: Map::new(),
+            updated_channels: Vec::new(),
         }
     }
 
@@ -98,6 +110,41 @@ pub(crate) fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+/// Compute LangGraph-style version metadata for a new checkpoint.
+pub(crate) fn versions_for(
+    previous: Option<&Checkpoint>,
+    values: &Map<String, Value>,
+    step: usize,
+) -> (Map<String, Value>, Map<String, Value>, Vec<String>) {
+    let mut channel_versions = previous
+        .map(|checkpoint| checkpoint.channel_versions.clone())
+        .unwrap_or_default();
+    let mut versions_seen = previous
+        .map(|checkpoint| checkpoint.versions_seen.clone())
+        .unwrap_or_default();
+    let mut updated = Vec::new();
+    for (channel, value) in values {
+        let changed = previous.and_then(|checkpoint| checkpoint.values.get(channel)) != Some(value);
+        if changed {
+            let version = Value::String(format!("{step}.0.1"));
+            channel_versions.insert(channel.clone(), version);
+            updated.push(channel.clone());
+        }
+    }
+    if !updated.is_empty() {
+        let seen: Map<String, Value> = updated
+            .iter()
+            .filter_map(|channel| {
+                channel_versions
+                    .get(channel)
+                    .map(|version| (channel.clone(), version.clone()))
+            })
+            .collect();
+        versions_seen.insert("__updated__".to_string(), Value::Object(seen));
+    }
+    (channel_versions, versions_seen, updated)
 }
 
 #[cfg(test)]

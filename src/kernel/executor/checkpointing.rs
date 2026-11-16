@@ -33,11 +33,17 @@ pub(super) fn save_checkpoint<S: State>(
     };
 
     let id = new_checkpoint_id(thread_id, step);
+    let persisted_values = graph.schema().persisted_values(values);
+    let previous = parent
+        .as_deref()
+        .and_then(|parent_id| checkpointer.get(thread_id, parent_id).ok().flatten());
+    let (channel_versions, versions_seen, updated_channels) =
+        crate::kernel::checkpoint::versions_for(previous.as_ref(), &persisted_values, step);
     let checkpoint = Checkpoint {
         id: id.clone(),
         thread_id: thread_id.to_string(),
         step,
-        values: graph.schema().persisted_values(values),
+        values: persisted_values,
         next: next.to_vec(),
         interrupted,
         paused_before,
@@ -47,6 +53,9 @@ pub(super) fn save_checkpoint<S: State>(
         metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
         namespace: namespace.to_string(),
         task_results: crate::kernel::context::snapshot_task_results(),
+        channel_versions,
+        versions_seen,
+        updated_channels,
     };
     checkpointer.put(checkpoint)?;
     *parent = Some(id.clone());
