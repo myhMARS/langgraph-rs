@@ -472,6 +472,7 @@ pub(super) fn snapshot_to_py(
         })
         .collect::<PyResult<Vec<_>>>()?;
     dict.set_item("interrupts", interrupts)?;
+    dict.set_item("config", value_to_py(py, &snapshot.config)?)?;
     let tasks = snapshot
         .tasks
         .iter()

@@ -36,4 +36,9 @@ impl TimeoutPolicy {
     pub fn run_timeout(&self) -> Option<Duration> {
         self.run_timeout
     }
+
+    /// Timeout applied to one attempt: `run_timeout`, falling back to `idle_timeout`.
+    pub fn effective_timeout(&self) -> Option<Duration> {
+        self.run_timeout.or(self.idle_timeout)
+    }
 }

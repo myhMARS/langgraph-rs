@@ -1276,5 +1276,37 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(calls, [1])
 
 
+    def test_snapshot_config_get_config_threads_and_stream_writer(self):
+        def cfg(state):
+            config = lg.get_config()
+            writer = lg.get_stream_writer()
+            writer({"from": "cfg"})
+            return {"value": config["configurable"]["thread_id"]}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("cfg", cfg)
+        graph.set_entry_point("cfg")
+        graph.set_finish_point("cfg")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        chunks = compiled.stream({}, thread_id="closeout", stream_mode=["custom"])
+        self.assertTrue(any(chunk.get("type") == "custom" for chunk in chunks))
+        snapshot = compiled.get_state("closeout")
+        self.assertEqual(snapshot["values"]["value"], "closeout")
+        self.assertEqual(
+            snapshot["config"]["configurable"]["thread_id"], "closeout"
+        )
+        self.assertIn("closeout", compiled.threads())
+
+    def test_retry_policy_jitter_and_retry_on(self):
+        policy = lg.RetryPolicy(
+            max_attempts=2, jitter=0.25, retry_on=["connect"]
+        )
+        self.assertEqual(policy.jitter, 0.25)
+        self.assertEqual(policy.retry_on, ["connect"])
+        self.assertEqual(
+            lg.RetryPolicy(max_attempts=2).retry_on, []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

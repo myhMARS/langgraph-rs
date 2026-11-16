@@ -789,6 +789,15 @@ impl<S: State> CompiledGraph<S> {
         self.error_edges.get(node)
     }
 
+    /// List threads that have at least one checkpoint.
+    pub fn threads(&self) -> Result<Vec<String>> {
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or(crate::Error::MissingCheckpointer("threads"))?;
+        checkpointer.threads()
+    }
+
     /// Delete every checkpoint of a thread.
     pub fn delete_thread(&self, thread_id: &str) -> Result<()> {
         let checkpointer = self

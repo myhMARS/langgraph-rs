@@ -32,6 +32,10 @@ pub struct RetryPolicy {
     pub multiplier: f64,
     /// Upper bound for the backoff.
     pub max_backoff: Duration,
+    /// Fraction of the backoff that may be removed deterministically (0.0..=1.0).
+    pub jitter: f64,
+    /// Only retry when the error message contains one of these substrings (empty = any).
+    pub retry_on: Vec<String>,
 }
 
 impl Default for RetryPolicy {
@@ -41,6 +45,8 @@ impl Default for RetryPolicy {
             initial_backoff: Duration::ZERO,
             multiplier: 1.0,
             max_backoff: Duration::ZERO,
+            jitter: 0.0,
+            retry_on: Vec::new(),
         }
     }
 }
@@ -72,6 +78,31 @@ impl RetryPolicy {
         self
     }
 
+    /// Apply deterministic jitter (a fraction in `0.0..=1.0` removed from the backoff).
+    pub fn with_jitter(mut self, jitter: f64) -> Self {
+        self.jitter = jitter.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Only retry when the error message contains one of `predicates`.
+    pub fn with_retry_on<I, T>(mut self, predicates: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.retry_on = predicates.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Returns `true` when `message` matches the configured `retry_on` predicates.
+    pub fn should_retry(&self, message: &str) -> bool {
+        self.retry_on.is_empty()
+            || self
+                .retry_on
+                .iter()
+                .any(|predicate| message.contains(predicate))
+    }
+
     /// Returns `true` when the policy allows more than one attempt.
     pub fn is_retrying(&self) -> bool {
         self.max_attempts > 1
@@ -88,6 +119,10 @@ impl RetryPolicy {
         }
         if !self.max_backoff.is_zero() {
             seconds = seconds.min(self.max_backoff.as_secs_f64());
+        }
+        if self.jitter > 0.0 {
+            let fraction = (failed_attempt as f64 * 0.618_033_988_749_895).fract();
+            seconds *= 1.0 - self.jitter * fraction;
         }
         Duration::from_secs_f64(seconds.max(0.0))
     }

@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
 
-use super::convert::{normalize_node, py_to_value, value_to_py};
+use super::convert::{normalize_node, py_to_value, to_pyerr, value_to_py};
 use crate::Checkpointer;
 use crate::InMemoryStore;
 #[cfg(feature = "postgres")]
@@ -173,6 +173,23 @@ impl PyCommand {
     }
 }
 
+/// Writer returned by `langgraph_rs.get_stream_writer()`.
+#[pyclass(name = "StreamWriter")]
+pub struct PyStreamWriter;
+
+#[pymethods]
+impl PyStreamWriter {
+    /// Emit a custom stream value.
+    fn __call__(&self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let value = py_to_value(value)?;
+        crate::push_custom(value).map_err(|error| to_pyerr(py, error))
+    }
+
+    fn __repr__(&self) -> String {
+        "StreamWriter()".to_string()
+    }
+}
+
 /// Retry policy usable as `StateGraph.add_node(..., retry_policy=RetryPolicy(...))`.
 #[pyclass(name = "RetryPolicy", from_py_object)]
 #[derive(Clone)]
@@ -185,23 +202,31 @@ pub struct PyRetryPolicy {
     pub backoff_factor: f64,
     #[pyo3(get)]
     pub max_interval: f64,
+    #[pyo3(get)]
+    pub jitter: f64,
+    #[pyo3(get)]
+    pub retry_on: Vec<String>,
 }
 
 #[pymethods]
 impl PyRetryPolicy {
     #[new]
-    #[pyo3(signature = (max_attempts=3, initial_interval=0.5, backoff_factor=2.0, max_interval=128.0))]
+    #[pyo3(signature = (max_attempts=3, initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, jitter=0.0, retry_on=None))]
     fn new(
         max_attempts: usize,
         initial_interval: f64,
         backoff_factor: f64,
         max_interval: f64,
+        jitter: f64,
+        retry_on: Option<Vec<String>>,
     ) -> Self {
         Self {
             max_attempts,
             initial_interval,
             backoff_factor,
             max_interval,
+            jitter,
+            retry_on: retry_on.unwrap_or_default(),
         }
     }
 }
@@ -212,6 +237,8 @@ impl PyRetryPolicy {
             .with_backoff(Duration::from_secs_f64(self.initial_interval.max(0.0)))
             .with_multiplier(self.backoff_factor.max(1.0))
             .with_max_backoff(Duration::from_secs_f64(self.max_interval.max(0.0)))
+            .with_jitter(self.jitter)
+            .with_retry_on(self.retry_on.clone())
     }
 }
 

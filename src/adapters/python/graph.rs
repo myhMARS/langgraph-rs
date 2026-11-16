@@ -551,6 +551,11 @@ impl PyCompiledGraph {
         }
     }
 
+    /// List threads that have at least one checkpoint.
+    fn threads(&self, py: Python<'_>) -> PyResult<Vec<String>> {
+        self.graph.threads().map_err(|error| to_pyerr(py, error))
+    }
+
     /// Delete every checkpoint of a thread.
     fn delete_thread(&self, py: Python<'_>, thread_id: String) -> PyResult<()> {
         self.graph

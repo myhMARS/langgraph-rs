@@ -151,7 +151,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
         let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
             graph
                 .timeout_of(&task.node)
-                .and_then(|policy| policy.run_timeout())
+                .and_then(|policy| policy.effective_timeout())
         });
         let (result, custom, messages, mut reported) = match timeout {
             Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
@@ -212,6 +212,9 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
             }
             Err(error) => {
                 last_error = Some(error.to_string());
+                if !policy.should_retry(&error.to_string()) {
+                    break;
+                }
                 if attempt < max_attempts {
                     let backoff = policy.backoff_for(attempt);
                     if !backoff.is_zero() {

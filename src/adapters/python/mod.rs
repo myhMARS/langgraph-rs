@@ -40,7 +40,7 @@ use types::PyRedisSaver;
 use types::PySqliteSaver;
 use types::{
     PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage, PyRetryPolicy,
-    PySend, PyStore, PyTask,
+    PySend, PyStore, PyStreamWriter, PyTask,
 };
 
 create_exception!(
@@ -112,6 +112,19 @@ fn entrypoint(function: Py<PyAny>) -> PyResult<PyStateGraph> {
         .set_entry_point("entrypoint")
         .set_finish_point("entrypoint");
     Ok(PyStateGraph::from_inner(inner))
+}
+
+/// Writer that emits custom stream values from helpers.
+#[pyfunction]
+fn get_stream_writer() -> PyStreamWriter {
+    PyStreamWriter
+}
+
+/// LangGraph-style config of the current run.
+#[pyfunction]
+fn get_config(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let config = crate::get_config();
+    value_to_py(py, &config)
 }
 
 /// Remaining supersteps before the recursion limit (managed value).
@@ -253,6 +266,9 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(task, module)?)?;
     module.add_function(wrap_pyfunction!(entrypoint, module)?)?;
     module.add_function(wrap_pyfunction!(get_store, module)?)?;
+    module.add_function(wrap_pyfunction!(get_config, module)?)?;
+    module.add_function(wrap_pyfunction!(get_stream_writer, module)?)?;
+    module.add_class::<PyStreamWriter>()?;
     module.add_function(wrap_pyfunction!(current_context, module)?)?;
     module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;
     module.add_function(wrap_pyfunction!(current_namespace, module)?)?;

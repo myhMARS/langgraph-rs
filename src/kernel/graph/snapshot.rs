@@ -44,6 +44,8 @@ pub struct StateSnapshot<S: State> {
     pub metadata: Map<String, Value>,
     /// Checkpoint namespace of this snapshot.
     pub checkpoint_ns: String,
+    /// LangGraph-style config for this snapshot (`configurable` thread/ns/checkpoint id).
+    pub config: Value,
 }
 
 impl<S: State> StateSnapshot<S> {
@@ -57,6 +59,13 @@ impl<S: State> StateSnapshot<S> {
                 resume: task.resume.clone(),
             })
             .collect();
+        let config = serde_json::json!({
+            "configurable": {
+                "thread_id": checkpoint.thread_id,
+                "checkpoint_ns": checkpoint.namespace,
+                "checkpoint_id": checkpoint.id,
+            }
+        });
         Ok(Self {
             values: values_to_state::<S>(&checkpoint.values)?,
             next: checkpoint.next_nodes(),
@@ -70,6 +79,7 @@ impl<S: State> StateSnapshot<S> {
             parent_checkpoint_id: checkpoint.parent_id,
             metadata: checkpoint.metadata,
             checkpoint_ns: checkpoint.namespace,
+            config,
         })
     }
 

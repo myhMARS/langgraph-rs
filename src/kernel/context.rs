@@ -356,6 +356,23 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     Ok(())
 }
 
+/// LangGraph-style config of the current run (`configurable.thread_id` / `checkpoint_ns`).
+pub fn get_config() -> Value {
+    serde_json::json!({
+        "configurable": {
+            "thread_id": current_thread_id(),
+            "checkpoint_ns": current_namespace(),
+        }
+    })
+}
+
+/// Return a writer that emits custom stream values from helpers.
+///
+/// The writer fails outside a running node (the context is per node execution).
+pub fn get_stream_writer() -> impl Fn(Value) -> Result<()> + Clone {
+    |value| push_custom(value)
+}
+
 /// Emit a custom value into the graph stream from inside a node.
 pub fn custom(value: impl Serialize) -> Result<()> {
     push_custom(serde_json::to_value(value)?)

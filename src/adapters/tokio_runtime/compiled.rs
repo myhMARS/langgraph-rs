@@ -994,7 +994,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
             let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
                 self.timeout_of(&task.node)
-                    .and_then(|policy| policy.run_timeout())
+                    .and_then(|policy| policy.effective_timeout())
             });
             let result = match timeout {
                 Some(timeout) => match tokio::time::timeout(timeout, future).await {
