@@ -700,40 +700,51 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 
 这些数字只衡量编排开销（无 LLM 或 I/O 调用）：Rust 原生快一到两个数量级，绑定在每个节点上付出
 Python 可调用派发成本，扇出场景差距最小，因为原生 Rust 每个 superstep 会启动真实线程。功能矩阵
-——哪些达到对等、哪些没有（子图、异步节点、持久化后端）——见
+（哪些达到对等、哪些为已知差异）见
 [benchmarks/features.md](benchmarks/features.md)。
 
 ## 状态 / 路线图
 
 已实现并测试：Microkernel + Hexagonal 布局（kernel ports、adapters、插件注册表）；严格或动态
-channel schema；静态、多目标与条件边（含 path map 与条件入口）；并行 superstep、`Send`、`goto`；
-递归上限（25 superstep）；checkpoint、线程历史、快照、`interrupt()`（含 before/after 钩子）、
-resume、更新、时间旅行；带退避的 `RetryPolicy` 与 `last_error()` 错误路由；子图；节点级缓存
-（TTL 与自定义 key）；Mermaid 可视化；SQLite/Redis/Postgres 持久化 checkpointer；流式；节点级
-耗时/usage 追踪与运行报告、trace-sink 适配器；可选 Tokio 异步适配器（`async` feature，覆盖完整
-checkpoint/HITL/重试/错误路由能力）；校验与合并错误；可选 Python 绑定（PyO3）；以及包含扩展性、
-线程与内存场景的功能/性能基准。
+channel schema（last value、topic、append/add、messages、ephemeral、any、untracked、named
+barrier、delta、last-value-after-finish、overwrite）；静态、多目标与条件边（含 path map 与条件
+入口）；并行 superstep、`Send`（router 也可发起）、`goto`；递归上限（25 superstep）；带
+checkpoint 命名空间的 checkpoint、线程历史、类型化快照、带唯一 id 的 interrupt（同一 superstep
+多中断、同一节点重复 interrupt）、resume、更新、时间旅行；带退避的 `RetryPolicy` 与
+`last_error()` 错误路由；子图（同状态/映射状态、独立 namespace、嵌套中断、流式、同步图
+`Command(graph=PARENT)`）；节点级缓存（TTL 与自定义 key）；deferred 节点；节点级超时；节点
+metadata、input-schema metadata 与 destination allow-list；batch、`max_concurrency` 与
+durability 模式；Mermaid/JSON 图导出；SQLite/Redis/Postgres 持久化 checkpointer；长期记忆
+（`BaseStore`/`InMemoryStore`）与运行时上下文；functional API（`entrypoint`/`task`）；全部
+stream modes（`values`/`updates`/`custom`/`messages`/`debug`/`tasks`/`checkpoints`，含子图流与
+Python v2 stream parts）；节点级耗时/usage 追踪与运行报告、trace-sink 适配器；可选 Tokio 异步
+适配器（`async` feature，覆盖完整 checkpoint/HITL/重试/错误路由、子图、缓存与 batch）；可选
+Python 绑定（同步与异步，含 store、saver、functional API 与流式）；以及包含扩展性、线程与内存
+场景的功能/性能基准。
 
-尚未实现：
-
-- 图定义的外部持久化、跨进程时间旅行、时间旅行 UI、checkpoint 命名空间、从 router 发起 `Send`
-- async 适配器的节点缓存、子图状态映射与子图独立 checkpoint 命名空间
-- Python 自定义 reducer 与异步 Python 节点（绑定目前使用内置 reducer，并在引擎执行期间释放 GIL）
+已知限制（详见 `benchmarks/features.md`）：图定义与 checkpoint 与 LangGraph 不保证字节互操作；
+async 图拒绝 `Command(graph=PARENT)`；async checkpointer 是同步 saver 的 API 别名（无独立 async
+DB 驱动）；functional API 内联执行任务并用 `BaseStore` 记忆化，而非逐任务 checkpoint；LangGraph
+的 prebuilt agents（`create_react_agent`、`ToolNode`）超出范围；Python 节点是普通 callable
+（非 coroutine），自定义 reducer 仅限内置策略。
 
 ## 与 LangGraph 的差异
 
 - **同步优先，异步可选。** 默认引擎在 scoped 线程上运行 `Fn(&S) -> Result<NodeOutput>` 节点；
   `async` feature 增加 Tokio 适配器支持异步节点。默认路径没有事件循环。
-- **节点上下文是 thread-local。** `interrupt()`、`custom()` 与 `current_node()` 读取每次节点调用
-  安装的 thread-local，因此只在执行线程内有效。
+- **节点上下文。** 同步图中 `interrupt()`、`custom()` 与 `current_node()` 读取每次节点调用安装的
+  thread-local；异步图通过随 future 传递的 `AsyncContext` 提供同样的能力。
 - **状态必须序列化为 JSON 对象。** channel 值是 `serde_json::Value`；非对象状态以
-  `Error::NonObjectState` 失败，从而保持 checkpoint 语言中立。
+  `Error::NonObjectState` 失败，从而保持 checkpoint 语言中立。checkpoint 是 JSON 文档，并非
+  LangGraph 的 checkpoint 格式。
 - **superstep 通过 scoped 线程在同一墙钟窗口执行节点** —— 对共享 `&State` 的真实 OS 并行，而不是
-  协作式调度任务。
+  协作式调度任务；异步适配器则用 Tokio task 运行 superstep。
 - **router 是纯函数**，只返回目标（或 path-map 键）。
-- **子图共享状态类型**，并以替换方式发布变化的 channel；目前没有子图状态映射或 checkpoint 命名空间。
+- **子图**支持同状态或映射状态、子图独立 checkpoint 命名空间、嵌套中断、流式，以及同步图中的
+  `Command(graph=PARENT)`；异步图拒绝 parent command。
 - **Python 绑定使用 `JsonState`。** Python 节点交换普通 dict，状态是 JSON；自定义 reducer 目前需用
-  内置策略（`last_value`、`topic`、`append`、`add`、`messages`）表达。引擎执行期间释放 GIL，因此
+  内置策略（`last_value`、`topic`、`append`、`add`、`messages`）表达。Python 节点是普通 callable，
+  异步图会从 Tokio 适配器调用它们但不会 `await` Python coroutine。引擎执行期间释放 GIL，因此
   Python 可调用对象只在节点执行时运行。
 
 ## 构建与测试

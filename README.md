@@ -376,8 +376,9 @@ let outer = StateGraph::<WorkState>::new()
 with a different state type plus input/output mapping closures. Subgraphs inherit the
 parent thread and run in a child checkpoint namespace (`<parent_ns>|<name>`), so an
 `interrupt()` inside a subgraph pauses the parent run and the next `resume` continues the
-subgraph from its own checkpoint. Subgraph streaming (`subgraphs=True`) is not implemented
-yet.
+subgraph from its own checkpoint. With `RunConfig::with_stream_subgraphs(true)`
+(Python `stream(..., subgraphs=True)`) chunks from inside a subgraph are wrapped in
+`StreamChunk::Subgraph` with their checkpoint namespace.
 
 ## Node-level caching
 
@@ -759,43 +760,57 @@ store, stream modes, subgraphs, async, Python surface) — is in
 ## Status / roadmap
 
 Implemented and tested: microkernel + hexagonal layout (kernel ports, adapters, plugin registry);
-strict or dynamic channel schemas; static, multi-target and conditional edges with path maps and
-conditional entry points; parallel supersteps, `Send`, `goto`; the recursion limit (25 supersteps);
-checkpointing, thread history, snapshots, `interrupt()` with before/after hooks, resume, updates,
-time travel; retry policies with backoff and `last_error()` error routing; subgraphs; node-level
-caching with TTLs and custom keys; Mermaid visualisation; persistent SQLite/Redis/Postgres
-checkpointers; streaming; per-node duration/usage tracing with run reports and trace-sink
-adapters; optional Tokio async adapter (`async` feature) with the full checkpoint/HITL/retry/
-error-routing surface; validation and merge errors; optional Python bindings (PyO3); a
+strict or dynamic channel schemas (last value, topic, append/add, messages, ephemeral, any,
+untracked, named barrier, delta, last-value-after-finish, overwrite); static, multi-target and
+conditional edges with path maps and conditional entry points; parallel supersteps, `Send` (also
+from routers), `goto`; the recursion limit (25 supersteps); checkpointing with checkpoint
+namespaces, thread history, typed snapshots, interrupts with unique ids (multiple pending
+interrupts and repeated interrupts inside one node), resume, updates, time travel; retry policies
+with backoff and `last_error()` error routing; subgraphs (same or mapped state, per-subgraph
+namespace, nested interrupts, streaming, `Command(graph=PARENT)` in sync graphs); node-level
+caching with TTLs and custom keys; deferred nodes; per-node timeouts; node metadata, input-schema
+metadata and destination allow-lists; batch, `max_concurrency` and durability modes; Mermaid and
+JSON graph export; persistent SQLite/Redis/Postgres checkpointers; long-term memory
+(`BaseStore`/`InMemoryStore`) and runtime context; functional API (`entrypoint`/`task`);
+all stream modes (`values`/`updates`/`custom`/`messages`/`debug`/`tasks`/`checkpoints`, plus
+subgraph streaming and Python v2 stream parts); per-node duration/usage tracing with run reports
+and trace-sink adapters; optional Tokio async adapter (`async` feature) with the full
+checkpoint/HITL/retry/error-routing surface, subgraphs, cache and batch; optional Python bindings
+(sync and async) with stores, savers, functional API and streaming; a
 functional/performance benchmark against Python LangGraph, including scaling, threading and
 memory scenarios.
 
-Not implemented yet:
-
-- external persistence of graph definitions, cross-process time travel, a time-travel UI,
-  checkpoint namespaces, `Send` from routers
-- async-adapter node caching, subgraph state mapping and per-subgraph checkpoint namespaces
-- Python-defined custom reducers and async Python nodes (the bindings use built-in reducers and
-  release the GIL around the engine)
+Known limitations (documented in `benchmarks/features.md`): graph definitions and checkpoints are
+not byte-compatible with LangGraph; async graphs reject `Command(graph=PARENT)`; async
+checkpointers are API aliases over the synchronous savers (no separate async DB drivers); the
+functional API executes tasks inline and memoizes them in a `BaseStore` instead of recording
+per-task checkpoints; LangGraph's prebuilt agents (`create_react_agent`, `ToolNode`) are out of
+scope; Python nodes are plain callables (not coroutines) and custom reducers are limited to the
+built-in policies.
 
 ## Differences from LangGraph
 
 - **Sync-first, async opt-in.** The default engine runs `Fn(&S) -> Result<NodeOutput>` nodes on
   scoped threads; the `async` feature adds a Tokio adapter for async nodes. There is no event
   loop in the default path.
-- **Thread-local node context.** `interrupt()`, `custom()` and `current_node()` read a
-  thread-local installed per node call, so they only work on the executing thread.
+- **Thread-local node context.** In synchronous graphs `interrupt()`, `custom()` and
+  `current_node()` read a thread-local installed per node call. Async graphs use `AsyncContext`
+  (carried through the future), so the helpers work there too.
 - **State must serialize to a JSON object.** Channel values are `serde_json::Value`; non-object
-  state fails with `Error::NonObjectState`, keeping checkpoints language-neutral.
+  state fails with `Error::NonObjectState`, keeping checkpoints language-neutral. Checkpoints are
+  JSON documents, not LangGraph's checkpoint format.
 - **Supersteps run nodes during the same wall-clock window via scoped threads** — real OS
-  parallelism over a shared `&State`, not cooperatively scheduled tasks.
+  parallelism over a shared `&State`, not cooperatively scheduled tasks. The async adapter runs
+  supersteps as Tokio tasks instead.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
-- **Subgraphs share the state type** and publish changed channels as replacements; there is no
-  per-subgraph state mapping or checkpoint namespace yet.
+- **Subgraphs** support same or mapped state, per-subgraph checkpoint namespaces, nested
+  interrupts, streaming and `Command(graph=PARENT)` in synchronous graphs; async graphs reject
+  parent commands.
 - **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON, and
   custom reducers must be expressed with the built-in policies (`last_value`, `topic`, `append`,
-  `add`, `messages`) for now. The GIL is released around the engine, so Python callables only
-  run while a node executes.
+  `add`, `messages`) for now. Python nodes are plain callables; async graphs call them from the
+  Tokio adapter but do not `await` Python coroutines. The GIL is released around the engine, so
+  Python callables only run while a node executes.
 
 ## Build and test
 
