@@ -4,6 +4,7 @@
 //! tracing sinks, language bindings and other infrastructure live in
 //! [`crate::adapters`] and implement the ports declared in [`ports`].
 
+pub mod cache;
 pub mod channel;
 pub mod checkpoint;
 pub mod command;

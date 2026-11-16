@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 use super::Entry;
 use super::options::RunConfig;
 use super::snapshot::StateSnapshot;
+use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::executor::{self, StartInput};
@@ -34,6 +35,8 @@ pub struct CompiledGraph<S: State> {
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
     pub(crate) retries: IndexMap<String, RetryPolicy>,
     pub(crate) error_edges: IndexMap<String, String>,
+    pub(crate) cache: Option<Arc<dyn NodeCache>>,
+    pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
@@ -51,6 +54,8 @@ impl<S: State> Clone for CompiledGraph<S> {
             trace_sinks: self.trace_sinks.clone(),
             retries: self.retries.clone(),
             error_edges: self.error_edges.clone(),
+            cache: self.cache.clone(),
+            cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
             interrupt_before: self.interrupt_before.clone(),
             interrupt_after: self.interrupt_after.clone(),
@@ -348,6 +353,16 @@ impl<S: State> CompiledGraph<S> {
     /// Error-handler node for a node, if one was configured.
     pub fn error_handler(&self, node: &str) -> Option<&String> {
         self.error_edges.get(node)
+    }
+
+    /// Cache backend, when node caching is enabled.
+    pub(crate) fn cache(&self) -> Option<&Arc<dyn NodeCache>> {
+        self.cache.as_ref()
+    }
+
+    /// Cache policy of a node, if caching is enabled for it.
+    pub(crate) fn cache_policy(&self, node: &str) -> Option<&CachePolicy> {
+        self.cache_policies.get(node)
     }
 
     pub(crate) fn interrupts_before(&self, node: &str) -> bool {

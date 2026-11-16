@@ -148,6 +148,24 @@ impl NodeOutput {
     pub(crate) fn into_parts(self) -> OutputParts {
         (self.updates, self.replaces, self.goto, self.sends)
     }
+
+    /// Rebuild an output from a cached node output.
+    pub(crate) fn from_cached(cached: crate::kernel::cache::CachedOutput) -> Self {
+        let mut output = NodeOutput::new().updates(cached.updates);
+        for (channel, value) in cached.replaces {
+            output = output.replace(channel, value);
+        }
+        for target in cached.goto {
+            output = output.goto(target);
+        }
+        for send in cached.sends {
+            output = output.send(send);
+        }
+        if let Some(usage) = cached.usage {
+            output = output.with_usage(usage);
+        }
+        output
+    }
 }
 
 impl From<IndexMap<String, Value>> for NodeOutput {

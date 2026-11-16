@@ -20,6 +20,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::graph::options` | `CompileOptions`, `RunConfig`, `Targets`, `DEFAULT_RECURSION_LIMIT`. |
 | `kernel::graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
 | `kernel::graph::visualize` | Mermaid renderer shared by the sync and async compiled graphs (`to_mermaid`). |
+| `kernel::cache` | `NodeCache` port, `CachedOutput`, `CachePolicy` (TTL + custom key) for node-level caching. |
 | `kernel::executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
 | `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
@@ -337,6 +338,18 @@ translation layer over the Rust engine:
   checkpointing, interrupts, retries and error routing are supported. Nested subgraphs and
   Python bindings are not exposed for async graphs yet.
 
+## Node-level caching
+
+`kernel::cache` defines the `NodeCache` port (`get` / `put` / `clear`), the serializable
+`CachedOutput` payload and `CachePolicy`. A policy is attached per node
+(`StateGraph::set_cache`) together with a backend (`with_cache`, e.g. the `InMemoryCache`
+adapter). `executor::superstep::run_task` computes the cache key from the node name and its
+input channel values (or a custom key function), replays a hit as `NodeOutput::from_cached`
+and records `NodeExecution.cached = true` with `attempts = 0`; on a miss it runs the node and
+stores updates/replacements/goto/sends plus merged usage with the policy TTL. Errors are never
+cached. The adapter currently keeps entries in memory (unbounded); the port is the extension
+point for persistent caches.
+
 ## Visualisation
 
 `kernel::graph::visualize::render_mermaid` takes a layout view (node names, edge tables,
@@ -384,8 +397,9 @@ no path map exists), error edges labelled `on error`, and node labels annotated 
   `custom()` and `current_node()` only work on the thread executing the node, so work spawned
   elsewhere in a node loses the context. Async nodes live in the separate Tokio adapter and
   use an explicit `AsyncContext` instead.
-- **Async adapter scope.** The `async` adapter has no checkpoints, interrupts, retries or error
-  routing yet, and its nodes receive the state by value (a clone per execution).
+- **Async adapter scope.** The async adapter has no node caching yet (execution, streaming,
+  checkpoints, HITL, retries and error routing are supported); its nodes receive the state by
+  value (a clone per execution).
 - **Subgraphs share the state type.** `add_subgraph` embeds a compiled graph as a node with
   `replace` writes for changed channels; per-subgraph state mapping, checkpoint namespacing
   and nested interrupts are unsupported.

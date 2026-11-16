@@ -616,6 +616,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         step,
                         duration_millis: failure.duration_millis,
                         attempts: failure.failure.attempts,
+                        cached: false,
                         error: Some(failure.failure.message.clone()),
                         usage: merge_usage(failure.usage),
                     };
@@ -662,6 +663,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         step,
                         duration_millis: result.duration_millis,
                         attempts: result.attempts,
+                        cached: false,
                         error: None,
                         usage: merge_usage(result.usage),
                     };

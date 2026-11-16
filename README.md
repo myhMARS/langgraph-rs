@@ -21,6 +21,9 @@ bindings for teams that need them.
   and publishes the channels it changed.
 - **Mermaid visualisation** — `graph.to_mermaid()` renders nodes, static/conditional edges,
   path-map labels, error edges, retries and interrupt hooks; also exposed from Python.
+- **Node-level caching** — opt-in `CachePolicy` per node plus a `NodeCache` port; the
+  `InMemoryCache` adapter supports TTLs and custom cache keys, and cached executions are
+  marked in run reports.
 - **Tokio async runtime (feature `async`)** — `AsyncStateGraph` runs async nodes and awaits
   concurrent supersteps on a Tokio runtime; the sync path stays dependency-free.
 - **Checkpointing + thread history** — `InMemorySaver`, typed snapshots, parent-linked
@@ -293,6 +296,35 @@ let outer = StateGraph::<WorkState>::new()
 
 Subgraphs share the parent's state type; they have no separate checkpointer or state
 mapping yet, and an `interrupt()` inside a subgraph surfaces as a node failure.
+
+## Node-level caching
+
+Caching is opt-in per node: attach a `NodeCache` backend to the graph and a `CachePolicy` to
+the node. Before a node runs the executor looks the output up by a key derived from the node
+name and its input state; after a successful run the output is stored. Interrupts and
+failures are never cached, and cache hits are flagged as `cached` in the run report.
+
+```rust
+use std::sync::Arc;
+use std::time::Duration;
+use langgraph_rs::{CachePolicy, InMemoryCache, StateGraph};
+
+let graph = StateGraph::<WorkState>::new()
+    .add_node("call_model", |state: &WorkState| call_model(state))
+    .set_entry_point("call_model")
+    .set_finish_point("call_model")
+    .with_cache(Arc::new(InMemoryCache::new()))
+    .set_cache(
+        "call_model",
+        CachePolicy::new().with_ttl(Duration::from_secs(300)),
+    )
+    .compile()
+    .unwrap();
+```
+
+The default key hashes the node name and the serialized input state (so only identical
+inputs hit); `CachePolicy::with_key` installs a coarser custom key. `NodeCache` is a port, so
+a SQLite/Redis/Postgres cache can be plugged in later.
 
 ## Visualisation
 

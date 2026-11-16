@@ -5,11 +5,12 @@ use std::time::Instant;
 
 use serde_json::Value;
 
+use crate::kernel::cache::CachedOutput;
 use crate::kernel::context::TaskContext;
 use crate::kernel::error::{Error, Interrupt, NodeFailure};
 use crate::kernel::graph::CompiledGraph;
 use crate::kernel::node::{NodeOutput, Task};
-use crate::kernel::state::{State, values_to_state};
+use crate::kernel::state::{State, state_to_values, values_to_state};
 use crate::kernel::usage::Usage;
 
 /// Successful result of one node execution, before the superstep is merged.
@@ -20,6 +21,7 @@ pub(super) struct TaskResult {
     pub(super) usage: Vec<Usage>,
     pub(super) duration_millis: u64,
     pub(super) attempts: u32,
+    pub(super) cached: bool,
 }
 
 /// Permanent failure of one node execution.
@@ -89,6 +91,51 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
         None => state.clone(),
     };
 
+    let cache = graph.cache().cloned();
+    let cache_policy = graph.cache_policy(&task.node).cloned();
+    let cache_key = match (&cache, &cache_policy) {
+        (Some(_), Some(policy)) => {
+            let values = match state_to_values(&node_state) {
+                Ok(values) => values,
+                Err(error) => {
+                    return failed(task, error.to_string(), 1, Vec::new(), Instant::now());
+                }
+            };
+            Some(policy.cache_key(&task.node, &values))
+        }
+        _ => None,
+    };
+    if let (Some(cache), Some(key)) = (&cache, &cache_key) {
+        match cache.get(key) {
+            Ok(Some(cached)) => {
+                let usage = cached
+                    .usage
+                    .clone()
+                    .map(|usage| vec![usage])
+                    .unwrap_or_default();
+                return TaskOutcome::Ok(Box::new(TaskResult {
+                    node: task.node.clone(),
+                    output: NodeOutput::from_cached(cached),
+                    custom: Vec::new(),
+                    usage,
+                    duration_millis: 0,
+                    attempts: 0,
+                    cached: true,
+                }));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return failed(
+                    task,
+                    format!("node cache lookup failed: {error}"),
+                    1,
+                    Vec::new(),
+                    Instant::now(),
+                );
+            }
+        }
+    }
+
     let policy = graph.retry_policy(&task.node).cloned().unwrap_or_default();
     let max_attempts = policy.max_attempts.max(1);
     let started = Instant::now();
@@ -105,6 +152,30 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
         match result {
             Ok(output) => {
                 usage.extend(output.usage().cloned());
+                if let (Some(cache), Some(cache_policy), Some(key)) =
+                    (&cache, &cache_policy, &cache_key)
+                {
+                    let mut combined: Option<Usage> = None;
+                    for item in &usage {
+                        combined.get_or_insert_with(Usage::new).merge(item);
+                    }
+                    let cached_output = CachedOutput {
+                        updates: output.updates_map().clone(),
+                        replaces: output.replaces_map().clone(),
+                        goto: output.goto_targets().to_vec(),
+                        sends: output.sends().to_vec(),
+                        usage: combined,
+                    };
+                    if let Err(error) = cache.put(key, cached_output, cache_policy.ttl()) {
+                        return failed(
+                            task,
+                            format!("node cache store failed: {error}"),
+                            attempt as u32,
+                            usage,
+                            started,
+                        );
+                    }
+                }
                 return TaskOutcome::Ok(Box::new(TaskResult {
                     node: task.node.clone(),
                     output,
@@ -112,6 +183,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     usage,
                     duration_millis: started.elapsed().as_millis() as u64,
                     attempts: attempt as u32,
+                    cached: false,
                 }));
             }
             Err(Error::Interrupt(interrupt)) => {

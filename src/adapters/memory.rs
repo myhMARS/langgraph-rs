@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
+use crate::kernel::cache::{CachedOutput, NodeCache};
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::Result;
 use crate::kernel::ports::Checkpointer;
@@ -113,5 +115,67 @@ mod tests {
         let saver = InMemorySaver::new();
         assert!(saver.latest("missing").unwrap().is_none());
         assert!(saver.get("missing", "nope").unwrap().is_none());
+    }
+}
+
+/// In-memory node cache adapter with optional per-entry TTL.
+#[derive(Debug, Default)]
+pub struct InMemoryCache {
+    entries: Mutex<HashMap<String, (CachedOutput, Option<Instant>)>>,
+}
+
+impl InMemoryCache {
+    /// Create an empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of entries (expired entries are not pruned eagerly).
+    pub fn len(&self) -> usize {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
+    }
+
+    /// Returns `true` when the cache holds no entry.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl NodeCache for InMemoryCache {
+    fn get(&self, key: &str) -> Result<Option<CachedOutput>> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some((output, expires_at)) = entries.get(key) else {
+            return Ok(None);
+        };
+        if let Some(expires_at) = expires_at {
+            if Instant::now() >= *expires_at {
+                entries.remove(key);
+                return Ok(None);
+            }
+        }
+        Ok(Some(output.clone()))
+    }
+
+    fn put(&self, key: &str, output: CachedOutput, ttl: Option<Duration>) -> Result<()> {
+        let expires_at = ttl.map(|ttl| Instant::now() + ttl);
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(key.to_string(), (output, expires_at));
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<()> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        Ok(())
     }
 }

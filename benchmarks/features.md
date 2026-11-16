@@ -26,6 +26,7 @@ capability exists but with documented differences (see the notes column and
 | Subgraphs | ✅ `add_subgraph` | ✅ first-class subgraphs | shares the parent state type; publishes changed channels as replacements; no state mapping, checkpoint namespacing or nested interrupts yet |
 | Async nodes / runtime integration | ✅ Tokio adapter (`async` feature) with checkpoints, HITL, retries and error routing | ✅ native async | the default engine stays synchronous; async nodes use `AsyncContext`; async subgraphs/Python bindings are not exposed yet |
 | Retry policies | ✅ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy` | interrupts are never retried |
+| Node-level cache | ✅ `CachePolicy` + `NodeCache` port (`InMemoryCache`, TTL, custom keys) | ✅ `CachePolicy` per node | sync engine only for now; the in-memory adapter is unbounded |
 | Error routing / fallback nodes | ✅ `add_error_edge` + `last_error()` | ✅ conditional edges / error handling | handler runs in the next superstep and receives a `NodeFailure` |
 | Python API | ✅ PyO3 bindings (`python` feature) | ✅ native | Rust exposes `StateGraph`/`CompiledGraph`, `interrupt`, `resume`, `run` reports; only built-in reducers from Python |
 | Graph visualisation | ✅ `to_mermaid()` on sync and async graphs (+ Python) | ✅ `get_graph().draw_mermaid()` | static rendering from the compiled topology, including retries/error edges/interrupt hooks |

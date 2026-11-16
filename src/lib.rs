@@ -25,6 +25,8 @@
 //! - retry policies ([`RetryPolicy`]) with exponential backoff, and error routing to
 //!   handler nodes ([`StateGraph::add_error_edge`] / [`last_error`])
 //! - subgraphs: embed a compiled graph as a node with [`StateGraph::add_subgraph`]
+//! - node-level caching ([`CachePolicy`], [`NodeCache`], [`InMemoryCache`]): opt-in per node,
+//!   TTLs and custom keys, cached executions flagged in run reports
 //! - an optional Tokio async adapter (`async` feature, module [`tokio_runtime`]) with the
 //!   same checkpointing, HITL, retry and error-routing capabilities
 //! - optional Python bindings behind the `python` feature (PyO3), exposing the same engine
@@ -97,7 +99,8 @@ pub use adapters::python;
 #[cfg(feature = "async")]
 pub use adapters::tokio_runtime;
 
-pub use adapters::memory::{InMemorySaver, MemorySaver};
+pub use adapters::memory::{InMemoryCache, InMemorySaver, MemorySaver};
+pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 pub use kernel::channel::{Channel, Reducer, reducers};
 pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;

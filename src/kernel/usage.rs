@@ -117,6 +117,9 @@ pub struct NodeExecution {
     /// Attempts that ran (1 unless a retry policy applied).
     #[serde(default = "default_attempts")]
     pub attempts: u32,
+    /// `true` when the output came from the node cache instead of running the node.
+    #[serde(default)]
+    pub cached: bool,
     /// Failure message when the execution ultimately failed and was routed to an
     /// error-handler node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -250,6 +253,7 @@ mod tests {
             step: 0,
             duration_millis: 12,
             attempts: 1,
+            cached: false,
             error: None,
             usage: Some(
                 Usage::new()
@@ -263,6 +267,7 @@ mod tests {
             step: 1,
             duration_millis: 7,
             attempts: 2,
+            cached: false,
             error: None,
             usage: Some(Usage::new().with_input_tokens(30)),
         });
@@ -271,6 +276,7 @@ mod tests {
             step: 2,
             duration_millis: 3,
             attempts: 1,
+            cached: false,
             error: None,
             usage: None,
         });

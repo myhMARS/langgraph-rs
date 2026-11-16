@@ -354,6 +354,7 @@ fn process_outcomes<S: State>(
                     step,
                     duration_millis,
                     attempts: failure.attempts,
+                    cached: false,
                     error: Some(failure.message.clone()),
                     usage: merge_usage(usage),
                 };
@@ -394,6 +395,7 @@ fn process_outcomes<S: State>(
                     usage,
                     duration_millis,
                     attempts,
+                    cached,
                 } = *result;
                 executed.push(node.clone());
                 for value in custom {
@@ -408,6 +410,7 @@ fn process_outcomes<S: State>(
                     step,
                     duration_millis,
                     attempts,
+                    cached,
                     error: None,
                     usage: merge_usage(usage),
                 };

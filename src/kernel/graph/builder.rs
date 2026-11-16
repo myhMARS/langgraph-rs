@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 use super::Entry;
 use super::compiled::CompiledGraph;
 use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
+use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
 use crate::kernel::retry::RetryPolicy;
@@ -50,6 +51,8 @@ pub struct StateGraph<S: State> {
     pub(crate) conditional: IndexMap<String, Vec<ConditionalEdge<S>>>,
     pub(crate) retries: IndexMap<String, RetryPolicy>,
     pub(crate) error_edges: IndexMap<String, String>,
+    pub(crate) cache: Option<Arc<dyn NodeCache>>,
+    pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -70,6 +73,8 @@ impl<S: State> StateGraph<S> {
             conditional: IndexMap::new(),
             retries: IndexMap::new(),
             error_edges: IndexMap::new(),
+            cache: None,
+            cache_policies: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -105,6 +110,18 @@ impl<S: State> StateGraph<S> {
     /// Attach a retry policy to an already registered node.
     pub fn set_retry(mut self, node: impl Into<String>, policy: RetryPolicy) -> Self {
         self.retries.insert(node.into(), policy);
+        self
+    }
+
+    /// Attach a node cache backend.
+    pub fn with_cache(mut self, cache: Arc<dyn NodeCache>) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// Enable caching for one node.
+    pub fn set_cache(mut self, node: impl Into<String>, policy: CachePolicy) -> Self {
+        self.cache_policies.insert(node.into(), policy);
         self
     }
 
@@ -268,6 +285,9 @@ impl<S: State> StateGraph<S> {
             self.require_node("error edge source", source)?;
             self.require_node("error handler", handler)?;
         }
+        for node in self.cache_policies.keys() {
+            self.require_node("cache policy", node)?;
+        }
 
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
@@ -284,6 +304,8 @@ impl<S: State> StateGraph<S> {
             trace_sinks: options.kernel.trace_sinks().to_vec(),
             retries: self.retries,
             error_edges: self.error_edges,
+            cache: self.cache,
+            cache_policies: self.cache_policies,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),
