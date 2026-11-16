@@ -508,11 +508,27 @@ impl<S> fmt::Debug for ConditionalEdge<S> {
     }
 }
 
+/// Generate a stable-enough task id for scheduling and `update_state(task_id=...)`.
+pub(crate) fn new_task_id(node: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("{node}-{millis}-{sequence}")
+}
+
 /// A concrete unit of scheduled work.
 ///
 /// Tasks are stored inside checkpoints so an interrupted graph can be resumed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Task {
+    /// Stable task id (also used by `update_state(task_id=...)`).
+    #[serde(default)]
+    pub id: String,
     /// Node to execute.
     pub node: String,
     /// Optional state override (used by [`Send`] fan-out).
@@ -535,8 +551,10 @@ pub struct Task {
 impl Task {
     /// Create a task that runs `node` against the current state.
     pub fn new(node: impl Into<String>) -> Self {
+        let node = node.into();
         Task {
-            node: node.into(),
+            id: new_task_id(&node),
+            node,
             input: None,
             resume: None,
             resume_history: Vec::new(),
@@ -547,8 +565,10 @@ impl Task {
 
     /// Create a task with an explicit state override.
     pub fn with_input(node: impl Into<String>, input: Map<String, Value>) -> Self {
+        let node = node.into();
         Task {
-            node: node.into(),
+            id: new_task_id(&node),
+            node,
             input: Some(input),
             resume: None,
             resume_history: Vec::new(),

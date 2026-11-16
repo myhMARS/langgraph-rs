@@ -479,6 +479,7 @@ pub(super) fn snapshot_to_py(
         .iter()
         .map(|task| {
             let item = PyDict::new(py);
+            item.set_item("id", task.id.clone())?;
             item.set_item("node", task.node.clone())?;
             if let Some(error) = &task.error {
                 let failure = PyDict::new(py);

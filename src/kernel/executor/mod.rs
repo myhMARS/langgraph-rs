@@ -587,6 +587,7 @@ fn process_outcomes<S: State>(
                 match graph.error_handler(&failure.node) {
                     Some(handler) if routed_handlers.insert(handler.clone()) => {
                         next_tasks.push(Task {
+                            id: crate::kernel::node::new_task_id(handler.as_str()),
                             node: handler.clone(),
                             input: None,
                             resume: None,
@@ -734,6 +735,7 @@ fn process_outcomes<S: State>(
                         }
                     }
                     next_tasks.push(Task {
+                        id: crate::kernel::node::new_task_id(send.node.as_str()),
                         node: send.node,
                         input,
                         resume: None,

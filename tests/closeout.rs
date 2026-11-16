@@ -145,3 +145,41 @@ fn aborted_run_control_stops_the_graph() {
         .unwrap_err();
     assert!(error.to_string().contains("RunControl"));
 }
+
+#[test]
+fn update_state_with_task_id_infers_the_pending_node() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("ask", |_state: &JsonState| {
+            langgraph_rs::interrupt(json!({"question": "value?"}))?;
+            Ok(NodeOutput::new())
+        })
+        .add_node("finish", |_state: &JsonState| Ok(NodeOutput::new()))
+        .set_entry_point("ask")
+        .add_edge("ask", "finish")
+        .set_finish_point("finish")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap();
+
+    let _ = graph
+        .run(&JsonState::new(), &RunConfig::new().with_thread("task-id"))
+        .unwrap_err();
+    let snapshot = graph.get_state("task-id").unwrap().unwrap();
+    let task = snapshot
+        .tasks
+        .first()
+        .expect("the interrupting node leaves a pending task")
+        .clone();
+    assert_eq!(task.node, "ask");
+    assert!(!task.id.is_empty());
+
+    let updated = graph
+        .update_state_with_task("task-id", [("value", json!(5))], None, Some(&task.id))
+        .unwrap();
+    assert_eq!(updated.values.get("value"), Some(&json!(5)));
+    assert!(updated.next.contains(&"finish".to_string()));
+    assert!(
+        graph
+            .update_state_with_task("task-id", [("value", json!(6))], None, Some("missing-task"),)
+            .is_err()
+    );
+}

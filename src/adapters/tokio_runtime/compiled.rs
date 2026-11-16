@@ -1165,6 +1165,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     match self.error_edges.get(&failure.failure.node) {
                         Some(handler) if routed_handlers.insert(handler.clone()) => {
                             next_tasks.push(Task {
+                                id: crate::kernel::node::new_task_id(handler.as_str()),
                                 node: handler.clone(),
                                 input: None,
                                 resume: None,
@@ -1306,6 +1307,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                             }
                         }
                         next_tasks.push(Task {
+                            id: crate::kernel::node::new_task_id(send.node.as_str()),
                             node: send.node,
                             input,
                             resume: None,

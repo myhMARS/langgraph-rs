@@ -1348,5 +1348,35 @@ class AsyncPythonTests(unittest.TestCase):
             compiled.invoke({"value": 0}, control=control)
 
 
+    def test_update_state_with_task_id(self):
+        def ask(state):
+            lg.interrupt({"question": "value?"})
+            return {}
+
+        def finish(state):
+            return {}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.add_node("finish", finish)
+        graph.set_entry_point("ask")
+        graph.add_edge("ask", "finish")
+        graph.set_finish_point("finish")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({}, thread_id="py-task-id")
+        snapshot = compiled.get_state("py-task-id")
+        task = snapshot["tasks"][0]
+        self.assertEqual(task["node"], "ask")
+        self.assertTrue(task["id"])
+        updated = compiled.update_state(
+            "py-task-id", {"value": 5}, task_id=task["id"]
+        )
+        self.assertEqual(updated["values"]["value"], 5)
+        self.assertIn("finish", updated["next"])
+        with self.assertRaises(Exception):
+            compiled.update_state("py-task-id", {"value": 6}, task_id="missing")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -681,6 +681,56 @@ impl<S: State> CompiledGraph<S> {
         self.update_state_in(thread_id, "", updates, as_node)
     }
 
+    /// Update state and, when `task_id` is given, infer `as_node` from that pending task.
+    ///
+    /// LangGraph uses `task_id` to attribute updates to a specific task; this engine stores
+    /// pending tasks inside the checkpoint, so a matching task supplies the node whose
+    /// outgoing edges recompute the next tasks.
+    pub fn update_state_with_task<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        as_node: Option<&str>,
+        task_id: Option<&str>,
+    ) -> Result<StateSnapshot<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let resolved = self.resolve_task_node(thread_id, "", task_id)?;
+        let as_node = as_node.map(str::to_owned).or(resolved);
+        self.update_state_in(thread_id, "", updates, as_node.as_deref())
+    }
+
+    fn resolve_task_node(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        task_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        let Some(task_id) = task_id else {
+            return Ok(None);
+        };
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("update_state(task_id)"))?;
+        let checkpoint = checkpointer
+            .latest_in(thread_id, namespace)?
+            .ok_or_else(|| {
+                Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
+            })?;
+        checkpoint
+            .next
+            .iter()
+            .find(|task| task.id == task_id)
+            .map(|task| Some(task.node.clone()))
+            .ok_or_else(|| {
+                Error::validation(format!(
+                    "update_state: task id `{task_id}` is not pending on thread `{thread_id}`"
+                ))
+            })
+    }
+
     /// Apply state updates inside a checkpoint namespace.
     pub fn update_state_in<I, K>(
         &self,

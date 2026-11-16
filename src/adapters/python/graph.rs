@@ -438,13 +438,14 @@ impl PyCompiledGraph {
     /// Apply state updates to the latest checkpoint of a thread.
     ///
     /// With ``as_node`` the next tasks are derived from that node's outgoing edges.
-    #[pyo3(signature = (thread_id, values, as_node=None))]
+    #[pyo3(signature = (thread_id, values, as_node=None, task_id=None))]
     fn update_state(
         &self,
         py: Python<'_>,
         thread_id: String,
         values: &Bound<'_, PyAny>,
         as_node: Option<String>,
+        task_id: Option<String>,
     ) -> PyResult<Py<PyAny>> {
         let value = py_to_value(values)?;
         let map = value
@@ -456,8 +457,12 @@ impl PyCompiledGraph {
             .collect();
         let snapshot = py
             .detach(|| {
-                self.graph
-                    .update_state(&thread_id, updates, as_node.as_deref())
+                self.graph.update_state_with_task(
+                    &thread_id,
+                    updates,
+                    as_node.as_deref(),
+                    task_id.as_deref(),
+                )
             })
             .map_err(|error| to_pyerr(py, error))?;
         snapshot_to_py(py, &snapshot)

@@ -9,6 +9,8 @@ use crate::kernel::state::{State, values_to_state};
 /// A task that is scheduled after a snapshot.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StateTask {
+    /// Stable task id.
+    pub id: String,
     /// Node to run.
     pub node: String,
     /// Failure routed to this task, when it is an error handler.
@@ -54,6 +56,7 @@ impl<S: State> StateSnapshot<S> {
             .next
             .iter()
             .map(|task| StateTask {
+                id: task.id.clone(),
                 node: task.node.clone(),
                 error: task.error.clone(),
                 resume: task.resume.clone(),
