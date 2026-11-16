@@ -74,7 +74,7 @@ below is the complete audit.
 | Retry policy | ⚠️ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | ours has no jitter and no `retry_on` exception selector |
 | Error handling of nodes | ✅ `add_error_edge` + `last_error()` | ✅ per-node `add_node(error_handler=...)` | equivalent capability, different API; our handler runs in the next superstep |
 | Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ❌ | ✅ | |
-| Functional API (`@entrypoint` / `@task`) | ⚠️ `functional::entrypoint` compiles to a one-node graph; `functional::task` memoizes results in `BaseStore` so completed tasks are not re-run after interrupt/resume | ✅ `langgraph.func` | tasks execute inline (no parallel task scheduling), no per-task checkpoint records, not exposed from Python |
+| Functional API (`@entrypoint` / `@task`) | ⚠️ `functional::entrypoint` compiles to a one-node graph; `functional::task` memoizes results in `BaseStore` so completed tasks are not re-run after interrupt/resume; Python `lg.entrypoint` / `lg.task` mirror this | ✅ `langgraph.func` | tasks execute inline (no parallel task scheduling), no per-task checkpoint records |
 | Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ❌ | ✅ `langgraph.prebuilt` | outside the current scope |
 
 ### Checkpointing and state management
@@ -126,7 +126,7 @@ below is the complete audit.
 | Runtime / context | ⚠️ `Runtime`, `current_runtime()`, `current_context()`, `current_thread_id()`, `current_namespace()`, `get_store()`; `RunConfig::with_context` carries a JSON context | ✅ `Runtime`, `context_schema`, `get_config`, `get_store` | no context schema validation |
 | Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |
 | Per-node usage/report (`RunReport`, `TraceSink`) | ✅ first-class (extension) | ⚠️ callbacks / metadata / LangSmith | not a LangGraph feature; superset here |
-| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume`, `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`), `InMemoryStore` + `get_store`, subgraphs (`add_subgraph` with namespaces and nested interrupts), runtime context (`context=`, `current_context`/`current_runtime`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: async API, Redis/Postgres saver classes, `Command(graph=PARENT)`, multi-resume interrupts |
+| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume`, `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True, store=...)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`, `RedisSaver`/`PostgresSaver` with the matching features), `InMemoryStore` + `get_store`, subgraphs (namespaces, nested interrupts, streaming), runtime context, functional API (`lg.entrypoint` / `lg.task`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, `batch`, run reports | ✅ full Python API | still missing from Python: async API, `Command(graph=PARENT)`, multi-resume interrupts |
 
 ## How the matrix was produced
 

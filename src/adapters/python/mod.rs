@@ -27,10 +27,15 @@ use pyo3::types::{PyAny, PyDict};
 
 use convert::*;
 use graph::{PyCompiledGraph, PyStateGraph};
+#[cfg(feature = "postgres")]
+use types::PyPostgresSaver;
+#[cfg(feature = "redis")]
+use types::PyRedisSaver;
 #[cfg(feature = "sqlite")]
 use types::PySqliteSaver;
 use types::{
     PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRetryPolicy, PySend, PyStore,
+    PyTask,
 };
 
 create_exception!(
@@ -74,6 +79,26 @@ fn current_resume(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         Some(value) => Ok(Some(value_to_py(py, &value)?)),
         None => Ok(None),
     }
+}
+
+/// Wrap a Python callable so its results are memoized in the run's store.
+#[pyfunction]
+#[pyo3(signature = (function, name=None))]
+fn task(function: Py<PyAny>, name: Option<String>) -> PyResult<PyTask> {
+    PyTask::from_function(function, name)
+}
+
+/// Build a one-node graph whose `entrypoint` node runs the Python callable.
+#[pyfunction]
+fn entrypoint(function: Py<PyAny>) -> PyResult<PyStateGraph> {
+    let inner = crate::StateGraph::<crate::JsonState>::new()
+        .add_node(
+            "entrypoint",
+            node_from_python("entrypoint".to_string(), function),
+        )
+        .set_entry_point("entrypoint")
+        .set_finish_point("entrypoint");
+    Ok(PyStateGraph::from_inner(inner))
 }
 
 /// Remaining supersteps before the recursion limit (managed value).
@@ -169,6 +194,13 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PySqliteSaver>()?;
     module.add_class::<PyStore>()?;
     module.add_class::<PyInMemoryStore>()?;
+    module.add_class::<PyTask>()?;
+    #[cfg(feature = "redis")]
+    module.add_class::<PyRedisSaver>()?;
+    #[cfg(feature = "postgres")]
+    module.add_class::<PyPostgresSaver>()?;
+    module.add_function(wrap_pyfunction!(task, module)?)?;
+    module.add_function(wrap_pyfunction!(entrypoint, module)?)?;
     module.add_function(wrap_pyfunction!(get_store, module)?)?;
     module.add_function(wrap_pyfunction!(current_context, module)?)?;
     module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;

@@ -639,8 +639,12 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   `Command(update=..., goto=...)`、`invoke` 传入 `Command(resume=..., update=...)`、
   `RetryPolicy` / `CachePolicy`（通过 `add_node(..., retry_policy=..., cache_policy=...,
   error_handler="node")`）、`compile(cache=True)` 以及 `lg.add_messages`。
-- Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`（启用 `sqlite` feature 时还支持
-  `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`）。
+- Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`；启用 `sqlite` feature 时支持
+  `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`，启用 `redis` / `postgres` feature 时支持
+  `lg.RedisSaver(url)` / `lg.PostgresSaver(url)`。
+- Functional API：`task = lg.task(fn, name="...")` 将结果记忆化到运行的 store；
+  `lg.entrypoint(fn)` 返回带单个 `entrypoint` 节点的 `StateGraph`，checkpoint、interrupt 与
+  store 均可继续使用；resume 后已完成任务不会重复执行。
 - 子图：`parent.add_subgraph("child", child_compiled)` 把已编译图嵌入为节点；子图在按节点名
   派生的 checkpoint 命名空间中运行，子图内 `interrupt()` 暂停父图，可用
   `get_state(thread, checkpoint_ns="child")` / `get_state_history(thread, checkpoint_ns="child")`

@@ -678,5 +678,62 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertIn("child", namespaces)
 
 
+    def test_functional_api_task_memoization(self):
+        store = lg.InMemoryStore()
+        calls = []
+
+        def add(value):
+            calls.append(value)
+            return value + 1
+
+        task = lg.task(add, name="add")
+        graph = lg.entrypoint(lambda state: {"value": task(state["value"])})
+        compiled = graph.compile(store=store)
+        first = compiled.invoke({"value": 1})
+        second = compiled.invoke({"value": 1})
+        self.assertEqual(first["value"], 2)
+        self.assertEqual(second["value"], 2)
+        self.assertEqual(calls, [1])
+
+    def test_functional_api_interrupt_skips_completed_tasks(self):
+        saver = lg.InMemorySaver()
+        store = lg.InMemoryStore()
+        first_calls = []
+        second_calls = []
+
+        def first(value):
+            first_calls.append(value)
+            return value * 10
+
+        def second(value):
+            second_calls.append(value)
+            return value + 1
+
+        first_task = lg.task(first, name="first")
+        second_task = lg.task(second, name="second")
+
+        def entry(state):
+            head = first_task(state["value"])
+            delta = lg.interrupt({"question": "delta"})
+            tail = second_task(delta)
+            return {"value": head + tail}
+
+        compiled = lg.entrypoint(entry).compile(checkpointer=saver, store=store)
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 1}, thread_id="py-functional")
+        self.assertEqual(first_calls, [1])
+        self.assertEqual(second_calls, [])
+
+        output = compiled.resume("py-functional", 4)
+        self.assertEqual(output["value"], 15)
+        self.assertEqual(first_calls, [1])
+        self.assertEqual(second_calls, [4])
+
+    def test_optional_saver_classes(self):
+        for name in ("RedisSaver", "PostgresSaver"):
+            if hasattr(lg, name):
+                self.assertTrue(callable(getattr(lg, name)))
+
+
 if __name__ == "__main__":
     unittest.main()

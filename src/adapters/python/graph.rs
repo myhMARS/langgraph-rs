@@ -20,6 +20,12 @@ pub struct PyStateGraph {
     inner: crate::StateGraph<JsonState>,
 }
 
+impl PyStateGraph {
+    pub(super) fn from_inner(inner: crate::StateGraph<JsonState>) -> Self {
+        Self { inner }
+    }
+}
+
 #[pymethods]
 impl PyStateGraph {
     /// Create a graph. `schema` maps channel names to a merge policy

@@ -682,8 +682,12 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   `Command(update=..., goto=...)` returned from a node, `Command(resume=..., update=...)`
   passed to `invoke`, `RetryPolicy` / `CachePolicy` (via `add_node(..., retry_policy=...,
   cache_policy=..., error_handler="node")`), `compile(cache=True)`, and `lg.add_messages`.
-- Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())` (and
-  `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()` when built with the `sqlite` feature).
+- Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())`, `lg.SqliteSaver` /
+  `lg.SqliteSaver.in_memory()` with the `sqlite` feature, and `lg.RedisSaver(url)` /
+  `lg.PostgresSaver(url)` with the `redis` / `postgres` features.
+- Functional API: `task = lg.task(fn, name="...")` memoizes results in the run's store;
+  `lg.entrypoint(fn)` returns a `StateGraph` with one `entrypoint` node, so checkpoints,
+  interrupts and stores keep working. Completed tasks are not re-run after resume.
 - Subgraphs: `parent.add_subgraph("child", child_compiled)` embeds a compiled graph. The
   child runs in a checkpoint namespace named after the node, a nested `interrupt()` pauses
   the parent, and `get_state(thread, checkpoint_ns="child")` /

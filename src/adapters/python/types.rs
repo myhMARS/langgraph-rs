@@ -1,6 +1,8 @@
 //! Python classes mirroring LangGraph's `Send`, `Command`, `RetryPolicy`,
 //! `CachePolicy` and the checkpoint saver objects.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,6 +14,10 @@ use serde_json::Value;
 use super::convert::{normalize_node, py_to_value, value_to_py};
 use crate::Checkpointer;
 use crate::InMemoryStore;
+#[cfg(feature = "postgres")]
+use crate::PostgresSaver;
+#[cfg(feature = "redis")]
+use crate::RedisSaver;
 use crate::kernel::node::{NodeOutput, Send};
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::store::{BaseStore, StoreItem};
@@ -300,9 +306,132 @@ pub(super) fn checkpointer_from_py(
     if let Ok(saver) = obj.extract::<PyRef<PySqliteSaver>>() {
         return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
     }
+    #[cfg(feature = "redis")]
+    if let Ok(saver) = obj.extract::<PyRef<PyRedisSaver>>() {
+        return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
+    }
+    #[cfg(feature = "postgres")]
+    if let Ok(saver) = obj.extract::<PyRef<PyPostgresSaver>>() {
+        return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
+    }
     Err(PyTypeError::new_err(
-        "checkpointer must be a bool or a saver object (InMemorySaver, SqliteSaver, ...)",
+        "checkpointer must be a bool or a saver object (InMemorySaver, SqliteSaver, RedisSaver, PostgresSaver)",
     ))
+}
+
+/// A Python callable whose result is memoized in the current run's store.
+#[pyclass(name = "Task")]
+pub struct PyTask {
+    function: Py<PyAny>,
+    name: String,
+}
+
+impl PyTask {
+    pub(super) fn from_function(function: Py<PyAny>, name: Option<String>) -> PyResult<Self> {
+        let name = match name {
+            Some(name) => name,
+            None => Python::attach(|py| {
+                function
+                    .bind(py)
+                    .getattr("__name__")
+                    .ok()
+                    .and_then(|value| value.extract::<String>().ok())
+            })
+            .unwrap_or_else(|| "task".to_string()),
+        };
+        Ok(Self { function, name })
+    }
+}
+
+#[pymethods]
+impl PyTask {
+    #[new]
+    #[pyo3(signature = (function, name=None))]
+    fn new(function: Py<PyAny>, name: Option<String>) -> PyResult<Self> {
+        Self::from_function(function, name)
+    }
+
+    /// Task name used as the store namespace.
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Call the task; results are cached when the run has a store.
+    fn __call__(&self, py: Python<'_>, input: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let Some(store) = crate::get_store() else {
+            return self.function.call1(py, (input,));
+        };
+        let value = py_to_value(input)?;
+        let mut hasher = DefaultHasher::new();
+        value.to_string().hash(&mut hasher);
+        let key = format!("{:x}", hasher.finish());
+        let namespace = vec!["functional".to_string(), self.name.clone()];
+        if let Some(cached) = store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?
+        {
+            return value_to_py(py, &cached);
+        }
+        let result = self.function.call1(py, (input,))?;
+        let stored = py_to_value(result.bind(py))?;
+        store
+            .put(&namespace, &key, stored)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        Ok(result)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Task({:?})", self.name)
+    }
+}
+
+#[cfg(feature = "redis")]
+/// Python wrapper around `RedisSaver`.
+#[pyclass(name = "RedisSaver")]
+pub struct PyRedisSaver {
+    pub(crate) inner: Arc<RedisSaver>,
+}
+
+#[cfg(feature = "redis")]
+#[pymethods]
+impl PyRedisSaver {
+    #[new]
+    fn new(url: String) -> PyResult<Self> {
+        let saver =
+            RedisSaver::connect(&url).map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(saver),
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        "RedisSaver()".to_string()
+    }
+}
+
+#[cfg(feature = "postgres")]
+/// Python wrapper around `PostgresSaver`.
+#[pyclass(name = "PostgresSaver")]
+pub struct PyPostgresSaver {
+    pub(crate) inner: Arc<PostgresSaver>,
+}
+
+#[cfg(feature = "postgres")]
+#[pymethods]
+impl PyPostgresSaver {
+    #[new]
+    fn new(url: String) -> PyResult<Self> {
+        let saver = PostgresSaver::connect(&url)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(saver),
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        "PostgresSaver()".to_string()
+    }
 }
 
 /// Python wrapper around a long-term memory store (`BaseStore`).
