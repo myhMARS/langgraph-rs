@@ -810,8 +810,7 @@ native async Postgres/Redis checkpointers are available, while SQLite still offl
 `BlockingSaver`; `RunControl` aborts cooperatively at superstep boundaries; the functional API
 executes tasks inline and persists completed task results in `checkpoint.task_results` (and
 optionally a `BaseStore`) instead of separate pending writes; `update_state(task_id=...)`
-infers `as_node` from the matching pending task rather than replaying task writes;
-`Durability::Async` currently matches `Sync`; Python nodes can be sync callables or coroutine
+infers `as_node` from the matching pending task rather than replaying task writes; Python nodes can be sync callables or coroutine
 functions; custom reducers are supported as Python callables in the schema.
 
 ## Differences from LangGraph

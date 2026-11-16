@@ -18,7 +18,7 @@ use std::time::Instant;
 
 use serde_json::{Map, Value, json};
 
-use self::checkpointing::save_checkpoint;
+use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::scheduling::{collect_next_nodes, dedupe, send_task};
 use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
 use crate::kernel::error::{Error, Interrupt, Result};
@@ -65,6 +65,13 @@ pub(crate) fn execute<S: State>(
     let thread_id = config.thread_id.clone();
     let namespace = config.checkpoint_ns.clone().unwrap_or_default();
     let durability = config.durability;
+    let checkpoint_writer = if durability == Durability::Async {
+        graph
+            .checkpointer()
+            .map(|checkpointer| CheckpointWriter::start(checkpointer.clone()))
+    } else {
+        None
+    };
     let store = config.store.clone().or_else(|| graph.store().cloned());
     if let (Some(schema), Some(context)) = (graph.context_schema(), config.context.as_ref()) {
         crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
@@ -218,6 +225,7 @@ pub(crate) fn execute<S: State>(
             false,
             Vec::new(),
             sink,
+            checkpoint_writer.as_ref(),
         )?;
     }
 
@@ -265,6 +273,7 @@ pub(crate) fn execute<S: State>(
                 true,
                 vec![interrupted_interrupt.clone()],
                 sink,
+                checkpoint_writer.as_ref(),
             )?;
             sink(StreamChunk::Interrupt {
                 node: interrupted.node.clone(),
@@ -311,6 +320,7 @@ pub(crate) fn execute<S: State>(
                     false,
                     vec![interrupted.clone()],
                     sink,
+                    checkpoint_writer.as_ref(),
                 )?;
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
@@ -366,6 +376,7 @@ pub(crate) fn execute<S: State>(
                 false,
                 interrupts.clone(),
                 sink,
+                checkpoint_writer.as_ref(),
             )?;
             for interrupt in &interrupts {
                 sink(StreamChunk::Interrupt {
@@ -496,6 +507,7 @@ pub(crate) fn execute<S: State>(
                     .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
                 sink,
+                checkpoint_writer.as_ref(),
             )?;
         }
         if let Some(node) = interrupt_after {
@@ -526,6 +538,7 @@ pub(crate) fn execute<S: State>(
                     false,
                     Vec::new(),
                     sink,
+                    checkpoint_writer.as_ref(),
                 )?;
             }
             return finish(state, graph.schema(), report, started);

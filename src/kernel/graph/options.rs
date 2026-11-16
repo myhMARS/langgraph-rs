@@ -197,7 +197,7 @@ pub enum Durability {
     /// Persist a checkpoint after every superstep (default).
     #[default]
     Sync,
-    /// Persist asynchronously (behaves like [`Durability::Sync`] in this engine).
+    /// Queue checkpoints to a background writer thread (flushed when the run ends).
     Async,
     /// Only persist the initial, interrupt and final checkpoints.
     Exit,
