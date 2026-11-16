@@ -112,6 +112,107 @@ where
         .set_finish_point("entrypoint")
 }
 
+#[cfg(feature = "async")]
+/// Future returned by [`AsyncTaskCall::call`].
+pub type TaskFuture<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>>;
+
+#[cfg(feature = "async")]
+/// Async task function that memoizes its result like [`TaskCall`].
+#[derive(Clone)]
+pub struct AsyncTaskCall<I, O> {
+    name: String,
+    run: Arc<dyn Fn(I) -> TaskFuture<'static, O> + Send + Sync>,
+}
+
+#[cfg(feature = "async")]
+impl<I, O> std::fmt::Debug for AsyncTaskCall<I, O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncTaskCall")
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
+#[cfg(feature = "async")]
+impl<I, O> AsyncTaskCall<I, O>
+where
+    I: Serialize + Send,
+    O: DeserializeOwned + Serialize + Send,
+{
+    /// Name of the task.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Run the task as a future; independent tasks can be awaited concurrently with
+    /// `futures::future::join!` or `tokio::join!`.
+    pub async fn call(&self, input: I) -> Result<O> {
+        let key = task_cache_key(&input)?;
+        let cache_key = format!("{}:{}", self.name, key);
+        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+            return Ok(serde_json::from_value(cached)?);
+        }
+        let store = get_store();
+        let namespace = ["functional".to_string(), self.name.clone()];
+        if let Some(store) = &store
+            && let Some(cached) = store.get(&namespace, &key)?
+        {
+            return Ok(serde_json::from_value(cached)?);
+        }
+        let output = (self.run)(input).await?;
+        let value = serde_json::to_value(&output)?;
+        crate::kernel::context::task_result_put(cache_key, value.clone());
+        if let Some(store) = store {
+            store.put(&namespace, &key, value)?;
+        }
+        Ok(output)
+    }
+}
+
+#[cfg(feature = "async")]
+/// Create an async memoized task.
+pub fn async_task<I, O, F, Fut>(name: impl Into<String>, run: F) -> AsyncTaskCall<I, O>
+where
+    I: Serialize + Send + 'static,
+    O: DeserializeOwned + Serialize + Send + 'static,
+    F: Fn(I) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<O>> + Send + 'static,
+{
+    AsyncTaskCall {
+        name: name.into(),
+        run: Arc::new(move |input| Box::pin(run(input))),
+    }
+}
+
+#[cfg(feature = "async")]
+/// Build an async graph whose single `entrypoint` node awaits `function`.
+///
+/// The function can await several [`AsyncTaskCall::call`] futures concurrently; each task
+/// still memoizes its result in the checkpoint task cache / store.
+pub fn async_entrypoint<S, F, Fut>(function: F) -> crate::tokio_runtime::AsyncStateGraph<S>
+where
+    S: State + Send + 'static,
+    F: Fn(S) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<S>> + Send + 'static,
+{
+    crate::tokio_runtime::AsyncStateGraph::<S>::new()
+        .add_node("entrypoint", move |state: S, _context| {
+            let future = function(state);
+            async move {
+                let next = future.await?;
+                let values = state_to_values(&next)?;
+                let mut output = NodeOutput::new();
+                for (channel, value) in values {
+                    output = output.replace(channel, value);
+                }
+                Ok(output)
+            }
+        })
+        .set_entry_point("entrypoint")
+        .set_finish_point("entrypoint")
+}
+
 fn task_cache_key<I: Serialize>(input: &I) -> Result<String> {
     let value = serde_json::to_value(input)?;
     let mut hasher = DefaultHasher::new();

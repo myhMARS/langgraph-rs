@@ -750,7 +750,7 @@ Python 绑定（同步与异步，含 store、saver、functional API 与流式�
 checkpointer，SQLite 仍通过 `BlockingSaver` 卸载；`RunControl` 可立即取消 async 节点 await，
 同步阻塞节点仅在超步边界中断；functional API 内联执行任务，已完成任务结果持久化在
 `checkpoint.task_results`（可选 `BaseStore`）而非独立 pending writes；`update_state(task_id=...)`
-用匹配的 pending task 推断 `as_node`，不重放 task writes；Python 节点
+用匹配的 pending task 推断 `as_node`，不重放 task writes；同步 functional API 内联执行任务，async functional API 可并发 await 独立任务；Python 节点
 可以是普通 callable 或 coroutine；schema 支持 Python callable reducer。
 
 ## 与 LangGraph 的差异
