@@ -1674,5 +1674,23 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(metadata["model"], "fake")
 
 
+    def test_langgraph_sqlite_reader(self):
+        if not hasattr(lg, "LangGraphSqliteReader"):
+            self.skipTest("sqlite feature is not built")
+        import os
+
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "tests", "fixtures",
+            "langgraph_sample.sqlite",
+        )
+        reader = lg.LangGraphSqliteReader(path)
+        self.assertIn("t1", reader.threads())
+        latest = reader.latest("t1")
+        self.assertEqual(latest["values"]["value"], 2)
+        history = reader.history("t1")
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[2]["values"]["value"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

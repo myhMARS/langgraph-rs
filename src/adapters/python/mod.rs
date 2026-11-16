@@ -42,12 +42,12 @@ use types::{
     PyCachePolicy, PyCommand, PyInMemoryCache, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage,
     PyRetryPolicy, PyRunControl, PySend, PyStore, PyStreamWriter, PyTask,
 };
+#[cfg(feature = "sqlite")]
+use types::{PyLangGraphSqliteReader, PySqliteCache, PySqliteStore};
 #[cfg(feature = "postgres")]
 use types::{PyPostgresCache, PyPostgresStore};
 #[cfg(feature = "redis")]
 use types::{PyRedisCache, PyRedisStore};
-#[cfg(feature = "sqlite")]
-use types::{PySqliteCache, PySqliteStore};
 
 create_exception!(
     langgraph_rs,
@@ -252,6 +252,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PySqliteStore>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteCache>()?;
+    module.add_class::<PyLangGraphSqliteReader>()?;
     #[cfg(feature = "redis")]
     {
         module.add_class::<PyRedisStore>()?;

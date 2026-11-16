@@ -119,6 +119,10 @@ pub use adapters::sqlite_store::SqliteStore;
 /// SQLite-backed node cache.
 pub use adapters::sqlite_cache::SqliteCache;
 
+#[cfg(feature = "sqlite")]
+/// Read-only reader for LangGraph SQLite checkpoint databases.
+pub use adapters::langgraph_sqlite::LangGraphSqliteReader;
+
 /// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
 #[cfg(feature = "async")]
 pub type AsyncInMemorySaver = InMemorySaver;

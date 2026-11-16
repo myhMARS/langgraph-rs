@@ -23,6 +23,10 @@ pub mod sqlite_store;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_cache;
 
+/// Read-only LangGraph SQLite checkpoint reader (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+pub mod langgraph_sqlite;
+
 /// Redis checkpoint persistence (feature `redis`).
 #[cfg(feature = "redis")]
 pub mod redis;

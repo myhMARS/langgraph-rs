@@ -11,7 +11,6 @@ use serde_json::{Map, Value, json};
 
 use crate::kernel::checkpoint::{Checkpoint, now_millis};
 
-#[cfg(feature = "msgpack")]
 pub mod msgpack;
 use crate::kernel::error::{Error, Result};
 

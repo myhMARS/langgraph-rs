@@ -805,8 +805,9 @@ functional/performance benchmark against Python LangGraph, including scaling, th
 memory scenarios.
 
 Known limitations (documented in `benchmarks/features.md`): checkpoint tuple interop supports JSON and, with the `msgpack` feature, LangGraph-compatible
-MessagePack bytes (`export_checkpoint_msgpack` / `import_checkpoint_msgpack`), but not
-LangGraph's database table layout;
+MessagePack bytes (`export_checkpoint_msgpack` / `import_checkpoint_msgpack`); a read-only
+`LangGraphSqliteReader` can inspect LangGraph's SQLite checkpoint tables, but writing those
+tables/resuming from them is unsupported;
 native async Postgres/Redis checkpointers are available, while SQLite still offloads through
 `BlockingSaver`; `RunControl` cancels async node awaits immediately, while synchronous
 blocking nodes are interrupted only between supersteps; the functional API

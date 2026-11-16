@@ -2,9 +2,13 @@
 
 use std::sync::Arc;
 
-use pyo3::exceptions::{PyLookupError, PyRuntimeError, PyTypeError};
+#[cfg(feature = "msgpack")]
+use pyo3::exceptions::PyLookupError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
+#[cfg(feature = "msgpack")]
+use pyo3::types::PyBytes;
+use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::*;
 use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py, store_from_py};

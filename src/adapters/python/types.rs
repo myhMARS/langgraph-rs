@@ -1067,6 +1067,75 @@ pub(super) fn cache_from_py(
     None
 }
 
+/// Read-only LangGraph SQLite checkpoint reader (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+#[pyclass(name = "LangGraphSqliteReader")]
+pub struct PyLangGraphSqliteReader {
+    reader: Arc<crate::LangGraphSqliteReader>,
+}
+
+#[cfg(feature = "sqlite")]
+#[pymethods]
+impl PyLangGraphSqliteReader {
+    #[new]
+    fn new(path: &str) -> PyResult<Self> {
+        let reader = crate::LangGraphSqliteReader::open(path)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        Ok(Self {
+            reader: Arc::new(reader),
+        })
+    }
+
+    fn threads(&self) -> PyResult<Vec<String>> {
+        self.reader
+            .threads()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (thread_id, checkpoint_ns=""))]
+    fn latest(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: &str,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let checkpoint = self
+            .reader
+            .latest(&thread_id, checkpoint_ns)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        checkpoint
+            .map(|checkpoint| {
+                let snapshot =
+                    crate::StateSnapshot::<crate::JsonState>::from_checkpoint(checkpoint)
+                        .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+                super::convert::snapshot_to_py(py, &snapshot)
+            })
+            .transpose()
+    }
+
+    #[pyo3(signature = (thread_id, checkpoint_ns=""))]
+    fn history(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let checkpoints = self
+            .reader
+            .history(&thread_id, checkpoint_ns)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        checkpoints
+            .into_iter()
+            .map(|checkpoint| {
+                let snapshot =
+                    crate::StateSnapshot::<crate::JsonState>::from_checkpoint(checkpoint)
+                        .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+                super::convert::snapshot_to_py(py, &snapshot)
+            })
+            .collect()
+    }
+}
+
 /// Resolve a Python `store=` keyword into a kernel store.
 pub(super) fn store_from_py(
     obj: Option<&Bound<'_, PyAny>>,
