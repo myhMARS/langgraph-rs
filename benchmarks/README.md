@@ -18,6 +18,9 @@ saver does not accumulate unbounded history.
 | `fanout_4` | dispatch → 4 parallel workers → join | 1,000 | parallel superstep scheduling + channel merging of 4 writes |
 | `checkpoint_5` | 5 chained nodes with an in-memory checkpointer, new thread per run | 200 | checkpoint write/read overhead per superstep |
 | `build_compile` | 10-node graph definition | 500 | builder + validation + compile cost |
+| `scale_005` … `scale_100` | linear chains of 5/10/25/50/100 nodes | 1,000 → 100 | how orchestration cost grows with graph size |
+| `mt_8x_linear_10` | 8 threads run the `linear_10` graph concurrently | 1,000 total | threaded throughput (native: one shared graph; Python: one graph per thread) |
+| `mem_linear_10`, `mem_loop_50` | same graphs as `linear_10` / `loop_50` | 200 | allocation high-water mark (and, for Rust, allocation churn per op) |
 
 Implementation:
 
@@ -27,6 +30,8 @@ Implementation:
   (`--engine langgraph`), against LangGraph 1.2.x.
 - Rust via Python bindings: the same script with `--engine binding`, importing the PyO3
   extension module (`cargo build --release --features python`).
+- Scaling runs use `nodes + 10` as the recursion limit on every engine so 50/100-node
+  chains do not trip the default limit of 25.
 
 ## Running
 
@@ -59,6 +64,20 @@ The runner writes:
   per superstep.
 - These benchmarks measure **orchestration overhead**, not LLM latency. They contain no
   model calls, network I/O or disk I/O.
+- **Threading:** `mt_8x_linear_10` runs 8 OS threads for 1,000 total invocations. The native
+  engine shares one compiled graph through an `Arc`; the Python engines create one compiled
+  graph per thread because LangGraph and the bindings are not documented as thread-safe
+  objects. Python's GIL limits the Python engines' scaling; the scenario therefore compares
+  throughput as users would actually run it.
+- **Memory:** Rust numbers come from a counting global allocator in the bench binary. The
+  counters are disabled during timing scenarios and enabled only for `mem_*`, where they
+  report the allocation high-water mark and total allocation churn per operation. Python
+  numbers use `tracemalloc` around the measured loop. `tracemalloc` only sees Python-level
+  allocations, so the binding's peak is a lower bound on its real footprint; compare Rust vs
+  LangGraph for a meaningful signal.
+- The counting allocator adds a relaxed atomic load per allocation; treat differences below
+  ~10% between runs as noise, and compare ratios between engines rather than absolute
+  numbers over time.
 - The functional comparison (what works, what differs) lives in
   [`features.md`](features.md).
 

@@ -144,6 +144,8 @@ def build_table(records: list[dict]) -> str:
     scenarios: list[str] = []
     table: dict[str, dict[str, dict]] = {}
     for record in records:
+        if "ns_per_op" not in record:
+            continue
         scenario = record["scenario"]
         engine = record["engine"]
         if scenario not in table:
@@ -172,6 +174,35 @@ def build_table(records: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def build_memory_table(records: list[dict]) -> str:
+    scenarios: list[str] = []
+    table: dict[str, dict[str, dict]] = {}
+    for record in records:
+        if "peak_bytes" not in record:
+            continue
+        scenario = record["scenario"]
+        engine = record["engine"]
+        if scenario not in table:
+            table[scenario] = {}
+            scenarios.append(scenario)
+        table[scenario][engine] = record
+
+    lines = [
+        "| Scenario | Rust native | Rust via Python binding | Python LangGraph |",
+        "| --- | --- | --- | --- |",
+    ]
+    for scenario in scenarios:
+        row = table[scenario]
+        cells = []
+        for engine in ENGINES:
+            record = row.get(engine)
+            cells.append(
+                f"{record['peak_bytes'] / 1024:,.1f} KiB peak" if record else "—"
+            )
+        lines.append("| " + " | ".join([scenario, *cells]) + " |")
+    return "\n".join(lines)
+
+
 def build_report(records: list[dict]) -> str:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
@@ -189,6 +220,15 @@ def build_report(records: list[dict]) -> str:
         "## Wall-clock cost per operation",
         "",
         build_table(records),
+        "",
+        "## Peak allocated memory",
+        "",
+        "Rust figures come from a counting global allocator (allocation high-water mark",
+        "during the measured loop). Python figures use `tracemalloc`; allocations made",
+        "inside the Rust binding are invisible to tracemalloc, so binding numbers are a",
+        "lower bound on its real footprint.",
+        "",
+        build_memory_table(records),
         "",
         "## Raw data",
         "",

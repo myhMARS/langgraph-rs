@@ -27,6 +27,11 @@ CHECKPOINT_ITERATIONS = 200
 CHECKPOINT_NODES = 5
 BUILD_ITERATIONS = 500
 
+SCALE_SIZES = (5, 10, 25, 50, 100)
+MULTITHREAD_THREADS = 8
+MULTITHREAD_ITERATIONS_PER_THREAD = 125
+MEMORY_ITERATIONS = 200
+
 RESULT_FIELDS = ("iterations", "total_ms", "ns_per_op", "ops_per_sec")
 
 
@@ -60,6 +65,67 @@ def report(engine: str, scenario: str, iterations: int, seconds: float, results:
 
 
 # --------------------------------------------------------------------------- #
+# Shared scenario helpers (scaling, threading, memory)
+# --------------------------------------------------------------------------- #
+def scale_iterations(nodes: int) -> int:
+    if nodes <= 10:
+        return LINEAR_ITERATIONS
+    if nodes <= 25:
+        return LINEAR_ITERATIONS // 2
+    if nodes <= 50:
+        return LINEAR_ITERATIONS // 4
+    return LINEAR_ITERATIONS // 10
+
+
+def run_threaded(factory, engine: str, results: list) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    graphs = [factory() for _ in range(MULTITHREAD_THREADS)]
+
+    def worker(graph, count: int) -> None:
+        state = {"value": 0}
+        for _ in range(count):
+            graph.invoke(state)
+
+    for graph in graphs:
+        worker(graph, 5)
+    iterations = MULTITHREAD_THREADS * MULTITHREAD_ITERATIONS_PER_THREAD
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=MULTITHREAD_THREADS) as pool:
+        list(pool.map(lambda graph: worker(graph, MULTITHREAD_ITERATIONS_PER_THREAD), graphs))
+    seconds = time.perf_counter() - started
+    report(engine, "mt_8x_linear_10", iterations, seconds, results)
+
+
+def measure_memory(iterations: int, operation) -> int:
+    import tracemalloc
+
+    for _ in range(iterations // 10):
+        operation()
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        for _ in range(iterations):
+            operation()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak
+
+
+def report_memory(engine: str, scenario: str, iterations: int, peak_bytes: int, results: list) -> None:
+    record = {
+        "engine": engine,
+        "scenario": scenario,
+        "iterations": iterations,
+        "peak_bytes": peak_bytes,
+    }
+    results.append(record)
+    print(json.dumps(record), flush=True)
+    print(f"{engine:<11} {scenario:<18} {peak_bytes:>12} B peak", file=sys.stderr, flush=True)
+
+
+# --------------------------------------------------------------------------- #
 # Python LangGraph engine
 # --------------------------------------------------------------------------- #
 class CounterState(TypedDict):
@@ -71,11 +137,15 @@ def increment(state):
 
 
 def langgraph_linear_10():
+    return langgraph_linear(LINEAR_NODES)
+
+
+def langgraph_linear(nodes: int):
     from langgraph.graph import END, START, StateGraph
 
     graph = StateGraph(CounterState)
     names = []
-    for index in range(LINEAR_NODES):
+    for index in range(nodes):
         name = f"n{index:02d}"
         names.append(name)
         graph.add_node(name, increment)
@@ -187,6 +257,28 @@ def run_langgraph() -> list:
 
     seconds = measure(BUILD_ITERATIONS // 10, BUILD_ITERATIONS, langgraph_linear_10)
     report("langgraph", "build_compile", BUILD_ITERATIONS, seconds, results)
+
+    for nodes in SCALE_SIZES:
+        graph = langgraph_linear(nodes)
+        iterations = scale_iterations(nodes)
+        seconds = measure(
+            iterations // 10,
+            iterations,
+            lambda graph=graph, limit=nodes + 10: graph.invoke(
+                input_state, {"recursion_limit": limit}
+            ),
+        )
+        report("langgraph", f"scale_{nodes:03d}", iterations, seconds, results)
+
+    run_threaded(lambda: langgraph_linear(LINEAR_NODES), "langgraph", results)
+
+    peak = measure_memory(MEMORY_ITERATIONS, lambda: linear.invoke(input_state))
+    report_memory("langgraph", "mem_linear_10", MEMORY_ITERATIONS, peak, results)
+    peak = measure_memory(
+        MEMORY_ITERATIONS,
+        lambda: looping.invoke(input_state, {"recursion_limit": LOOP_RECURSION_LIMIT}),
+    )
+    report_memory("langgraph", "mem_loop_50", MEMORY_ITERATIONS, peak, results)
     return results
 
 
@@ -194,11 +286,15 @@ def run_langgraph() -> list:
 # langgraph-rs Python bindings
 # --------------------------------------------------------------------------- #
 def binding_linear_10():
+    return binding_linear(LINEAR_NODES)
+
+
+def binding_linear(nodes: int):
     import langgraph_rs as lg
 
     graph = lg.StateGraph({"value": "last_value"})
     names = []
-    for index in range(LINEAR_NODES):
+    for index in range(nodes):
         name = f"n{index:02d}"
         names.append(name)
         graph.add_node(name, lambda state: {"value": state["value"] + 1})
@@ -206,7 +302,7 @@ def binding_linear_10():
     for previous, current in zip(names, names[1:]):
         graph.add_edge(previous, current)
     graph.add_edge(names[-1], lg.END)
-    return graph.compile()
+    return graph.compile(recursion_limit=nodes + 10)
 
 
 def binding_loop_50():
@@ -293,6 +389,23 @@ def run_binding() -> list:
 
     seconds = measure(BUILD_ITERATIONS // 10, BUILD_ITERATIONS, binding_linear_10)
     report("binding", "build_compile", BUILD_ITERATIONS, seconds, results)
+
+    for nodes in SCALE_SIZES:
+        graph = binding_linear(nodes)
+        iterations = scale_iterations(nodes)
+        seconds = measure(
+            iterations // 10, iterations, lambda graph=graph: graph.invoke(input_state)
+        )
+        report("binding", f"scale_{nodes:03d}", iterations, seconds, results)
+
+    run_threaded(lambda: binding_linear(LINEAR_NODES), "binding", results)
+
+    peak = measure_memory(MEMORY_ITERATIONS, lambda: linear.invoke(input_state))
+    report_memory("binding", "mem_linear_10", MEMORY_ITERATIONS, peak, results)
+    peak = measure_memory(
+        MEMORY_ITERATIONS, lambda: looping.invoke(input_state)
+    )
+    report_memory("binding", "mem_loop_50", MEMORY_ITERATIONS, peak, results)
     return results
 
 
