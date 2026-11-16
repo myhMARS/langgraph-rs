@@ -856,6 +856,35 @@ impl<S: State> AsyncCompiledGraph<S> {
         config: &RunConfig,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<RunOutcome<S>> {
+        if config.durability != crate::Durability::Async || !self.has_checkpointer() {
+            return self.execute_inner(start, config, sink, None).await;
+        }
+        let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Checkpoint>();
+        let checkpointer = self.checkpointer.clone();
+        let async_saver = self.async_checkpointer.clone();
+        let handle = tokio::spawn(async move {
+            while let Some(checkpoint) = receiver.recv().await {
+                if let Some(saver) = &async_saver {
+                    let _ = saver.put(checkpoint).await;
+                } else if let Some(saver) = &checkpointer {
+                    let _ = saver.put(checkpoint);
+                }
+            }
+        });
+        let result = self.execute_inner(start, config, sink, Some(&writer)).await;
+        drop(writer);
+        let _ = handle.await;
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_inner(
+        &self,
+        start: StartInput,
+        config: &RunConfig,
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
+        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+    ) -> Result<RunOutcome<S>> {
         let started = Instant::now();
         let mut report = RunReport::new();
         let recursion_limit = config.recursion_limit.unwrap_or(self.recursion_limit);
@@ -1020,6 +1049,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 false,
                 Vec::new(),
                 &[],
+                writer,
                 sink,
             )
             .await?;
@@ -1072,6 +1102,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     true,
                     vec![interrupted_interrupt.clone()],
                     &[],
+                    writer,
                     sink,
                 )
                 .await?;
@@ -1153,6 +1184,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         vec![interrupted.clone()],
                         pending_writes,
                         &[],
+                        writer,
                         sink,
                     )
                     .await?;
@@ -1209,6 +1241,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     false,
                     interrupts.clone(),
                     &[],
+                    writer,
                     sink,
                 )
                 .await?;
@@ -1324,6 +1357,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         .map(|node| Interrupt::new(node.clone(), Value::Null))
                         .collect(),
                     &executed,
+                    writer,
                     sink,
                 )
                 .await?;
@@ -1355,6 +1389,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         false,
                         Vec::new(),
                         &executed,
+                        writer,
                         sink,
                     )
                     .await?;
@@ -1914,6 +1949,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         paused_before: bool,
         interrupts: Vec<Interrupt>,
         executed: &[String],
+        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         self.save_checkpoint_inner(
@@ -1928,6 +1964,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             interrupts,
             Vec::new(),
             executed,
+            writer,
             sink,
         )
         .await
@@ -1947,6 +1984,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         interrupts: Vec<Interrupt>,
         pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
         executed: &[String],
+        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         let Some(thread_id) = thread_id else {
@@ -1987,7 +2025,11 @@ impl<S: State> AsyncCompiledGraph<S> {
             updated_channels,
             pending_writes,
         };
-        self.saver_put(checkpoint).await?;
+        if let Some(writer) = writer {
+            let _ = writer.send(checkpoint);
+        } else {
+            self.saver_put(checkpoint).await?;
+        }
         *parent = Some(id.clone());
         sink(StreamChunk::Checkpoint { checkpoint_id: id });
         Ok(())
