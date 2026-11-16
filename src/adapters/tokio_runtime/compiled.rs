@@ -1259,22 +1259,24 @@ impl<S: State> AsyncCompiledGraph<S> {
                 .iter()
                 .find(|node| self.interrupt_after.contains(*node))
                 .cloned();
-            self.save_checkpoint(
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
-                &values,
-                &next_tasks,
-                step,
-                interrupt_after.is_some(),
-                false,
-                interrupt_after
-                    .iter()
-                    .map(|node| Interrupt::new(node.clone(), Value::Null))
-                    .collect(),
-                sink,
-            )
-            .await?;
+            if config.durability != crate::Durability::Exit || interrupt_after.is_some() {
+                self.save_checkpoint(
+                    thread_id.as_deref(),
+                    &namespace,
+                    &mut parent,
+                    &values,
+                    &next_tasks,
+                    step,
+                    interrupt_after.is_some(),
+                    false,
+                    interrupt_after
+                        .iter()
+                        .map(|node| Interrupt::new(node.clone(), Value::Null))
+                        .collect(),
+                    sink,
+                )
+                .await?;
+            }
             if let Some(node) = interrupt_after {
                 sink(StreamChunk::Interrupt {
                     node: node.clone(),
@@ -1289,6 +1291,21 @@ impl<S: State> AsyncCompiledGraph<S> {
                         values.insert(channel, value);
                     }
                     state = values_to_state::<S>(&values)?;
+                }
+                if config.durability == crate::Durability::Exit && thread_id.is_some() {
+                    self.save_checkpoint(
+                        thread_id.as_deref(),
+                        &namespace,
+                        &mut parent,
+                        &values,
+                        &[],
+                        step,
+                        false,
+                        false,
+                        Vec::new(),
+                        sink,
+                    )
+                    .await?;
                 }
                 return finish(state, &self.schema, report, started);
             }

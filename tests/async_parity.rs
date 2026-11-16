@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use langgraph_rs::tokio_runtime::AsyncStateGraph;
-use langgraph_rs::{InMemorySaver, JsonState, NodeOutput, RunConfig, StateSchema, json};
+use langgraph_rs::{
+    Durability, InMemorySaver, JsonState, NodeOutput, RunConfig, StateSchema, json,
+};
 
 fn graph(saver: Arc<InMemorySaver>) -> langgraph_rs::tokio_runtime::AsyncCompiledGraph<JsonState> {
     AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
@@ -86,4 +88,25 @@ async fn checkpoint_export_and_import_roundtrip() {
         .unwrap()
         .expect("imported checkpoint");
     assert_eq!(snapshot.values.get("value"), Some(&json!(1)));
+}
+
+#[tokio::test]
+async fn durability_exit_writes_the_final_checkpoint() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = graph(saver);
+    let output = graph
+        .run(
+            &JsonState::from(json!({"value": 0}).as_object().unwrap().clone()),
+            &RunConfig::new()
+                .with_thread("async-exit")
+                .with_durability(Durability::Exit),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output.state.get("value"), Some(&json!(1)));
+    let latest = graph
+        .get_state("async-exit")
+        .unwrap()
+        .expect("final checkpoint");
+    assert_eq!(latest.values.get("value"), Some(&json!(1)));
 }
