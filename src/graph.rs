@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use crate::checkpoint::{Checkpoint, Checkpointer};
+use crate::command::Command;
 use crate::error::{Error, Result};
 use crate::executor::{self, StartInput};
 use crate::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Task};
@@ -649,6 +650,54 @@ impl<S: State> CompiledGraph<S> {
     /// Continue a thread that stopped on an `interrupt_before` / `interrupt_after` hook.
     pub fn continue_thread(&self, thread_id: &str) -> Result<S> {
         self.resume_inner(thread_id, None, None, None)
+    }
+
+    /// Resume a checkpointed thread with an explicit [`Command`].
+    ///
+    /// This is the builder-friendly form of
+    /// [`CompiledGraph::resume_with_updates`] and
+    /// [`CompiledGraph::continue_thread`]:
+    ///
+    /// ```
+    /// # use std::sync::Arc;
+    /// # use langgraph_rs::{
+    /// #     Command, CompileOptions, InMemorySaver, NodeOutput, RunConfig, State, StateGraph,
+    /// #     StateSchema,
+    /// # };
+    /// # use serde::{Deserialize, Serialize};
+    /// #
+    /// # #[derive(Clone, Default, Debug, Serialize, Deserialize)]
+    /// # struct Demo {
+    /// #     value: i64,
+    /// # }
+    /// #
+    /// # impl State for Demo {
+    /// #     fn schema() -> StateSchema {
+    /// #         StateSchema::new().last_value("value")
+    /// #     }
+    /// # }
+    /// let graph = StateGraph::<Demo>::new()
+    ///     .add_node("ask", |_state: &Demo| {
+    ///         let answer = langgraph_rs::interrupt(serde_json::json!({ "question": "?" }))?;
+    ///         Ok(NodeOutput::new().set("value", answer.as_i64().unwrap_or_default()))
+    ///     })
+    ///     .set_entry_point("ask")
+    ///     .set_finish_point("ask")
+    ///     .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+    ///     .unwrap();
+    ///
+    /// let config = RunConfig::new().with_thread("demo");
+    /// let _ = graph.invoke(&Demo::default(), &config).unwrap_err();
+    ///
+    /// let command = Command::resume(serde_json::json!(41));
+    /// let state = graph.resume_command("demo", command).unwrap();
+    /// assert_eq!(state.value, 41);
+    /// ```
+    pub fn resume_command(&self, thread_id: &str, command: Command) -> Result<S> {
+        let updates = command
+            .update
+            .map(|updates| updates.into_iter().collect::<Map<String, Value>>());
+        self.resume_inner(thread_id, None, command.resume, updates)
     }
 
     fn resume_inner(

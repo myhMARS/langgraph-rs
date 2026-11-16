@@ -198,6 +198,28 @@ fn resume_from_a_specific_checkpoint_replays_from_there() {
 }
 
 #[test]
+fn resume_command_carries_a_resume_value_and_state_patch() {
+    use langgraph_rs::Command;
+
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = approval_graph(saver);
+
+    let error = graph
+        .invoke(
+            &ApprovalState::default(),
+            &RunConfig::new().with_thread("command"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let command = Command::resume(json!(9)).with_update([("value", json!(1))]);
+    let output = graph.resume_command("command", command).unwrap();
+    // The node sees the patched state (1) plus the resume value (9).
+    assert_eq!(output.value, 10);
+    assert!(output.approved);
+}
+
+#[test]
 fn continuing_a_finished_thread_returns_the_final_state() {
     let saver = Arc::new(InMemorySaver::new());
     let graph = approval_graph(saver);

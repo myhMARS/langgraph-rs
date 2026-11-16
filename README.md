@@ -183,8 +183,9 @@ assert_eq!(output.value, 41);
 ```
 
 `get_state(thread)` reports `interrupted` and pending `next` tasks. `resume_with_updates` applies
-human edits before continuing, `resume_from` replays from an older checkpoint, and
-`get_state_history` returns the parent-linked chain newest first. For coarse gates, compile with
+human edits before continuing, `resume_command(thread, Command::resume(v).with_update([...]))`
+is the explicit builder form of the same intent, `resume_from` replays from an older checkpoint,
+and `get_state_history` returns the parent-linked chain newest first. For coarse gates, compile with
 `.interrupt_before(["finish"])` or `.interrupt_after(["ask"])`: those pauses carry a `null`
 payload and continue via `graph.continue_thread("demo")`.
 
