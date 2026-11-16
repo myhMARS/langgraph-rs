@@ -1775,5 +1775,51 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
 
 
+    def test_langchain_callback_handler(self):
+        handler = lg.langchain_callback_handler(model="fake", tags=["stream"])
+        from langchain_core.callbacks.manager import CallbackManager
+        from langchain_core.outputs import LLMResult
+
+        manager = CallbackManager.configure(inheritable_callbacks=[handler])
+
+        def emit(state):
+            runners = manager.on_llm_start({"name": "fake"}, ["prompt"])
+            run = runners[0]
+            run.on_llm_new_token("he")
+            run.on_llm_new_token("llo")
+            run.on_llm_end(
+                LLMResult(
+                    generations=[],
+                    llm_output={
+                        "token_usage": {
+                            "prompt_tokens": 3,
+                            "completion_tokens": 4,
+                        }
+                    },
+                )
+            )
+            return {"value": 1}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("emit", emit)
+        graph.set_entry_point("emit")
+        graph.set_finish_point("emit")
+        compiled = graph.compile()
+        chunks = compiled.stream({}, stream_mode=["messages"], version="v2")
+        messages = [chunk for chunk in chunks if chunk["type"] == "messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["data"][0]["content"], "he")
+        self.assertEqual(messages[1]["data"][0]["content"], "llo")
+        metadata = messages[0]["data"][1]
+        self.assertEqual(metadata["langgraph_node"], "emit")
+        self.assertEqual(metadata["tags"], ["stream"])
+        self.assertEqual(metadata["model"], "fake")
+
+        result = compiled.run({})
+        usage = result["report"]["executions"][0]["usage"]
+        self.assertEqual(usage["input_tokens"], 3)
+        self.assertEqual(usage["output_tokens"], 4)
+
+
 if __name__ == "__main__":
     unittest.main()

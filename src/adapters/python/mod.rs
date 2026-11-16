@@ -210,6 +210,125 @@ fn message(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
     crate::message(value).map_err(|error| to_pyerr(py, error))
 }
 
+/// Create a LangChain callback handler that forwards LLM tokens and usage into the graph stream.
+#[pyfunction]
+#[pyo3(signature = (model=None, tags=None))]
+fn langchain_callback_handler(
+    py: Python<'_>,
+    model: Option<String>,
+    tags: Option<Vec<String>>,
+) -> PyResult<Py<PyAny>> {
+    let source = r#"
+class LangChainCallbackHandler:
+    raise_error = False
+    ignore_llm = False
+    ignore_chat_model = False
+    ignore_agent = False
+    ignore_retriever = False
+    ignore_chain = False
+    ignore_retry = False
+    ignore_custom_event = False
+
+    def __init__(self, model=None, tags=None):
+        self.model = model
+        self.tags = list(tags or [])
+
+    def _emit(self, token):
+        import langgraph_rs
+        metadata = {}
+        if self.model:
+            metadata["model"] = self.model
+        langgraph_rs.message({"content": token, "tags": self.tags, "metadata": metadata})
+
+    def _pick_model(self, kwargs):
+        metadata = kwargs.get("metadata") or {}
+        name = metadata.get("ls_model_name") or metadata.get("model")
+        if name:
+            self.model = name
+
+    def on_llm_start(self, serialized, prompts, **kwargs):
+        self._pick_model(kwargs)
+        if not self.model and isinstance(serialized, dict):
+            self.model = serialized.get("name") or serialized.get("model")
+
+    def on_chat_model_start(self, serialized, messages, **kwargs):
+        self._pick_model(kwargs)
+
+    def on_llm_new_token(self, token, **kwargs):
+        if isinstance(token, str):
+            self._emit(token)
+
+    def on_llm_end(self, response, **kwargs):
+        usage = None
+        try:
+            usage = (getattr(response, "llm_output", None) or {}).get("token_usage")
+        except Exception:
+            usage = None
+        if not usage:
+            try:
+                message = response.generations[0][0].message
+                usage = getattr(message, "usage_metadata", None)
+            except Exception:
+                usage = None
+        if usage:
+            input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0
+            output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0
+            if input_tokens or output_tokens:
+                import langgraph_rs
+                langgraph_rs.record_tokens(int(input_tokens), int(output_tokens))
+
+    def on_llm_error(self, error, **kwargs):
+        pass
+
+    def on_chain_start(self, serialized, inputs, **kwargs):
+        pass
+
+    def on_chain_end(self, outputs, **kwargs):
+        pass
+
+    def on_chain_error(self, error, **kwargs):
+        pass
+
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        pass
+
+    def on_tool_end(self, output, **kwargs):
+        pass
+
+    def on_tool_error(self, error, **kwargs):
+        pass
+
+    def on_retriever_start(self, serialized, query, **kwargs):
+        pass
+
+    def on_retriever_end(self, documents, **kwargs):
+        pass
+
+    def on_retriever_error(self, error, **kwargs):
+        pass
+
+    def on_agent_action(self, action, **kwargs):
+        pass
+
+    def on_agent_finish(self, finish, **kwargs):
+        pass
+
+    def on_text(self, text, **kwargs):
+        pass
+"#;
+    let source = std::ffi::CString::new(source)
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+    let module = pyo3::types::PyModule::from_code(
+        py,
+        &source,
+        c"langgraph_rs_callbacks.py",
+        c"langgraph_rs_callbacks",
+    )?;
+    let class = module.getattr("LangChainCallbackHandler")?;
+    let handler = class.call1((model, tags))?;
+    Ok(handler.unbind())
+}
+
 /// Record consumption for the current node.
 #[pyfunction]
 fn record_usage(py: Python<'_>, usage: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -306,6 +425,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;
     module.add_function(wrap_pyfunction!(message, module)?)?;
+    module.add_function(wrap_pyfunction!(langchain_callback_handler, module)?)?;
     module.add_function(wrap_pyfunction!(record_usage, module)?)?;
     module.add_function(wrap_pyfunction!(record_tokens, module)?)?;
     module.add_function(wrap_pyfunction!(version, module)?)?;
