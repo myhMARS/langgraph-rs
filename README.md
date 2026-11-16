@@ -809,8 +809,8 @@ callables in the schema.
   interrupts, streaming and `Command(graph=PARENT)` in synchronous and asynchronous graphs.
 - **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON. Schema
   values may be built-in policy names (`last_value`, `topic`, `append`, `add`, `messages`) or
-  Python callable reducers. Python nodes are plain callables; async graphs call them from the
-  Tokio adapter but do not `await` Python coroutines. The GIL is released around the engine, so
+  Python callable reducers. Python nodes are plain callables; async graphs also accept Python coroutine functions and
+  drive them to completion with the task context installed. The GIL is released around the engine, so
   Python callables only run while a node executes.
 
 ## Build and test

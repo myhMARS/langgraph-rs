@@ -1065,5 +1065,43 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(output["items"], ["a", "b", "c"])
 
 
+    def test_async_python_coroutine_node(self):
+        import asyncio
+
+        async def work(state):
+            await asyncio.sleep(0)
+            return {"value": state["value"] + 1}
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("work", work)
+            graph.set_entry_point("work")
+            graph.set_finish_point("work")
+            compiled = graph.compile()
+            return await compiled.ainvoke({"value": 0})
+
+        self.assertEqual(asyncio.run(scenario())["value"], 1)
+
+    def test_async_python_coroutine_node_interrupts(self):
+        import asyncio
+
+        async def ask(state):
+            delta = lg.interrupt({"q": "delta"})
+            await asyncio.sleep(0)
+            return {"value": state["value"] + delta}
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("ask", ask)
+            graph.set_entry_point("ask")
+            graph.set_finish_point("ask")
+            compiled = graph.compile(checkpointer=lg.InMemorySaver())
+            with self.assertRaises(lg.GraphInterrupt):
+                await compiled.ainvoke({"value": 0}, thread_id="py-coroutine")
+            return await compiled.aresume("py-coroutine", 5)
+
+        self.assertEqual(asyncio.run(scenario())["value"], 5)
+
+
 if __name__ == "__main__":
     unittest.main()

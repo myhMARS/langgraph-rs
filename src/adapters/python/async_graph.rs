@@ -45,6 +45,20 @@ fn async_node_from_python(
                             .bind(py)
                             .call1((py_state,))
                             .map_err(|error| pyerr_to_error(py, error))?;
+                        // Python async nodes: drive the returned awaitable to completion on a
+                        // private event loop while the task context stays installed, so
+                        // interrupt()/custom()/usage helpers keep working inside coroutines.
+                        let value = if value
+                            .hasattr("__await__")
+                            .map_err(|error| pyerr_to_error(py, error))?
+                        {
+                            py.import("asyncio")
+                                .and_then(|asyncio| asyncio.getattr("run"))
+                                .and_then(|run| run.call1((&value,)))
+                                .map_err(|error| pyerr_to_error(py, error))?
+                        } else {
+                            value
+                        };
                         node_output_from_py(&value).map_err(|error| pyerr_to_error(py, error))
                     },
                 );
