@@ -474,6 +474,11 @@ assert_eq!(state.get("approved"), Some(&json!(true)));
 # }
 ```
 
+The async adapter also supports subgraphs (`AsyncStateGraph::add_subgraph`, with the same
+child checkpoint namespace and nested interrupt/resume semantics), node-level caching
+(`with_cache` / `set_cache`), the long-term store and runtime context (`with_store`,
+`RunConfig::with_context`, `ctx.store()`), and per-node `TimeoutPolicy`.
+
 ## Checkpointing and human-in-the-loop
 
 Attach a saver with `CompileOptions` and bind each run to a `thread_id`. The run start, every

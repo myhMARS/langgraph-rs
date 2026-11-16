@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 
 use super::context::AsyncContext;
 use super::{AsyncNodeFn, BoxNodeFuture};
+use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
@@ -38,6 +39,13 @@ enum StartInput {
     },
 }
 
+struct AsyncRunInfo {
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<Arc<dyn BaseStore>>,
+    context: Option<Value>,
+}
+
 struct AsyncTaskResult {
     node: String,
     output: crate::kernel::node::NodeOutput,
@@ -46,6 +54,7 @@ struct AsyncTaskResult {
     usage: Vec<Usage>,
     duration_millis: u64,
     attempts: u32,
+    cached: bool,
     input: Option<Value>,
 }
 
@@ -87,6 +96,8 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
+    pub(crate) cache: Option<Arc<dyn NodeCache>>,
+    pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
@@ -97,6 +108,16 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Timeout policy of one node, when configured.
     pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
         self.timeouts.get(node)
+    }
+
+    /// Node cache backend, when caching is enabled.
+    pub fn cache(&self) -> Option<&Arc<dyn NodeCache>> {
+        self.cache.as_ref()
+    }
+
+    /// Cache policy of one node, when configured.
+    pub fn cache_policy(&self, node: &str) -> Option<&CachePolicy> {
+        self.cache_policies.get(node)
     }
 
     /// Channel schema of the graph.
@@ -171,7 +192,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Run the graph while pushing every chunk to `sink`.
     pub async fn stream_with<F>(&self, input: &S, config: &RunConfig, mut sink: F) -> Result<S>
     where
-        F: FnMut(StreamChunk),
+        F: FnMut(StreamChunk) + Send,
     {
         let values = state_to_values(input)?;
         self.execute(StartInput::Values(values), config, &mut sink)
@@ -201,7 +222,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         mut sink: F,
     ) -> Result<S>
     where
-        F: FnMut(StreamChunk),
+        F: FnMut(StreamChunk) + Send,
     {
         let modes = modes.to_vec();
         let values = state_to_values(input)?;
@@ -327,7 +348,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         &self,
         start: StartInput,
         config: &RunConfig,
-        sink: &mut dyn FnMut(StreamChunk),
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<RunOutcome<S>> {
         let started = Instant::now();
         let mut report = RunReport::new();
@@ -335,6 +356,12 @@ impl<S: State> AsyncCompiledGraph<S> {
         let thread_id = config.thread_id.clone();
         let namespace = config.checkpoint_ns.clone().unwrap_or_default();
         let store = config.store.clone().or_else(|| self.store.clone());
+        let run_info = AsyncRunInfo {
+            thread_id: thread_id.clone(),
+            namespace: namespace.clone(),
+            store: store.clone(),
+            context: config.context.clone(),
+        };
         let _run_guard = crate::kernel::context::install_run(
             thread_id.clone(),
             namespace.clone(),
@@ -484,8 +511,12 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }));
             }
 
-            let outcomes =
-                join_all(tasks.iter().map(|task| self.run_task(task, &state, step))).await;
+            let outcomes = join_all(
+                tasks
+                    .iter()
+                    .map(|task| self.run_task(task, &state, step, &run_info)),
+            )
+            .await;
 
             if let Some(interrupted) = outcomes.iter().find_map(|outcome| match outcome {
                 TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
@@ -626,7 +657,13 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
     }
 
-    async fn run_task(&self, task: &Task, state: &S, step: usize) -> TaskOutcome {
+    async fn run_task(
+        &self,
+        task: &Task,
+        state: &S,
+        step: usize,
+        run: &AsyncRunInfo,
+    ) -> TaskOutcome {
         let Some(node) = self.nodes.get(&task.node) else {
             return TaskOutcome::Failed(Box::new(AsyncTaskFailure {
                 failure: NodeFailure::new(
@@ -655,6 +692,35 @@ impl<S: State> AsyncCompiledGraph<S> {
             None => state.clone(),
         };
 
+        let cache = self.cache.clone();
+        let cache_policy = self.cache_policy(&task.node).cloned();
+        let cache_key = match (&cache, &cache_policy) {
+            (Some(_), Some(policy)) => state_to_values(&input)
+                .ok()
+                .map(|values| policy.cache_key(&task.node, &values)),
+            _ => None,
+        };
+        if let (Some(cache), Some(key)) = (&cache, &cache_key) {
+            if let Ok(Some(cached)) = cache.get(key) {
+                let usage = cached
+                    .usage
+                    .clone()
+                    .map(|usage| vec![usage])
+                    .unwrap_or_default();
+                return TaskOutcome::Ok(Box::new(AsyncTaskResult {
+                    node: task.node.clone(),
+                    output: crate::kernel::node::NodeOutput::from_cached(cached),
+                    custom: Vec::new(),
+                    messages: Vec::new(),
+                    usage,
+                    duration_millis: 0,
+                    attempts: 0,
+                    cached: true,
+                    input: task.input.clone().map(Value::Object),
+                }));
+            }
+        }
+
         let policy = self.retries.get(&task.node).cloned().unwrap_or_default();
         let max_attempts = policy.max_attempts.max(1);
         let started = Instant::now();
@@ -667,6 +733,12 @@ impl<S: State> AsyncCompiledGraph<S> {
                 step,
                 task.error.clone(),
                 task.resume.clone(),
+            )
+            .with_run_info(
+                run.thread_id.clone(),
+                run.namespace.clone(),
+                run.store.clone(),
+                run.context.clone(),
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
             let timeout = self
@@ -687,6 +759,33 @@ impl<S: State> AsyncCompiledGraph<S> {
             match result {
                 Ok(output) => {
                     usage.extend(output.usage().cloned());
+                    if let (Some(cache), Some(cache_policy), Some(key)) =
+                        (&cache, &cache_policy, &cache_key)
+                    {
+                        let mut combined: Option<Usage> = None;
+                        for item in &usage {
+                            combined.get_or_insert_with(Usage::new).merge(item);
+                        }
+                        let cached_output = CachedOutput {
+                            updates: output.updates_map().clone(),
+                            replaces: output.replaces_map().clone(),
+                            goto: output.goto_targets().to_vec(),
+                            sends: output.sends().to_vec(),
+                            usage: combined,
+                        };
+                        if let Err(error) = cache.put(key, cached_output, cache_policy.ttl()) {
+                            return TaskOutcome::Failed(Box::new(AsyncTaskFailure {
+                                failure: NodeFailure::new(
+                                    &task.node,
+                                    format!("node cache store failed: {error}"),
+                                    attempt as u32,
+                                ),
+                                usage,
+                                duration_millis: started.elapsed().as_millis() as u64,
+                                input: task.input.clone().map(Value::Object),
+                            }));
+                        }
+                    }
                     return TaskOutcome::Ok(Box::new(AsyncTaskResult {
                         node: task.node.clone(),
                         output,
@@ -695,6 +794,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         usage,
                         duration_millis: started.elapsed().as_millis() as u64,
                         attempts: attempt as u32,
+                        cached: false,
                         input: task.input.clone().map(Value::Object),
                     }));
                 }
@@ -733,7 +833,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         outcomes: Vec<TaskOutcome>,
         step: usize,
         report: &mut RunReport,
-        sink: &mut dyn FnMut(StreamChunk),
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<ProcessedResults> {
         let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
         let mut replacements: Vec<(String, Value)> = Vec::new();
@@ -814,7 +914,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         step,
                         duration_millis: result.duration_millis,
                         attempts: result.attempts,
-                        cached: false,
+                        cached: result.cached,
                         error: None,
                         usage: merge_usage(result.usage),
                     };
@@ -927,7 +1027,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         interrupted: bool,
         paused_before: bool,
         interrupts: Vec<Interrupt>,
-        sink: &mut dyn FnMut(StreamChunk),
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         let (Some(thread_id), Some(checkpointer)) = (thread_id, self.checkpointer.as_ref()) else {
             return Ok(());

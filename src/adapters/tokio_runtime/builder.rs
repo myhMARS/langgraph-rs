@@ -8,13 +8,15 @@ use indexmap::IndexMap;
 
 use super::compiled::AsyncCompiledGraph;
 use super::{AsyncContext, AsyncNodeFn, BoxNodeFuture};
+use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::error::{Error, Result};
 use crate::kernel::graph::Entry;
+use crate::kernel::graph::RunConfig;
 use crate::kernel::node::{ConditionalEdge, NodeOutput, PathMap, Route};
 use crate::kernel::plugin::Kernel;
 use crate::kernel::ports::Checkpointer;
 use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{State, StateSchema};
+use crate::kernel::state::{State, StateSchema, state_to_values};
 use crate::kernel::store::BaseStore;
 use crate::kernel::timeout::TimeoutPolicy;
 use crate::{END, START};
@@ -37,6 +39,8 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
+    pub(crate) cache: Option<Arc<dyn NodeCache>>,
+    pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
@@ -70,6 +74,8 @@ impl<S: State> AsyncStateGraph<S> {
             checkpointer: None,
             store: None,
             timeouts: IndexMap::new(),
+            cache: None,
+            cache_policies: IndexMap::new(),
             interrupt_before: HashSet::new(),
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
@@ -129,6 +135,34 @@ impl<S: State> AsyncStateGraph<S> {
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
         self
+    }
+
+    /// Attach a node cache backend (LangGraph `BaseCache`).
+    pub fn with_cache(mut self, cache: Arc<dyn NodeCache>) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// Attach a cache policy to a node.
+    pub fn set_cache(mut self, node: impl Into<String>, policy: CachePolicy) -> Self {
+        self.cache_policies.insert(node.into(), policy);
+        self
+    }
+
+    /// Embed an async subgraph as a node (child checkpoint namespace, nested interrupts).
+    pub fn add_subgraph(
+        self,
+        name: impl Into<String>,
+        subgraph: Arc<AsyncCompiledGraph<S>>,
+    ) -> Self {
+        let name = name.into();
+        let node_name = name.clone();
+        let child = subgraph;
+        self.add_node(name, move |state: S, context: AsyncContext| {
+            let child = child.clone();
+            let node_name = node_name.clone();
+            async move { run_async_subgraph(child, state, node_name, context).await }
+        })
     }
 
     /// Attach a timeout policy to a node.
@@ -259,6 +293,8 @@ impl<S: State> AsyncStateGraph<S> {
             checkpointer: self.checkpointer,
             store: self.store,
             timeouts: self.timeouts,
+            cache: self.cache,
+            cache_policies: self.cache_policies,
             interrupt_before: self.interrupt_before,
             interrupt_after: self.interrupt_after,
             trace_sinks: self.kernel.trace_sinks().to_vec(),
@@ -366,4 +402,49 @@ impl<S: State> AsyncStateGraph<S> {
         }
         Ok(())
     }
+}
+
+fn child_namespace(parent: &str, name: &str) -> String {
+    if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}|{name}")
+    }
+}
+
+async fn run_async_subgraph<S: State>(
+    child: Arc<AsyncCompiledGraph<S>>,
+    state: S,
+    name: String,
+    context: AsyncContext,
+) -> Result<NodeOutput> {
+    let before = state_to_values(&state)?;
+    let thread = context.thread_id().map(str::to_string);
+    let parent_namespace = context.namespace();
+    let namespace = child_namespace(parent_namespace, &name);
+    let resume = context.take_resume();
+    let mut config = RunConfig::new().with_checkpoint_ns(namespace.clone());
+    if let Some(store) = context.store() {
+        config = config.with_store(store);
+    }
+    if let Some(user_context) = context.context() {
+        config = config.with_context(user_context.clone());
+    }
+    let output = if !child.has_checkpointer() {
+        child.run(&state, &config).await?.state
+    } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
+        child.resume_in(&thread, &namespace, resume).await?
+    } else if let Some(thread) = thread {
+        child.run(&state, &config.with_thread(thread)).await?.state
+    } else {
+        child.run(&state, &config).await?.state
+    };
+    let after = state_to_values(&output)?;
+    let mut result = NodeOutput::new();
+    for (channel, value) in after {
+        if before.get(&channel) != Some(&value) {
+            result = result.replace(channel, value);
+        }
+    }
+    Ok(result)
 }

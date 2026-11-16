@@ -442,6 +442,10 @@ async fn example() -> langgraph_rs::Result<()> {
 }
 ```
 
+异步适配器同样支持子图（`AsyncStateGraph::add_subgraph`，沿用子 checkpoint 命名空间与嵌套
+interrupt/resume 语义）、节点级缓存（`with_cache` / `set_cache`）、长期记忆 store 与运行时上下文
+（`with_store`、`RunConfig::with_context`、`ctx.store()`）以及节点级 `TimeoutPolicy`。
+
 ## Checkpoint 与 Human-in-the-loop
 
 通过 `CompileOptions` 挂载 saver，并让每次运行绑定 `thread_id`。运行开始、每个 superstep 与每次

@@ -62,7 +62,7 @@ below is the complete audit.
 | Supersteps + recursion limit | ✅ default 25, per compile/run | ✅ default 25 | |
 | Parallel superstep execution | ✅ scoped OS threads | ✅ asyncio tasks | CPU parallelism vs cooperative concurrency |
 | Deterministic channel merge | ✅ task-order merge | ✅ | |
-| Async engine | ⚠️ separate `AsyncStateGraph` adapter | ✅ native `ainvoke`/`astream` | see Async row |
+| Async engine | ⚠️ separate `AsyncStateGraph` adapter: checkpoints/HITL/retry/error routing, stream modes, store/context, per-node timeouts, subgraphs (namespaces + nested interrupts), node cache | ✅ native `ainvoke`/`astream` | still missing: async batch, async checkpointers, subgraph streaming, async from Python |
 | Batch (`batch` / `abatch`) | ⚠️ sync `batch` / `batch_run` (+ Python `batch`); no async batch | ✅ | results stay in input order, failures are per item |
 | `max_concurrency` / run control | ⚠️ `RunConfig::max_concurrency` bounds `batch` workers; no `RunControl` | ✅ `max_concurrency`, `RunControl` | |
 | Durability modes | ⚠️ `Durability::{Sync, Async, Exit}` (`Async` behaves like `Sync`) | ✅ `durability=` | `Exit` persists only initial/interrupt/final checkpoints |
@@ -136,6 +136,6 @@ Statuses are based on the public Rust/Python APIs of this crate, its integration
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,
-`tests/async_resilience.rs`, `tests/persistence.rs`, `python/tests/test_bindings.py`) and
+`tests/async_resilience.rs`, `tests/async_subgraph.rs`, `tests/persistence.rs`, `python/tests/test_bindings.py`) and
 introspection of the installed LangGraph 1.2.22 API. Performance is measured separately in
 [`RESULTS.md`](RESULTS.md).

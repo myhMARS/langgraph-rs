@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
+use crate::kernel::store::BaseStore;
 use crate::kernel::usage::Usage;
 
 /// Per-node execution context for async nodes.
@@ -21,6 +22,10 @@ pub struct AsyncContext {
     error: Option<NodeFailure>,
     resume: Arc<Mutex<Option<Value>>>,
     capture: Arc<Mutex<Capture>>,
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<Arc<dyn BaseStore>>,
+    context: Option<Value>,
 }
 
 #[derive(Default)]
@@ -43,7 +48,54 @@ impl AsyncContext {
             error,
             resume: Arc::new(Mutex::new(resume)),
             capture: Arc::new(Mutex::new(Capture::default())),
+            thread_id: None,
+            namespace: String::new(),
+            store: None,
+            context: None,
         }
+    }
+
+    /// Attach parent run information (thread, checkpoint namespace, store, context).
+    pub(crate) fn with_run_info(
+        mut self,
+        thread_id: Option<String>,
+        namespace: String,
+        store: Option<Arc<dyn BaseStore>>,
+        context: Option<Value>,
+    ) -> Self {
+        self.thread_id = thread_id;
+        self.namespace = namespace;
+        self.store = store;
+        self.context = context;
+        self
+    }
+
+    /// Thread id of the run this node belongs to.
+    pub fn thread_id(&self) -> Option<&str> {
+        self.thread_id.as_deref()
+    }
+
+    /// Checkpoint namespace of the run (`""` for the root graph).
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    /// Long-term memory store attached to the run.
+    pub fn store(&self) -> Option<Arc<dyn BaseStore>> {
+        self.store.clone()
+    }
+
+    /// User context passed to the run.
+    pub fn context(&self) -> Option<&Value> {
+        self.context.as_ref()
+    }
+
+    /// Take the resume value stamped onto this task (used by subgraph nodes).
+    pub fn take_resume(&self) -> Option<Value> {
+        self.resume
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
     }
 
     /// Node currently executing.
