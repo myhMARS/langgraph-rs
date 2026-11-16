@@ -309,6 +309,9 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
         let spec = match spec.as_str() {
             "last" | "value" => "last_value".to_string(),
             "add_messages" | "messages" => "messages".to_string(),
+            "any" | "any_value" => "any_value".to_string(),
+            "ephemeral" | "ephemeral_value" => "ephemeral_value".to_string(),
+            "untracked" | "untracked_value" => "untracked_value".to_string(),
             other => other.to_string(),
         };
         entries.push((name, spec));

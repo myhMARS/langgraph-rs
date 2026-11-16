@@ -580,6 +580,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             if next_tasks.is_empty() {
                 return Ok(finish(state, report, started));
             }
+            self.schema.clear_ephemeral(&mut values);
+            state = values_to_state::<S>(&values)?;
             tasks = next_tasks;
         }
     }
@@ -899,7 +901,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             id: id.clone(),
             thread_id: thread_id.to_string(),
             step,
-            values: values.clone(),
+            values: self.schema.persisted_values(values),
             next: next.to_vec(),
             interrupted,
             paused_before,

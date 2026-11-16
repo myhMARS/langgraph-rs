@@ -94,6 +94,11 @@ impl NodeOutput {
         self
     }
 
+    /// Write directly to a channel, bypassing its reducer (LangGraph `Overwrite`).
+    pub fn overwrite(self, channel: impl Into<String>, value: Value) -> Self {
+        self.replace(channel, value)
+    }
+
     /// Replace a channel value directly, bypassing its reducer.
     ///
     /// This is what subgraph nodes use to publish the subgraph's final state: the

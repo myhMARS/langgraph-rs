@@ -155,6 +155,13 @@ channel 是状态的一个字段，决定一个 superstep 的写入如何成为�
 | `LastValue` | 最新写入获胜；同一 superstep 两次写入会以 `Error::ConcurrentUpdate` 失败 | 标量与单节点每步拥有的控制标志 |
 | `Topic` | 每次写入追加到 JSON 数组 | 对顺序敏感的事件日志与 trace |
 | `Reducer` | 写入按左到右折叠 | 多方更新的消息、计数器、映射 |
+| `AnyValue` | 最新写入生效，且允许多个节点并发写入 | 独立的 last-write channel |
+| `EphemeralValue` | 值只在一个 superstep 内可见，之后清空 | 供路由使用的瞬时信号 |
+| `UntrackedValue` | 类似 `LastValue`，但不写入 checkpoint | 仅运行时数据、敏感值 |
+| `NamedBarrierValue` | 记录写入者名称，全部到齐后变为 `true` | 汇合协调 |
+
+`NodeOutput::overwrite(channel, value)` 直接写入 channel、绕过 reducer（对应 LangGraph 的
+`Overwrite`）。`DeltaChannel` 与 `LastValueAfterFinish` 尚未实现。
 
 内置 reducer：`reducers::append()`、`reducers::add()`、`reducers::messages()`（按 `id` 合并）。
 `JsonState` 是无 schema 的替代方案：JSON map，未声明的 channel 按 `LastValue` 处理（用

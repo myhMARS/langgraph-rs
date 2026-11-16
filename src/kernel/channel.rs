@@ -17,6 +17,17 @@ use crate::{Error, Result};
 pub enum Channel {
     /// Keep the most recent write. Concurrent writes in the same superstep are rejected.
     LastValue,
+    /// Keep the most recent write and allow concurrent writes (last one wins).
+    AnyValue,
+    /// Keep the write for the current superstep only; cleared before the next step.
+    EphemeralValue,
+    /// Like [`Channel::LastValue`] but the value is never written to checkpoints.
+    UntrackedValue,
+    /// Accumulate writer names until every expected name arrived, then become `true`.
+    NamedBarrierValue {
+        /// Names that must write before the barrier opens.
+        names: Vec<String>,
+    },
     /// Append every write to a JSON array (useful for event logs / pub-sub style fields).
     Topic,
     /// Fold writes with a user supplied binary reducer (e.g. message list merging).
@@ -27,6 +38,10 @@ impl fmt::Debug for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Channel::LastValue => f.write_str("LastValue"),
+            Channel::AnyValue => f.write_str("AnyValue"),
+            Channel::EphemeralValue => f.write_str("EphemeralValue"),
+            Channel::UntrackedValue => f.write_str("UntrackedValue"),
+            Channel::NamedBarrierValue { names } => write!(f, "NamedBarrierValue({names:?})"),
             Channel::Topic => f.write_str("Topic"),
             Channel::Reducer(_) => f.write_str("Reducer(..)"),
         }
@@ -50,6 +65,47 @@ impl Channel {
         Channel::Reducer(reducer)
     }
 
+    /// Last write wins and concurrent writes are allowed (`AnyValue`).
+    pub fn any_value() -> Self {
+        Channel::AnyValue
+    }
+
+    /// Value is visible for one superstep and then cleared (`EphemeralValue`).
+    pub fn ephemeral_value() -> Self {
+        Channel::EphemeralValue
+    }
+
+    /// Value is never persisted to checkpoints (`UntrackedValue`).
+    pub fn untracked_value() -> Self {
+        Channel::UntrackedValue
+    }
+
+    /// Open after every name in `names` wrote to the channel (`NamedBarrierValue`).
+    pub fn named_barrier<I, T>(names: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        Channel::NamedBarrierValue {
+            names: names.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Whether the channel value is dropped before the next superstep.
+    pub(crate) fn is_ephemeral(&self) -> bool {
+        matches!(self, Channel::EphemeralValue)
+    }
+
+    /// Whether the channel value is excluded from checkpoints.
+    pub(crate) fn is_untracked(&self) -> bool {
+        matches!(self, Channel::UntrackedValue)
+    }
+
+    /// Whether the channel value belongs in a checkpoint.
+    pub fn persists(&self) -> bool {
+        !self.is_ephemeral() && !self.is_untracked()
+    }
+
     /// Merge `incoming` writes into `current`.
     pub(crate) fn apply(
         &self,
@@ -57,7 +113,47 @@ impl Channel {
         incoming: &[Value],
     ) -> Result<Option<Value>> {
         match self {
-            Channel::LastValue => Ok(incoming.last().cloned().or_else(|| current.cloned())),
+            Channel::LastValue
+            | Channel::AnyValue
+            | Channel::EphemeralValue
+            | Channel::UntrackedValue => Ok(incoming.last().cloned().or_else(|| current.cloned())),
+            Channel::NamedBarrierValue { names } => {
+                let mut seen: Vec<String> = match current {
+                    None | Some(Value::Null) | Some(Value::Bool(false)) => Vec::new(),
+                    Some(Value::Bool(true)) => {
+                        return Ok(Some(Value::Bool(true)));
+                    }
+                    Some(Value::Array(values)) => values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_owned))
+                        .collect(),
+                    Some(other) => {
+                        return Err(Error::other(format!(
+                            "channel with `NamedBarrierValue` semantics expects an array, found `{other}`"
+                        )));
+                    }
+                };
+                for value in incoming {
+                    let name = value.as_str().ok_or_else(|| {
+                        Error::other(
+                            "named barrier writes must be channel values containing the writer name",
+                        )
+                    })?;
+                    if !seen.iter().any(|existing| existing == name) {
+                        seen.push(name.to_string());
+                    }
+                }
+                let complete = names
+                    .iter()
+                    .all(|name| seen.iter().any(|seen| seen == name));
+                if complete {
+                    Ok(Some(Value::Bool(true)))
+                } else {
+                    Ok(Some(Value::Array(
+                        seen.into_iter().map(Value::String).collect(),
+                    )))
+                }
+            }
             Channel::Topic => {
                 let mut accumulated = match current {
                     None | Some(Value::Null) => Vec::new(),
@@ -219,6 +315,16 @@ mod tests {
             .apply(Some(&json!(1)), &[json!(2), json!(3)])
             .unwrap();
         assert_eq!(merged, Some(json!(3)));
+    }
+
+    #[test]
+    fn named_barrier_opens_after_all_names() {
+        let channel = Channel::named_barrier(["a", "b"]);
+        let current = json!(["a"]);
+        let opened = channel.apply(Some(&current), &[json!("b")]).unwrap();
+        assert_eq!(opened, Some(json!(true)));
+        let pending = channel.apply(None, &[json!("a")]).unwrap();
+        assert_eq!(pending, Some(json!(["a"])));
     }
 
     #[test]

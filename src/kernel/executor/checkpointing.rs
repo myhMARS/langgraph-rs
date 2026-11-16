@@ -37,7 +37,7 @@ pub(super) fn save_checkpoint<S: State>(
         id: id.clone(),
         thread_id: thread_id.to_string(),
         step,
-        values: values.clone(),
+        values: graph.schema().persisted_values(values),
         next: next.to_vec(),
         interrupted,
         paused_before,

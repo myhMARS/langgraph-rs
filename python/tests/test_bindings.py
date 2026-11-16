@@ -446,5 +446,30 @@ class PythonApiParityTests(unittest.TestCase):
         self.assertEqual([item["value"] for item in results], [1, 6, 11])
 
 
+    def test_channel_spec_aliases(self):
+        graph = lg.StateGraph(
+            {"pulse": "ephemeral_value", "value": "any_value", "seen": "last_value"}
+        )
+        graph.add_node(
+            "write", lambda state: {"pulse": 42, "value": 1, "seen": -1}
+        )
+        graph.add_node("read", lambda state: {"seen": state.get("pulse", 0)})
+        graph.set_entry_point("write")
+        graph.add_edge("write", "read")
+        graph.set_finish_point("read")
+        output = graph.compile().invoke({"pulse": 0, "value": 0, "seen": 0})
+        self.assertEqual(output["seen"], 0)
+
+    def test_untracked_value_alias(self):
+        graph = lg.StateGraph({"secret": "untracked", "seen": "last_value"})
+        graph.add_node("write", lambda state: {"secret": 7})
+        graph.add_node("read", lambda state: {"seen": state["secret"]})
+        graph.set_entry_point("write")
+        graph.add_edge("write", "read")
+        graph.set_finish_point("read")
+        output = graph.compile().invoke({"secret": 0, "seen": 0})
+        self.assertEqual(output["seen"], 7)
+
+
 if __name__ == "__main__":
     unittest.main()

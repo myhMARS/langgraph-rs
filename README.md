@@ -167,6 +167,13 @@ A channel is one field of the state and decides how a superstep's writes become 
 | `LastValue` | newest write wins; two writes in one superstep fail with `Error::ConcurrentUpdate` | scalars and control flags owned by one node per step |
 | `Topic` | each write is appended into a JSON array | event logs and traces where order matters |
 | `Reducer` | writes are folded left-to-right by your function | messages, counters, maps that several nodes update |
+| `AnyValue` | newest write wins and concurrent writes are allowed | independent last-write channels |
+| `EphemeralValue` | value is visible for one superstep, then cleared | transient signals consumed by routers |
+| `UntrackedValue` | like `LastValue`, but excluded from checkpoints | runtime-only data and secrets |
+| `NamedBarrierValue` | stores writer names until every expected name wrote, then becomes `true` | coordinating fan-in |
+
+`NodeOutput::overwrite(channel, value)` writes directly to a channel, bypassing its reducer
+(LangGraph's `Overwrite`). `DeltaChannel` and `LastValueAfterFinish` are not implemented yet.
 
 Built-ins: `reducers::append()`, `reducers::add()`, `reducers::messages()` (merge by `id`).
 `JsonState` is the schemaless alternative: a JSON map whose undeclared channels behave like

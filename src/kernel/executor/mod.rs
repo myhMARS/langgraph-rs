@@ -352,6 +352,9 @@ pub(crate) fn execute<S: State>(
             }
             return Ok(finish(state, report, started));
         }
+        // Ephemeral channels are visible for exactly one superstep.
+        graph.schema().clear_ephemeral(&mut values);
+        state = values_to_state::<S>(&values)?;
         tasks = next_tasks;
     }
 }

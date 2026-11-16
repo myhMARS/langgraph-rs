@@ -58,6 +58,56 @@ impl StateSchema {
         self.with_channel(name, Channel::Topic)
     }
 
+    /// Declare a last-write-wins channel that tolerates concurrent writes.
+    pub fn any_value(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::AnyValue)
+    }
+
+    /// Declare a channel whose value is cleared before the next superstep.
+    pub fn ephemeral_value(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::EphemeralValue)
+    }
+
+    /// Declare a channel that is never written to checkpoints.
+    pub fn untracked_value(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::UntrackedValue)
+    }
+
+    /// Declare a barrier channel that opens after `names` wrote to it.
+    pub fn named_barrier<I, T>(self, name: impl Into<String>, names: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.with_channel(name, Channel::named_barrier(names))
+    }
+
+    /// Whether values of `name` belong in a checkpoint.
+    pub(crate) fn persists(&self, name: &str) -> bool {
+        self.channels
+            .get(name)
+            .map(Channel::persists)
+            .unwrap_or(true)
+    }
+
+    /// Drop every ephemeral channel from `values`.
+    pub(crate) fn clear_ephemeral(&self, values: &mut Map<String, Value>) {
+        for (name, channel) in &self.channels {
+            if channel.is_ephemeral() {
+                values.remove(name);
+            }
+        }
+    }
+
+    /// Clone of `values` without untracked/ephemeral channels (for checkpoints).
+    pub(crate) fn persisted_values(&self, values: &Map<String, Value>) -> Map<String, Value> {
+        values
+            .iter()
+            .filter(|(name, _)| self.persists(name))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect()
+    }
+
     /// Declare a channel folded by a user supplied reducer.
     pub fn reducer<F>(self, name: impl Into<String>, reducer: F) -> Self
     where
@@ -192,8 +242,17 @@ pub(crate) fn state_to_values<S: Serialize>(state: &S) -> Result<Map<String, Val
 }
 
 /// Deserialize channel values back into the typed state.
-pub(crate) fn values_to_state<S: DeserializeOwned>(values: &Map<String, Value>) -> Result<S> {
-    Ok(serde_json::from_value(Value::Object(values.clone()))?)
+pub(crate) fn values_to_state<S: DeserializeOwned + Default + Serialize>(
+    values: &Map<String, Value>,
+) -> Result<S> {
+    // Fill channels missing from the checkpoint (untracked/ephemeral values) with the
+    // defaults from `S::default()` so state types keep strict field requirements.
+    let mut merged = match serde_json::to_value(S::default())? {
+        Value::Object(defaults) => defaults,
+        _ => Map::new(),
+    };
+    merged.extend(values.clone());
+    Ok(serde_json::from_value(Value::Object(merged))?)
 }
 
 /// A single channel write produced by a node.
@@ -220,7 +279,11 @@ pub(crate) fn apply_updates(
     for (channel, (incoming, nodes)) in grouped {
         match schema.resolve(&channel)? {
             Some(definition) => {
-                if matches!(definition, Channel::LastValue) && incoming.len() > 1 {
+                if matches!(
+                    definition,
+                    Channel::LastValue | Channel::EphemeralValue | Channel::UntrackedValue
+                ) && incoming.len() > 1
+                {
                     return Err(Error::ConcurrentUpdate {
                         channel,
                         nodes: nodes.join(", "),

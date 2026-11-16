@@ -39,7 +39,8 @@ below is the complete audit.
 | `LastValue` channel | ✅ | ✅ `LastValue` | concurrent writes fail in both |
 | `Topic` channel | ⚠️ always appends | ✅ `Topic(accumulate=...)` | no `accumulate=False` mode |
 | Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
-| Extra channel types | ❌ | ✅ `EphemeralValue`, `AnyValue`, `NamedBarrierValue`, `UntrackedValue`, `LastValueAfterFinish`, `DeltaChannel` | |
+| Extra channel types | ⚠️ `AnyValue`, `EphemeralValue`, `UntrackedValue`, `NamedBarrierValue`, `Overwrite` (`NodeOutput::overwrite`); Python specs `any_value` / `ephemeral_value` / `untracked_value` | ✅ all of these plus `LastValueAfterFinish`, `DeltaChannel` | barrier value is the seen-name array until open, then `true`; `EphemeralValue` cleared before the next step; `UntrackedValue` excluded from checkpoints |
+| `DeltaChannel` / `LastValueAfterFinish` | ❌ | ✅ | not implemented |
 | `add_messages` semantics | ⚠️ id-based replace/append (`reducers::messages`) | ✅ `add_messages` incl. `RemoveMessage` | no remove/delete messages; no `MessagesState` / `MessageGraph` |
 | Static edges | ✅ | ✅ | `add_edge` takes one source; `add_edges_from` fans several sources into one target |
 | Conditional edges + path map | ✅ | ✅ | |
@@ -128,7 +129,8 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/advanced.rs`, `tests/store.rs`,
+`tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,
 `tests/async_resilience.rs`, `tests/persistence.rs`, `python/tests/test_bindings.py`) and
