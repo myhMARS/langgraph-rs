@@ -13,7 +13,7 @@ use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
-use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe};
+use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::executor::{self, StartInput};
 use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
 use crate::kernel::ports::{Checkpointer, TraceSink};
@@ -41,6 +41,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) retries: IndexMap<String, RetryPolicy>,
     pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
+    pub(crate) node_metadata: indexmap::IndexMap<String, serde_json::Map<String, Value>>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
@@ -61,6 +62,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             retries: self.retries.clone(),
             error_edges: self.error_edges.clone(),
             store: self.store.clone(),
+            node_metadata: self.node_metadata.clone(),
             cache: self.cache.clone(),
             cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
@@ -608,7 +610,7 @@ impl<S: State> CompiledGraph<S> {
                     )));
                 }
                 let executed = vec![node.to_string()];
-                let targets = collect_next_nodes(
+                let (targets, router_sends) = collect_next_nodes(
                     &state,
                     &executed,
                     &HashSet::new(),
@@ -617,7 +619,11 @@ impl<S: State> CompiledGraph<S> {
                     |candidate| self.conditional_of(candidate),
                     |candidate| self.nodes.contains_key(candidate),
                 )?;
-                dedupe(targets).into_iter().map(Task::new).collect()
+                let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
+                for (source, send) in router_sends {
+                    tasks.push(send_task(&source, send)?);
+                }
+                tasks
             }
             None => checkpoint.next.clone(),
         };
@@ -685,6 +691,16 @@ impl<S: State> CompiledGraph<S> {
         checkpointer.copy_thread(source_thread, target_thread)
     }
 
+    /// Metadata attached to nodes (owner, tags, ...).
+    pub fn node_metadata(&self) -> &indexmap::IndexMap<String, serde_json::Map<String, Value>> {
+        &self.node_metadata
+    }
+
+    /// Metadata of one node.
+    pub fn node_metadata_for(&self, node: &str) -> Option<&serde_json::Map<String, Value>> {
+        self.node_metadata.get(node)
+    }
+
     /// Long-term memory store, when the graph was compiled with one.
     pub(crate) fn store(&self) -> Option<&Arc<dyn BaseStore>> {
         self.store.as_ref()
@@ -715,12 +731,18 @@ impl<S: State> CompiledGraph<S> {
                 .filter(|node| node.as_str() != END)
                 .map(Task::new)
                 .collect()),
-            Entry::Conditional(edge) => Ok(edge
-                .resolve(state, START)?
-                .into_iter()
-                .filter(|node| node != END)
-                .map(Task::new)
-                .collect()),
+            Entry::Conditional(edge) => {
+                let (targets, sends) = edge.resolve(state, START)?;
+                let mut tasks: Vec<Task> = targets
+                    .into_iter()
+                    .filter(|node| node != END)
+                    .map(Task::new)
+                    .collect();
+                for send in sends {
+                    tasks.push(send_task(START, send)?);
+                }
+                Ok(tasks)
+            }
         }
     }
 }

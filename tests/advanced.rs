@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use langgraph_rs::{
-    CompileOptions, Durability, InMemorySaver, NodeOutput, RunConfig, State, StateGraph,
-    StateSchema, reducers,
+    CompileOptions, Durability, InMemorySaver, NodeOutput, Route, RunConfig, Send, State,
+    StateGraph, StateSchema, json, reducers,
 };
 use serde::{Deserialize, Serialize};
 
@@ -226,4 +226,96 @@ fn durability_names_parse() {
     assert_eq!(Durability::parse("async"), Some(Durability::Async));
     assert_eq!(Durability::parse("exit"), Some(Durability::Exit));
     assert_eq!(Durability::parse("nope"), None);
+}
+
+#[test]
+fn conditional_router_can_dispatch_send_tasks() {
+    let graph = StateGraph::<FlowState>::new()
+        .add_node("start", |_state: &FlowState| Ok(NodeOutput::new()))
+        .add_node("worker", |state: &FlowState| {
+            Ok(NodeOutput::new().set("log", vec![state.value.to_string()]))
+        })
+        .add_conditional_edges("start", |_state: &FlowState| {
+            Ok(Route::sends([
+                Send::with_arg("worker", json!({ "value": 1 })),
+                Send::with_arg("worker", json!({ "value": 2 })),
+            ]))
+        })
+        .set_entry_point("start")
+        .set_finish_point("worker")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .invoke(&FlowState::default(), &RunConfig::new())
+        .unwrap();
+    let mut log = output.log;
+    log.sort();
+    assert_eq!(log, vec!["1", "2"]);
+}
+
+#[test]
+fn router_can_mix_static_targets_and_sends() {
+    let graph = StateGraph::<FlowState>::new()
+        .add_node("a", |_state: &FlowState| {
+            Ok(NodeOutput::new().set("log", vec!["a".to_string()]))
+        })
+        .add_node("worker", |state: &FlowState| {
+            Ok(NodeOutput::new().set("log", vec![state.value.to_string()]))
+        })
+        .add_conditional_edges("start", |_state: &FlowState| {
+            Ok(Route::nodes(["a"]).with_sends([Send::with_arg("worker", json!({ "value": 7 }))]))
+        })
+        .add_node("start", |_state: &FlowState| Ok(NodeOutput::new()))
+        .set_entry_point("start")
+        .set_finish_point("a")
+        .set_finish_point("worker")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .invoke(&FlowState::default(), &RunConfig::new())
+        .unwrap();
+    let mut log = output.log;
+    log.sort();
+    assert_eq!(log, vec!["7", "a"]);
+}
+
+#[test]
+fn conditional_entry_point_can_dispatch_sends() {
+    let graph = StateGraph::<FlowState>::new()
+        .add_node("worker", |state: &FlowState| {
+            Ok(NodeOutput::new().set("log", vec![state.value.to_string()]))
+        })
+        .set_conditional_entry_point(|_state: &FlowState| {
+            Ok(Route::sends([Send::with_arg(
+                "worker",
+                json!({ "value": 3 }),
+            )]))
+        })
+        .set_finish_point("worker")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .invoke(&FlowState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.log, vec!["3"]);
+}
+
+#[test]
+fn node_metadata_is_stored_on_the_compiled_graph() {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("owner".to_string(), json!("team-graph"));
+    metadata.insert("tier".to_string(), json!(1));
+    let graph = StateGraph::<FlowState>::new()
+        .add_node_with_metadata("work", metadata, |_state: &FlowState| Ok(NodeOutput::new()))
+        .set_entry_point("work")
+        .set_finish_point("work")
+        .compile()
+        .unwrap();
+
+    let stored = graph.node_metadata_for("work").unwrap();
+    assert_eq!(stored.get("owner"), Some(&json!("team-graph")));
+    assert_eq!(graph.node_metadata().len(), 1);
 }

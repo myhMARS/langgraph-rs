@@ -558,5 +558,22 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["value"], 1)
 
 
+    def test_router_can_return_send_tasks(self):
+        graph = lg.StateGraph({"log": "append", "value": "last_value"})
+        graph.add_node("start", lambda state: {})
+        graph.add_node("worker", lambda state: {"log": [state["value"]]})
+        graph.add_conditional_edges(
+            "start",
+            lambda state: [
+                lg.Send("worker", {"value": 1}),
+                lg.Send("worker", {"value": 2}),
+            ],
+        )
+        graph.set_entry_point("start")
+        graph.set_finish_point("worker")
+        output = graph.compile().invoke({"log": [], "value": 0})
+        self.assertEqual(sorted(output["log"]), [1, 2])
+
+
 if __name__ == "__main__":
     unittest.main()

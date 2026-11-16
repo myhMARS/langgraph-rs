@@ -14,7 +14,10 @@
 - **静态 + 条件边** — 多目标扇出、router 返回节点名、通过 `PathMap` 解析符号键、条件入口、
   `goto` 覆盖。
 - **并行 superstep + `Send` map/reduce** — 同一 superstep 的节点在 scoped 线程上并行执行；
-  `Send` 为每个元素创建带独立状态的任务，并通过 channel 归约。
+  `Send` 为每个元素创建带独立状态的任务，并通过 channel 归约；router 也可返回
+  `Route::sends([...])`（或 `Route::nodes([...]).with_sends([...])`）在下一 superstep 派发动态
+  `Send` 任务，条件入口点同样支持；Python router 可返回单个 `lg.Send` 或包含节点名与 `lg.Send`
+  的列表。
 - **重试 + 错误路由** — 每节点 `RetryPolicy`（次数、指数退避）以及通过 `last_error()` 读取失败
   信息的 `add_error_edge` 兜底 handler。
 - **子图** — `add_subgraph` 把已编译图作为节点嵌入；共享状态类型，仅发布发生变化的 channel。

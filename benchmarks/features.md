@@ -46,9 +46,9 @@ below is the complete audit.
 | Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
 | `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
-| Node metadata / `input_schema` / `destinations` / custom names | ❌ | ✅ | node options are not modelled |
+| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; no `input_schema` / `destinations` validation | ✅ | |
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` | ✅ `Send` (node, arg, timeout) | ours has no per-`Send` timeout |
-| `Send` from routers / conditional edges | ❌ | ✅ | our routers return destinations only |
+| `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
 | `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
 | Node metadata / input schema / destinations / name | ❌ | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | |

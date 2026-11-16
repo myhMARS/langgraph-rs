@@ -6,9 +6,12 @@
 use std::collections::HashSet;
 
 use crate::kernel::error::{Error, Result};
-use crate::kernel::node::ConditionalEdge;
+use crate::kernel::node::{ConditionalEdge, Send, Task};
 use crate::kernel::state::State;
 use crate::{END, START};
+
+/// Destinations and dynamic Send tasks produced after a superstep.
+pub(crate) type NextTargets = (Vec<String>, Vec<(String, Send)>);
 
 /// Collect the outgoing destinations of the nodes executed in a superstep.
 ///
@@ -23,8 +26,9 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
     edges_of: impl Fn(&str) -> Option<&'a [String]>,
     conditional_of: impl Fn(&str) -> Option<&'a [ConditionalEdge<S>]>,
     node_exists: impl Fn(&str) -> bool,
-) -> Result<Vec<String>> {
+) -> Result<NextTargets> {
     let mut next_nodes: Vec<String> = Vec::new();
+    let mut router_sends: Vec<(String, Send)> = Vec::new();
 
     for node in executed {
         if goto_nodes.contains(node) {
@@ -38,10 +42,12 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
         }
         if let Some(edges) = conditional_of(node) {
             for edge in edges {
-                for target in edge.resolve(state, node)? {
+                let (targets, sends) = edge.resolve(state, node)?;
+                for target in targets {
                     check_target(node, &target, &node_exists)?;
                     next_nodes.push(target);
                 }
+                router_sends.extend(sends.into_iter().map(|send| (node.clone(), send)));
             }
         }
     }
@@ -54,7 +60,28 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
         next_nodes.push(target.clone());
     }
 
-    Ok(next_nodes)
+    Ok((next_nodes, router_sends))
+}
+
+/// Convert a router [`Send`] into a task, validating its target and arg.
+pub(crate) fn send_task(source: &str, send: Send) -> Result<Task> {
+    let input = match send.arg {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::Object(map)) => Some(map),
+        Some(other) => {
+            return Err(Error::routing(
+                source,
+                format!(
+                    "Send toward `{}` needs a JSON object arg, found `{other}`",
+                    send.node
+                ),
+            ));
+        }
+    };
+    Ok(match input {
+        Some(input) => Task::with_input(send.node, input),
+        None => Task::new(send.node),
+    })
 }
 
 /// Drop `END`/`START` markers and de-duplicate node names, preserving first-seen order.

@@ -206,6 +206,10 @@ edges with `NodeOutput::goto("target")` for the step.
 
 All nodes scheduled in one superstep share a state snapshot and run concurrently; the next
 superstep sees their merged writes. Edges fan out statically, `Send` with per-task state.
+Routers can also dispatch `Send` tasks: return `Route::sends([...])` (or combine
+`Route::nodes([...]).with_sends([...])`) and the engine schedules the dynamic tasks for the
+next superstep; conditional entry points support the same. From Python, a router may return a
+single `lg.Send` or a list mixing node names and `lg.Send` objects.
 
 ```rust
 use serde_json::json;

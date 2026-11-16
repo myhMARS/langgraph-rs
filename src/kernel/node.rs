@@ -230,9 +230,10 @@ impl Send {
 /// assert!(Route::end().is_end());
 /// assert_eq!(Route::node("next").targets(), ["next"]);
 /// ```
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Route {
     targets: Vec<String>,
+    sends: Vec<Send>,
 }
 
 impl Route {
@@ -245,6 +246,7 @@ impl Route {
     pub fn node(node: impl Into<String>) -> Self {
         Self {
             targets: vec![node.into()],
+            sends: Vec::new(),
         }
     }
 
@@ -256,7 +258,33 @@ impl Route {
     {
         Self {
             targets: nodes.into_iter().map(Into::into).collect(),
+            sends: Vec::new(),
         }
+    }
+
+    /// Dispatch dynamic [`Send`] tasks from a router.
+    pub fn sends<I>(sends: I) -> Self
+    where
+        I: IntoIterator<Item = Send>,
+    {
+        Self {
+            targets: Vec::new(),
+            sends: sends.into_iter().collect(),
+        }
+    }
+
+    /// Dispatch a single [`Send`] task from a router.
+    pub fn send(send: Send) -> Self {
+        Self::sends([send])
+    }
+
+    /// Append dynamic [`Send`] tasks to this route.
+    pub fn with_sends<I>(mut self, sends: I) -> Self
+    where
+        I: IntoIterator<Item = Send>,
+    {
+        self.sends.extend(sends);
+        self
     }
 
     /// Destinations of this route.
@@ -264,13 +292,18 @@ impl Route {
         &self.targets
     }
 
-    /// Returns `true` when the route terminates the graph.
-    pub fn is_end(&self) -> bool {
-        self.targets.is_empty()
+    /// Dynamic Send tasks dispatched by this route.
+    pub fn sent_tasks(&self) -> &[Send] {
+        &self.sends
     }
 
-    pub(crate) fn into_targets(self) -> Vec<String> {
-        self.targets
+    /// Returns `true` when the route terminates the graph.
+    pub fn is_end(&self) -> bool {
+        self.targets.is_empty() && self.sends.is_empty()
+    }
+
+    pub(crate) fn into_parts(self) -> (Vec<String>, Vec<Send>) {
+        (self.targets, self.sends)
     }
 }
 
@@ -398,8 +431,8 @@ impl<S> ConditionalEdge<S> {
         self
     }
 
-    /// Evaluate the router and resolve symbolic keys into node names.
-    pub(crate) fn resolve(&self, state: &S, source: &str) -> Result<Vec<String>> {
+    /// Evaluate the router and resolve symbolic keys into node names and Send tasks.
+    pub(crate) fn resolve(&self, state: &S, source: &str) -> Result<(Vec<String>, Vec<Send>)> {
         let route = match (self.router.as_ref())(state) {
             Ok(route) => route,
             Err(crate::Error::Interrupt(interrupt)) => {
@@ -408,13 +441,14 @@ impl<S> ConditionalEdge<S> {
             Err(error) => return Err(crate::Error::routing(source, error)),
         };
 
+        let (targets, sends) = route.into_parts();
         match &self.path_map {
-            None => Ok(route.into_targets()),
+            None => Ok((targets, sends)),
             Some(path_map) => {
-                let mut targets = Vec::new();
-                for key in route.into_targets() {
+                let mut resolved = Vec::new();
+                for key in targets {
                     match path_map.get(&key) {
-                        Some(mapped) => targets.extend(mapped.iter().cloned()),
+                        Some(mapped) => resolved.extend(mapped.iter().cloned()),
                         None => {
                             return Err(crate::Error::routing(
                                 source,
@@ -425,7 +459,7 @@ impl<S> ConditionalEdge<S> {
                         }
                     }
                 }
-                Ok(targets)
+                Ok((resolved, sends))
             }
         }
     }
@@ -528,7 +562,7 @@ mod tests {
         .with_path_map([("retry", "agent"), ("ok", "finish")]);
 
         assert_eq!(
-            edge.resolve(&State { retry: true }, "router").unwrap(),
+            edge.resolve(&State { retry: true }, "router").unwrap().0,
             vec!["agent".to_string()]
         );
     }

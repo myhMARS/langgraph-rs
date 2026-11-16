@@ -201,18 +201,26 @@ pub(super) fn route_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Route> {
             Route::node(name)
         });
     }
+    if let Ok(send) = obj.extract::<PyRef<'_, super::types::PySend>>() {
+        return Ok(Route::send(send.to_send(obj.py())?));
+    }
     if let Ok(list) = obj.cast::<PyList>() {
         let mut names = Vec::with_capacity(list.len());
+        let mut sends = Vec::new();
         for item in list.iter() {
+            if let Ok(send) = item.extract::<PyRef<'_, super::types::PySend>>() {
+                sends.push(send.to_send(obj.py())?);
+                continue;
+            }
             let name = normalize_node(&item.extract::<String>()?);
             if name != crate::END {
                 names.push(name);
             }
         }
-        return Ok(Route::nodes(names));
+        return Ok(Route::nodes(names).with_sends(sends));
     }
     Err(PyTypeError::new_err(
-        "router must return None, a node name, or a list of node names",
+        "router must return None, a node name, a Send, or a list of node names / Send objects",
     ))
 }
 

@@ -15,6 +15,7 @@ use crate::kernel::state::state_to_values;
 use crate::kernel::state::{State, StateSchema};
 use crate::kernel::store::BaseStore;
 use crate::{END, START};
+use serde_json::{Map, Value};
 
 /// Builder for a stateful graph.
 ///
@@ -55,6 +56,7 @@ pub struct StateGraph<S: State> {
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
+    pub(crate) node_metadata: IndexMap<String, Map<String, Value>>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -78,6 +80,7 @@ impl<S: State> StateGraph<S> {
             cache: None,
             cache_policies: IndexMap::new(),
             store: None,
+            node_metadata: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -92,6 +95,31 @@ impl<S: State> StateGraph<S> {
         if self.nodes.insert(name.clone(), Arc::new(node)).is_some() {
             self.duplicate_nodes.push(name);
         }
+        self
+    }
+
+    /// Register a node together with arbitrary metadata (owner, tags, ...).
+    pub fn add_node_with_metadata<F>(
+        self,
+        name: impl Into<String>,
+        metadata: Map<String, Value>,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.set_node_metadata(name.clone(), metadata)
+            .add_node(name, node)
+    }
+
+    /// Attach metadata to a node name (LangGraph node `metadata`).
+    pub fn set_node_metadata(
+        mut self,
+        name: impl Into<String>,
+        metadata: Map<String, Value>,
+    ) -> Self {
+        self.node_metadata.insert(name.into(), metadata);
         self
     }
 
@@ -381,6 +409,7 @@ impl<S: State> StateGraph<S> {
             cache: self.cache,
             cache_policies: self.cache_policies,
             store: options.store.or(self.store),
+            node_metadata: self.node_metadata,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

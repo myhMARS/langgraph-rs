@@ -19,7 +19,7 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::save_checkpoint;
-use self::scheduling::{collect_next_nodes, dedupe};
+use self::scheduling::{collect_next_nodes, dedupe, send_task};
 use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
@@ -263,7 +263,7 @@ pub(crate) fn execute<S: State>(
             values: Value::Object(values.clone()),
         });
 
-        let next_nodes = collect_next_nodes(
+        let (next_nodes, router_sends) = collect_next_nodes(
             &state,
             &executed,
             &goto_nodes,
@@ -285,6 +285,16 @@ pub(crate) fn execute<S: State>(
                 continue;
             }
             next_tasks.push(Task::new(node));
+        }
+        for (source, send) in router_sends {
+            let task = send_task(&source, send)?;
+            if graph.node(&task.node).is_none() {
+                return Err(Error::routing(
+                    &source,
+                    format!("unknown destination node `{}`", task.node),
+                ));
+            }
+            next_tasks.push(task);
         }
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();

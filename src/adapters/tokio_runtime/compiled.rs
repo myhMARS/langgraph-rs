@@ -12,7 +12,7 @@ use super::context::AsyncContext;
 use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe};
+use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
 use crate::kernel::ports::{Checkpointer, TraceSink};
@@ -521,7 +521,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 values: Value::Object(values.clone()),
             });
 
-            let next_nodes = collect_next_nodes(
+            let (next_nodes, router_sends) = collect_next_nodes(
                 &state,
                 &executed,
                 &goto_nodes,
@@ -541,6 +541,16 @@ impl<S: State> AsyncCompiledGraph<S> {
                     continue;
                 }
                 next_tasks.push(Task::new(node));
+            }
+            for (source, send) in router_sends {
+                let task = send_task(&source, send)?;
+                if !self.nodes.contains_key(&task.node) {
+                    return Err(Error::routing(
+                        &source,
+                        format!("unknown destination node `{}`", task.node),
+                    ));
+                }
+                next_tasks.push(task);
             }
 
             step += 1;
@@ -593,12 +603,18 @@ impl<S: State> AsyncCompiledGraph<S> {
                 .filter(|node| node.as_str() != END)
                 .map(Task::new)
                 .collect()),
-            Entry::Conditional(edge) => Ok(edge
-                .resolve(state, START)?
-                .into_iter()
-                .filter(|node| node != END)
-                .map(Task::new)
-                .collect()),
+            Entry::Conditional(edge) => {
+                let (targets, sends) = edge.resolve(state, START)?;
+                let mut tasks: Vec<Task> = targets
+                    .into_iter()
+                    .filter(|node| node != END)
+                    .map(Task::new)
+                    .collect();
+                for send in sends {
+                    tasks.push(send_task(START, send)?);
+                }
+                Ok(tasks)
+            }
         }
     }
 
