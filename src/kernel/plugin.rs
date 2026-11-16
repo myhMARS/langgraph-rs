@@ -226,6 +226,8 @@ impl Plugin for BuiltinChannels {
         kernel.register_channel("any_value", || Channel::AnyValue);
         kernel.register_channel("ephemeral_value", || Channel::EphemeralValue);
         kernel.register_channel("untracked_value", || Channel::UntrackedValue);
+        kernel.register_channel("delta", || Channel::delta(reducers::append()));
+        kernel.register_channel("last_value_after_finish", || Channel::LastValueAfterFinish);
         Ok(())
     }
 }

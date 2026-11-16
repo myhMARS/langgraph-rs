@@ -628,5 +628,35 @@ class PythonParityRound2Tests(unittest.TestCase):
             graph.compile().invoke({"value": 0})
 
 
+    def test_delta_and_finish_channels(self):
+        graph = lg.StateGraph(
+            {
+                "tokens": "delta",
+                "answer": "last_value_after_finish",
+                "value": "last_value",
+            }
+        )
+        graph.add_node(
+            "a", lambda state: {"tokens": ["a"], "answer": "draft"}
+        )
+        graph.add_node(
+            "b",
+            lambda state: {
+                "tokens": ["b"],
+                "answer": "done",
+                "value": state["answer"],
+            },
+        )
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        output = graph.compile().invoke(
+            {"tokens": [], "answer": "", "value": ""}
+        )
+        self.assertEqual(output["tokens"], ["a", "b"])
+        self.assertEqual(output["answer"], "done")
+        self.assertEqual(output["value"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -526,6 +526,8 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
 
         let mut pending_deferred: Vec<Task> = Vec::new();
+        let mut finish_updates: std::collections::HashMap<String, Value> =
+            std::collections::HashMap::new();
         let mut iteration = 0usize;
         loop {
             if iteration >= recursion_limit {
@@ -608,7 +610,15 @@ impl<S: State> AsyncCompiledGraph<S> {
             let executed = processed.executed;
             let goto_nodes = processed.goto_nodes;
 
-            apply_updates(&self.schema, &mut values, channel_updates)?;
+            let mut immediate_updates = Vec::with_capacity(channel_updates.len());
+            for update in channel_updates {
+                if self.schema.is_finish_value(&update.channel) {
+                    finish_updates.insert(update.channel, update.value);
+                } else {
+                    immediate_updates.push(update);
+                }
+            }
+            apply_updates(&self.schema, &mut values, immediate_updates)?;
             for (channel, value) in replacements {
                 self.schema.resolve(&channel)?;
                 values.insert(channel, value);
@@ -705,6 +715,12 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
 
             if next_tasks.is_empty() {
+                if !finish_updates.is_empty() {
+                    for (channel, value) in finish_updates.drain() {
+                        values.insert(channel, value);
+                    }
+                    state = values_to_state::<S>(&values)?;
+                }
                 return Ok(finish(state, report, started));
             }
             self.schema.clear_ephemeral(&mut values);

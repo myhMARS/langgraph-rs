@@ -171,9 +171,11 @@ A channel is one field of the state and decides how a superstep's writes become 
 | `EphemeralValue` | value is visible for one superstep, then cleared | transient signals consumed by routers |
 | `UntrackedValue` | like `LastValue`, but excluded from checkpoints | runtime-only data and secrets |
 | `NamedBarrierValue` | stores writer names until every expected name wrote, then becomes `true` | coordinating fan-in |
+| `DeltaChannel` | writes are folded by a reducer and the accumulated value is stored | streams of tokens or partial results |
+| `LastValueAfterFinish` | keeps the last write but publishes it only when the graph finishes | final answers produced inside loops |
 
 `NodeOutput::overwrite(channel, value)` writes directly to a channel, bypassing its reducer
-(LangGraph's `Overwrite`). `DeltaChannel` and `LastValueAfterFinish` are not implemented yet.
+(LangGraph's `Overwrite`). `Channel::delta(reducer)` accepts a snapshot frequency for API compatibility; this engine always snapshots the full value.
 
 Built-ins: `reducers::append()`, `reducers::add()`, `reducers::messages()` (merge by `id`).
 `JsonState` is the schemaless alternative: a JSON map whose undeclared channels behave like

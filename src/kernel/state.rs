@@ -73,6 +73,23 @@ impl StateSchema {
         self.with_channel(name, Channel::UntrackedValue)
     }
 
+    /// Declare a delta-accumulating channel folded by `reducer`.
+    pub fn delta(self, name: impl Into<String>, reducer: crate::Reducer) -> Self {
+        self.with_channel(name, Channel::delta(reducer))
+    }
+
+    /// Declare a channel whose writes become visible only when the graph finishes.
+    pub fn last_value_after_finish(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::LastValueAfterFinish)
+    }
+
+    /// Whether writes to `name` are held until the graph finishes.
+    pub(crate) fn is_finish_value(&self, name: &str) -> bool {
+        self.channels
+            .get(name)
+            .is_some_and(Channel::is_finish_value)
+    }
+
     /// Declare a barrier channel that opens after `names` wrote to it.
     pub fn named_barrier<I, T>(self, name: impl Into<String>, names: I) -> Self
     where

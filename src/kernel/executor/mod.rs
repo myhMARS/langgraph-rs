@@ -168,6 +168,8 @@ pub(crate) fn execute<S: State>(
     }
 
     let mut pending_deferred: Vec<Task> = Vec::new();
+    let mut finish_updates: std::collections::HashMap<String, Value> =
+        std::collections::HashMap::new();
     let mut iteration = 0usize;
     loop {
         if iteration >= recursion_limit {
@@ -252,7 +254,15 @@ pub(crate) fn execute<S: State>(
         let executed = processed.executed;
         let goto_nodes = processed.goto_nodes;
 
-        apply_updates(graph.schema(), &mut values, channel_updates)?;
+        let mut immediate_updates = Vec::with_capacity(channel_updates.len());
+        for update in channel_updates {
+            if graph.schema().is_finish_value(&update.channel) {
+                finish_updates.insert(update.channel, update.value);
+            } else {
+                immediate_updates.push(update);
+            }
+        }
+        apply_updates(graph.schema(), &mut values, immediate_updates)?;
         // Direct replacements (subgraph outputs) bypass reducers but must still target
         // a declared channel when the schema is strict.
         for (channel, value) in replacements {
@@ -366,6 +376,12 @@ pub(crate) fn execute<S: State>(
         }
 
         if next_tasks.is_empty() {
+            if !finish_updates.is_empty() {
+                for (channel, value) in finish_updates.drain() {
+                    values.insert(channel, value);
+                }
+                state = values_to_state::<S>(&values)?;
+            }
             if durability == Durability::Exit && thread_id.is_some() {
                 save_checkpoint(
                     graph,

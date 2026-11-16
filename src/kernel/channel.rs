@@ -28,6 +28,15 @@ pub enum Channel {
         /// Names that must write before the barrier opens.
         names: Vec<String>,
     },
+    /// Fold deltas with a reducer and snapshot the accumulated value (LangGraph `DeltaChannel`).
+    Delta {
+        /// Folding function applied to every delta.
+        reducer: Reducer,
+        /// Accepted for API compatibility; this engine always snapshots the full value.
+        snapshot_frequency: usize,
+    },
+    /// Keep the last write but only publish it when the graph finishes.
+    LastValueAfterFinish,
     /// Append every write to a JSON array (useful for event logs / pub-sub style fields).
     Topic,
     /// Fold writes with a user supplied binary reducer (e.g. message list merging).
@@ -42,6 +51,10 @@ impl fmt::Debug for Channel {
             Channel::EphemeralValue => f.write_str("EphemeralValue"),
             Channel::UntrackedValue => f.write_str("UntrackedValue"),
             Channel::NamedBarrierValue { names } => write!(f, "NamedBarrierValue({names:?})"),
+            Channel::Delta {
+                snapshot_frequency, ..
+            } => write!(f, "Delta(snapshot_frequency={snapshot_frequency})"),
+            Channel::LastValueAfterFinish => f.write_str("LastValueAfterFinish"),
             Channel::Topic => f.write_str("Topic"),
             Channel::Reducer(_) => f.write_str("Reducer(..)"),
         }
@@ -99,6 +112,35 @@ impl Channel {
     /// Whether the channel value is excluded from checkpoints.
     pub(crate) fn is_untracked(&self) -> bool {
         matches!(self, Channel::UntrackedValue)
+    }
+
+    /// Delta-accumulating channel: writes are folded by `reducer`.
+    pub fn delta(reducer: Reducer) -> Self {
+        Channel::Delta {
+            reducer,
+            snapshot_frequency: 1,
+        }
+    }
+
+    /// Set the delta snapshot frequency (stored for API compatibility).
+    pub fn with_snapshot_frequency(mut self, frequency: usize) -> Self {
+        if let Channel::Delta {
+            snapshot_frequency, ..
+        } = &mut self
+        {
+            *snapshot_frequency = frequency.max(1);
+        }
+        self
+    }
+
+    /// Last-value channel whose writes are published only when the graph finishes.
+    pub fn last_value_after_finish() -> Self {
+        Channel::LastValueAfterFinish
+    }
+
+    /// Whether writes to this channel are held until the graph finishes.
+    pub(crate) fn is_finish_value(&self) -> bool {
+        matches!(self, Channel::LastValueAfterFinish)
     }
 
     /// Whether the channel value belongs in a checkpoint.
@@ -167,7 +209,10 @@ impl Channel {
                 accumulated.extend(incoming.iter().cloned());
                 Ok(Some(Value::Array(accumulated)))
             }
-            Channel::Reducer(reducer) => {
+            Channel::LastValueAfterFinish => {
+                Ok(incoming.last().cloned().or_else(|| current.cloned()))
+            }
+            Channel::Delta { reducer, .. } | Channel::Reducer(reducer) => {
                 let Some(first) = incoming.first() else {
                     return Ok(current.cloned());
                 };
