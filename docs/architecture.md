@@ -28,6 +28,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
 | `kernel::stream` | `StreamChunk` and accessors, produced by the executor. |
 | `adapters::python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
+| `adapters::sqlite` / `redis` / `postgres` | Persistent `Checkpointer` adapters behind the `sqlite`, `redis`, `postgres` features; each stores the JSON checkpoint payload with a thread index for `latest` / `history`. |
 | `adapters::tokio_runtime` | Tokio async adapter (feature `async`): `AsyncStateGraph`, `AsyncCompiledGraph`, `AsyncContext`; reuses kernel state/scheduling. |
 | `kernel::ports` | Ports: `Checkpointer` (persistence) and `TraceSink` (consumption records); the only contracts the kernel depends on. |
 | `kernel::plugin` | Microkernel registry: `Kernel`, `KernelBuilder`, `Plugin`, `ChannelFactory`, `BuiltinChannels`. |
@@ -360,6 +361,25 @@ entry, retries, error edges, interrupt hooks) so `CompiledGraph::to_mermaid` and
 no path map exists), error edges labelled `on error`, and node labels annotated with
 `retry xN` / `pause before` / `pause after`.
 
+## Persistent checkpointers
+
+The `Checkpointer` port stays small (`put` / `get` / `latest` / `history` / `threads`), so
+adapters only translate a `Checkpoint` into their storage. The bundled adapters share one
+strategy: encode the whole checkpoint as JSON, store it under `(thread_id, id)`, and keep a
+per-thread index ordered by `step, created_at` for latest/history queries.
+
+- `adapters::sqlite` (feature `sqlite`): one table with a `(thread_id, id)` primary key and
+  an index for newest-first history. Needs a system SQLite library (`libsqlite3`).
+- `adapters::redis` (feature `redis`): JSON strings under
+  `langgraph_rs:checkpoint:{thread}:{id}`, a sorted-set index per thread and a set of thread
+  ids; entries have no TTL unless the backend is configured for it.
+- `adapters::postgres` (feature `postgres`): a table created on connect with the same
+  ordering guarantees as SQLite.
+
+Adapters are constructed before compiling (`SqliteSaver::open`, `RedisSaver::connect`,
+`PostgresSaver::connect`) and passed to `CompileOptions::with_checkpointer`. They are
+synchronous and hold a `Mutex` around their connection.
+
 ## Extension points
 
 - **Custom checkpointer (adapter).** Implement `kernel::ports::Checkpointer` for `Send + Sync`
@@ -400,6 +420,9 @@ no path map exists), error edges labelled `on error`, and node labels annotated 
 - **Async adapter scope.** The async adapter has no node caching yet (execution, streaming,
   checkpoints, HITL, retries and error routing are supported); its nodes receive the state by
   value (a clone per execution).
+- **Persistent adapters are synchronous.** SQLite/Redis/Postgres adapters hold a
+  `Mutex<Connection>` and block while writing; they are not surfaced through the async
+  adapter yet, and Redis entries have no TTL by default.
 - **Subgraphs share the state type.** `add_subgraph` embeds a compiled graph as a node with
   `replace` writes for changed channels; per-subgraph state mapping, checkpoint namespacing
   and nested interrupts are unsupported.

@@ -14,7 +14,8 @@
 //! - static edges, conditional routing, symbolic path maps and multi-target fan-out
 //! - parallel supersteps executed on scoped threads
 //! - [`Send`] dynamic fan-out for map/reduce workflows
-//! - checkpointing via the [`Checkpointer`] trait with an in-memory saver, thread
+//! - checkpointing via the [`Checkpointer`] trait with an in-memory saver, persistent
+//!   SQLite/Redis/Postgres adapters (`sqlite` / `redis` / `postgres` features), thread
 //!   history and time travel
 //! - human-in-the-loop interrupts ([`interrupt`] / [`CompiledGraph::resume`]) plus
 //!   `interrupt_before` / `interrupt_after` hooks
@@ -100,6 +101,15 @@ pub use adapters::python;
 pub use adapters::tokio_runtime;
 
 pub use adapters::memory::{InMemoryCache, InMemorySaver, MemorySaver};
+
+#[cfg(feature = "sqlite")]
+pub use adapters::sqlite::SqliteSaver;
+
+#[cfg(feature = "redis")]
+pub use adapters::redis::RedisSaver;
+
+#[cfg(feature = "postgres")]
+pub use adapters::postgres::PostgresSaver;
 pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 pub use kernel::channel::{Channel, Reducer, reducers};
 pub use kernel::checkpoint::Checkpoint;

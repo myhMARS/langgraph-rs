@@ -24,6 +24,8 @@ bindings for teams that need them.
 - **Node-level caching** — opt-in `CachePolicy` per node plus a `NodeCache` port; the
   `InMemoryCache` adapter supports TTLs and custom cache keys, and cached executions are
   marked in run reports.
+- **Persistent checkpointers** — `SqliteSaver`, `RedisSaver` and `PostgresSaver` implement
+  the same `Checkpointer` port behind the `sqlite` / `redis` / `postgres` features.
 - **Tokio async runtime (feature `async`)** — `AsyncStateGraph` runs async nodes and awaits
   concurrent supersteps on a Tokio runtime; the sync path stays dependency-free.
 - **Checkpointing + thread history** — `InMemorySaver`, typed snapshots, parent-linked
@@ -441,6 +443,31 @@ and `get_state_history` returns the parent-linked chain newest first. For coarse
 `.interrupt_before(["finish"])` or `.interrupt_after(["ask"])`: those pauses carry a `null`
 payload and continue via `graph.continue_thread("demo")`.
 
+### Durable checkpointers
+
+`InMemorySaver` is handy for tests; production deployments can plug in a persistent
+`Checkpointer` instead. All adapters store the same `Checkpoint` payload (state values,
+pending tasks, interrupt flags, parent link) and implement `latest` / `history` / `threads`.
+
+| Adapter | Feature | Connect |
+| --- | --- | --- |
+| `SqliteSaver` | `sqlite` (needs `libsqlite3`) | `SqliteSaver::open("checkpoints.db")` / `SqliteSaver::in_memory()` |
+| `RedisSaver` | `redis` | `RedisSaver::connect("redis://127.0.0.1/")` |
+| `PostgresSaver` | `postgres` | `PostgresSaver::connect("postgres://user:pass@host/db")` |
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{CompileOptions, SqliteSaver}; // feature = "sqlite"
+
+let saver = Arc::new(SqliteSaver::open("checkpoints.db")?);
+let graph = builder
+    .compile_with(CompileOptions::new().with_checkpointer(saver))?;
+```
+
+The SQLite adapter runs in CI; the Redis and Postgres tests are opt-in through
+`LANGGRAPH_RS_REDIS_URL` / `LANGGRAPH_RS_POSTGRES_URL` and skip when the variables are
+unset. On Debian/Ubuntu install `libsqlite3-dev` before building the `sqlite` feature.
+
 ## Streaming
 
 `stream` collects every chunk; `stream_with` pushes them to a sink on the calling thread, so it
@@ -604,6 +631,7 @@ Not implemented yet:
 ```bash
 cargo test                 # unit + integration tests
 cargo test --features async   # async (Tokio) adapter tests
+cargo test --features sqlite  # persistent checkpointer tests (needs libsqlite3)
 cargo test --doc           # doctests, including the quick start above
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check

@@ -25,6 +25,9 @@ jobs:
       - name: Cache cargo artefacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Install SQLite development library
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
       - name: Check formatting
         run: cargo fmt --all --check
 
@@ -36,6 +39,9 @@ jobs:
 
       - name: Run tests (async feature)
         run: cargo test --all-targets --features async
+
+      - name: Run persistence tests (SQLite)
+        run: cargo test --all-targets --features "async sqlite"
 
       - name: Run doctests
         run: cargo test --doc
@@ -81,6 +87,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install SQLite development library
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Build docs
         run: cargo doc --no-deps --all-features
