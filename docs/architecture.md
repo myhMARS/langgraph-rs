@@ -19,6 +19,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::graph::compiled` | `CompiledGraph`, the immutable runnable form with `invoke` / `run` / `stream` / `resume` / state queries. |
 | `kernel::graph::options` | `CompileOptions`, `RunConfig`, `Targets`, `DEFAULT_RECURSION_LIMIT`. |
 | `kernel::graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
+| `kernel::graph::visualize` | Mermaid renderer shared by the sync and async compiled graphs (`to_mermaid`). |
 | `kernel::executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
 | `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
@@ -335,6 +336,16 @@ translation layer over the Rust engine:
 - **Scope.** Nodes, static/conditional edges, goto, `Send`, streaming, usage/trace,
   checkpointing, interrupts, retries and error routing are supported. Nested subgraphs and
   Python bindings are not exposed for async graphs yet.
+
+## Visualisation
+
+`kernel::graph::visualize::render_mermaid` takes a layout view (node names, edge tables,
+entry, retries, error edges, interrupt hooks) so `CompiledGraph::to_mermaid` and the async
+`AsyncCompiledGraph::to_mermaid` produce identical output. The renderer emits a
+`graph TD` document: static edges as solid arrows, conditional edges through
+`<node>_router_<n>{"router"}` diamonds with path-map labels (or an explanatory comment when
+no path map exists), error edges labelled `on error`, and node labels annotated with
+`retry xN` / `pause before` / `pause after`.
 
 ## Extension points
 

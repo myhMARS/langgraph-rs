@@ -84,6 +84,52 @@ impl<S: State> CompiledGraph<S> {
         self.recursion_limit
     }
 
+    /// Render the graph as a Mermaid `graph TD` diagram.
+    ///
+    /// Static edges are solid arrows, conditional edges are dashed arrows through a
+    /// router node (with path-map labels), error edges are labelled `on error`, and node
+    /// labels include retry policies and interrupt hooks.
+    ///
+    /// ```
+    /// use langgraph_rs::{NodeOutput, State, StateGraph, StateSchema};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Clone, Default, Serialize, Deserialize)]
+    /// struct Demo {
+    ///     value: i64,
+    /// }
+    ///
+    /// impl State for Demo {
+    ///     fn schema() -> StateSchema {
+    ///         StateSchema::new().last_value("value")
+    ///     }
+    /// }
+    ///
+    /// let graph = StateGraph::<Demo>::new()
+    ///     .add_node("work", |_state: &Demo| Ok(NodeOutput::new()))
+    ///     .set_entry_point("work")
+    ///     .set_finish_point("work")
+    ///     .compile()
+    ///     .unwrap();
+    /// let mermaid = graph.to_mermaid();
+    /// assert!(mermaid.contains("graph TD"));
+    /// assert!(mermaid.contains("START --> n_work"));
+    /// ```
+    pub fn to_mermaid(&self) -> String {
+        crate::kernel::graph::visualize::render_mermaid(
+            crate::kernel::graph::visualize::GraphLayout {
+                nodes: self.nodes.keys().map(String::as_str).collect(),
+                edges: &self.edges,
+                conditional: &self.conditional,
+                entry: &self.entry,
+                retries: &self.retries,
+                error_edges: &self.error_edges,
+                interrupt_before: &self.interrupt_before,
+                interrupt_after: &self.interrupt_after,
+            },
+        )
+    }
+
     /// Run the graph to completion and return the final typed state.
     ///
     /// `input` is the initial state of a fresh run. Use

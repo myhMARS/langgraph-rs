@@ -268,4 +268,9 @@ impl PyCompiledGraph {
     fn has_checkpointer(&self) -> bool {
         self.saver.is_some()
     }
+
+    /// Render the graph as a Mermaid `graph TD` diagram.
+    fn to_mermaid(&self) -> String {
+        self.graph.to_mermaid()
+    }
 }

@@ -89,6 +89,15 @@ class BuilderTests(unittest.TestCase):
         result = compiled.invoke({"log": []})
         self.assertEqual(result["log"], ["a", "c"])
 
+    def test_mermaid_export(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        mermaid = graph.compile().to_mermaid()
+        self.assertIn("graph TD", mermaid)
+        self.assertIn("START --> n_a", mermaid)
+
     def test_validation_errors_are_python_errors(self):
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("a", lambda state: {})

@@ -19,6 +19,8 @@ bindings for teams that need them.
   `add_error_edge` fallback handlers that read the failure with `last_error()`.
 - **Subgraphs** — `add_subgraph` embeds a compiled graph as a node; it shares the state type
   and publishes the channels it changed.
+- **Mermaid visualisation** — `graph.to_mermaid()` renders nodes, static/conditional edges,
+  path-map labels, error edges, retries and interrupt hooks; also exposed from Python.
 - **Tokio async runtime (feature `async`)** — `AsyncStateGraph` runs async nodes and awaits
   concurrent supersteps on a Tokio runtime; the sync path stays dependency-free.
 - **Checkpointing + thread history** — `InMemorySaver`, typed snapshots, parent-linked
@@ -291,6 +293,21 @@ let outer = StateGraph::<WorkState>::new()
 
 Subgraphs share the parent's state type; they have no separate checkpointer or state
 mapping yet, and an `interrupt()` inside a subgraph surfaces as a node failure.
+
+## Visualisation
+
+`CompiledGraph::to_mermaid()` (and `AsyncCompiledGraph::to_mermaid()`) render the compiled
+topology as a Mermaid `graph TD` document: solid arrows for static edges, dashed arrows
+through router nodes with path-map labels for conditional edges, `on error` edges for error
+routing, and node labels that include retry counts and interrupt hooks.
+
+```rust
+let mermaid = graph.to_mermaid();
+std::fs::write("graph.mmd", mermaid)?;
+```
+
+Paste the result into GitHub, GitLab, Notion or any Mermaid renderer. The Python binding
+exposes the same method (`compiled.to_mermaid()`).
 
 ## Async with Tokio
 

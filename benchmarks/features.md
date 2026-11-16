@@ -28,7 +28,7 @@ capability exists but with documented differences (see the notes column and
 | Retry policies | ✅ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy` | interrupts are never retried |
 | Error routing / fallback nodes | ✅ `add_error_edge` + `last_error()` | ✅ conditional edges / error handling | handler runs in the next superstep and receives a `NodeFailure` |
 | Python API | ✅ PyO3 bindings (`python` feature) | ✅ native | Rust exposes `StateGraph`/`CompiledGraph`, `interrupt`, `resume`, `run` reports; only built-in reducers from Python |
-| Graph visualisation | ❌ (Mermaid can be generated from the builder later) | ✅ `get_graph().draw_mermaid()` | roadmap |
+| Graph visualisation | ✅ `to_mermaid()` on sync and async graphs (+ Python) | ✅ `get_graph().draw_mermaid()` | static rendering from the compiled topology, including retries/error edges/interrupt hooks |
 | Durable/remote checkpoint backends | ⚠️ trait only, memory saver ships | ✅ SQLite/Postgres/Redis | roadmap |
 | Retries / caching / deferred nodes | ❌ | ✅ | roadmap |
 

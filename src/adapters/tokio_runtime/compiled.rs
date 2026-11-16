@@ -97,6 +97,22 @@ impl<S: State> AsyncCompiledGraph<S> {
         self.recursion_limit
     }
 
+    /// Render the graph as a Mermaid `graph TD` diagram.
+    pub fn to_mermaid(&self) -> String {
+        crate::kernel::graph::visualize::render_mermaid(
+            crate::kernel::graph::visualize::GraphLayout {
+                nodes: self.nodes.keys().map(String::as_str).collect(),
+                edges: &self.edges,
+                conditional: &self.conditional,
+                entry: &self.entry,
+                retries: &self.retries,
+                error_edges: &self.error_edges,
+                interrupt_before: &self.interrupt_before,
+                interrupt_after: &self.interrupt_after,
+            },
+        )
+    }
+
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
         self.checkpointer.is_some()

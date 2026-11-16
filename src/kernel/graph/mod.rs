@@ -13,6 +13,7 @@ mod builder;
 mod compiled;
 mod options;
 mod snapshot;
+pub(crate) mod visualize;
 
 use crate::kernel::node::ConditionalEdge;
 
