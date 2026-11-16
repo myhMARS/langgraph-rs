@@ -693,7 +693,9 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())`, `lg.SqliteSaver` /
   `lg.SqliteSaver.in_memory()` with the `sqlite` feature, and `lg.RedisSaver(url)` /
   `lg.PostgresSaver(url)` with the `redis` / `postgres` features.
-- Async bindings (`python-async` feature): `lg.AsyncStateGraph` mirrors the builder and
+- Async bindings (`python-async` feature): `lg.AsyncStateGraph` mirrors the builder (including
+  `add_subgraph`), `await compiled.astream(...)` collects stream chunks (`stream_mode=` and
+  `subgraphs=` supported), and
   `await compiled.ainvoke(...)` / `await compiled.aresume(...)` are awaitables backed by the
   Tokio adapter (`compiled.get_state(...)` stays synchronous).
 - Functional API: `task = lg.task(fn, name="...")` memoizes results in the run's store;

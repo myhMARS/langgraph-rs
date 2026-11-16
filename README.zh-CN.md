@@ -649,7 +649,9 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`；启用 `sqlite` feature 时支持
   `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`，启用 `redis` / `postgres` feature 时支持
   `lg.RedisSaver(url)` / `lg.PostgresSaver(url)`。
-- 异步绑定（`python-async` feature）：`lg.AsyncStateGraph` 与同步 builder 对应，
+- 异步绑定（`python-async` feature）：`lg.AsyncStateGraph` 与同步 builder 对应（含
+  `add_subgraph`），`await compiled.astream(...)` 收集流式 chunk（支持 `stream_mode=` 与
+  `subgraphs=`），
   `await compiled.ainvoke(...)` / `await compiled.aresume(...)` 返回由 Tokio 适配器驱动的
   awaitable（`compiled.get_state(...)` 保持同步）。
 - Functional API：`task = lg.task(fn, name="...")` 将结果记忆化到运行的 store；

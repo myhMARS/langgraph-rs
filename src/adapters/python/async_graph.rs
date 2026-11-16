@@ -3,13 +3,14 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use pyo3::types::PyAny;
+use pyo3::types::{PyAny, PyList};
 
 use super::convert::*;
 use super::types::{checkpointer_from_py, store_from_py};
 use crate::JsonState;
 use crate::kernel::context::TaskContext;
 use crate::kernel::node::NodeOutput;
+use crate::kernel::stream::StreamChunk;
 use crate::tokio_runtime::{AsyncCompiledGraph, AsyncContext, AsyncStateGraph};
 use crate::*;
 
@@ -121,6 +122,21 @@ impl PyAsyncStateGraph {
         Ok(())
     }
 
+    /// Embed a compiled async graph as a node (child checkpoint namespace).
+    fn add_subgraph(
+        &mut self,
+        name: String,
+        subgraph: PyRef<'_, PyAsyncCompiledGraph>,
+    ) -> PyResult<()> {
+        let child = subgraph.graph.clone();
+        let builder = std::mem::replace(
+            &mut self.inner,
+            AsyncStateGraph::with_schema(StateSchema::dynamic()),
+        );
+        self.inner = builder.add_subgraph(name, child);
+        Ok(())
+    }
+
     fn add_conditional_edges(&mut self, from: String, router: Py<PyAny>) -> PyResult<()> {
         let builder = std::mem::replace(
             &mut self.inner,
@@ -225,6 +241,54 @@ impl PyAsyncCompiledGraph {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
                 Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
             }
+        })
+    }
+
+    /// Awaitable stream collection returning a list of chunk dicts.
+    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false))]
+    fn astream<'py>(
+        &self,
+        py: Python<'py>,
+        input: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<String>,
+        context: Option<&Bound<'_, PyAny>>,
+        stream_mode: Option<&Bound<'_, PyAny>>,
+        subgraphs: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let state = state_from_py(input)?;
+        let mut config = run_config(thread_id);
+        if let Some(context) = context {
+            config = config.with_context(py_to_value(context)?);
+        }
+        if subgraphs {
+            config = config.with_stream_subgraphs(true);
+        }
+        let modes = super::graph::stream_modes_from_py(stream_mode)?;
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut collected: Vec<StreamChunk> = Vec::new();
+            let result = match &modes {
+                Some(modes) => {
+                    graph
+                        .stream_modes_with(&state, &config, modes, |chunk| collected.push(chunk))
+                        .await
+                }
+                None => {
+                    graph
+                        .stream_with(&state, &config, |chunk| collected.push(chunk))
+                        .await
+                }
+            };
+            if let Err(error) = result {
+                return Python::attach(|py| Err(to_pyerr(py, error)));
+            }
+            Python::attach(|py| {
+                let list = PyList::empty(py);
+                for chunk in &collected {
+                    list.append(chunk_to_py(py, chunk)?)?;
+                }
+                Ok(list.into_any().unbind())
+            })
         })
     }
 

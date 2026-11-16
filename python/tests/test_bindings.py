@@ -833,5 +833,41 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(asyncio.run(scenario())["value"], 5)
 
 
+    def test_async_stream_and_subgraph(self):
+        import asyncio
+
+        async def scenario():
+            child = lg.AsyncStateGraph({"value": "last_value"})
+            child.add_node("work", lambda state: {"value": state["value"] + 1})
+            child.set_entry_point("work")
+            child.set_finish_point("work")
+            child_compiled = child.compile()
+
+            parent = lg.AsyncStateGraph({"value": "last_value"})
+            parent.add_node("seed", lambda state: {"value": 10})
+            parent.add_subgraph("child", child_compiled)
+            parent.set_entry_point("seed")
+            parent.add_edge("seed", "child")
+            parent.set_finish_point("child")
+            compiled = parent.compile()
+
+            chunks = await compiled.astream(
+                {"value": 0}, subgraphs=True
+            )
+            namespaces = [
+                chunk.get("namespace")
+                for chunk in chunks
+                if isinstance(chunk, dict) and "namespace" in chunk
+            ]
+            updates = await compiled.astream(
+                {"value": 0}, stream_mode=["updates"]
+            )
+            return namespaces, updates
+
+        namespaces, updates = asyncio.run(scenario())
+        self.assertIn("child", namespaces)
+        self.assertTrue(any(chunk.get("type") == "updates" for chunk in updates))
+
+
 if __name__ == "__main__":
     unittest.main()
