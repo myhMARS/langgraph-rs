@@ -4,7 +4,8 @@
 orchestrating LLM agents and workflows. Work is a `StateGraph` whose nodes are plain
 `Fn(&State) -> Result<NodeOutput>` closures; nodes return *writes*, the engine merges them
 through channels, routes edges, checkpoints between steps, and can pause for a human and
-resume where it stopped. No async runtime, no hidden globals, no Python.
+resume where it stopped. No async runtime, no hidden globals, and optional Python
+bindings for teams that need them.
 
 ## Features
 
@@ -19,6 +20,11 @@ resume where it stopped. No async runtime, no hidden globals, no Python.
 - **Human-in-the-loop** — `interrupt()` parks a run with a payload, `resume` re-executes the
   node and feeds the answer back, and `interrupt_before` / `interrupt_after` add coarse gates.
 - **Streaming** — values, per-node updates, custom events, interrupts, checkpoint ids.
+- **Per-node consumption tracking** — nodes report tokens/cost with `record_usage` or
+  `NodeOutput::with_usage`; `run` returns a `RunReport` with per-node duration, usage and
+  aggregated totals.
+- **Python bindings** — the optional `python` feature exposes the same engine to Python
+  (`StateGraph` / `CompiledGraph`, `interrupt` / `resume`, run reports) through PyO3.
 
 ## Why a Rust port?
 
@@ -212,12 +218,84 @@ let chunks = graph.stream(&Pipeline::default(), &RunConfig::new()).unwrap();
 assert!(chunks.iter().any(|chunk| matches!(chunk, StreamChunk::Custom { .. })));
 ```
 
+
+## Per-node usage and tracing
+
+Every node execution is recorded: wall-clock duration plus whatever the node reported.
+Nodes can report piecemeal (`record_tokens`, `record_usage`) or attach usage to their output;
+multiple records from one execution are summed.
+
+```rust
+use langgraph_rs::{NodeOutput, RunConfig, StateGraph, Usage, record_tokens};
+
+let graph = StateGraph::<Pipeline>::new()
+    .add_node("llm", |state: &Pipeline| {
+        record_tokens(512, 96)?;
+        Ok(NodeOutput::new()
+            .set("value", state.value + 1)
+            .with_usage(Usage::new().with_model("gpt-4o").with_cost_usd(0.006)))
+    })
+    .set_entry_point("llm")
+    .set_finish_point("llm")
+    .compile()
+    .unwrap();
+
+// `run` returns the final state plus the report; `invoke` keeps the state-only shape.
+let outcome = graph.run(&Pipeline::default(), &RunConfig::new()).unwrap();
+let report = &outcome.report;
+println!("{:?}", report.usage_by_node());   // BTreeMap<node, Usage>
+println!("{}", report.total_tokens());      // summed across nodes
+println!("{}", report.total_cost_usd());
+for execution in report.executions() {
+    println!("{} step={} {}ms", execution.node, execution.step, execution.duration_millis);
+}
+```
+
+`RunReport` exposes `executions()` (one `NodeExecution` per node run), `usage_by_node()`,
+`total_usage()`, `total_tokens()` and `total_cost_usd()`. `stream` additionally emits a
+`StreamChunk::Usage` chunk per node, so a UI can display consumption as it happens.
+
+## Python bindings
+
+Enable the `python` feature (PyO3) to build a native extension module. With
+[maturin](https://maturin.rs):
+
+```bash
+pip install maturin
+maturin develop --features python     # installs `langgraph_rs` into the active venv
+python python/examples/quickstart.py
+```
+
+Alternatively build the cdylib directly (`cargo build --features python`) and place
+`liblanggraph_rs.so` / `langgraph_rs.dll` next to your test code as `langgraph_rs.pyd` /
+`langgraph_rs.so`. The Python API uses `JsonState` and Python callables:
+
+```python
+import langgraph_rs as lg
+
+graph = lg.StateGraph({"count": "last_value", "log": "append"})
+graph.add_node("inc", lambda state: {"count": state["count"] + 1, "log": ["inc"]})
+graph.add_edge("START", "inc")
+graph.add_conditional_edges("inc", lambda state: "inc" if state["count"] < 3 else None)
+compiled = graph.compile()
+assert compiled.invoke({"count": 0, "log": []})["count"] == 3
+```
+
+- `graph.compile(checkpointer=True)` enables checkpoints; `invoke(..., thread_id="t")` pauses
+  with `lg.GraphInterrupt` when a node calls `lg.interrupt(payload)`; `resume("t", answer)`
+  continues and `get_state` / `get_state_history` inspect the checkpoint chain.
+- `compiled.run(...)` returns `{"state": ..., "report": ...}` with the same per-node usage
+  report; `compiled.stream(...)` returns chunk dicts.
+- Nodes may return the reserved keys `__goto__` (node name or list) and `__usage__` (a dict
+  with `model`, `input_tokens`, `output_tokens`, `cost_usd`, `metadata`).
+
 ## Status / roadmap
 
 Implemented and tested: strict or dynamic channel schemas; static, multi-target and conditional
 edges with path maps and conditional entry points; parallel supersteps, `Send`, `goto`; the
 recursion limit (25 supersteps); checkpointing, thread history, snapshots; `interrupt()` with
-before/after hooks; resume, updates, time travel; streaming; validation and merge errors.
+before/after hooks; resume, updates, time travel; streaming; per-node duration/usage tracing with
+run reports; validation and merge errors; optional Python bindings (PyO3).
 
 Not implemented yet:
 
@@ -226,6 +304,8 @@ Not implemented yet:
 - durable checkpoint backends beyond memory (the `Checkpointer` trait is ready)
 - external persistence of graph definitions, cross-process time travel, a time-travel UI,
   node-level retries/caching, checkpoint namespaces, `Send` from routers
+- Python-defined custom reducers and async Python nodes (the bindings use built-in reducers and
+  release the GIL around the engine)
 
 ## Differences from LangGraph
 
@@ -237,14 +317,23 @@ Not implemented yet:
 - **Supersteps run nodes during the same wall-clock window via scoped threads** — real OS
   parallelism over a shared `&State`, not cooperatively scheduled tasks.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
+- **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON, and
+  custom reducers must be expressed with the built-in policies (`last_value`, `topic`, `append`,
+  `add`, `messages`) for now. The GIL is released around the engine, so Python callables only
+  run while a node executes.
 
 ## Build and test
 
 ```bash
 cargo test                 # unit + integration tests
 cargo test --doc           # doctests, including the quick start above
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+
+# Python bindings
+cargo build --features python
+maturin develop --features python   # or: pip install maturin
+python -m unittest discover -s python/tests -v
 ```
 
 Requires Rust 1.85+ (edition 2024). Design and internals: [docs/architecture.md](docs/architecture.md).

@@ -15,13 +15,22 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `context` | Thread-local `TaskContext` installed around each node call, plus `interrupt`, `custom`, `push_custom`, `current_node`. |
 | `checkpoint` | `Checkpoint`, the `Checkpointer` trait, `InMemorySaver` / `MemorySaver`, id and timestamp helpers. |
 | `command` | `Command`: an explicit resume description (value + optional patch). The `CompiledGraph` methods build the same intent in `executor::StartInput::Resume`. |
-| `graph` | `StateGraph` builder, `CompiledGraph`, `CompileOptions`, `RunConfig`, `StateSnapshot`, `Targets`, `DEFAULT_RECURSION_LIMIT`; validation and public API. |
-| `executor` | The engine: `execute`, `StartInput`, `run_superstep`, `run_task`, `save_checkpoint`. The only loop in the crate. |
+| `graph::builder` | `StateGraph`, the mutable builder, its edges and the validation rules. |
+| `graph::compiled` | `CompiledGraph`, the immutable runnable form with `invoke` / `run` / `stream` / `resume` / state queries. |
+| `graph::options` | `CompileOptions`, `RunConfig`, `Targets`, `DEFAULT_RECURSION_LIMIT`. |
+| `graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
+| `executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
+| `executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
+| `executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
+| `executor::checkpointing` | `save_checkpoint`: the only checkpoint writer. |
+| `usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
 | `stream` | `StreamChunk` and accessors, produced by the executor. |
+| `python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
 
 Dependencies are acyclic: `graph` → `executor` → {`state`, `channel`, `checkpoint`, `context`,
-`node`, `stream`} → `error`. `lib.rs` re-exports the public surface and defines `START`
-(`"__start__"`) and `END` (`"__end__"`).
+`node`, `stream`, `usage`} → `error`. The `graph` and `executor` packages are split internally so
+no file owns more than one concern; public paths are unchanged. `lib.rs` re-exports the public
+surface and defines `START` (`"__start__"`) and `END` (`"__end__"`).
 
 ## The superstep algorithm
 
@@ -52,21 +61,25 @@ As implemented in `executor::execute`:
    with a `null` payload and return `Error::Interrupt`.
 8. **Run the superstep.** One task runs inline; two or more run on `std::thread::scope`
    handles joined in task order. `run_task` picks the node, chooses `task.input` (for
-   `Send`) or a clone of the state, installs `TaskContext { node, resume_value }` and calls
-   the node. `Error::Interrupt` is re-tagged with the node name; other errors become
-   `Error::Node { node, message }`.
-9. **Merge.** Results are folded in task order: `Updates` chunks per node, then
+   `Send`) or a clone of the state, installs `TaskContext { node, resume_value }`, measures the
+   wall-clock duration and calls the node. `Error::Interrupt` is re-tagged with the node name;
+   other errors become `Error::Node { node, message }`.
+9. **Record usage.** Each result's `record_usage` / `record_tokens` calls and any
+   `NodeOutput::with_usage` value are merged into one `Usage`; a `NodeExecution` (node, step,
+   duration, usage) is appended to the run's `RunReport` and emitted as
+   `StreamChunk::Usage`.
+10. **Merge.** Results are folded in task order: `Updates` chunks per node, then
    `apply_updates` groups writes by channel and applies each policy. A merge error
    (`ConcurrentUpdate`, `UnknownChannel`, reducer failure) aborts before committing
    anything. Values are re-deserialized into `S` and a `Values` chunk is emitted.
-10. **Schedule.** For each executed node that did not call `goto`, static edges are added,
+11. **Schedule.** For each executed node that did not call `goto`, static edges are added,
     then conditional edges evaluated against the merged state; `goto` targets follow.
     `END`/`START` are dropped and names de-duplicated preserving first-seen order. `Send`
     tasks were queued in step 9 and bypass de-duplication.
-11. **`interrupt_after` gate.** `step` increments, then the checkpoint is written with
+12. **`interrupt_after` gate.** `step` increments, then the checkpoint is written with
     `interrupted = true` and `next = next_tasks`; the `Interrupt` chunk and error follow, so
     `continue_thread` resumes with the work after the paused node.
-12. **Loop or finish.** Empty `next_tasks` returns the final typed state; otherwise they
+13. **Loop or finish.** Empty `next_tasks` returns the final typed state; otherwise they
     become the next iteration's `tasks`.
 
 If a node raises an interrupt, the checkpoint holds the *pre-superstep* values and the whole
@@ -185,17 +198,61 @@ the calling thread:
 
 | Variant | When | Payload |
 | --- | --- | --- |
+| `Usage { execution }` | per node, before its writes are merged | `NodeExecution` (node, step, duration, usage) |
 | `Updates { step, node, update }` | per node that wrote channels, in task order | `{channel: write}` |
 | `Custom { node, value }` | per `custom()` / `push_custom()`, when results are folded | arbitrary JSON |
 | `Values { step, values }` | once per superstep, after the merge | full state object |
 | `Checkpoint { checkpoint_id }` | every persisted checkpoint | id |
 | `Interrupt { node, value }` | before returning `Error::Interrupt` | payload, `null` for hooks |
 
-Ordering in a superstep is: per-node `Custom`/`Updates` (task order) → `Values` → `Checkpoint`
-→ optional `Interrupt`. `interrupt_before` yields `Checkpoint` then `Interrupt` with no
+Ordering in a superstep is: per-node `Usage`/`Custom`/`Updates` (task order) → `Values` →
+`Checkpoint` → optional `Interrupt`. `interrupt_before` yields `Checkpoint` then `Interrupt` with no
 updates. `stream` collects chunks; `stream_with` returns the final state but returns `Err` on
 interrupt *after* delivering the chunks (`stream_with_keeps_chunks_when_the_graph_interrupts`).
 A `custom()` call before a node interrupts is lost: the failed task's result is discarded.
+
+## Consumption tracking
+
+Every node execution produces a `NodeExecution { node, step, duration_millis, usage }`:
+
+- **Automatic duration.** `superstep::run_task` measures the wall-clock time around the node
+  call, so timing works even when a node reports nothing.
+- **Reported usage.** Inside a node, `record_usage(usage)` / `record_tokens(input, output)`
+  push records into the thread-local `TaskContext`; `NodeOutput::with_usage` attaches one to the
+  return value. All records of one execution are summed by `Usage::merge` (tokens and cost add,
+  model is the first non-empty one, metadata keys merge).
+- **Aggregation.** `RunReport` keeps executions in run order and offers `usage_by_node()`
+  (`BTreeMap<node, Usage>`), `total_usage()`, `total_tokens()` and `total_cost_usd()`.
+  `RunOutcome` pairs the final state with the report, returned by `CompiledGraph::run` /
+  `run_updates`; `invoke` discards the report to keep its state-only signature.
+- **Live streaming.** `StreamChunk::Usage` is emitted per node before its writes merge, so a
+  frontend can show consumption while the graph runs. The report is not persisted in
+  checkpoints, so a resumed run reports only the nodes it actually executes.
+
+The Python bindings expose the same machinery through `__usage__` return keys and
+`compiled.run(...)["report"]`.
+
+## Python bindings
+
+Enabled with the `python` feature (`pyo3`, `extension-module`). The bindings are a thin
+translation layer over the Rust engine:
+
+- **State.** Python uses `JsonState`: dicts in, dicts out. `StateGraph(schema)` maps channel
+  names to the built-in policies; `None` means a dynamic (permissive) schema.
+- **Nodes and routers.** `Py<PyAny>` callables are wrapped in the same `NodeFn` / router
+  closures the Rust API uses. `node_from_python` builds the state dict, acquires the GIL with
+  `Python::attach`, calls the callable and converts the returned dict (plus reserved
+  `__goto__` / `__usage__` keys) back into `NodeOutput`.
+- **GIL handling.** `CompiledGraph` methods call `py.detach(...)` around the engine, so the GIL
+  is released while nodes run and re-acquired by each node's `Python::attach`. This avoids
+  deadlocks between the calling thread and the scoped superstep threads.
+- **Interrupts.** `langgraph_rs.interrupt(payload)` calls the Rust `context::interrupt`; a pause
+  surfaces to Python as the `GraphInterrupt` exception carrying the payload, and `resume` feeds
+  the answer back into the same re-executed node. `pyerr_to_error` maps the exception back to
+  `Error::Interrupt`.
+- **Errors and results.** Engine errors become `RuntimeError`; `run` returns
+  `{"state": ..., "report": ...}`; `stream` returns chunk dicts; checkpoint queries return
+  snapshot dicts.
 
 ## Extension points
 
@@ -215,6 +272,12 @@ A `custom()` call before a node interrupts is lost: the failed task's result is 
   or bridge into a runtime it owns.
 - **Sinks.** `stream_with` takes any `FnMut(StreamChunk)` — the natural seam for a frontend,
   progress bar or metrics collector.
+- **Consumption.** `record_usage` / `record_tokens` / `NodeOutput::with_usage` feed any
+  accounting system; use `RunReport::executions` for per-call granularity or `usage_by_node`
+  for per-node totals.
+- **Python.** Add methods to `PyStateGraph` / `PyCompiledGraph` in `src/python/mod.rs`; the
+  conversion helpers (`py_to_value`, `value_to_py`, `node_output_from_py`) keep the FFI layer
+  thin.
 
 ## Known limitations and divergences
 
@@ -238,3 +301,9 @@ A `custom()` call before a node interrupts is lost: the failed task's result is 
   UI — time travel is `resume_from(thread, id, value)`.
 - **Reducer errors are unwrapped**: they surface as `Error::Other` without the node name,
   unlike node errors, which are wrapped in `Error::Node`.
+- **Python specifics.** Only built-in reducers are available from Python; state is JSON
+  (`JsonState`), `Send` is not exposed yet, and nodes/`__goto__`/`__usage__` are the supported
+  return shape. Each Python node call re-acquires the GIL, so CPU-bound Python nodes do not
+  benefit from superstep parallelism beyond what the GIL allows.
+- **Usage is run-scoped, not checkpointed.** Resuming a thread starts a fresh report; usage
+  reported before an interrupt is not replayed.
