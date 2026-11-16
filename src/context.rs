@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::usage::Usage;
 use crate::{Error, Interrupt, Result};
 
 thread_local! {
@@ -21,6 +22,7 @@ pub(crate) struct TaskContext {
     resume_value: Option<Value>,
     resume_consumed: bool,
     custom: Vec<Value>,
+    usage: Vec<Usage>,
 }
 
 impl TaskContext {
@@ -30,21 +32,27 @@ impl TaskContext {
             resume_value,
             resume_consumed: false,
             custom: Vec::new(),
+            usage: Vec::new(),
         }
     }
 }
 
-/// Install `context` for the duration of `run`, returning its result and any custom
-/// stream writes the node produced.
-pub(crate) fn with_task<R>(context: TaskContext, run: impl FnOnce() -> R) -> (R, Vec<Value>) {
+/// Install `context` for the duration of `run`, returning its result, any custom
+/// stream writes and any consumption records the node reported.
+pub(crate) fn with_task<R>(
+    context: TaskContext,
+    run: impl FnOnce() -> R,
+) -> (R, Vec<Value>, Vec<Usage>) {
     let previous = CURRENT_TASK.with(|slot| slot.borrow_mut().replace(context));
     let result = run();
     let context = CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         std::mem::replace(&mut *slot, previous)
     });
-    let custom = context.map(|context| context.custom).unwrap_or_default();
-    (result, custom)
+    let (custom, usage) = context
+        .map(|context| (context.custom, context.usage))
+        .unwrap_or_default();
+    (result, custom, usage)
 }
 
 /// Pause the graph and wait for human input.
@@ -103,6 +111,32 @@ pub fn push_custom(value: Value) -> Result<()> {
     })
 }
 
+/// Record what the current node consumed (tokens, model, cost, ...).
+///
+/// Records are attached to the node's [`NodeExecution`](crate::NodeExecution) and
+/// aggregated into the run's [`RunReport`](crate::RunReport). Multiple calls from one
+/// node are summed.
+pub fn record_usage(usage: Usage) -> Result<()> {
+    CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
+        Some(context) => {
+            context.usage.push(usage);
+            Ok(())
+        }
+        None => Err(Error::other(
+            "record_usage() can only be called from inside a running graph node",
+        )),
+    })
+}
+
+/// Convenience shorthand for [`record_usage`] with token counts.
+pub fn record_tokens(input_tokens: u64, output_tokens: u64) -> Result<()> {
+    record_usage(
+        Usage::new()
+            .with_input_tokens(input_tokens)
+            .with_output_tokens(output_tokens),
+    )
+}
+
 /// Name of the node that is currently executing, if any.
 pub fn current_node() -> Option<String> {
     CURRENT_TASK.with(|slot| slot.borrow().as_ref().map(|context| context.node.clone()))
@@ -115,7 +149,7 @@ mod tests {
 
     #[test]
     fn interrupt_without_resume_returns_the_payload() {
-        let (result, _custom) = with_task(TaskContext::new("ask", None), || {
+        let (result, _custom, _usage) = with_task(TaskContext::new("ask", None), || {
             interrupt(json!({ "question": "approve?" }))
         });
         let error = result.unwrap_err();
@@ -131,21 +165,27 @@ mod tests {
 
     #[test]
     fn interrupt_with_resume_value_returns_it() {
-        let (result, _custom) = with_task(TaskContext::new("ask", Some(json!("yes"))), || {
-            interrupt(json!({ "question": "approve?" }))
-        });
+        let (result, _custom, _usage) =
+            with_task(TaskContext::new("ask", Some(json!("yes"))), || {
+                interrupt(json!({ "question": "approve?" }))
+            });
         assert_eq!(result.unwrap(), json!("yes"));
     }
 
     #[test]
     fn custom_values_are_collected() {
-        let (result, custom) = with_task(TaskContext::new("emit", None), || {
+        let (result, custom, usage) = with_task(TaskContext::new("emit", None), || {
             custom(json!({ "progress": 0.5 })).unwrap();
             push_custom(json!("done")).unwrap();
+            record_usage(Usage::new().with_input_tokens(3)).unwrap();
+            record_tokens(1, 2).unwrap();
             current_node()
         });
         assert_eq!(result.as_deref(), Some("emit"));
         assert_eq!(custom, vec![json!({ "progress": 0.5 }), json!("done")]);
+        assert_eq!(usage.len(), 2);
+        assert_eq!(usage[0].input_tokens, Some(3));
+        assert_eq!(usage[1].total_tokens(), 3);
     }
 
     #[test]

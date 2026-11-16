@@ -18,7 +18,12 @@
 //!   history and time travel
 //! - human-in-the-loop interrupts ([`interrupt`] / [`CompiledGraph::resume`]) plus
 //!   `interrupt_before` / `interrupt_after` hooks
-//! - streaming of values, per-node updates, custom events, interrupts and checkpoints
+//! - streaming of values, per-node updates, custom events, interrupts, checkpoints and
+//!   per-node usage records
+//! - per-node consumption tracking ([`record_usage`], [`Usage`], [`RunReport`]): tokens,
+//!   cost, wall-clock duration and aggregated totals per node and per run
+//! - optional Python bindings behind the `python` feature (PyO3), exposing the same engine
+//!   to Python callables
 //!
 //! ## Quick start
 //!
@@ -78,11 +83,12 @@ mod graph;
 mod node;
 mod state;
 mod stream;
+mod usage;
 
 pub use channel::{Channel, Reducer, reducers};
 pub use checkpoint::{Checkpoint, Checkpointer, InMemorySaver, MemorySaver};
 pub use command::Command;
-pub use context::{current_node, custom, interrupt, push_custom};
+pub use context::{current_node, custom, interrupt, push_custom, record_tokens, record_usage};
 pub use error::{Error, Interrupt, Result};
 pub use graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, RunConfig, StateGraph, StateSnapshot,
@@ -91,6 +97,7 @@ pub use graph::{
 pub use node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
 pub use state::{JsonState, State, StateSchema};
 pub use stream::StreamChunk;
+pub use usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 pub use indexmap::IndexMap;
 pub use serde_json::{Value, json};

@@ -1,18 +1,32 @@
 //! The superstep execution engine.
+//!
+//! [`execute`] is the only loop in the crate. It delegates:
+//!
+//! - node execution to [`superstep`],
+//! - edge evaluation / scheduling to [`scheduling`],
+//! - persistence to [`checkpointing`],
+//!
+//! and owns the per-step merge + control flow, which keeps each file focused on one
+//! concern.
+
+mod checkpointing;
+mod scheduling;
+mod superstep;
 
 use std::collections::HashSet;
-use std::panic;
+use std::time::Instant;
 
 use serde_json::{Map, Value};
 
-use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
-use crate::context::TaskContext;
+use self::checkpointing::save_checkpoint;
+use self::scheduling::{collect_next_nodes, dedupe};
+use self::superstep::{TaskResult, run_superstep};
 use crate::error::{Error, Interrupt, Result};
 use crate::graph::{CompiledGraph, RunConfig};
-use crate::node::{NodeOutput, Task};
+use crate::node::Task;
 use crate::state::{ChannelUpdate, State, apply_updates, values_to_state};
 use crate::stream::StreamChunk;
-use crate::{END, START};
+use crate::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 /// Where a run starts from.
 pub(crate) enum StartInput {
@@ -29,19 +43,16 @@ pub(crate) enum StartInput {
     },
 }
 
-struct TaskResult {
-    node: String,
-    output: NodeOutput,
-    custom: Vec<Value>,
-}
-
-/// Execute a graph.
+/// Execute a graph and return its final state together with the consumption report.
 pub(crate) fn execute<S: State>(
     graph: &CompiledGraph<S>,
     start: StartInput,
     config: &RunConfig,
     sink: &mut dyn FnMut(StreamChunk),
-) -> Result<S> {
+) -> Result<RunOutcome<S>> {
+    let started = Instant::now();
+    let mut report = RunReport::new();
+
     let recursion_limit = config
         .recursion_limit
         .unwrap_or_else(|| graph.recursion_limit());
@@ -123,7 +134,7 @@ pub(crate) fn execute<S: State>(
     };
 
     if tasks.is_empty() {
-        return Ok(state);
+        return Ok(finish(state, report, started));
     }
 
     if fresh {
@@ -208,80 +219,12 @@ pub(crate) fn execute<S: State>(
             }
         };
 
-        let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
-        let mut next_tasks: Vec<Task> = Vec::new();
-        let mut goto_targets: Vec<(String, String)> = Vec::new();
-        let mut executed: Vec<String> = Vec::new();
-        let mut goto_nodes: HashSet<String> = HashSet::new();
-
-        for result in results {
-            let TaskResult {
-                node,
-                output,
-                custom,
-            } = result;
-            executed.push(node.clone());
-            for value in custom {
-                sink(StreamChunk::Custom {
-                    node: node.clone(),
-                    value,
-                });
-            }
-
-            let (updates, goto, sends) = output.into_parts();
-            if !updates.is_empty() {
-                let update = Value::Object(
-                    updates
-                        .iter()
-                        .map(|(channel, value)| (channel.clone(), value.clone()))
-                        .collect(),
-                );
-                sink(StreamChunk::Updates {
-                    step,
-                    node: node.clone(),
-                    update,
-                });
-                for (channel, value) in updates {
-                    channel_updates.push(ChannelUpdate {
-                        channel,
-                        value,
-                        node: node.clone(),
-                    });
-                }
-            }
-            for target in goto {
-                if !goto_nodes.contains(&node) {
-                    goto_nodes.insert(node.clone());
-                }
-                goto_targets.push((target, node.clone()));
-            }
-            for send in sends {
-                let input = match send.arg {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Object(map)) => Some(map),
-                    Some(other) => {
-                        return Err(Error::routing(
-                            &node,
-                            format!(
-                                "Send toward `{}` needs a JSON object arg, found `{other}`",
-                                send.node
-                            ),
-                        ));
-                    }
-                };
-                if graph.node(&send.node).is_none() {
-                    return Err(Error::routing(
-                        &node,
-                        format!("Send targets unknown node `{}`", send.node),
-                    ));
-                }
-                next_tasks.push(Task {
-                    node: send.node,
-                    input,
-                    resume: None,
-                });
-            }
-        }
+        let processed = process_results(graph, results, step, &mut report, sink)?;
+        let channel_updates = processed.channel_updates;
+        let next_tasks = processed.next_tasks;
+        let goto_targets = processed.goto_targets;
+        let executed = processed.executed;
+        let goto_nodes = processed.goto_nodes;
 
         apply_updates(graph.schema(), &mut values, channel_updates)?;
         state = values_to_state::<S>(&values)?;
@@ -290,43 +233,10 @@ pub(crate) fn execute<S: State>(
             values: Value::Object(values.clone()),
         });
 
-        let mut next_nodes: Vec<String> = Vec::new();
-        for node in &executed {
-            // An explicit `goto` replaces the static/conditional edges of that node.
-            if goto_nodes.contains(node) {
-                continue;
-            }
-            if let Some(targets) = graph.edges_of(node) {
-                for target in targets {
-                    check_target(graph, node, target)?;
-                    next_nodes.push(target.clone());
-                }
-            }
-            if let Some(edges) = graph.conditional_of(node) {
-                for edge in edges {
-                    for target in edge.resolve(&state, node)? {
-                        check_target(graph, node, &target)?;
-                        next_nodes.push(target);
-                    }
-                }
-            }
-        }
-        for (target, source) in goto_targets {
-            if target == END {
-                continue;
-            }
-            check_target(graph, &source, &target)?;
-            next_nodes.push(target);
-        }
-
-        let mut seen = HashSet::new();
-        for node in next_nodes {
-            if node == END || node == START {
-                continue;
-            }
-            if seen.insert(node.clone()) {
-                next_tasks.push(Task::new(node));
-            }
+        let next_nodes = collect_next_nodes(graph, &state, &executed, &goto_nodes, &goto_targets)?;
+        let mut next_tasks = next_tasks;
+        for node in dedupe(next_nodes) {
+            next_tasks.push(Task::new(node));
         }
 
         step += 1;
@@ -357,124 +267,128 @@ pub(crate) fn execute<S: State>(
         }
 
         if next_tasks.is_empty() {
-            return Ok(state);
+            return Ok(finish(state, report, started));
         }
         tasks = next_tasks;
     }
 }
 
-fn run_superstep<S: State>(
-    graph: &CompiledGraph<S>,
-    state: &S,
-    tasks: &[Task],
-) -> Result<Vec<TaskResult>> {
-    if tasks.len() <= 1 {
-        return tasks
-            .iter()
-            .map(|task| run_task(graph, state, task))
-            .collect();
-    }
-
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = tasks
-            .iter()
-            .map(|task| scope.spawn(move || run_task(graph, state, task)))
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| match handle.join() {
-                Ok(result) => result,
-                Err(panic) => panic::resume_unwind(panic),
-            })
-            .collect()
-    })
+fn finish<S>(state: S, mut report: RunReport, started: Instant) -> RunOutcome<S> {
+    report.total_duration_millis = started.elapsed().as_millis() as u64;
+    RunOutcome { state, report }
 }
 
-fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> Result<TaskResult> {
-    let node = graph.node(&task.node).ok_or_else(|| {
-        Error::other(format!(
-            "node `{}` is not registered in this graph",
-            task.node
-        ))
-    })?;
+/// Everything one superstep's node results contribute to the run.
+struct ProcessedResults {
+    channel_updates: Vec<ChannelUpdate>,
+    next_tasks: Vec<Task>,
+    goto_targets: Vec<(String, String)>,
+    executed: Vec<String>,
+    goto_nodes: HashSet<String>,
+}
 
-    let node_state = match &task.input {
-        Some(input) => values_to_state::<S>(input)?,
-        None => state.clone(),
-    };
+fn process_results<S: State>(
+    graph: &CompiledGraph<S>,
+    results: Vec<TaskResult>,
+    step: usize,
+    report: &mut RunReport,
+    sink: &mut dyn FnMut(StreamChunk),
+) -> Result<ProcessedResults> {
+    let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
+    let mut next_tasks: Vec<Task> = Vec::new();
+    let mut goto_targets: Vec<(String, String)> = Vec::new();
+    let mut executed: Vec<String> = Vec::new();
+    let mut goto_nodes: HashSet<String> = HashSet::new();
 
-    let context = TaskContext::new(task.node.clone(), task.resume.clone());
-    let (result, custom) = crate::context::with_task(context, || node(&node_state));
-
-    match result {
-        Ok(output) => Ok(TaskResult {
-            node: task.node.clone(),
+    for result in results {
+        let TaskResult {
+            node,
             output,
             custom,
-        }),
-        Err(Error::Interrupt(interrupt)) => Err(Error::Interrupt(Interrupt {
-            node: task.node.clone(),
-            value: interrupt.value,
-        })),
-        Err(error) => Err(Error::Node {
-            node: task.node.clone(),
-            message: error.to_string(),
-        }),
-    }
-}
+            usage,
+            duration_millis,
+        } = result;
+        executed.push(node.clone());
+        for value in custom {
+            sink(StreamChunk::Custom {
+                node: node.clone(),
+                value,
+            });
+        }
 
-fn check_target<S: State>(graph: &CompiledGraph<S>, source: &str, target: &str) -> Result<()> {
-    if target == END {
-        return Ok(());
-    }
-    if target == START {
-        return Err(Error::routing(
-            source,
-            format!("`{START}` is not a valid destination"),
-        ));
-    }
-    if graph.node(target).is_none() {
-        return Err(Error::routing(
-            source,
-            format!("unknown destination node `{target}`"),
-        ));
-    }
-    Ok(())
-}
+        let mut combined: Option<Usage> = None;
+        for item in usage {
+            combined.get_or_insert_with(Usage::new).merge(&item);
+        }
+        let execution = NodeExecution {
+            node: node.clone(),
+            step,
+            duration_millis,
+            usage: combined,
+        };
+        sink(StreamChunk::Usage {
+            execution: execution.clone(),
+        });
+        report.record(execution);
 
-#[allow(clippy::too_many_arguments)]
-fn save_checkpoint<S: State>(
-    graph: &CompiledGraph<S>,
-    thread_id: Option<&str>,
-    parent: &mut Option<String>,
-    values: &Map<String, Value>,
-    next: &[Task],
-    step: usize,
-    interrupted: bool,
-    paused_before: bool,
-    sink: &mut dyn FnMut(StreamChunk),
-) -> Result<()> {
-    let Some(thread_id) = thread_id else {
-        return Ok(());
-    };
-    let Some(checkpointer) = graph.checkpointer() else {
-        return Ok(());
-    };
+        let (updates, goto, sends) = output.into_parts();
+        if !updates.is_empty() {
+            let update = Value::Object(
+                updates
+                    .iter()
+                    .map(|(channel, value)| (channel.clone(), value.clone()))
+                    .collect(),
+            );
+            sink(StreamChunk::Updates {
+                step,
+                node: node.clone(),
+                update,
+            });
+            for (channel, value) in updates {
+                channel_updates.push(ChannelUpdate {
+                    channel,
+                    value,
+                    node: node.clone(),
+                });
+            }
+        }
+        for target in goto {
+            goto_nodes.insert(node.clone());
+            goto_targets.push((target, node.clone()));
+        }
+        for send in sends {
+            let input = match send.arg {
+                None | Some(Value::Null) => None,
+                Some(Value::Object(map)) => Some(map),
+                Some(other) => {
+                    return Err(Error::routing(
+                        &node,
+                        format!(
+                            "Send toward `{}` needs a JSON object arg, found `{other}`",
+                            send.node
+                        ),
+                    ));
+                }
+            };
+            if graph.node(&send.node).is_none() {
+                return Err(Error::routing(
+                    &node,
+                    format!("Send targets unknown node `{}`", send.node),
+                ));
+            }
+            next_tasks.push(Task {
+                node: send.node,
+                input,
+                resume: None,
+            });
+        }
+    }
 
-    let id = new_checkpoint_id(thread_id, step);
-    let checkpoint = Checkpoint {
-        id: id.clone(),
-        thread_id: thread_id.to_string(),
-        step,
-        values: values.clone(),
-        next: next.to_vec(),
-        interrupted,
-        paused_before,
-        parent_id: parent.clone(),
-        created_at_millis: now_millis(),
-    };
-    checkpointer.put(checkpoint)?;
-    *parent = Some(id.clone());
-    sink(StreamChunk::Checkpoint { checkpoint_id: id });
-    Ok(())
+    Ok(ProcessedResults {
+        channel_updates,
+        next_tasks,
+        goto_targets,
+        executed,
+        goto_nodes,
+    })
 }

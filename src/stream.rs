@@ -2,6 +2,8 @@
 
 use serde_json::Value;
 
+use crate::usage::NodeExecution;
+
 /// One event in a graph run.
 ///
 /// Chunks are produced step by step and can be consumed with
@@ -10,6 +12,11 @@ use serde_json::Value;
 /// [`CompiledGraph::stream`](crate::CompiledGraph::stream).
 #[derive(Clone, Debug, PartialEq)]
 pub enum StreamChunk {
+    /// Per-node execution record: duration and consumption.
+    Usage {
+        /// Execution details.
+        execution: NodeExecution,
+    },
     /// Full channel values after a superstep.
     Values {
         /// Superstep index.
@@ -56,6 +63,14 @@ impl StreamChunk {
         }
     }
 
+    /// Per-node execution record when this chunk reports one.
+    pub fn execution(&self) -> Option<&NodeExecution> {
+        match self {
+            StreamChunk::Usage { execution } => Some(execution),
+            _ => None,
+        }
+    }
+
     /// Serialized values when this chunk carries full state.
     pub fn values(&self) -> Option<&Value> {
         match self {
@@ -67,6 +82,7 @@ impl StreamChunk {
     /// Node name when this chunk is tied to a single node.
     pub fn node(&self) -> Option<&str> {
         match self {
+            StreamChunk::Usage { execution } => Some(execution.node.as_str()),
             StreamChunk::Updates { node, .. }
             | StreamChunk::Custom { node, .. }
             | StreamChunk::Interrupt { node, .. } => Some(node),

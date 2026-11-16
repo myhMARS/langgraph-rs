@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::Result;
+use crate::usage::Usage;
 
 /// Execution function of a graph node.
 pub type NodeFn<S> = Arc<dyn Fn(&S) -> Result<NodeOutput> + std::marker::Send + std::marker::Sync>;
@@ -29,6 +30,7 @@ pub struct NodeOutput {
     updates: IndexMap<String, Value>,
     goto: Vec<String>,
     sends: Vec<Send>,
+    usage: Option<Usage>,
 }
 
 impl NodeOutput {
@@ -80,6 +82,20 @@ impl NodeOutput {
     pub fn send(mut self, send: Send) -> Self {
         self.sends.push(send);
         self
+    }
+
+    /// Attach consumption information for this node execution.
+    ///
+    /// Equivalent to calling [`record_usage`](crate::record_usage) from inside the node,
+    /// but keeps the usage next to the return value.
+    pub fn with_usage(mut self, usage: Usage) -> Self {
+        self.usage = Some(usage);
+        self
+    }
+
+    /// Consumption information attached with [`NodeOutput::with_usage`].
+    pub fn usage(&self) -> Option<&Usage> {
+        self.usage.as_ref()
     }
 
     /// Returns `true` when the node produced no writes and no control flow.
