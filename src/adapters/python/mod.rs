@@ -151,10 +151,27 @@ fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
 
 /// Pause the graph and wait for human input; returns the resume value on retry.
 #[pyfunction]
-fn interrupt(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (value, response_schema=None))]
+fn interrupt(
+    py: Python<'_>,
+    value: &Bound<'_, PyAny>,
+    response_schema: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyAny>> {
     let value = py_to_value(value)?;
-    match crate::kernel::context::interrupt(value) {
+    let response_schema = match response_schema {
+        Some(schema) => Some(py_to_value(schema)?),
+        None => None,
+    };
+    match crate::kernel::context::interrupt_with_schema(value, response_schema) {
         Ok(resume) => value_to_py(py, &resume),
+        Err(crate::Error::Interrupt(interrupt)) => {
+            let payload = value_to_py(py, &interrupt.value)?;
+            let schema = match &interrupt.response_schema {
+                Some(schema) => value_to_py(py, schema)?,
+                None => py.None(),
+            };
+            Err(PyErr::new::<GraphInterrupt, _>((payload, schema)))
+        }
         Err(error) => Err(to_pyerr(py, error)),
     }
 }

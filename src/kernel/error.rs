@@ -20,6 +20,9 @@ pub struct Interrupt {
     /// Unique id, used to resume several pending interrupts with a value map.
     #[serde(default)]
     pub id: String,
+    /// Optional JSON schema the resume value must satisfy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_schema: Option<Value>,
 }
 
 impl Interrupt {
@@ -30,7 +33,19 @@ impl Interrupt {
             id: new_interrupt_id(&node),
             node,
             value,
+            response_schema: None,
         }
+    }
+
+    /// Create an interrupt with a JSON schema for the expected resume value.
+    pub fn with_schema(
+        node: impl Into<String>,
+        value: Value,
+        response_schema: Option<Value>,
+    ) -> Self {
+        let mut interrupt = Self::new(node, value);
+        interrupt.response_schema = response_schema;
+        interrupt
     }
 
     /// Resume value for this interrupt inside a multi-interrupt resume map.

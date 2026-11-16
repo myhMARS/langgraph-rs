@@ -1016,6 +1016,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         id: interrupt.id,
                         node: task.node.clone(),
                         value: interrupt.value,
+                        response_schema: interrupt.response_schema,
                     });
                 }
                 Err(error) => {

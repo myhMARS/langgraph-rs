@@ -104,7 +104,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | `interrupt(value)` pause | ✅ `Error::Interrupt` | ✅ `GraphInterrupt` / `Interrupt` | node re-executes on resume in both |
 | Resume with a value | ✅ `resume` / `Command::resume` | ✅ `Command(resume=...)` | |
 | Multiple interrupts in one node | ✅ a node may call `interrupt()` repeatedly; resume values are replayed in call order across resumes | ✅ resume dict/list matched per interrupt |
-| `interrupt(response_schema=...)` | ❌ | ✅ | |
+| `interrupt(response_schema=...)` | ⚠️ Python `lg.interrupt(value, response_schema=...)` and Rust `interrupt_with_schema` validate the resume value against `type`/`enum`/`required`/`properties`/`items`; schema is stored on the interrupt and exposed in snapshots | ✅ | other JSON-schema keywords are ignored |
 | `interrupt_before` / `interrupt_after` | ✅ | ✅ | our pause payload is `null` |
 | Resume with state edits | ✅ `resume_with_updates` / `Command::with_update` | ✅ `Command(update=...)`, `update_state` | |
 

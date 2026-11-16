@@ -160,14 +160,18 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
 
 pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
     if error.is_instance_of::<GraphInterrupt>(py) {
-        let value = error
-            .value(py)
-            .getattr("args")
-            .ok()
+        let args = error.value(py).getattr("args").ok();
+        let value = args
+            .as_ref()
             .and_then(|args| args.get_item(0).ok())
             .and_then(|payload| py_to_value(&payload).ok())
             .unwrap_or(Value::Null);
-        Error::Interrupt(Interrupt::new(String::new(), value))
+        let schema = args
+            .as_ref()
+            .and_then(|args| args.get_item(1).ok())
+            .filter(|schema| !schema.is_none())
+            .and_then(|schema| py_to_value(&schema).ok());
+        Error::Interrupt(Interrupt::with_schema(String::new(), value, schema))
     } else {
         Error::other(format!(
             "python node raised {}: {error}",
@@ -439,6 +443,9 @@ pub(super) fn snapshot_to_py(
             item.set_item("id", interrupt.id.clone())?;
             item.set_item("node", interrupt.node.clone())?;
             item.set_item("value", value_to_py(py, &interrupt.value)?)?;
+            if let Some(schema) = &interrupt.response_schema {
+                item.set_item("response_schema", value_to_py(py, schema)?)?;
+            }
             Ok(item.into_any().unbind())
         })
         .collect::<PyResult<Vec<_>>>()?;

@@ -266,6 +266,14 @@ pub fn last_error() -> Option<NodeFailure> {
 /// # }
 /// ```
 pub fn interrupt(value: Value) -> Result<Value> {
+    interrupt_with_schema(value, None)
+}
+
+/// Like [`interrupt`], but validates the resume value against a JSON schema.
+///
+/// The schema is stored on the interrupt (visible in snapshots) and the resume value is
+/// validated when the node re-runs; a mismatch fails the node with a descriptive error.
+pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Result<Value> {
     CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         let Some(context) = slot.as_mut() else {
@@ -277,13 +285,74 @@ pub fn interrupt(value: Value) -> Result<Value> {
             let value = context.resume_values[context.resume_index].clone();
             context.resume_index += 1;
             context.resume_consumed = true;
+            validate_response(&value, response_schema.as_ref())?;
             return Ok(value);
         }
-        Err(Error::Interrupt(Interrupt::new(
+        Err(Error::Interrupt(Interrupt::with_schema(
             context.node.clone(),
             value,
+            response_schema,
         )))
     })
+}
+
+/// Validate a resume value against a (small) subset of JSON schema: `type`, `enum`,
+/// `required`, `properties` and `items`.
+pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result<()> {
+    let Some(schema) = schema else {
+        return Ok(());
+    };
+    let Some(object) = schema.as_object() else {
+        return Ok(());
+    };
+    if let Some(kind) = object.get("type").and_then(Value::as_str) {
+        let matches = match kind {
+            "string" => value.is_string(),
+            "number" => value.is_number(),
+            "integer" => value.as_i64().is_some() || value.as_u64().is_some(),
+            "boolean" => value.is_boolean(),
+            "array" => value.is_array(),
+            "object" => value.is_object(),
+            "null" => value.is_null(),
+            _ => true,
+        };
+        if !matches {
+            return Err(Error::other(format!(
+                "resume value does not match response_schema type `{kind}`: {value}"
+            )));
+        }
+    }
+    if let Some(enum_values) = object.get("enum").and_then(Value::as_array)
+        && !enum_values.iter().any(|candidate| candidate == value)
+    {
+        return Err(Error::other(format!(
+            "resume value is not one of the response_schema enum values: {value}"
+        )));
+    }
+    if let Some(required) = object.get("required").and_then(Value::as_array) {
+        for key in required.iter().filter_map(Value::as_str) {
+            if value.get(key).is_none() {
+                return Err(Error::other(format!(
+                    "resume value is missing required response_schema property `{key}`"
+                )));
+            }
+        }
+    }
+    if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+        for (key, property_schema) in properties {
+            if let Some(property) = value.get(key) {
+                validate_response(property, Some(property_schema))?;
+            }
+        }
+    }
+    if let Some(items) = object.get("items")
+        && let Some(array) = value.as_array()
+    {
+        for item in array {
+            validate_response(item, Some(items))?;
+        }
+    }
+    Ok(())
 }
 
 /// Emit a custom value into the graph stream from inside a node.

@@ -136,6 +136,15 @@ impl AsyncContext {
     /// [`AsyncCompiledGraph::resume`](crate::tokio_runtime::AsyncCompiledGraph::resume)
     /// the node runs again and this call returns the resume value.
     pub fn interrupt(&self, value: Value) -> Result<Value> {
+        self.interrupt_with_schema(value, None)
+    }
+
+    /// Like [`AsyncContext::interrupt`], validating the resume value against a JSON schema.
+    pub fn interrupt_with_schema(
+        &self,
+        value: Value,
+        response_schema: Option<Value>,
+    ) -> Result<Value> {
         let mut slot = self
             .resume
             .lock()
@@ -143,9 +152,14 @@ impl AsyncContext {
         if slot.1 < slot.0.len() {
             let resume = slot.0[slot.1].clone();
             slot.1 += 1;
+            crate::kernel::context::validate_response(&resume, response_schema.as_ref())?;
             return Ok(resume);
         }
-        Err(Error::Interrupt(Interrupt::new(self.node.clone(), value)))
+        Err(Error::Interrupt(Interrupt::with_schema(
+            self.node.clone(),
+            value,
+            response_schema,
+        )))
     }
 
     /// Serializing variant of [`AsyncContext::interrupt`].

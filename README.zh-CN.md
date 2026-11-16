@@ -518,7 +518,10 @@ let output = graph.resume("demo", json!(41)).unwrap();
 assert_eq!(output.value, 41);
 ```
 
-`get_state(thread)` 报告 `interrupted` 与待执行的 `next` 任务。`resume_with_updates` 在继续前应用
+`get_state(thread)` 报告 `interrupted` 与待执行的 `next` 任务。`interrupt_with_schema(payload,
+Some(schema))`（Python `lg.interrupt(payload, response_schema=...)`）会在 interrupt 上保存 JSON
+schema 并对 resume 值做校验（`type`/`enum`/`required`/`properties`/`items`），schema 在快照中可见。
+`resume_with_updates` 在继续前应用
 人工编辑；`resume_command(thread, Command::resume(v).with_update([...]))` 是同一意图的显式 builder
 形式；`resume_from` 从旧 checkpoint 重放；`get_state_history` 返回按父链组织、最新在前的历史。
 粗粒度闸门可用 `.interrupt_before(["finish"])` 或 `.interrupt_after(["ask"])`，这类暂停携带

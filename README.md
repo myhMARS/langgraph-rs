@@ -557,7 +557,10 @@ let output = graph.resume("demo", json!(41)).unwrap();
 assert_eq!(output.value, 41);
 ```
 
-`get_state(thread)` reports `interrupted` and pending `next` tasks. `resume_with_updates` applies
+`get_state(thread)` reports `interrupted` and pending `next` tasks. `interrupt_with_schema(payload,
+Some(schema))` (Python `lg.interrupt(payload, response_schema=...)`) stores a JSON schema on the
+interrupt and validates the resume value (`type`/`enum`/`required`/`properties`/`items`); the
+schema is visible in snapshots. `resume_with_updates` applies
 human edits before continuing, `resume_command(thread, Command::resume(v).with_update([...]))`
 is the explicit builder form of the same intent, `resume_from` replays from an older checkpoint,
 and `get_state_history` returns the parent-linked chain newest first. For coarse gates, compile with

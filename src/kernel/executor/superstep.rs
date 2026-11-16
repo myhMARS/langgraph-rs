@@ -207,6 +207,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     id: interrupt.id,
                     node: task.node.clone(),
                     value: interrupt.value,
+                    response_schema: interrupt.response_schema,
                 });
             }
             Err(error) => {

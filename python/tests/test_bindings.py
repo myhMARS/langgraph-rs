@@ -1013,5 +1013,30 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(asyncio.run(scenario())["value"], 101)
 
 
+    def test_interrupt_response_schema(self):
+        saver = lg.InMemorySaver()
+
+        def ask(state):
+            answer = lg.interrupt(
+                {"question": "age?"}, response_schema={"type": "integer"}
+            )
+            return {"value": answer}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(checkpointer=saver)
+
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="py-schema")
+        snapshot = compiled.get_state("py-schema")
+        self.assertIn("response_schema", snapshot["interrupts"][0])
+        with self.assertRaises(Exception):
+            compiled.resume("py-schema", "nope")
+        output = compiled.resume("py-schema", 9)
+        self.assertEqual(output["value"], 9)
+
+
 if __name__ == "__main__":
     unittest.main()
