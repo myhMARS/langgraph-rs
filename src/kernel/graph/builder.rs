@@ -1,5 +1,6 @@
 //! The mutable graph builder.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -59,6 +60,7 @@ pub struct StateGraph<S: State> {
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) node_metadata: IndexMap<String, Map<String, Value>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
+    pub(crate) deferred: HashSet<String>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -84,6 +86,7 @@ impl<S: State> StateGraph<S> {
             store: None,
             node_metadata: IndexMap::new(),
             timeouts: IndexMap::new(),
+            deferred: HashSet::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -119,6 +122,21 @@ impl<S: State> StateGraph<S> {
     /// Attach a timeout policy to a node name (`TimeoutPolicy`).
     pub fn set_timeout(mut self, name: impl Into<String>, policy: TimeoutPolicy) -> Self {
         self.timeouts.insert(name.into(), policy);
+        self
+    }
+
+    /// Register a node that runs after every regular node finished (LangGraph `deferred=True`).
+    pub fn add_node_deferred<F>(self, name: impl Into<String>, node: F) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.set_deferred(name.clone()).add_node(name, node)
+    }
+
+    /// Mark an existing node name as deferred.
+    pub fn set_deferred(mut self, name: impl Into<String>) -> Self {
+        self.deferred.insert(name.into());
         self
     }
 
@@ -416,6 +434,32 @@ impl<S: State> StateGraph<S> {
         for node in self.timeouts.keys() {
             self.require_node("timeout policy", node)?;
         }
+        for node in &self.deferred {
+            self.require_node("deferred node", node)?;
+            if self.entry.contains(node) {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot be an entry point"
+                )));
+            }
+            if self
+                .edges
+                .get(node)
+                .is_some_and(|targets| !targets.is_empty())
+            {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot have outgoing edges"
+                )));
+            }
+            if self
+                .conditional
+                .get(node)
+                .is_some_and(|edges| !edges.is_empty())
+            {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot have conditional edges"
+                )));
+            }
+        }
 
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
@@ -437,6 +481,7 @@ impl<S: State> StateGraph<S> {
             store: options.store.or(self.store),
             node_metadata: self.node_metadata,
             timeouts: self.timeouts,
+            deferred: self.deferred,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

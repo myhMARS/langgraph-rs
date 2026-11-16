@@ -593,5 +593,27 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["last"], 0)
 
 
+    def test_deferred_node_runs_after_regular_nodes(self):
+        graph = lg.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node(
+            "inc",
+            lambda state: {"value": state["value"] + 1, "log": ["inc"]},
+        )
+        graph.add_node(
+            "summary",
+            lambda state: {
+                "value": 100,
+                "log": ["summary after {}".format(state["value"])],
+            },
+            deferred=True,
+        )
+        graph.set_entry_point("inc")
+        graph.add_edge("inc", "summary")
+        graph.set_finish_point("inc")
+        output = graph.compile().invoke({"value": 0, "log": []})
+        self.assertEqual(output["value"], 100)
+        self.assertEqual(output["log"], ["inc", "summary after 1"])
+
+
 if __name__ == "__main__":
     unittest.main()

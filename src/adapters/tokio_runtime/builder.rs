@@ -41,6 +41,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
+    pub(crate) deferred: HashSet<String>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
@@ -76,6 +77,7 @@ impl<S: State> AsyncStateGraph<S> {
             timeouts: IndexMap::new(),
             cache: None,
             cache_policies: IndexMap::new(),
+            deferred: HashSet::new(),
             interrupt_before: HashSet::new(),
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
@@ -134,6 +136,12 @@ impl<S: State> AsyncStateGraph<S> {
     /// Enable checkpointing (required for resume and state queries).
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Mark a node as deferred until the graph has no regular work left.
+    pub fn set_deferred(mut self, name: impl Into<String>) -> Self {
+        self.deferred.insert(name.into());
         self
     }
 
@@ -295,6 +303,7 @@ impl<S: State> AsyncStateGraph<S> {
             timeouts: self.timeouts,
             cache: self.cache,
             cache_policies: self.cache_policies,
+            deferred: self.deferred,
             interrupt_before: self.interrupt_before,
             interrupt_after: self.interrupt_after,
             trace_sinks: self.kernel.trace_sinks().to_vec(),

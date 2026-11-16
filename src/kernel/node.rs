@@ -203,6 +203,9 @@ pub struct Send {
     /// current state unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arg: Option<Value>,
+    /// Per-task timeout in milliseconds (overrides the node's `TimeoutPolicy`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_millis: Option<u64>,
 }
 
 impl Send {
@@ -211,6 +214,7 @@ impl Send {
         Send {
             node: node.into(),
             arg: None,
+            timeout_millis: None,
         }
     }
 
@@ -219,7 +223,14 @@ impl Send {
         Send {
             node: node.into(),
             arg: Some(arg),
+            timeout_millis: None,
         }
+    }
+
+    /// Attach a per-task run timeout.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout_millis = Some(timeout.as_millis() as u64);
+        self
     }
 }
 
@@ -498,6 +509,9 @@ pub struct Task {
     /// Failure that scheduled this task (set by error routing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<NodeFailure>,
+    /// Per-task timeout in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_millis: Option<u64>,
 }
 
 impl Task {
@@ -508,6 +522,7 @@ impl Task {
             input: None,
             resume: None,
             error: None,
+            timeout_millis: None,
         }
     }
 
@@ -518,6 +533,7 @@ impl Task {
             input: Some(input),
             resume: None,
             error: None,
+            timeout_millis: None,
         }
     }
 }

@@ -148,9 +148,11 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
     let mut last_error: Option<String> = None;
 
     for attempt in 1..=max_attempts {
-        let timeout = graph
-            .timeout_of(&task.node)
-            .and_then(|policy| policy.run_timeout());
+        let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
+            graph
+                .timeout_of(&task.node)
+                .and_then(|policy| policy.run_timeout())
+        });
         let (result, custom, messages, mut reported) = match timeout {
             Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
             None => {

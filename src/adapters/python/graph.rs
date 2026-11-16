@@ -36,7 +36,7 @@ impl PyStateGraph {
     ///
     /// Optional LangGraph-style keywords: ``retry_policy``, ``cache_policy`` and
     /// ``error_handler`` (node name).
-    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false))]
     fn add_node(
         &mut self,
         name: String,
@@ -44,8 +44,12 @@ impl PyStateGraph {
         retry_policy: Option<PyRef<'_, PyRetryPolicy>>,
         cache_policy: Option<PyRef<'_, PyCachePolicy>>,
         error_handler: Option<String>,
+        deferred: bool,
     ) -> PyResult<()> {
         let mut graph = std::mem::take(&mut self.inner);
+        if deferred {
+            graph = graph.set_deferred(name.clone());
+        }
         graph = graph.add_node(name.clone(), node_from_python(name.clone(), function));
         if let Some(policy) = retry_policy {
             graph = graph.set_retry(name.clone(), policy.to_policy());

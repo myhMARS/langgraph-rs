@@ -206,6 +206,11 @@ edges with `NodeOutput::goto("target")` for the step.
 
 All nodes scheduled in one superstep share a state snapshot and run concurrently; the next
 superstep sees their merged writes. Edges fan out statically, `Send` with per-task state.
+`Send::with_timeout` bounds one dynamic task (overrides the node `TimeoutPolicy`); Python
+exposes it as `lg.Send(node, arg, timeout=seconds)`. Mark cleanup/summary nodes as deferred
+(`add_node_deferred` / `set_deferred`) to run them after all regular nodes finished; deferred
+nodes may interrupt and resume, but cannot be entry points or have outgoing edges.
+
 Routers can also dispatch `Send` tasks: return `Route::sends([...])` (or combine
 `Route::nodes([...]).with_sends([...])`) and the engine schedules the dynamic tasks for the
 next superstep; conditional entry points support the same. From Python, a router may return a

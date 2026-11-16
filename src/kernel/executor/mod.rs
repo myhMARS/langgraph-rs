@@ -167,6 +167,7 @@ pub(crate) fn execute<S: State>(
         )?;
     }
 
+    let mut pending_deferred: Vec<Task> = Vec::new();
     let mut iteration = 0usize;
     loop {
         if iteration >= recursion_limit {
@@ -297,6 +298,16 @@ pub(crate) fn execute<S: State>(
             }
             next_tasks.push(task);
         }
+
+        let (deferred_tasks, regular_tasks): (Vec<Task>, Vec<Task>) = next_tasks
+            .into_iter()
+            .partition(|task| graph.is_deferred(&task.node));
+        pending_deferred.extend(deferred_tasks);
+        let next_tasks = if regular_tasks.is_empty() && !pending_deferred.is_empty() {
+            std::mem::take(&mut pending_deferred)
+        } else {
+            regular_tasks
+        };
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
         sink(StreamChunk::Debug {
@@ -452,6 +463,7 @@ fn process_outcomes<S: State>(
                             input: None,
                             resume: None,
                             error: Some(failure),
+                            timeout_millis: None,
                         });
                     }
                     Some(_) => {}
@@ -582,6 +594,7 @@ fn process_outcomes<S: State>(
                         input,
                         resume: None,
                         error: None,
+                        timeout_millis: send.timeout_millis,
                     });
                 }
             }

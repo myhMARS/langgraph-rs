@@ -163,6 +163,10 @@ channel 是状态的一个字段，决定一个 superstep 的写入如何成为�
 | `UntrackedValue` | 类似 `LastValue`，但不写入 checkpoint | 仅运行时数据、敏感值 |
 | `NamedBarrierValue` | 记录写入者名称，全部到齐后变为 `true` | 汇合协调 |
 
+`Send::with_timeout` 可为单个动态任务设置超时（覆盖节点 `TimeoutPolicy`）；Python 使用
+`lg.Send(node, arg, timeout=秒)`。用 `add_node_deferred` / `set_deferred` 把清理/汇总节点标记为
+deferred，在全部常规节点结束后执行；deferred 节点支持中断/resume，但不能作为入口或拥有出边。
+
 `NodeOutput::overwrite(channel, value)` 直接写入 channel、绕过 reducer（对应 LangGraph 的
 `Overwrite`）。`DeltaChannel` 与 `LastValueAfterFinish` 尚未实现。
 

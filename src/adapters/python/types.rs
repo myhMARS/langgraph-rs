@@ -22,14 +22,15 @@ pub struct PySend {
     #[pyo3(get)]
     pub node: String,
     pub arg: Option<Py<PyAny>>,
+    pub timeout: Option<f64>,
 }
 
 #[pymethods]
 impl PySend {
     #[new]
-    #[pyo3(signature = (node, arg=None))]
-    fn new(node: String, arg: Option<Py<PyAny>>) -> Self {
-        Self { node, arg }
+    #[pyo3(signature = (node, arg=None, timeout=None))]
+    fn new(node: String, arg: Option<Py<PyAny>>, timeout: Option<f64>) -> Self {
+        Self { node, arg, timeout }
     }
 
     fn __repr__(&self) -> String {
@@ -40,10 +41,14 @@ impl PySend {
 impl PySend {
     pub(super) fn to_send(&self, py: Python<'_>) -> PyResult<Send> {
         let node = normalize_node(&self.node);
-        match &self.arg {
-            None => Ok(Send::to(node)),
-            Some(arg) => Ok(Send::with_arg(node, py_to_value(arg.bind(py))?)),
-        }
+        let send = match &self.arg {
+            None => Send::to(node),
+            Some(arg) => Send::with_arg(node, py_to_value(arg.bind(py))?),
+        };
+        Ok(match self.timeout {
+            Some(timeout) => send.with_timeout(std::time::Duration::from_secs_f64(timeout)),
+            None => send,
+        })
     }
 }
 

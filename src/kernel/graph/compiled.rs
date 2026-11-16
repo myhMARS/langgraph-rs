@@ -44,6 +44,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) node_metadata: indexmap::IndexMap<String, serde_json::Map<String, Value>>,
     pub(crate) timeouts: indexmap::IndexMap<String, TimeoutPolicy>,
+    pub(crate) deferred: std::collections::HashSet<String>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
@@ -66,6 +67,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             store: self.store.clone(),
             node_metadata: self.node_metadata.clone(),
             timeouts: self.timeouts.clone(),
+            deferred: self.deferred.clone(),
             cache: self.cache.clone(),
             cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
@@ -692,6 +694,11 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("copy_thread"))?;
         checkpointer.copy_thread(source_thread, target_thread)
+    }
+
+    /// Whether the node is deferred until the graph has no regular work left.
+    pub fn is_deferred(&self, node: &str) -> bool {
+        self.deferred.contains(node)
     }
 
     /// Timeout policy of one node, when configured.

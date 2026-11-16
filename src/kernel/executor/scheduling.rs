@@ -65,6 +65,7 @@ pub(crate) fn collect_next_nodes<'a, S: State>(
 
 /// Convert a router [`Send`] into a task, validating its target and arg.
 pub(crate) fn send_task(source: &str, send: Send) -> Result<Task> {
+    let timeout_millis = send.timeout_millis;
     let input = match send.arg {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::Object(map)) => Some(map),
@@ -78,10 +79,12 @@ pub(crate) fn send_task(source: &str, send: Send) -> Result<Task> {
             ));
         }
     };
-    Ok(match input {
+    let mut task = match input {
         Some(input) => Task::with_input(send.node, input),
         None => Task::new(send.node),
-    })
+    };
+    task.timeout_millis = timeout_millis;
+    Ok(task)
 }
 
 /// Drop `END`/`START` markers and de-duplicate node names, preserving first-seen order.

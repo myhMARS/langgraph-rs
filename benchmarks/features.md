@@ -47,7 +47,7 @@ below is the complete audit.
 | Conditional entry point | ✅ | ✅ | |
 | `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
 | Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; no `input_schema` / `destinations` validation | ✅ | |
-| `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` | ✅ `Send` (node, arg, timeout) | ours has no per-`Send` timeout |
+| `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` / `Send::with_timeout` (per-task timeout; Python `lg.Send(..., timeout=seconds)`) | ✅ `Send` (node, arg, timeout) | |
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
 | `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
@@ -68,7 +68,7 @@ below is the complete audit.
 | Durability modes | ⚠️ `Durability::{Sync, Async, Exit}` (`Async` behaves like `Sync`) | ✅ `durability=` | `Exit` persists only initial/interrupt/final checkpoints |
 | Managed values (`IsLastStep` / `RemainingSteps`) | ⚠️ `remaining_steps()` / `is_last_step()` accessors (Rust + Python) | ✅ managed values in state annotations | no `RemainingSteps` state annotation / `deferred` nodes |
 | TimeoutPolicy | ⚠️ `TimeoutPolicy` with `run_timeout` enforced (sync helper thread, async `tokio::time::timeout`); `idle_timeout` stored but not enforced | ✅ `TimeoutPolicy` (`run_timeout`, `idle_timeout`) | sync timeout cannot cancel a blocking closure |
-| Deferred nodes (`deferred=True`) | ❌ | ✅ | not implemented |
+| Deferred nodes (`deferred=True`) | ✅ sync + async (`add_node_deferred` / `set_deferred`, Python `add_node(..., deferred=True)`); run after all regular work, may interrupt/resume | ✅ | deferred nodes may not be entry points or have outgoing/conditional edges |
 | Context / runtime injection (`Runtime`, `context_schema`) | ❌ | ✅ | |
 | `get_config` / `get_stream_writer` | ⚠️ thread-local `custom()` only | ✅ context helpers | no config object |
 | Managed values (`IsLastStep`, `RemainingSteps`) | ❌ | ✅ `langgraph.managed` | |
@@ -132,7 +132,7 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/advanced.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

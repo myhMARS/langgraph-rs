@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::future::join_all;
 use indexmap::IndexMap;
@@ -98,6 +98,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
+    pub(crate) deferred: HashSet<String>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
@@ -108,6 +109,11 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// Timeout policy of one node, when configured.
     pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
         self.timeouts.get(node)
+    }
+
+    /// Whether the node is deferred until the graph has no regular work left.
+    pub fn is_deferred(&self, node: &str) -> bool {
+        self.deferred.contains(node)
     }
 
     /// Node cache backend, when caching is enabled.
@@ -467,6 +473,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             )?;
         }
 
+        let mut pending_deferred: Vec<Task> = Vec::new();
         let mut iteration = 0usize;
         loop {
             if iteration >= recursion_limit {
@@ -591,6 +598,16 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }
                 next_tasks.push(task);
             }
+
+            let (deferred_tasks, regular_tasks): (Vec<Task>, Vec<Task>) = next_tasks
+                .into_iter()
+                .partition(|task| self.is_deferred(&task.node));
+            pending_deferred.extend(deferred_tasks);
+            let next_tasks = if regular_tasks.is_empty() && !pending_deferred.is_empty() {
+                std::mem::take(&mut pending_deferred)
+            } else {
+                regular_tasks
+            };
 
             step += 1;
             let interrupt_after = executed
@@ -741,9 +758,10 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.context.clone(),
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
-            let timeout = self
-                .timeout_of(&task.node)
-                .and_then(|policy| policy.run_timeout());
+            let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
+                self.timeout_of(&task.node)
+                    .and_then(|policy| policy.run_timeout())
+            });
             let result = match timeout {
                 Some(timeout) => match tokio::time::timeout(timeout, future).await {
                     Ok(result) => result,
@@ -880,6 +898,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                                 input: None,
                                 resume: None,
                                 error: Some(failure.failure),
+                                timeout_millis: None,
                             });
                         }
                         Some(_) => {}
@@ -999,6 +1018,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                             input,
                             resume: None,
                             error: None,
+                            timeout_millis: send.timeout_millis,
                         });
                     }
                 }
