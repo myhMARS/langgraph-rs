@@ -20,6 +20,7 @@
 mod async_graph;
 mod convert;
 mod graph;
+mod prebuilt;
 mod types;
 
 use pyo3::create_exception;
@@ -224,6 +225,10 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStore>()?;
     module.add_class::<PyInMemoryStore>()?;
     module.add_class::<PyTask>()?;
+    module.add_class::<prebuilt::PyToolNode>()?;
+    module.add_function(wrap_pyfunction!(prebuilt::tools_condition, module)?)?;
+    module.add_function(wrap_pyfunction!(prebuilt::create_react_agent, module)?)?;
+    module.add("END", crate::END)?;
     module.add_class::<PyRemoveMessage>()?;
     module.add("AsyncInMemorySaver", module.getattr("InMemorySaver")?)?;
     #[cfg(feature = "sqlite")]

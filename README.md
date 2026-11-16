@@ -302,6 +302,23 @@ let graph = entrypoint(move |state: MyState| {
 .compile()?;
 ```
 
+## Prebuilt helpers
+
+`prebuilt` mirrors the small LangGraph helpers used by tool-calling agents:
+
+```rust
+use langgraph_rs::prebuilt::{ToolDefinition, ToolNode, tools_condition, create_react_agent};
+
+let tools = [ToolDefinition::new("add", |args| {
+    Ok(serde_json::json!(args["a"].as_i64().unwrap_or(0) + args["b"].as_i64().unwrap_or(0)))
+})];
+let graph = create_react_agent(model_node, tools).compile()?;
+```
+
+`tools_condition(state)` routes to `"tools"` when the last message carries `tool_calls` and to
+`END` otherwise; `ToolNode` executes the calls and appends `role="tool"` result messages. Python
+exposes `lg.ToolNode`, `lg.tools_condition`, `lg.create_react_agent` and `lg.END`.
+
 ## Reliability: retries and error routing
 
 A node can be given a retry policy; the engine retries it automatically while it keeps

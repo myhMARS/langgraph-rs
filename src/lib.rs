@@ -94,6 +94,7 @@
 mod adapters;
 pub mod functional;
 mod kernel;
+pub mod prebuilt;
 
 #[cfg(feature = "python")]
 pub use adapters::python;

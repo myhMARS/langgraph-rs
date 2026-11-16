@@ -1103,5 +1103,74 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(asyncio.run(scenario())["value"], 5)
 
 
+    def test_tool_node_executes_tool_calls(self):
+        def add(args):
+            return args["a"] + args["b"]
+
+        graph = lg.StateGraph(getattr(lg, "MessagesState", {"messages": "add_messages"}))
+        graph.add_node("tools", lg.ToolNode({"add": add}))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        output = graph.compile().invoke(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {"id": "call-1", "name": "add", "args": {"a": 1, "b": 2}}
+                        ],
+                    }
+                ]
+            }
+        )
+        messages = output["messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[-1]["role"], "tool")
+        self.assertEqual(messages[-1]["tool_call_id"], "call-1")
+        self.assertEqual(messages[-1]["content"], "3")
+
+    def test_tools_condition_and_create_react_agent(self):
+        def add(args):
+            return args["a"] + args["b"]
+
+        def model(state):
+            messages = state.get("messages", [])
+            last = messages[-1] if messages else None
+            if last is not None and last.get("role") == "tool":
+                return {"messages": [{"role": "assistant", "content": "done"}]}
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {"id": "call-1", "name": "add", "args": {"a": 1, "b": 2}}
+                        ],
+                    }
+                ]
+            }
+
+        self.assertEqual(
+            lg.tools_condition(
+                {
+                    "messages": [
+                        {"role": "assistant", "tool_calls": [{"id": "1", "name": "x"}]}
+                    ]
+                }
+            ),
+            "tools",
+        )
+        self.assertEqual(
+            lg.tools_condition({"messages": [{"role": "assistant"}]}),
+            lg.END,
+        )
+
+        graph = lg.create_react_agent(model, {"add": add})
+        output = graph.compile().invoke({"messages": []})
+        messages = output["messages"]
+        self.assertEqual(len(messages), 3)
+        self.assertEqual(messages[1]["content"], "3")
+        self.assertEqual(messages[2]["content"], "done")
+
+
 if __name__ == "__main__":
     unittest.main()

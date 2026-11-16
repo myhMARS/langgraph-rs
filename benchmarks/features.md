@@ -80,7 +80,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Error handling of nodes | ✅ `add_error_edge` + `last_error()` | ✅ per-node `add_node(error_handler=...)` | equivalent capability, different API; our handler runs in the next superstep |
 | Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ✅ `TimeoutPolicy` with enforced `run_timeout` (sync helper thread, async `tokio::time::timeout`); `idle_timeout` stored only | ✅ | |
 | Functional API (`@entrypoint` / `@task`) | ⚠️ `functional::entrypoint` compiles to a one-node graph; `functional::task` memoizes results in `BaseStore` so completed tasks are not re-run after interrupt/resume; Python `lg.entrypoint` / `lg.task` mirror this | ✅ `langgraph.func` | tasks execute inline (no parallel task scheduling), no per-task checkpoint records |
-| Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ❌ | ✅ `langgraph.prebuilt` | outside the current scope |
+| Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ✅ Rust `prebuilt::{ToolNode, ToolDefinition, tools_condition, create_react_agent}` and Python `lg.ToolNode` / `lg.tools_condition` / `lg.create_react_agent`; tool calls read from message `tool_calls`, results appended as `role=tool` messages | ✅ `langgraph.prebuilt` | minimal ReAct loop; no LangChain tool objects or model integration |
 
 ### Checkpointing and state management
 
