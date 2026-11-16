@@ -24,7 +24,7 @@ capability exists but with documented differences (see the notes column and
 | Node-level consumption tracking | ✅ `Usage` + `NodeExecution` + `RunReport` + `TraceSink` | ⚠️ via callbacks/metadata, not first-class | Rust reports duration + tokens/model/cost per node automatically |
 | Trace/metering adapters | ✅ `TraceSink` port | ✅ callbacks / LangSmith | plug any sink (logging, metrics, OTel) |
 | Subgraphs | ✅ `add_subgraph` | ✅ first-class subgraphs | shares the parent state type; publishes changed channels as replacements; no state mapping, checkpoint namespacing or nested interrupts yet |
-| Async nodes / runtime integration | ✅ Tokio adapter (`async` feature) | ✅ native async | the default engine is synchronous; async nodes use `AsyncContext` and the async adapter has no checkpoints/HITL/retries yet |
+| Async nodes / runtime integration | ✅ Tokio adapter (`async` feature) with checkpoints, HITL, retries and error routing | ✅ native async | the default engine stays synchronous; async nodes use `AsyncContext`; async subgraphs/Python bindings are not exposed yet |
 | Retry policies | ✅ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy` | interrupts are never retried |
 | Error routing / fallback nodes | ✅ `add_error_edge` + `last_error()` | ✅ conditional edges / error handling | handler runs in the next superstep and receives a `NodeFailure` |
 | Python API | ✅ PyO3 bindings (`python` feature) | ✅ native | Rust exposes `StateGraph`/`CompiledGraph`, `interrupt`, `resume`, `run` reports; only built-in reducers from Python |

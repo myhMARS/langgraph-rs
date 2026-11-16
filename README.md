@@ -319,9 +319,39 @@ async fn example() -> langgraph_rs::Result<()> {
 }
 ```
 
-The async adapter currently covers nodes, static/conditional edges, goto, `Send`,
-usage/trace reporting and streaming. Checkpointing, interrupts, retries and error routing
-remain on the synchronous path (use the sync graph for human-in-the-loop workflows).
+The async adapter has the same engine features as the sync path: checkpointing and
+thread history, human-in-the-loop (`ctx.interrupt(...)` + `graph.resume(thread, value)`),
+`interrupt_before` / `interrupt_after`, per-node `RetryPolicy`, error routing with
+`ctx.last_error()`, goto/`Send`, streaming and usage/trace reporting. Checkpointing is
+enabled with `.with_checkpointer(Arc::new(InMemorySaver::new()))` and needs a
+`RunConfig::with_thread(...)`:
+
+```rust
+use langgraph_rs::tokio_runtime::AsyncStateGraph;
+use langgraph_rs::{InMemorySaver, RunConfig, json};
+use std::sync::Arc;
+
+# async fn example() -> langgraph_rs::Result<()> {
+let graph = AsyncStateGraph::<JsonState>::new()
+    .add_node("approve", |_state: JsonState, ctx| async move {
+        let answer = ctx.interrupt(json!({ "question": "approve?" }))?;
+        Ok(langgraph_rs::NodeOutput::new().set("approved", answer))
+    })
+    .set_entry_point("approve")
+    .set_finish_point("approve")
+    .with_checkpointer(Arc::new(InMemorySaver::new()))
+    .compile()?;
+
+let _ = graph
+    .run(&JsonState::default(), &RunConfig::new().with_thread("demo"))
+    .await
+    .unwrap_err(); // GraphInterrupt-equivalent: Error::Interrupt
+
+let state = graph.resume("demo", json!(true)).await?;
+assert_eq!(state.get("approved"), Some(&json!(true)));
+# Ok(())
+# }
+```
 
 ## Checkpointing and human-in-the-loop
 

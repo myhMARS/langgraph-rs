@@ -319,9 +319,22 @@ translation layer over the Rust engine:
 - **Context.** Futures interleave, so the sync thread-local context cannot be used.
   `AsyncContext` is an `Arc<Mutex<..>>` handle that nodes use to report usage
   (`record_usage` / `record_tokens`), emit `custom` values, and read `last_error()`.
-- **Scope.** Nodes, static/conditional edges, goto, `Send`, usage/trace reporting and
-  streaming are supported. Checkpoints, interrupts, retries and error routing are not part of
-  the async adapter yet; use the sync engine for human-in-the-loop and durable runs.
+- **Checkpoints and HITL.** The adapter owns the same checkpoint lifecycle as the sync
+  executor: a step-0 checkpoint for fresh thread-bound runs, a checkpoint after every
+  superstep, and an interrupted checkpoint (pre-superstep values + pending tasks) when a node
+  calls `ctx.interrupt(..)`, when a node is paused by `interrupt_before`, or after
+  `interrupt_after`. `resume(thread, value)` / `resume_with_updates` / `continue_thread`
+  reload the latest checkpoint, re-stamp the pending tasks with the resume value and continue;
+  `paused_before` suppresses the same hook exactly once.
+- **Retries.** `add_node_with_retry` / `set_retry` reuse the kernel `RetryPolicy`; the async
+  runner sleeps with `tokio::time::sleep` between attempts and never retries interrupts.
+  Duration, attempt counts and usage of all attempts land in the report and trace sinks.
+- **Error routing.** `add_error_edge` queues the handler as a task with the `NodeFailure`, so
+  `ctx.last_error()` works; handler tasks are de-duplicated per superstep and take precedence
+  over a regular edge to the same node.
+- **Scope.** Nodes, static/conditional edges, goto, `Send`, streaming, usage/trace,
+  checkpointing, interrupts, retries and error routing are supported. Nested subgraphs and
+  Python bindings are not exposed for async graphs yet.
 
 ## Extension points
 
