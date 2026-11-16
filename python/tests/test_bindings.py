@@ -1190,5 +1190,52 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(snapshot["values"]["value"], 1)
 
 
+    def test_async_thread_management(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+            graph.set_entry_point("inc")
+            graph.set_finish_point("inc")
+            compiled = graph.compile(checkpointer=lg.AsyncInMemorySaver())
+            await compiled.ainvoke({"value": 0}, thread_id="async-thread")
+            compiled.copy_thread("async-thread", "async-copy")
+            copied = compiled.get_state("async-copy")
+            history = compiled.get_state_history("async-thread")
+            compiled.delete_thread("async-thread")
+            deleted = compiled.get_state("async-thread")
+            return copied, history, deleted
+
+        copied, history, deleted = asyncio.run(scenario())
+        self.assertIsNotNone(copied)
+        self.assertTrue(history)
+        self.assertIsNone(deleted)
+
+    def test_v2_messages_metadata(self):
+        import asyncio
+
+        def emit(state):
+            lg.message({"content": "token"})
+            return {"value": state["value"] + 1}
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("emit", emit)
+            graph.set_entry_point("emit")
+            graph.set_finish_point("emit")
+            compiled = graph.compile()
+            return await compiled.astream(
+                {"value": 0}, stream_mode=["messages"], version="v2"
+            )
+
+        chunks = asyncio.run(scenario())
+        messages = [chunk for chunk in chunks if chunk["type"] == "messages"]
+        self.assertTrue(messages)
+        metadata = messages[0]["data"][1]
+        self.assertEqual(metadata["langgraph_node"], "emit")
+        self.assertIn("tags", metadata)
+
+
 if __name__ == "__main__":
     unittest.main()

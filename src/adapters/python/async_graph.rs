@@ -383,6 +383,49 @@ impl PyAsyncCompiledGraph {
         self.saver.is_some()
     }
 
+    /// Read the full checkpoint history of a thread, newest first.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn get_state_history(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let snapshots = match checkpoint_ns.as_deref() {
+            Some(namespace) => self
+                .graph
+                .get_state_history_in(&thread_id, namespace)
+                .map_err(|error| to_pyerr(py, error))?,
+            None => self
+                .graph
+                .get_state_history(&thread_id)
+                .map_err(|error| to_pyerr(py, error))?,
+        };
+        snapshots
+            .iter()
+            .map(|snapshot| snapshot_to_py(py, snapshot))
+            .collect()
+    }
+
+    /// Delete every checkpoint of a thread.
+    fn delete_thread(&self, py: Python<'_>, thread_id: String) -> PyResult<()> {
+        self.graph
+            .delete_thread(&thread_id)
+            .map_err(|error| to_pyerr(py, error))
+    }
+
+    /// Copy every checkpoint of one thread to another thread id.
+    fn copy_thread(
+        &self,
+        py: Python<'_>,
+        source_thread: String,
+        target_thread: String,
+    ) -> PyResult<()> {
+        self.graph
+            .copy_thread(&source_thread, &target_thread)
+            .map_err(|error| to_pyerr(py, error))
+    }
+
     fn to_mermaid(&self) -> String {
         self.graph.to_mermaid()
     }

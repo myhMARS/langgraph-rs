@@ -397,9 +397,43 @@ impl<S: State> AsyncCompiledGraph<S> {
         self.saver_threads_sync()
     }
 
+    /// Delete every checkpoint of a thread.
+    pub fn delete_thread(&self, thread_id: &str) -> Result<()> {
+        if let Some(saver) = &self.async_checkpointer {
+            futures::executor::block_on(saver.delete_thread(thread_id))
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.delete_thread(thread_id)
+        } else {
+            Err(Error::MissingCheckpointer("delete_thread"))
+        }
+    }
+
+    /// Copy every checkpoint of one thread to another thread id.
+    pub fn copy_thread(&self, source: &str, target: &str) -> Result<()> {
+        if let Some(saver) = &self.async_checkpointer {
+            futures::executor::block_on(saver.copy_thread(source, target))
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.copy_thread(source, target)
+        } else {
+            Err(Error::MissingCheckpointer("copy_thread"))
+        }
+    }
+
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
         self.saver_history_sync(thread_id)?
+            .into_iter()
+            .map(StateSnapshot::from_checkpoint)
+            .collect()
+    }
+
+    /// Read the full checkpoint history of a thread inside a checkpoint namespace.
+    pub fn get_state_history_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        self.saver_history_in_sync(thread_id, namespace)?
             .into_iter()
             .map(StateSnapshot::from_checkpoint)
             .collect()
@@ -1309,6 +1343,20 @@ impl<S: State> AsyncCompiledGraph<S> {
         } else {
             Err(Error::MissingCheckpointer("history"))
         }
+    }
+
+    async fn saver_history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.history_in(thread_id, namespace).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.history_in(thread_id, namespace)
+        } else {
+            Err(Error::MissingCheckpointer("history_in"))
+        }
+    }
+
+    fn saver_history_in_sync(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
+        futures::executor::block_on(self.saver_history_in(thread_id, namespace))
     }
 
     fn saver_threads_sync(&self) -> Result<Vec<String>> {

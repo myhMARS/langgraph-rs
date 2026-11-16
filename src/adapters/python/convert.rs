@@ -524,11 +524,14 @@ pub(super) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("type", "custom")?;
             dict.set_item("data", value_to_py(py, value)?)?;
         }
-        StreamChunk::Message { message, .. } => {
+        StreamChunk::Message { node, message, .. } => {
             dict.set_item("type", "messages")?;
             let data = PyList::empty(py);
             data.append(value_to_py(py, message)?)?;
-            data.append(PyDict::new(py))?;
+            let metadata = PyDict::new(py);
+            metadata.set_item("langgraph_node", node)?;
+            metadata.set_item("tags", PyList::empty(py))?;
+            data.append(metadata)?;
             dict.set_item("data", data)?;
         }
         StreamChunk::Debug { payload, .. } => {
