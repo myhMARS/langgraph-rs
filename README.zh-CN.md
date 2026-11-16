@@ -712,11 +712,11 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 
 | 场景 | Rust 原生 | Rust Python 绑定 | Python LangGraph | Rust 相对 LangGraph |
 | --- | --- | --- | --- | --- |
-| linear_10（10 节点流水线） | 50.22 µs/op | 57.98 µs/op | 2,626.96 µs/op | **52.3×** |
-| loop_50（50 步循环） | 256.96 µs/op | 287.01 µs/op | 12,841.48 µs/op | **50.0×** |
-| fanout_4（1 → 4 并行 → join） | 451.33 µs/op | 460.65 µs/op | 2,400.45 µs/op | **5.3×** |
-| checkpoint_5（5 节点 + checkpoint） | 34.82 µs/op | 32.17 µs/op | 3,486.97 µs/op | **100.1×** |
-| build_compile（10 节点图） | 13.24 µs/op | 26.60 µs/op | 752.00 µs/op | **56.8×** |
+| linear_10（10 节点流水线） | 69.03 µs/op | 82.57 µs/op | 2,173.93 µs/op | **31.5×** |
+| loop_50（50 步循环） | 326.52 µs/op | 455.50 µs/op | 10,888.65 µs/op | **33.3×** |
+| fanout_4（1 → 4 并行 → join） | 499.27 µs/op | 614.23 µs/op | 2,621.89 µs/op | **5.3×** |
+| checkpoint_5（5 节点 + checkpoint） | 60.89 µs/op | 40.07 µs/op | 3,672.57 µs/op | **60.3×** |
+| build_compile（10 节点图） | 19.03 µs/op | 25.49 µs/op | 860.28 µs/op | **45.2×** |
 
 完整报告还包含图规模扩展（`scale_005` … `scale_100`）、8 线程并发（`mt_8x_linear_10`）与峰值
 内存（`mem_linear_10`、`mem_loop_50`），见 [benchmarks/RESULTS.md](benchmarks/RESULTS.md)。
@@ -745,9 +745,14 @@ Python v2 stream parts）；节点级耗时/usage 追踪与运行报告、trace-
 Python 绑定（同步与异步，含 store、saver、functional API 与流式）；以及包含扩展性、线程与内存
 场景的功能/性能基准。
 
-已知限制（详见 `benchmarks/features.md`）：图定义与 checkpoint 与 LangGraph 不保证字节互操作；
-async checkpointer 通过 `BlockingSaver` 把同步 saver 的 I/O 卸载到阻塞池（无原生 async DB 驱动）；functional API 内联执行任务，已完成任务结果持久化在 `checkpoint.task_results`（可选 `BaseStore`）
-并用 `BaseStore` 记忆化，而非逐任务 checkpoint；Python 节点可以是普通 callable 或 coroutine；schema 支持 Python callable reducer。
+已知限制（详见 `benchmarks/features.md`）：checkpoint 互操作是 JSON 级（`export_checkpoint` /
+`import_checkpoint`），不是 LangGraph 的 msgpack/数据库字节格式；async checkpointer 通过
+`BlockingSaver` 把同步 saver 的 I/O 卸载到阻塞池（无原生 async DB 驱动）；`RunControl` 在超步
+边界协作式 abort；functional API 内联执行任务，已完成任务结果持久化在
+`checkpoint.task_results`（可选 `BaseStore`）而非独立 pending writes；`update_state(task_id=...)`
+用匹配的 pending task 推断 `as_node`，不重放 task writes；状态只有一套 schema（无独立
+input/output/private schemas），用户 context 不做 schema 校验；Python 节点可以是普通 callable
+或 coroutine；schema 支持 Python callable reducer。
 
 ## 与 LangGraph 的差异
 

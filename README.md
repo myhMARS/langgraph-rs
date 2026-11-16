@@ -764,11 +764,11 @@ Snapshot (Windows 11, rustc 1.99.1, Python 3.12.10, LangGraph 1.2.22):
 
 | Scenario | Rust native | Rust via Python binding | Python LangGraph | Rust vs LangGraph |
 | --- | --- | --- | --- | --- |
-| linear_10 (10-node pipeline) | 50.22 µs/op | 57.98 µs/op | 2,626.96 µs/op | **52.3×** |
-| loop_50 (50-step loop) | 256.96 µs/op | 287.01 µs/op | 12,841.48 µs/op | **50.0×** |
-| fanout_4 (1 → 4 parallel → join) | 451.33 µs/op | 460.65 µs/op | 2,400.45 µs/op | **5.3×** |
-| checkpoint_5 (5 nodes + checkpoints) | 34.82 µs/op | 32.17 µs/op | 3,486.97 µs/op | **100.1×** |
-| build_compile (10-node graph) | 13.24 µs/op | 26.60 µs/op | 752.00 µs/op | **56.8×** |
+| linear_10 (10-node pipeline) | 69.03 µs/op | 82.57 µs/op | 2,173.93 µs/op | **31.5×** |
+| loop_50 (50-step loop) | 326.52 µs/op | 455.50 µs/op | 10,888.65 µs/op | **33.3×** |
+| fanout_4 (1 → 4 parallel → join) | 499.27 µs/op | 614.23 µs/op | 2,621.89 µs/op | **5.3×** |
+| checkpoint_5 (5 nodes + checkpoints) | 60.89 µs/op | 40.07 µs/op | 3,672.57 µs/op | **60.3×** |
+| build_compile (10-node graph) | 19.03 µs/op | 25.49 µs/op | 860.28 µs/op | **45.2×** |
 
 The full report also covers graph-size scaling (`scale_005` … `scale_100`), 8-thread
 throughput (`mt_8x_linear_10`) and peak allocated memory (`mem_linear_10`, `mem_loop_50`);
@@ -804,13 +804,16 @@ checkpoint/HITL/retry/error-routing surface, subgraphs, cache and batch; optiona
 functional/performance benchmark against Python LangGraph, including scaling, threading and
 memory scenarios.
 
-Known limitations (documented in `benchmarks/features.md`): graph definitions and checkpoints are
-not byte-compatible with LangGraph; async checkpointers offload synchronous savers through
-`BlockingSaver` instead of native async DB drivers; the
-functional API executes tasks inline; completed task results are persisted in
-`checkpoint.task_results` (and optionally a `BaseStore`) instead of separate pending writes;
-Python nodes can be sync callables or coroutine functions; custom reducers are supported as
-Python callables in the schema.
+Known limitations (documented in `benchmarks/features.md`): checkpoint interop is JSON-level
+(`export_checkpoint` / `import_checkpoint`), not LangGraph's msgpack/database byte format;
+async checkpointers offload synchronous savers through `BlockingSaver` instead of native async
+DB drivers; `RunControl` aborts cooperatively at superstep boundaries; the functional API
+executes tasks inline and persists completed task results in `checkpoint.task_results` (and
+optionally a `BaseStore`) instead of separate pending writes; `update_state(task_id=...)`
+infers `as_node` from the matching pending task rather than replaying task writes; graph state
+uses one schema (no separate input/output/private schemas) and user context is not schema-
+validated; Python nodes can be sync callables or coroutine functions; custom reducers are
+supported as Python callables in the schema.
 
 ## Differences from LangGraph
 
