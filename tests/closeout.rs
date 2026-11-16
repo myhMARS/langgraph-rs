@@ -247,3 +247,41 @@ fn checkpoints_carry_channel_versions() {
     );
     assert!(!checkpoint["versions_seen"].as_object().unwrap().is_empty());
 }
+
+#[test]
+fn input_output_and_private_channels_are_filtered() {
+    let schema = StateSchema::dynamic()
+        .with_input_channels(["a"])
+        .with_output_channels(["b"])
+        .with_private_channels(["secret"]);
+    let graph = StateGraph::<JsonState>::with_schema(schema)
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("a")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new()
+                .update("b", json!(value + 1))
+                .update("secret", json!("internal")))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap();
+
+    let input = json!({"a": 1, "c": 9});
+    let output = graph
+        .run(
+            &serde_json::from_value::<JsonState>(input).unwrap(),
+            &RunConfig::new().with_thread("layers"),
+        )
+        .unwrap();
+    assert_eq!(output.state.get("b"), Some(&json!(2)));
+    assert_eq!(output.state.get("a"), None);
+    assert_eq!(output.state.get("c"), None);
+    assert_eq!(output.state.get("secret"), None);
+
+    let snapshot = graph.get_state("layers").unwrap().unwrap();
+    assert_eq!(snapshot.values.get("secret"), None);
+    assert_eq!(snapshot.values.get("b"), Some(&json!(2)));
+}

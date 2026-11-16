@@ -1419,5 +1419,23 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertTrue(checkpoint["versions_seen"])
 
 
+    def test_input_output_private_schema_layers(self):
+        graph = lg.StateGraph(
+            {}, input_schema=["a"], output_schema=["b"], private_schema=["secret"]
+        )
+        graph.add_node(
+            "inc",
+            lambda state: {"b": state["a"] + 1, "secret": "internal"},
+        )
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        output = compiled.invoke({"a": 1, "c": 9}, thread_id="py-layers")
+        self.assertEqual(output, {"b": 2})
+        snapshot = compiled.get_state("py-layers")
+        self.assertEqual(snapshot["values"], {"a": 1, "b": 2})
+        self.assertNotIn("secret", snapshot["values"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -605,6 +605,7 @@ impl<S: State> AsyncCompiledGraph<S> {
 
         let (mut values, mut state, mut tasks, mut step) = match start {
             StartInput::Values(values) => {
+                let values = self.schema.filter_input(values);
                 let state = values_to_state::<S>(&values)?;
                 let tasks = self.entry_tasks(&state)?;
                 (values, state, tasks, 0usize)
@@ -628,6 +629,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 (values, state, tasks, 0usize)
             }
             StartInput::Gateways { values, nodes } => {
+                let values = self.schema.filter_input(values);
                 for node in &nodes {
                     if !self.nodes.contains_key(node) {
                         return Err(Error::validation(format!(
@@ -697,7 +699,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         };
 
         if tasks.is_empty() {
-            return Ok(finish(state, report, started));
+            return finish(state, &self.schema, report, started);
         }
 
         if fresh {
@@ -907,7 +909,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 values: Value::Object(values.clone()),
             });
             if super::context::has_parent_command() {
-                return Ok(finish(state, report, started));
+                return finish(state, &self.schema, report, started);
             }
 
             let (next_nodes, router_sends) = collect_next_nodes(
@@ -997,7 +999,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     }
                     state = values_to_state::<S>(&values)?;
                 }
-                return Ok(finish(state, report, started));
+                return finish(state, &self.schema, report, started);
             }
             self.schema.clear_ephemeral(&mut values);
             state = values_to_state::<S>(&values)?;
@@ -1570,7 +1572,18 @@ fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
     combined
 }
 
-fn finish<S>(state: S, mut report: RunReport, started: Instant) -> RunOutcome<S> {
+fn finish<S: State>(
+    state: S,
+    schema: &crate::kernel::state::StateSchema,
+    mut report: RunReport,
+    started: Instant,
+) -> Result<RunOutcome<S>> {
     report.total_duration_millis = started.elapsed().as_millis() as u64;
-    RunOutcome { state, report }
+    let state = if schema.has_output_filter() {
+        let values = crate::kernel::state::state_to_values(&state)?;
+        values_to_state::<S>(&schema.output_values(&values))?
+    } else {
+        state
+    };
+    Ok(RunOutcome { state, report })
 }

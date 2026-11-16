@@ -24,6 +24,9 @@ use crate::{Error, Result};
 pub struct StateSchema {
     channels: IndexMap<String, Channel>,
     allow_implicit_channels: bool,
+    input_channels: Option<std::collections::HashSet<String>>,
+    output_channels: Option<std::collections::HashSet<String>>,
+    private_channels: std::collections::HashSet<String>,
 }
 
 impl StateSchema {
@@ -39,7 +42,73 @@ impl StateSchema {
         Self {
             channels: IndexMap::new(),
             allow_implicit_channels: true,
+            ..Self::default()
         }
+    }
+
+    /// Restrict the channels accepted as graph input (LangGraph input schema).
+    pub fn with_input_channels<I, T>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.input_channels = Some(names.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Restrict the channels returned to the caller (LangGraph output schema).
+    pub fn with_output_channels<I, T>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.output_channels = Some(names.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Mark channels as internal: never returned and never persisted.
+    pub fn with_private_channels<I, T>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.private_channels = names.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Keep only declared input channels (private channels are never inputs).
+    pub(crate) fn filter_input(&self, values: Map<String, Value>) -> Map<String, Value> {
+        values
+            .into_iter()
+            .filter(|(name, _)| {
+                !self.private_channels.contains(name)
+                    && self
+                        .input_channels
+                        .as_ref()
+                        .is_none_or(|allowed| allowed.contains(name.as_str()))
+            })
+            .collect()
+    }
+
+    /// Filter final values through the output schema and drop private channels.
+    pub(crate) fn output_values(&self, values: &Map<String, Value>) -> Map<String, Value> {
+        values
+            .iter()
+            .filter(|(name, _)| {
+                let name: &str = name.as_str();
+                !self.private_channels.contains(name)
+                    && self
+                        .output_channels
+                        .as_ref()
+                        .is_none_or(|allowed| allowed.contains(name))
+            })
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect()
+    }
+
+    /// `true` when output filtering would change values.
+    pub(crate) fn has_output_filter(&self) -> bool {
+        self.output_channels.is_some() || !self.private_channels.is_empty()
     }
 
     /// Add a channel with an explicit merge strategy.
@@ -106,6 +175,9 @@ impl StateSchema {
 
     /// Whether values of `name` belong in a checkpoint.
     pub(crate) fn persists(&self, name: &str) -> bool {
+        if self.private_channels.contains(name) {
+            return false;
+        }
         self.channels
             .get(name)
             .map(Channel::persists)

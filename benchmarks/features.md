@@ -40,7 +40,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 
 | Capability | langgraph-rs | LangGraph 1.2.22 | Notes |
 | --- | --- | --- | --- |
-| Typed state + channels | ⚠️ `State::schema` / `StateSchema`, `JsonState` | ✅ `StateGraph(StateT)` with annotated channels | one state schema per graph; no separate input/output/private schemas |
+| Typed state + channels | ✅ `State::schema` / `StateSchema` (also `with_input_channels` / `with_output_channels` / `with_private_channels`; Python `StateGraph(..., input_schema=, output_schema=, private_schema=)`), `JsonState` | ✅ `StateGraph(StateT)` with annotated channels | input/output/private are channel allow-lists over one value schema |
 | `LastValue` channel | ✅ | ✅ `LastValue` | concurrent writes fail in both |
 | `Topic` channel | ✅ `Topic { accumulate }`: `topic`/`Topic(accumulate=true)` keeps values across supersteps, `topic_current` / `Topic(accumulate=false)` only the current superstep (lists are flattened, like LangGraph) | ✅ `Topic(accumulate=...)` | default plugin `topic` accumulates (LangGraph's constructor default is false) |
 | Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
