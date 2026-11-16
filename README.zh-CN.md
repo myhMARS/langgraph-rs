@@ -682,11 +682,11 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 
 | 场景 | Rust 原生 | Rust Python 绑定 | Python LangGraph | Rust 相对 LangGraph |
 | --- | --- | --- | --- | --- |
-| linear_10（10 节点流水线） | 22.85 µs/op | 35.61 µs/op | 3,362.68 µs/op | **147.1×** |
-| loop_50（50 步循环） | 206.82 µs/op | 167.08 µs/op | 18,680.04 µs/op | **90.3×** |
-| fanout_4（1 → 4 并行 → join） | 704.23 µs/op | 468.25 µs/op | 3,785.87 µs/op | **5.4×** |
-| checkpoint_5（5 节点 + checkpoint） | 19.28 µs/op | 25.36 µs/op | 5,592.27 µs/op | **290.0×** |
-| build_compile（10 节点图） | 11.47 µs/op | 22.45 µs/op | 1,442.46 µs/op | **125.8×** |
+| linear_10（10 节点流水线） | 50.22 µs/op | 57.98 µs/op | 2,626.96 µs/op | **52.3×** |
+| loop_50（50 步循环） | 256.96 µs/op | 287.01 µs/op | 12,841.48 µs/op | **50.0×** |
+| fanout_4（1 → 4 并行 → join） | 451.33 µs/op | 460.65 µs/op | 2,400.45 µs/op | **5.3×** |
+| checkpoint_5（5 节点 + checkpoint） | 34.82 µs/op | 32.17 µs/op | 3,486.97 µs/op | **100.1×** |
+| build_compile（10 节点图） | 13.24 µs/op | 26.60 µs/op | 752.00 µs/op | **56.8×** |
 
 完整报告还包含图规模扩展（`scale_005` … `scale_100`）、8 线程并发（`mt_8x_linear_10`）与峰值
 内存（`mem_linear_10`、`mem_loop_50`），见 [benchmarks/RESULTS.md](benchmarks/RESULTS.md)。

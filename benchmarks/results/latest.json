@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16T10:35:46.164029+00:00",
+  "generated_at": "2026-11-16T11:49:48.731833+00:00",
   "machine": "Windows-11-10.0.26300-SP0",
   "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
   "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
@@ -10,292 +10,292 @@
       "engine": "rust",
       "scenario": "linear_10",
       "iterations": 1000,
-      "total_ms": 37.329,
-      "ns_per_op": 37329.1,
-      "ops_per_sec": 26788.8
+      "total_ms": 50.222,
+      "ns_per_op": 50222.2,
+      "ops_per_sec": 19911.5
     },
     {
       "engine": "rust",
       "scenario": "loop_50",
       "iterations": 200,
-      "total_ms": 44.363,
-      "ns_per_op": 221815.5,
-      "ops_per_sec": 4508.3
+      "total_ms": 51.392,
+      "ns_per_op": 256958.5,
+      "ops_per_sec": 3891.7
     },
     {
       "engine": "rust",
       "scenario": "fanout_4",
       "iterations": 1000,
-      "total_ms": 239.898,
-      "ns_per_op": 239898.0,
-      "ops_per_sec": 4168.4
+      "total_ms": 451.333,
+      "ns_per_op": 451333.3,
+      "ops_per_sec": 2215.7
     },
     {
       "engine": "rust",
       "scenario": "checkpoint_5",
       "iterations": 200,
-      "total_ms": 6.368,
-      "ns_per_op": 31838.5,
-      "ops_per_sec": 31408.5
+      "total_ms": 6.965,
+      "ns_per_op": 34822.5,
+      "ops_per_sec": 28717.1
     },
     {
       "engine": "rust",
       "scenario": "build_compile",
       "iterations": 500,
-      "total_ms": 5.035,
-      "ns_per_op": 10070.4,
-      "ops_per_sec": 99300.9
+      "total_ms": 6.618,
+      "ns_per_op": 13236.4,
+      "ops_per_sec": 75549.2
     },
     {
       "engine": "rust",
       "scenario": "scale_005",
       "iterations": 1000,
-      "total_ms": 19.666,
-      "ns_per_op": 19666.1,
-      "ops_per_sec": 50848.9
+      "total_ms": 38.541,
+      "ns_per_op": 38541.5,
+      "ops_per_sec": 25946.1
     },
     {
       "engine": "rust",
       "scenario": "scale_010",
       "iterations": 1000,
-      "total_ms": 36.753,
-      "ns_per_op": 36753.2,
-      "ops_per_sec": 27208.5
+      "total_ms": 50.38,
+      "ns_per_op": 50380.4,
+      "ops_per_sec": 19849.0
     },
     {
       "engine": "rust",
       "scenario": "scale_025",
       "iterations": 500,
-      "total_ms": 48.843,
-      "ns_per_op": 97686.4,
-      "ops_per_sec": 10236.8
+      "total_ms": 63.653,
+      "ns_per_op": 127306.4,
+      "ops_per_sec": 7855.1
     },
     {
       "engine": "rust",
       "scenario": "scale_050",
       "iterations": 250,
-      "total_ms": 42.197,
-      "ns_per_op": 168787.2,
-      "ops_per_sec": 5924.6
+      "total_ms": 69.991,
+      "ns_per_op": 279964.4,
+      "ops_per_sec": 3571.9
     },
     {
       "engine": "rust",
       "scenario": "scale_100",
       "iterations": 100,
-      "total_ms": 41.592,
-      "ns_per_op": 415923.0,
-      "ops_per_sec": 2404.3
+      "total_ms": 45.795,
+      "ns_per_op": 457954.0,
+      "ops_per_sec": 2183.6
     },
     {
       "engine": "rust",
       "scenario": "mt_8x_linear_10",
       "threads": 8,
       "iterations": 1000,
-      "total_ms": 8.242,
-      "ns_per_op": 8241.6,
-      "ops_per_sec": 121335.7
+      "total_ms": 29.979,
+      "ns_per_op": 29979.0,
+      "ops_per_sec": 33356.7
     },
     {
       "engine": "rust",
       "scenario": "mem_linear_10",
       "iterations": 200,
-      "bytes_per_op": 85613.0,
-      "peak_bytes": 6038
+      "bytes_per_op": 93053.0,
+      "peak_bytes": 6166
     },
     {
       "engine": "rust",
       "scenario": "mem_loop_50",
       "iterations": 200,
-      "bytes_per_op": 428736.0,
-      "peak_bytes": 14924
+      "bytes_per_op": 468496.0,
+      "peak_bytes": 15052
     },
     {
       "engine": "langgraph",
       "scenario": "linear_10",
       "iterations": 1000,
-      "total_ms": 2268.189,
-      "ns_per_op": 2268188.9,
-      "ops_per_sec": 440.9
+      "total_ms": 2626.957,
+      "ns_per_op": 2626956.6,
+      "ops_per_sec": 380.7
     },
     {
       "engine": "langgraph",
       "scenario": "loop_50",
       "iterations": 200,
-      "total_ms": 2456.427,
-      "ns_per_op": 12282136.5,
-      "ops_per_sec": 81.4
+      "total_ms": 2568.296,
+      "ns_per_op": 12841480.0,
+      "ops_per_sec": 77.9
     },
     {
       "engine": "langgraph",
       "scenario": "fanout_4",
       "iterations": 1000,
-      "total_ms": 2136.047,
-      "ns_per_op": 2136046.9,
-      "ops_per_sec": 468.2
+      "total_ms": 2400.454,
+      "ns_per_op": 2400454.5,
+      "ops_per_sec": 416.6
     },
     {
       "engine": "langgraph",
       "scenario": "checkpoint_5",
       "iterations": 200,
-      "total_ms": 894.637,
-      "ns_per_op": 4473183.5,
-      "ops_per_sec": 223.6
+      "total_ms": 697.393,
+      "ns_per_op": 3486966.5,
+      "ops_per_sec": 286.8
     },
     {
       "engine": "langgraph",
       "scenario": "build_compile",
       "iterations": 500,
-      "total_ms": 364.861,
-      "ns_per_op": 729722.8,
-      "ops_per_sec": 1370.4
+      "total_ms": 375.999,
+      "ns_per_op": 751998.8,
+      "ops_per_sec": 1329.8
     },
     {
       "engine": "langgraph",
       "scenario": "scale_005",
       "iterations": 1000,
-      "total_ms": 1353.161,
-      "ns_per_op": 1353161.2,
-      "ops_per_sec": 739.0
+      "total_ms": 1374.614,
+      "ns_per_op": 1374614.0,
+      "ops_per_sec": 727.5
     },
     {
       "engine": "langgraph",
       "scenario": "scale_010",
       "iterations": 1000,
-      "total_ms": 2515.612,
-      "ns_per_op": 2515611.6,
-      "ops_per_sec": 397.5
+      "total_ms": 2361.614,
+      "ns_per_op": 2361613.9,
+      "ops_per_sec": 423.4
     },
     {
       "engine": "langgraph",
       "scenario": "scale_025",
       "iterations": 500,
-      "total_ms": 2377.293,
-      "ns_per_op": 4754586.6,
-      "ops_per_sec": 210.3
+      "total_ms": 2940.308,
+      "ns_per_op": 5880615.4,
+      "ops_per_sec": 170.1
     },
     {
       "engine": "langgraph",
       "scenario": "scale_050",
       "iterations": 250,
-      "total_ms": 2373.061,
-      "ns_per_op": 9492245.2,
-      "ops_per_sec": 105.3
+      "total_ms": 3042.417,
+      "ns_per_op": 12169666.8,
+      "ops_per_sec": 82.2
     },
     {
       "engine": "langgraph",
       "scenario": "scale_100",
       "iterations": 100,
-      "total_ms": 1865.75,
-      "ns_per_op": 18657497.0,
-      "ops_per_sec": 53.6
+      "total_ms": 1878.914,
+      "ns_per_op": 18789136.0,
+      "ops_per_sec": 53.2
     },
     {
       "engine": "langgraph",
       "scenario": "mt_8x_linear_10",
       "iterations": 1000,
-      "total_ms": 2119.834,
-      "ns_per_op": 2119833.9,
-      "ops_per_sec": 471.7
+      "total_ms": 2074.728,
+      "ns_per_op": 2074728.0,
+      "ops_per_sec": 482.0
     },
     {
       "engine": "langgraph",
       "scenario": "mem_linear_10",
       "iterations": 200,
-      "peak_bytes": 54803
+      "peak_bytes": 57354
     },
     {
       "engine": "langgraph",
       "scenario": "mem_loop_50",
       "iterations": 200,
-      "peak_bytes": 59208
+      "peak_bytes": 58215
     },
     {
       "engine": "binding",
       "scenario": "linear_10",
       "iterations": 1000,
-      "total_ms": 46.428,
-      "ns_per_op": 46428.4,
-      "ops_per_sec": 21538.5
+      "total_ms": 57.978,
+      "ns_per_op": 57977.8,
+      "ops_per_sec": 17248.0
     },
     {
       "engine": "binding",
       "scenario": "loop_50",
       "iterations": 200,
-      "total_ms": 48.721,
-      "ns_per_op": 243603.5,
-      "ops_per_sec": 4105.0
+      "total_ms": 57.403,
+      "ns_per_op": 287013.0,
+      "ops_per_sec": 3484.2
     },
     {
       "engine": "binding",
       "scenario": "fanout_4",
       "iterations": 1000,
-      "total_ms": 395.586,
-      "ns_per_op": 395585.8,
-      "ops_per_sec": 2527.9
+      "total_ms": 460.652,
+      "ns_per_op": 460652.3,
+      "ops_per_sec": 2170.8
     },
     {
       "engine": "binding",
       "scenario": "checkpoint_5",
       "iterations": 200,
-      "total_ms": 6.905,
-      "ns_per_op": 34526.0,
-      "ops_per_sec": 28963.7
+      "total_ms": 6.433,
+      "ns_per_op": 32166.5,
+      "ops_per_sec": 31088.2
     },
     {
       "engine": "binding",
       "scenario": "build_compile",
       "iterations": 500,
-      "total_ms": 12.466,
-      "ns_per_op": 24931.0,
-      "ops_per_sec": 40110.7
+      "total_ms": 13.301,
+      "ns_per_op": 26601.2,
+      "ops_per_sec": 37592.3
     },
     {
       "engine": "binding",
       "scenario": "scale_005",
       "iterations": 1000,
-      "total_ms": 24.821,
-      "ns_per_op": 24820.7,
-      "ops_per_sec": 40289.0
+      "total_ms": 30.544,
+      "ns_per_op": 30544.1,
+      "ops_per_sec": 32739.5
     },
     {
       "engine": "binding",
       "scenario": "scale_010",
       "iterations": 1000,
-      "total_ms": 43.237,
-      "ns_per_op": 43237.0,
-      "ops_per_sec": 23128.3
+      "total_ms": 52.227,
+      "ns_per_op": 52226.9,
+      "ops_per_sec": 19147.2
     },
     {
       "engine": "binding",
       "scenario": "scale_025",
       "iterations": 500,
-      "total_ms": 56.705,
-      "ns_per_op": 113410.8,
-      "ops_per_sec": 8817.5
+      "total_ms": 61.685,
+      "ns_per_op": 123369.6,
+      "ops_per_sec": 8105.7
     },
     {
       "engine": "binding",
       "scenario": "scale_050",
       "iterations": 250,
-      "total_ms": 51.648,
-      "ns_per_op": 206593.2,
-      "ops_per_sec": 4840.4
+      "total_ms": 54.879,
+      "ns_per_op": 219517.2,
+      "ops_per_sec": 4555.5
     },
     {
       "engine": "binding",
       "scenario": "scale_100",
       "iterations": 100,
-      "total_ms": 40.271,
-      "ns_per_op": 402710.0,
-      "ops_per_sec": 2483.2
+      "total_ms": 46.963,
+      "ns_per_op": 469630.0,
+      "ops_per_sec": 2129.3
     },
     {
       "engine": "binding",
       "scenario": "mt_8x_linear_10",
       "iterations": 1000,
-      "total_ms": 61.889,
-      "ns_per_op": 61888.7,
-      "ops_per_sec": 16158.0
+      "total_ms": 76.539,
+      "ns_per_op": 76539.1,
+      "ops_per_sec": 13065.2
     },
     {
       "engine": "binding",

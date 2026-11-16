@@ -50,7 +50,7 @@ below is the complete audit.
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
 | `Command` | ⚠️ `Command::resume` + `with_update` only | ✅ `Command(graph=, update=, resume=, goto=, PARENT)` | ours cannot `invoke(Command)`, no `graph=PARENT`, no goto via Command |
-| Node metadata / input schema / destinations / name | ❌ | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | |
+| Node metadata / input schema / destinations / name | ✅ `add_node_with_metadata` / `set_node_input_schema` / `set_destinations` (Python `add_node(..., metadata=, input_schema=, destinations=, name=)`); arbitrary node names | ✅ `add_node(..., metadata=, input_schema=, destinations=, name=)` | `input_schema` is stored as metadata, not enforced |
 | Deferred nodes | ❌ | ✅ `add_node(defer=True)` | |
 | Graph name / graph object export | ❌ | ✅ `compile(name=...)`, `get_graph()` | we export Mermaid text only |
 
@@ -68,12 +68,12 @@ below is the complete audit.
 | Managed values (`IsLastStep` / `RemainingSteps`) | ⚠️ `remaining_steps()` / `is_last_step()` accessors (Rust + Python) | ✅ managed values in state annotations | no `RemainingSteps` state annotation / `deferred` nodes |
 | TimeoutPolicy | ⚠️ `TimeoutPolicy` with `run_timeout` enforced (sync helper thread, async `tokio::time::timeout`); `idle_timeout` stored but not enforced | ✅ `TimeoutPolicy` (`run_timeout`, `idle_timeout`) | sync timeout cannot cancel a blocking closure |
 | Deferred nodes (`deferred=True`) | ✅ sync + async (`add_node_deferred` / `set_deferred`, Python `add_node(..., deferred=True)`); run after all regular work, may interrupt/resume | ✅ | deferred nodes may not be entry points or have outgoing/conditional edges |
-| Context / runtime injection (`Runtime`, `context_schema`) | ❌ | ✅ | |
+| Context / runtime injection (`Runtime`, `context_schema`) | ✅ `Runtime` + `current_runtime` / `current_context` / `current_thread_id` / `current_namespace` / `get_store`; `RunConfig::with_context`; Python `context=` with `current_context`/`current_runtime`; no `context_schema` validation | ✅ | |
 | `get_config` / `get_stream_writer` | ⚠️ thread-local `custom()` only | ✅ context helpers | no config object |
-| Managed values (`IsLastStep`, `RemainingSteps`) | ❌ | ✅ `langgraph.managed` | |
+| Managed values (`IsLastStep`, `RemainingSteps`) | ✅ `remaining_steps()` / `is_last_step()` accessors (Rust + Python); no state-annotation form | ✅ `langgraph.managed` | |
 | Retry policy | ⚠️ `RetryPolicy` (attempts, exponential backoff, cap) | ✅ `RetryPolicy(initial_interval, backoff_factor, max_interval, max_attempts, jitter, retry_on)` | ours has no jitter and no `retry_on` exception selector |
 | Error handling of nodes | ✅ `add_error_edge` + `last_error()` | ✅ per-node `add_node(error_handler=...)` | equivalent capability, different API; our handler runs in the next superstep |
-| Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ❌ | ✅ | |
+| Timeout policy (`TimeoutPolicy`, node/run/idle timeouts) | ✅ `TimeoutPolicy` with enforced `run_timeout` (sync helper thread, async `tokio::time::timeout`); `idle_timeout` stored only | ✅ | |
 | Functional API (`@entrypoint` / `@task`) | ⚠️ `functional::entrypoint` compiles to a one-node graph; `functional::task` memoizes results in `BaseStore` so completed tasks are not re-run after interrupt/resume; Python `lg.entrypoint` / `lg.task` mirror this | ✅ `langgraph.func` | tasks execute inline (no parallel task scheduling), no per-task checkpoint records |
 | Prebuilt agents (`ToolNode`, `create_react_agent`, `tools_condition`) | ❌ | ✅ `langgraph.prebuilt` | outside the current scope |
 
