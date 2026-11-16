@@ -14,7 +14,7 @@ use crate::kernel::graph::Entry;
 use crate::kernel::graph::RunConfig;
 use crate::kernel::node::{ConditionalEdge, NodeOutput, PathMap, Route};
 use crate::kernel::plugin::Kernel;
-use crate::kernel::ports::Checkpointer;
+use crate::kernel::ports::{AsyncCheckpointer, Checkpointer};
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{State, StateSchema, state_to_values};
 use crate::kernel::store::BaseStore;
@@ -39,6 +39,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
+    pub(crate) async_checkpointer: Option<Arc<dyn AsyncCheckpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
@@ -76,6 +77,7 @@ impl<S: State> AsyncStateGraph<S> {
             entry: Vec::new(),
             conditional_entry: None,
             checkpointer: None,
+            async_checkpointer: None,
             store: None,
             timeouts: IndexMap::new(),
             cache: None,
@@ -140,6 +142,12 @@ impl<S: State> AsyncStateGraph<S> {
     /// Enable checkpointing (required for resume and state queries).
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Enable checkpointing through an async checkpointer (non-blocking I/O).
+    pub fn with_async_checkpointer(mut self, checkpointer: Arc<dyn AsyncCheckpointer>) -> Self {
+        self.async_checkpointer = Some(checkpointer);
         self
     }
 
@@ -316,6 +324,7 @@ impl<S: State> AsyncStateGraph<S> {
             error_edges: self.error_edges,
             entry,
             checkpointer: self.checkpointer,
+            async_checkpointer: self.async_checkpointer,
             store: self.store,
             timeouts: self.timeouts,
             cache: self.cache,

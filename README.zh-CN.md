@@ -743,7 +743,7 @@ Python 绑定（同步与异步，含 store、saver、functional API 与流式�
 场景的功能/性能基准。
 
 已知限制（详见 `benchmarks/features.md`）：图定义与 checkpoint 与 LangGraph 不保证字节互操作；
-async checkpointer 是同步 saver 的 API 别名（无独立 async DB 驱动）；functional API 内联执行任务
+async checkpointer 通过 `BlockingSaver` 把同步 saver 的 I/O 卸载到阻塞池（无原生 async DB 驱动）；functional API 内联执行任务
 并用 `BaseStore` 记忆化，而非逐任务 checkpoint；Python 节点可以是普通 callable 或 coroutine；
 schema 支持 Python callable reducer。
 

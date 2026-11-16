@@ -16,7 +16,7 @@ use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
-use crate::kernel::ports::{Checkpointer, TraceSink};
+use crate::kernel::ports::{AsyncCheckpointer, Checkpointer, TraceSink};
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{
     ChannelUpdate, State, StateSchema, apply_updates, state_to_values, values_to_state,
@@ -95,6 +95,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) entry: Entry<S>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
+    pub(crate) async_checkpointer: Option<Arc<dyn AsyncCheckpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
@@ -161,7 +162,7 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
-        self.checkpointer.is_some()
+        self.checkpointer.is_some() || self.async_checkpointer.is_some()
     }
 
     /// Run the graph over several inputs concurrently (bounded by `max_concurrency`).
@@ -385,24 +386,20 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         namespace: &str,
     ) -> Result<Option<StateSnapshot<S>>> {
-        let checkpointer = self
-            .checkpointer
-            .as_ref()
-            .ok_or(Error::MissingCheckpointer("get_state"))?;
-        match checkpointer.latest_in(thread_id, namespace)? {
+        match self.saver_latest_in_sync(thread_id, namespace)? {
             Some(checkpoint) => Ok(Some(StateSnapshot::from_checkpoint(checkpoint)?)),
             None => Ok(None),
         }
     }
 
+    /// List threads that have at least one checkpoint.
+    pub fn threads(&self) -> Result<Vec<String>> {
+        self.saver_threads_sync()
+    }
+
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
-        let checkpointer = self
-            .checkpointer
-            .as_ref()
-            .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        checkpointer
-            .history(thread_id)?
+        self.saver_history_sync(thread_id)?
             .into_iter()
             .map(StateSnapshot::from_checkpoint)
             .collect()
@@ -463,7 +460,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             config.context.clone(),
         );
 
-        if thread_id.is_some() && self.checkpointer.is_none() {
+        if thread_id.is_some() && !self.has_checkpointer() {
             return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
         }
 
@@ -501,13 +498,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 resume,
                 updates,
             } => {
-                let checkpointer = self
-                    .checkpointer
-                    .as_ref()
-                    .ok_or(Error::MissingCheckpointer("resume"))?;
                 let checkpoint = match checkpoint_id {
-                    Some(id) => checkpointer.get(&resume_thread, &id)?,
-                    None => checkpointer.latest_in(&resume_thread, &namespace)?,
+                    Some(id) => self.saver_get(&resume_thread, &id).await?,
+                    None => self.saver_latest_in(&resume_thread, &namespace).await?,
                 }
                 .ok_or_else(|| {
                     Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
@@ -560,8 +553,13 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
 
         if fresh {
-            if let (Some(checkpointer), Some(tid)) = (&self.checkpointer, thread_id.as_deref()) {
-                parent = checkpointer.latest(tid)?.map(|checkpoint| checkpoint.id);
+            if let Some(tid) = thread_id.as_deref()
+                && self.has_checkpointer()
+            {
+                parent = self
+                    .saver_latest(tid)
+                    .await?
+                    .map(|checkpoint| checkpoint.id);
             }
             self.save_checkpoint(
                 thread_id.as_deref(),
@@ -574,7 +572,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                 false,
                 Vec::new(),
                 sink,
-            )?;
+            )
+            .await?;
         }
 
         let mut pending_deferred: Vec<Task> = Vec::new();
@@ -610,7 +609,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                     true,
                     vec![interrupted_interrupt.clone()],
                     sink,
-                )?;
+                )
+                .await?;
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
                     value: Value::Null,
@@ -656,7 +656,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                         false,
                         vec![interrupted.clone()],
                         sink,
-                    )?;
+                    )
+                    .await?;
                     sink(StreamChunk::Interrupt {
                         node: interrupted.node.clone(),
                         value: interrupted.value.clone(),
@@ -710,7 +711,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                     false,
                     interrupts.clone(),
                     sink,
-                )?;
+                )
+                .await?;
                 for interrupt in &interrupts {
                     sink(StreamChunk::Interrupt {
                         node: interrupt.node.clone(),
@@ -822,7 +824,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .map(|node| Interrupt::new(node.clone(), Value::Null))
                     .collect(),
                 sink,
-            )?;
+            )
+            .await?;
             if let Some(node) = interrupt_after {
                 sink(StreamChunk::Interrupt {
                     node: node.clone(),
@@ -1254,8 +1257,80 @@ impl<S: State> AsyncCompiledGraph<S> {
         })
     }
 
+    async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.put(checkpoint).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.put(checkpoint)
+        } else {
+            Err(Error::MissingCheckpointer("save_checkpoint"))
+        }
+    }
+
+    async fn saver_get(&self, thread_id: &str, checkpoint_id: &str) -> Result<Option<Checkpoint>> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.get(thread_id, checkpoint_id).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.get(thread_id, checkpoint_id)
+        } else {
+            Err(Error::MissingCheckpointer("get"))
+        }
+    }
+
+    async fn saver_latest(&self, thread_id: &str) -> Result<Option<Checkpoint>> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.latest(thread_id).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.latest(thread_id)
+        } else {
+            Err(Error::MissingCheckpointer("latest"))
+        }
+    }
+
+    async fn saver_latest_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Option<Checkpoint>> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.latest_in(thread_id, namespace).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.latest_in(thread_id, namespace)
+        } else {
+            Err(Error::MissingCheckpointer("latest_in"))
+        }
+    }
+
+    async fn saver_history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
+        if let Some(saver) = &self.async_checkpointer {
+            saver.history(thread_id).await
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.history(thread_id)
+        } else {
+            Err(Error::MissingCheckpointer("history"))
+        }
+    }
+
+    fn saver_threads_sync(&self) -> Result<Vec<String>> {
+        if let Some(saver) = &self.async_checkpointer {
+            futures::executor::block_on(saver.threads())
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.threads()
+        } else {
+            Err(Error::MissingCheckpointer("threads"))
+        }
+    }
+
+    fn saver_latest_in_sync(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
+        futures::executor::block_on(self.saver_latest_in(thread_id, namespace))
+    }
+
+    fn saver_history_sync(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
+        futures::executor::block_on(self.saver_history(thread_id))
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn save_checkpoint(
+    async fn save_checkpoint(
         &self,
         thread_id: Option<&str>,
         namespace: &str,
@@ -1268,9 +1343,12 @@ impl<S: State> AsyncCompiledGraph<S> {
         interrupts: Vec<Interrupt>,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
-        let (Some(thread_id), Some(checkpointer)) = (thread_id, self.checkpointer.as_ref()) else {
+        let Some(thread_id) = thread_id else {
             return Ok(());
         };
+        if !self.has_checkpointer() {
+            return Ok(());
+        }
         let id = new_checkpoint_id(thread_id, step);
         let checkpoint = Checkpoint {
             id: id.clone(),
@@ -1286,7 +1364,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
             namespace: namespace.to_string(),
         };
-        checkpointer.put(checkpoint)?;
+        self.saver_put(checkpoint).await?;
         *parent = Some(id.clone());
         sink(StreamChunk::Checkpoint { checkpoint_id: id });
         Ok(())

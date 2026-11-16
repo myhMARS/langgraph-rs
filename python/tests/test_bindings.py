@@ -1172,5 +1172,23 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(messages[2]["content"], "done")
 
 
+    def test_async_graph_with_async_saver_alias(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+            graph.set_entry_point("inc")
+            graph.set_finish_point("inc")
+            compiled = graph.compile(checkpointer=lg.AsyncInMemorySaver())
+            output = await compiled.ainvoke({"value": 0}, thread_id="async-saver")
+            snapshot = compiled.get_state("async-saver")
+            return output, snapshot
+
+        output, snapshot = asyncio.run(scenario())
+        self.assertEqual(output["value"], 1)
+        self.assertEqual(snapshot["values"]["value"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

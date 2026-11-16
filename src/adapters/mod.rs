@@ -2,6 +2,9 @@
 
 pub mod memory;
 
+#[cfg(feature = "async")]
+pub mod async_checkpointer;
+
 #[cfg(feature = "python")]
 pub mod python;
 /// Tokio async runtime adapter (feature `async`).

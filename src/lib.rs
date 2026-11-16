@@ -104,6 +104,9 @@ pub use adapters::tokio_runtime;
 
 pub use adapters::memory::{InMemoryCache, InMemorySaver, InMemoryStore, MemorySaver};
 
+/// Async checkpointer adapter that offloads a synchronous saver to a blocking pool.
+#[cfg(feature = "async")]
+pub use adapters::async_checkpointer::BlockingSaver;
 #[cfg(feature = "sqlite")]
 pub use adapters::sqlite::SqliteSaver;
 
@@ -144,6 +147,9 @@ pub use kernel::graph::{
 };
 pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
 pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
+/// Async checkpoint storage port (feature `async`).
+#[cfg(feature = "async")]
+pub use kernel::ports::AsyncCheckpointer;
 pub use kernel::ports::{Checkpointer, TraceSink};
 pub use kernel::retry::RetryPolicy;
 pub use kernel::state::{JsonState, MessagesState, State, StateSchema};

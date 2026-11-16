@@ -8,6 +8,7 @@ use pyo3::types::{PyAny, PyList};
 
 use super::convert::*;
 use super::types::{checkpointer_from_py, store_from_py};
+use crate::BlockingSaver;
 use crate::JsonState;
 use crate::kernel::context::TaskContext;
 use crate::kernel::node::NodeOutput;
@@ -186,7 +187,9 @@ impl PyAsyncStateGraph {
         let mut builder = self.inner.clone();
         let mut saver = None;
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
-            builder = builder.with_checkpointer(checkpointer.clone());
+            let adapter =
+                BlockingSaver::new(checkpointer.clone()).map_err(|error| to_pyerr(py, error))?;
+            builder = builder.with_async_checkpointer(Arc::new(adapter));
             saver = Some(checkpointer);
         }
         if let Some(limit) = recursion_limit {
