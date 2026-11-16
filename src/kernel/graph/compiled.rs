@@ -14,6 +14,7 @@ use crate::kernel::error::{Error, Result};
 use crate::kernel::executor::{self, StartInput};
 use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
 use crate::kernel::ports::{Checkpointer, TraceSink};
+use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{State, StateSchema, state_to_values};
 use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::RunOutcome;
@@ -31,6 +32,8 @@ pub struct CompiledGraph<S: State> {
     pub(crate) entry: Entry<S>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
+    pub(crate) retries: IndexMap<String, RetryPolicy>,
+    pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) recursion_limit: usize,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
@@ -46,6 +49,8 @@ impl<S: State> Clone for CompiledGraph<S> {
             entry: self.entry.clone(),
             checkpointer: self.checkpointer.clone(),
             trace_sinks: self.trace_sinks.clone(),
+            retries: self.retries.clone(),
+            error_edges: self.error_edges.clone(),
             recursion_limit: self.recursion_limit,
             interrupt_before: self.interrupt_before.clone(),
             interrupt_after: self.interrupt_after.clone(),
@@ -287,6 +292,16 @@ impl<S: State> CompiledGraph<S> {
     /// Trace sink adapters installed through the kernel.
     pub(crate) fn trace_sinks(&self) -> &[Arc<dyn TraceSink>] {
         &self.trace_sinks
+    }
+
+    /// Retry policy of a node, if one was configured.
+    pub fn retry_policy(&self, node: &str) -> Option<&RetryPolicy> {
+        self.retries.get(node)
+    }
+
+    /// Error-handler node for a node, if one was configured.
+    pub fn error_handler(&self, node: &str) -> Option<&String> {
+        self.error_edges.get(node)
     }
 
     pub(crate) fn interrupts_before(&self, node: &str) -> bool {

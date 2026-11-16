@@ -14,6 +14,7 @@ pub mod graph;
 pub mod node;
 pub mod plugin;
 pub mod ports;
+pub mod retry;
 pub mod state;
 pub mod stream;
 pub mod usage;

@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 
 use self::checkpointing::save_checkpoint;
 use self::scheduling::{collect_next_nodes, dedupe};
-use self::superstep::{TaskResult, run_superstep};
+use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::graph::{CompiledGraph, RunConfig};
 use crate::kernel::node::Task;
@@ -195,38 +195,47 @@ pub(crate) fn execute<S: State>(
             }));
         }
 
-        let results = match run_superstep(graph, &state, &tasks) {
-            Ok(results) => results,
-            Err(error) => {
-                if let Error::Interrupt(interrupt) = &error {
-                    save_checkpoint(
-                        graph,
-                        thread_id.as_deref(),
-                        &mut parent,
-                        &values,
-                        &tasks,
-                        step,
-                        true,
-                        false,
-                        sink,
-                    )?;
-                    sink(StreamChunk::Interrupt {
-                        node: interrupt.node.clone(),
-                        value: interrupt.value.clone(),
-                    });
-                }
-                return Err(error);
-            }
-        };
+        let outcomes = run_superstep(graph, &state, &tasks);
 
-        let processed = process_results(graph, results, step, &mut report, sink)?;
+        // An interrupt aborts the superstep: the checkpoint keeps the pre-superstep
+        // values and the whole task list, so a resume replays the superstep.
+        if let Some(interrupted) = outcomes.iter().find_map(|outcome| match outcome {
+            TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
+            _ => None,
+        }) {
+            save_checkpoint(
+                graph,
+                thread_id.as_deref(),
+                &mut parent,
+                &values,
+                &tasks,
+                step,
+                true,
+                false,
+                sink,
+            )?;
+            sink(StreamChunk::Interrupt {
+                node: interrupted.node.clone(),
+                value: interrupted.value.clone(),
+            });
+            return Err(Error::Interrupt(interrupted));
+        }
+
+        let processed = process_outcomes(graph, outcomes, step, &mut report, sink)?;
         let channel_updates = processed.channel_updates;
+        let replacements = processed.replacements;
         let next_tasks = processed.next_tasks;
         let goto_targets = processed.goto_targets;
         let executed = processed.executed;
         let goto_nodes = processed.goto_nodes;
 
         apply_updates(graph.schema(), &mut values, channel_updates)?;
+        // Direct replacements (subgraph outputs) bypass reducers but must still target
+        // a declared channel when the schema is strict.
+        for (channel, value) in replacements {
+            graph.schema().resolve(&channel)?;
+            values.insert(channel, value);
+        }
         state = values_to_state::<S>(&values)?;
         sink(StreamChunk::Values {
             step,
@@ -235,7 +244,17 @@ pub(crate) fn execute<S: State>(
 
         let next_nodes = collect_next_nodes(graph, &state, &executed, &goto_nodes, &goto_targets)?;
         let mut next_tasks = next_tasks;
+        // A node that already has an error-handler task in this superstep must not run
+        // a second time through a regular edge.
+        let handler_nodes: HashSet<String> = next_tasks
+            .iter()
+            .filter(|task| task.error.is_some())
+            .map(|task| task.node.clone())
+            .collect();
         for node in dedupe(next_nodes) {
+            if handler_nodes.contains(&node) {
+                continue;
+            }
             next_tasks.push(Task::new(node));
         }
 
@@ -278,117 +297,182 @@ fn finish<S>(state: S, mut report: RunReport, started: Instant) -> RunOutcome<S>
     RunOutcome { state, report }
 }
 
-/// Everything one superstep's node results contribute to the run.
+/// Everything one superstep's node outcomes contribute to the run.
 struct ProcessedResults {
     channel_updates: Vec<ChannelUpdate>,
+    replacements: Vec<(String, Value)>,
     next_tasks: Vec<Task>,
     goto_targets: Vec<(String, String)>,
     executed: Vec<String>,
     goto_nodes: HashSet<String>,
 }
 
-fn process_results<S: State>(
+fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
+    let mut combined: Option<Usage> = None;
+    for item in usage {
+        combined.get_or_insert_with(Usage::new).merge(&item);
+    }
+    combined
+}
+
+fn process_outcomes<S: State>(
     graph: &CompiledGraph<S>,
-    results: Vec<TaskResult>,
+    outcomes: Vec<TaskOutcome>,
     step: usize,
     report: &mut RunReport,
     sink: &mut dyn FnMut(StreamChunk),
 ) -> Result<ProcessedResults> {
     let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
+    let mut replacements: Vec<(String, Value)> = Vec::new();
     let mut next_tasks: Vec<Task> = Vec::new();
     let mut goto_targets: Vec<(String, String)> = Vec::new();
     let mut executed: Vec<String> = Vec::new();
     let mut goto_nodes: HashSet<String> = HashSet::new();
+    let mut routed_handlers: HashSet<String> = HashSet::new();
 
-    for result in results {
-        let TaskResult {
-            node,
-            output,
-            custom,
-            usage,
-            duration_millis,
-        } = result;
-        executed.push(node.clone());
-        for value in custom {
-            sink(StreamChunk::Custom {
-                node: node.clone(),
-                value,
-            });
-        }
-
-        let mut combined: Option<Usage> = None;
-        for item in usage {
-            combined.get_or_insert_with(Usage::new).merge(&item);
-        }
-        let execution = NodeExecution {
-            node: node.clone(),
-            step,
-            duration_millis,
-            usage: combined,
-        };
-        sink(StreamChunk::Usage {
-            execution: execution.clone(),
-        });
-        for trace_sink in graph.trace_sinks() {
-            trace_sink.record(&execution);
-        }
-        report.record(execution);
-
-        let (updates, goto, sends) = output.into_parts();
-        if !updates.is_empty() {
-            let update = Value::Object(
-                updates
-                    .iter()
-                    .map(|(channel, value)| (channel.clone(), value.clone()))
-                    .collect(),
-            );
-            sink(StreamChunk::Updates {
-                step,
-                node: node.clone(),
-                update,
-            });
-            for (channel, value) in updates {
-                channel_updates.push(ChannelUpdate {
-                    channel,
-                    value,
-                    node: node.clone(),
+    for outcome in outcomes {
+        match outcome {
+            TaskOutcome::Interrupted(_) => {
+                unreachable!("interrupts are handled before processing outcomes");
+            }
+            TaskOutcome::Failed(task_failure) => {
+                let TaskFailure {
+                    failure,
+                    usage,
+                    duration_millis,
+                } = *task_failure;
+                let execution = NodeExecution {
+                    node: failure.node.clone(),
+                    step,
+                    duration_millis,
+                    attempts: failure.attempts,
+                    error: Some(failure.message.clone()),
+                    usage: merge_usage(usage),
+                };
+                sink(StreamChunk::Usage {
+                    execution: execution.clone(),
                 });
-            }
-        }
-        for target in goto {
-            goto_nodes.insert(node.clone());
-            goto_targets.push((target, node.clone()));
-        }
-        for send in sends {
-            let input = match send.arg {
-                None | Some(Value::Null) => None,
-                Some(Value::Object(map)) => Some(map),
-                Some(other) => {
-                    return Err(Error::routing(
-                        &node,
-                        format!(
-                            "Send toward `{}` needs a JSON object arg, found `{other}`",
-                            send.node
-                        ),
-                    ));
+                for trace_sink in graph.trace_sinks() {
+                    trace_sink.record(&execution);
                 }
-            };
-            if graph.node(&send.node).is_none() {
-                return Err(Error::routing(
-                    &node,
-                    format!("Send targets unknown node `{}`", send.node),
-                ));
+                report.record(execution);
+
+                match graph.error_handler(&failure.node) {
+                    Some(handler) if routed_handlers.insert(handler.clone()) => {
+                        next_tasks.push(Task {
+                            node: handler.clone(),
+                            input: None,
+                            resume: None,
+                            error: Some(failure),
+                        });
+                    }
+                    Some(_) => {}
+                    None => {
+                        return Err(Error::Node {
+                            node: failure.node.clone(),
+                            message: format!(
+                                "{} (failed after {} attempt(s))",
+                                failure.message, failure.attempts
+                            ),
+                        });
+                    }
+                }
             }
-            next_tasks.push(Task {
-                node: send.node,
-                input,
-                resume: None,
-            });
+            TaskOutcome::Ok(result) => {
+                let TaskResult {
+                    node,
+                    output,
+                    custom,
+                    usage,
+                    duration_millis,
+                    attempts,
+                } = *result;
+                executed.push(node.clone());
+                for value in custom {
+                    sink(StreamChunk::Custom {
+                        node: node.clone(),
+                        value,
+                    });
+                }
+
+                let execution = NodeExecution {
+                    node: node.clone(),
+                    step,
+                    duration_millis,
+                    attempts,
+                    error: None,
+                    usage: merge_usage(usage),
+                };
+                sink(StreamChunk::Usage {
+                    execution: execution.clone(),
+                });
+                for trace_sink in graph.trace_sinks() {
+                    trace_sink.record(&execution);
+                }
+                report.record(execution);
+
+                let (updates, replaces, goto, sends) = output.into_parts();
+                if !updates.is_empty() {
+                    let update = Value::Object(
+                        updates
+                            .iter()
+                            .map(|(channel, value)| (channel.clone(), value.clone()))
+                            .collect(),
+                    );
+                    sink(StreamChunk::Updates {
+                        step,
+                        node: node.clone(),
+                        update,
+                    });
+                    for (channel, value) in updates {
+                        channel_updates.push(ChannelUpdate {
+                            channel,
+                            value,
+                            node: node.clone(),
+                        });
+                    }
+                }
+                for (channel, value) in replaces {
+                    replacements.push((channel, value));
+                }
+                for target in goto {
+                    goto_nodes.insert(node.clone());
+                    goto_targets.push((target, node.clone()));
+                }
+                for send in sends {
+                    let input = match send.arg {
+                        None | Some(Value::Null) => None,
+                        Some(Value::Object(map)) => Some(map),
+                        Some(other) => {
+                            return Err(Error::routing(
+                                &node,
+                                format!(
+                                    "Send toward `{}` needs a JSON object arg, found `{other}`",
+                                    send.node
+                                ),
+                            ));
+                        }
+                    };
+                    if graph.node(&send.node).is_none() {
+                        return Err(Error::routing(
+                            &node,
+                            format!("Send targets unknown node `{}`", send.node),
+                        ));
+                    }
+                    next_tasks.push(Task {
+                        node: send.node,
+                        input,
+                        resume: None,
+                        error: None,
+                    });
+                }
+            }
         }
     }
 
     Ok(ProcessedResults {
         channel_updates,
+        replacements,
         next_tasks,
         goto_targets,
         executed,

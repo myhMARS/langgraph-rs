@@ -94,9 +94,9 @@ pub use kernel::channel::{Channel, Reducer, reducers};
 pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
-    current_node, custom, interrupt, push_custom, record_tokens, record_usage,
+    current_node, custom, interrupt, last_error, push_custom, record_tokens, record_usage,
 };
-pub use kernel::error::{Error, Interrupt, Result};
+pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 pub use kernel::graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, RunConfig, StateGraph, StateSnapshot,
     Targets,
@@ -104,6 +104,7 @@ pub use kernel::graph::{
 pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
 pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
 pub use kernel::ports::{Checkpointer, TraceSink};
+pub use kernel::retry::RetryPolicy;
 pub use kernel::state::{JsonState, State, StateSchema};
 pub use kernel::stream::StreamChunk;
 pub use kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};

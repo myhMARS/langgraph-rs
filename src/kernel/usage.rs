@@ -112,11 +112,22 @@ pub struct NodeExecution {
     pub node: String,
     /// Superstep the node ran in.
     pub step: usize,
-    /// Wall-clock duration of the node call in milliseconds.
+    /// Wall-clock duration of the node call in milliseconds (all attempts included).
     pub duration_millis: u64,
+    /// Attempts that ran (1 unless a retry policy applied).
+    #[serde(default = "default_attempts")]
+    pub attempts: u32,
+    /// Failure message when the execution ultimately failed and was routed to an
+    /// error-handler node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
     /// Consumption reported by the node, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+}
+
+fn default_attempts() -> u32 {
+    1
 }
 
 /// Consumption and timing report of a graph run.
@@ -238,6 +249,8 @@ mod tests {
             node: "agent".into(),
             step: 0,
             duration_millis: 12,
+            attempts: 1,
+            error: None,
             usage: Some(
                 Usage::new()
                     .with_input_tokens(100)
@@ -249,12 +262,16 @@ mod tests {
             node: "agent".into(),
             step: 1,
             duration_millis: 7,
+            attempts: 2,
+            error: None,
             usage: Some(Usage::new().with_input_tokens(30)),
         });
         report.record(NodeExecution {
             node: "judge".into(),
             step: 2,
             duration_millis: 3,
+            attempts: 1,
+            error: None,
             usage: None,
         });
         report.total_duration_millis = 22;

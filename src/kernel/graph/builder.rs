@@ -9,6 +9,8 @@ use super::compiled::CompiledGraph;
 use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
+use crate::kernel::retry::RetryPolicy;
+use crate::kernel::state::state_to_values;
 use crate::kernel::state::{State, StateSchema};
 use crate::{END, START};
 
@@ -46,6 +48,8 @@ pub struct StateGraph<S: State> {
     pub(crate) duplicate_nodes: Vec<String>,
     pub(crate) edges: IndexMap<String, Vec<String>>,
     pub(crate) conditional: IndexMap<String, Vec<ConditionalEdge<S>>>,
+    pub(crate) retries: IndexMap<String, RetryPolicy>,
+    pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -64,6 +68,8 @@ impl<S: State> StateGraph<S> {
             duplicate_nodes: Vec::new(),
             edges: IndexMap::new(),
             conditional: IndexMap::new(),
+            retries: IndexMap::new(),
+            error_edges: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -79,6 +85,59 @@ impl<S: State> StateGraph<S> {
             self.duplicate_nodes.push(name);
         }
         self
+    }
+
+    /// Register a node with a retry policy.
+    pub fn add_node_with_retry<F>(
+        mut self,
+        name: impl Into<String>,
+        policy: RetryPolicy,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.retries.insert(name.clone(), policy);
+        self.add_node(name, node)
+    }
+
+    /// Attach a retry policy to an already registered node.
+    pub fn set_retry(mut self, node: impl Into<String>, policy: RetryPolicy) -> Self {
+        self.retries.insert(node.into(), policy);
+        self
+    }
+
+    /// Route permanent failures of `from` to the `handler` node.
+    ///
+    /// The handler runs in the next superstep and can inspect the failure with
+    /// [`last_error`](crate::last_error); without an error edge a node failure aborts
+    /// the run.
+    pub fn add_error_edge(mut self, from: impl Into<String>, handler: impl Into<String>) -> Self {
+        self.error_edges.insert(from.into(), handler.into());
+        self
+    }
+
+    /// Embed another compiled graph as a node.
+    ///
+    /// The subgraph shares this graph's state type and runs without its own
+    /// checkpointer: its final values are published as direct channel replacements for
+    /// every channel it changed. Nested interrupts are not supported; an interrupt
+    /// raised inside a subgraph surfaces as a node failure.
+    pub fn add_subgraph(self, name: impl Into<String>, subgraph: Arc<CompiledGraph<S>>) -> Self {
+        let name = name.into();
+        self.add_node(name, move |state: &S| {
+            let before = state_to_values(state)?;
+            let output = subgraph.invoke(state, &super::options::RunConfig::new())?;
+            let after = state_to_values(&output)?;
+            let mut result = NodeOutput::new();
+            for (channel, value) in after {
+                if before.get(&channel) != Some(&value) {
+                    result = result.replace(channel, value);
+                }
+            }
+            Ok(result)
+        })
     }
 
     /// Add a static edge.
@@ -198,6 +257,18 @@ impl<S: State> StateGraph<S> {
             }
         }
 
+        for node in self.retries.keys() {
+            if !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "retry policy references unknown node `{node}`"
+                )));
+            }
+        }
+        for (source, handler) in &self.error_edges {
+            self.require_node("error edge source", source)?;
+            self.require_node("error handler", handler)?;
+        }
+
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
             None => Entry::Static(self.entry.clone()),
@@ -211,6 +282,8 @@ impl<S: State> StateGraph<S> {
             entry,
             checkpointer: options.checkpointer,
             trace_sinks: options.kernel.trace_sinks().to_vec(),
+            retries: self.retries,
+            error_edges: self.error_edges,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

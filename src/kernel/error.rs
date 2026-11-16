@@ -27,6 +27,40 @@ impl fmt::Display for Interrupt {
 
 impl std::error::Error for Interrupt {}
 
+/// A node failure captured by the engine.
+///
+/// Error-handler nodes can read the failure with [`last_error`](crate::last_error).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NodeFailure {
+    /// Node that failed.
+    pub node: String,
+    /// Error message of the final attempt.
+    pub message: String,
+    /// Number of attempts that ran before giving up.
+    pub attempts: u32,
+}
+
+impl NodeFailure {
+    /// Create a failure record.
+    pub fn new(node: impl Into<String>, message: impl Into<String>, attempts: u32) -> Self {
+        Self {
+            node: node.into(),
+            message: message.into(),
+            attempts,
+        }
+    }
+}
+
+impl std::fmt::Display for NodeFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "node `{}` failed after {} attempt(s): {}",
+            self.node, self.attempts, self.message
+        )
+    }
+}
+
 /// Errors returned while building or executing a graph.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

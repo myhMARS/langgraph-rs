@@ -8,10 +8,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::Result;
+use crate::kernel::error::NodeFailure;
 use crate::kernel::usage::Usage;
 
 /// Execution function of a graph node.
 pub type NodeFn<S> = Arc<dyn Fn(&S) -> Result<NodeOutput> + std::marker::Send + std::marker::Sync>;
+
+/// Raw parts of a [`NodeOutput`]: updates, replacements, goto targets and sends.
+pub(crate) type OutputParts = (
+    IndexMap<String, Value>,
+    IndexMap<String, Value>,
+    Vec<String>,
+    Vec<Send>,
+);
 
 /// Writes and control flow returned by a node.
 ///
@@ -28,6 +37,7 @@ pub type NodeFn<S> = Arc<dyn Fn(&S) -> Result<NodeOutput> + std::marker::Send + 
 #[derive(Clone, Debug, Default)]
 pub struct NodeOutput {
     updates: IndexMap<String, Value>,
+    replaces: IndexMap<String, Value>,
     goto: Vec<String>,
     sends: Vec<Send>,
     usage: Option<Usage>,
@@ -84,6 +94,20 @@ impl NodeOutput {
         self
     }
 
+    /// Replace a channel value directly, bypassing its reducer.
+    ///
+    /// This is what subgraph nodes use to publish the subgraph's final state: the
+    /// parent channel is overwritten instead of being folded again.
+    pub fn replace(mut self, channel: impl Into<String>, value: Value) -> Self {
+        self.replaces.insert(channel.into(), value);
+        self
+    }
+
+    /// Replacements attached with [`NodeOutput::replace`].
+    pub fn replaces_map(&self) -> &IndexMap<String, Value> {
+        &self.replaces
+    }
+
     /// Attach consumption information for this node execution.
     ///
     /// Equivalent to calling [`record_usage`](crate::record_usage) from inside the node,
@@ -100,7 +124,10 @@ impl NodeOutput {
 
     /// Returns `true` when the node produced no writes and no control flow.
     pub fn is_empty(&self) -> bool {
-        self.updates.is_empty() && self.goto.is_empty() && self.sends.is_empty()
+        self.updates.is_empty()
+            && self.replaces.is_empty()
+            && self.goto.is_empty()
+            && self.sends.is_empty()
     }
 
     /// Channel writes produced by this node.
@@ -118,8 +145,8 @@ impl NodeOutput {
         &self.sends
     }
 
-    pub(crate) fn into_parts(self) -> (IndexMap<String, Value>, Vec<String>, Vec<Send>) {
-        (self.updates, self.goto, self.sends)
+    pub(crate) fn into_parts(self) -> OutputParts {
+        (self.updates, self.replaces, self.goto, self.sends)
     }
 }
 
@@ -411,6 +438,9 @@ pub struct Task {
     /// Value handed to the node's next `interrupt()` call when resuming.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume: Option<Value>,
+    /// Failure that scheduled this task (set by error routing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<NodeFailure>,
 }
 
 impl Task {
@@ -420,6 +450,7 @@ impl Task {
             node: node.into(),
             input: None,
             resume: None,
+            error: None,
         }
     }
 
@@ -429,6 +460,7 @@ impl Task {
             node: node.into(),
             input: Some(input),
             resume: None,
+            error: None,
         }
     }
 }

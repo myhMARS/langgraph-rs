@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::kernel::error::NodeFailure;
 use crate::kernel::usage::Usage;
 use crate::{Error, Interrupt, Result};
 
@@ -23,6 +24,7 @@ pub(crate) struct TaskContext {
     resume_consumed: bool,
     custom: Vec<Value>,
     usage: Vec<Usage>,
+    error: Option<NodeFailure>,
 }
 
 impl TaskContext {
@@ -33,7 +35,13 @@ impl TaskContext {
             resume_consumed: false,
             custom: Vec::new(),
             usage: Vec::new(),
+            error: None,
         }
+    }
+
+    pub(crate) fn with_error(mut self, error: Option<NodeFailure>) -> Self {
+        self.error = error;
+        self
     }
 }
 
@@ -53,6 +61,19 @@ pub(crate) fn with_task<R>(
         .map(|context| (context.custom, context.usage))
         .unwrap_or_default();
     (result, custom, usage)
+}
+
+/// Failure that caused the current node to be scheduled.
+///
+/// When a node fails permanently and the graph has an error edge
+/// ([`StateGraph::add_error_edge`](crate::StateGraph::add_error_edge)), the handler node
+/// runs and can inspect the failure with this function.
+pub fn last_error() -> Option<NodeFailure> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|context| context.error.clone())
+    })
 }
 
 /// Pause the graph and wait for human input.
