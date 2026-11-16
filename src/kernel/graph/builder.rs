@@ -9,6 +9,7 @@ use super::Entry;
 use super::compiled::CompiledGraph;
 use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
 use crate::kernel::cache::{CachePolicy, NodeCache};
+use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
 use crate::kernel::retry::RetryPolicy;
@@ -93,6 +94,14 @@ impl<S: State> StateGraph<S> {
             entry: Vec::new(),
             conditional_entry: None,
         }
+    }
+
+    /// Register a node that returns a LangGraph-style [`Command`].
+    pub fn add_command_node<F>(self, name: impl Into<String>, node: F) -> Self
+    where
+        F: Fn(&S) -> Result<Command> + Send + Sync + 'static,
+    {
+        self.add_node(name, move |state: &S| Ok(node(state)?.into()))
     }
 
     /// Register a node.

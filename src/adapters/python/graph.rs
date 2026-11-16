@@ -237,6 +237,8 @@ impl PyCompiledGraph {
                         crate::Command {
                             resume: None,
                             update: Some(updates),
+                            goto: Vec::new(),
+                            parent: false,
                         },
                     ),
                 });

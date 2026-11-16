@@ -1,0 +1,57 @@
+//! Nodes returning a LangGraph-style `Command`.
+
+use langgraph_rs::{Command, JsonState, NodeOutput, RunConfig, StateGraph, StateSchema, json};
+
+#[test]
+fn sync_node_can_return_a_command() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_command_node("route", |_state: &JsonState| {
+            Ok(Command::continue_thread()
+                .goto("target")
+                .with_update([("value", json!(5))]))
+        })
+        .add_node("target", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("route")
+        .set_finish_point("target")
+        .compile()
+        .unwrap();
+
+    let output = graph.invoke(&JsonState::new(), &RunConfig::new()).unwrap();
+    assert_eq!(output.get("value"), Some(&json!(6)));
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_node_can_return_a_command() {
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_command_node("route", |_state: JsonState, _ctx| async move {
+            Ok(Command::continue_thread()
+                .goto("target")
+                .with_update([("value", json!(5))]))
+        })
+        .add_node("target", |state: JsonState, _ctx| async move {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("route")
+        .set_finish_point("target")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .run(&JsonState::new(), &RunConfig::new())
+        .await
+        .unwrap();
+    assert_eq!(output.state.get("value"), Some(&json!(6)));
+}

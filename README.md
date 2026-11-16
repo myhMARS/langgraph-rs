@@ -574,6 +574,9 @@ let output = graph.resume("demo", json!(41)).unwrap();
 assert_eq!(output.value, 41);
 ```
 
+Nodes can also return a LangGraph-style `Command` (writes + `goto`): register them with
+`add_command_node` (sync and async), or convert with `NodeOutput::from`.
+
 `get_state(thread)` reports `interrupted` and pending `next` tasks. `interrupt_with_schema(payload,
 Some(schema))` (Python `lg.interrupt(payload, response_schema=...)`) stores a JSON schema on the
 interrupt and validates the resume value (`type`/`enum`/`required`/`properties`/`items`); the

@@ -15,6 +15,10 @@ pub struct Command {
     pub resume: Option<Value>,
     /// Optional channel writes applied before the graph continues (e.g. human edits).
     pub update: Option<IndexMap<String, Value>>,
+    /// Nodes to schedule after the command (LangGraph `Command(goto=...)`).
+    pub goto: Vec<String>,
+    /// Route to the parent graph instead of this one (`Command(graph=PARENT)`).
+    pub parent: bool,
 }
 
 impl Command {
@@ -23,12 +27,27 @@ impl Command {
         Self {
             resume: Some(value),
             update: None,
+            goto: Vec::new(),
+            parent: false,
         }
     }
 
     /// Continue without a resume value (for `interrupt_before` / `interrupt_after`).
     pub fn continue_thread() -> Self {
         Self::default()
+    }
+
+    /// Jump to a node regardless of the static outgoing edges.
+    pub fn goto(mut self, node: impl Into<String>) -> Self {
+        self.goto.push(node.into());
+        self
+    }
+
+    /// Route to a node of the parent graph (inside a subgraph node).
+    pub fn goto_parent(mut self, node: impl Into<String>) -> Self {
+        self.parent = true;
+        self.goto.push(node.into());
+        self
     }
 
     /// Apply state writes before continuing.
@@ -42,5 +61,24 @@ impl Command {
             map.insert(channel.into(), value.into());
         }
         self
+    }
+}
+
+impl From<Command> for crate::kernel::node::NodeOutput {
+    fn from(command: Command) -> Self {
+        let mut output = crate::kernel::node::NodeOutput::new();
+        if let Some(updates) = command.update {
+            for (channel, value) in updates {
+                output = output.update(channel, value);
+            }
+        }
+        for target in command.goto {
+            output = if command.parent {
+                output.goto_parent(target)
+            } else {
+                output.goto(target)
+            };
+        }
+        output
     }
 }

@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 use super::compiled::AsyncCompiledGraph;
 use super::{AsyncContext, AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, NodeCache};
+use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::graph::Entry;
 use crate::kernel::graph::RunConfig;
@@ -109,6 +110,18 @@ impl<S: State> AsyncStateGraph<S> {
             self.duplicate_nodes.push(name);
         }
         self
+    }
+
+    /// Register an async node that returns a LangGraph-style [`Command`].
+    pub fn add_command_node<F, Fut>(self, name: impl Into<String>, node: F) -> Self
+    where
+        F: Fn(S, AsyncContext) -> Fut + std::marker::Send + std::marker::Sync + 'static,
+        Fut: Future<Output = Result<Command>> + std::marker::Send + 'static,
+    {
+        self.add_node(name, move |state, context| {
+            let future = node(state, context);
+            async move { Ok::<NodeOutput, Error>(future.await?.into()) }
+        })
     }
 
     /// Register a node with a retry policy.

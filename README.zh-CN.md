@@ -544,7 +544,8 @@ schema 并对 resume 值做校验（`type`/`enum`/`required`/`properties`/`items
 `export_checkpoint(thread)` 以 LangGraph checkpoint tuple JSON 导出最新 checkpoint，
 `import_checkpoint(thread, doc)` 可导入该文档（JSON 级转换，非 LangGraph msgpack 数据库格式）。
 粗粒度闸门可用 `.interrupt_before(["finish"])` 或 `.interrupt_after(["ask"])`，这类暂停携带
-`null` payload，并通过 `graph.continue_thread("demo")` 继续。
+`null` payload，并通过 `graph.continue_thread("demo")` 继续。节点也可以返回 LangGraph 风格 `Command`
+（写入 + `goto`）：用 `add_command_node` 注册（同步/异步），或通过 `NodeOutput::from` 转换。
 
 ### 持久化 Checkpointer
 
