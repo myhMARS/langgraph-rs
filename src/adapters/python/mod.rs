@@ -40,7 +40,7 @@ use types::PyRedisSaver;
 use types::PySqliteSaver;
 use types::{
     PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage, PyRetryPolicy,
-    PySend, PyStore, PyStreamWriter, PyTask,
+    PyRunControl, PySend, PyStore, PyStreamWriter, PyTask,
 };
 
 create_exception!(
@@ -269,6 +269,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(get_config, module)?)?;
     module.add_function(wrap_pyfunction!(get_stream_writer, module)?)?;
     module.add_class::<PyStreamWriter>()?;
+    module.add_class::<PyRunControl>()?;
     module.add_function(wrap_pyfunction!(current_context, module)?)?;
     module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;
     module.add_function(wrap_pyfunction!(current_namespace, module)?)?;

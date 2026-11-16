@@ -224,6 +224,8 @@ pub struct RunConfig {
     pub durability: Durability,
     /// Forward chunks emitted inside subgraphs (wrapped in `StreamChunk::Subgraph`).
     pub stream_subgraphs: bool,
+    /// Cooperative abort flag checked between supersteps.
+    pub control: Option<crate::RunControl>,
 }
 
 impl std::fmt::Debug for RunConfig {
@@ -237,6 +239,10 @@ impl std::fmt::Debug for RunConfig {
             .field("max_concurrency", &self.max_concurrency)
             .field("durability", &self.durability)
             .field("stream_subgraphs", &self.stream_subgraphs)
+            .field(
+                "control",
+                &self.control.as_ref().map(crate::RunControl::is_aborted),
+            )
             .finish()
     }
 }
@@ -284,6 +290,12 @@ impl RunConfig {
     }
 
     /// Select the checkpoint durability policy.
+    /// Attach a cooperative run-control handle.
+    pub fn with_control(mut self, control: crate::RunControl) -> Self {
+        self.control = Some(control);
+        self
+    }
+
     pub fn with_durability(mut self, durability: Durability) -> Self {
         self.durability = durability;
         self

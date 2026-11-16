@@ -139,6 +139,7 @@ pub use kernel::context::{
     interrupt_with_schema, is_last_step, last_error, message, push_custom, push_message,
     record_tokens, record_usage, remaining_steps,
 };
+pub use kernel::control::RunControl;
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 /// Convenience graph whose state is [`MessagesState`] (LangGraph `MessageGraph`).
 pub type MessageGraph = StateGraph<MessagesState>;

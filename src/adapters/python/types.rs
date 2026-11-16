@@ -173,6 +173,35 @@ impl PyCommand {
     }
 }
 
+/// Cooperative run-control handle (LangGraph `RunControl` basics).
+#[pyclass(name = "RunControl")]
+pub struct PyRunControl {
+    pub(super) inner: crate::RunControl,
+}
+
+#[pymethods]
+impl PyRunControl {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: crate::RunControl::new(),
+        }
+    }
+
+    /// Abort the run at the next superstep boundary.
+    fn abort(&self) {
+        self.inner.abort();
+    }
+
+    fn is_aborted(&self) -> bool {
+        self.inner.is_aborted()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("RunControl(aborted={})", self.inner.is_aborted())
+    }
+}
+
 /// Writer returned by `langgraph_rs.get_stream_writer()`.
 #[pyclass(name = "StreamWriter")]
 pub struct PyStreamWriter;

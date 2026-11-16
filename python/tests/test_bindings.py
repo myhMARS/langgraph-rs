@@ -1335,5 +1335,18 @@ class AsyncPythonTests(unittest.TestCase):
         )
 
 
+    def test_run_control_abort(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile()
+        control = lg.RunControl()
+        control.abort()
+        self.assertTrue(control.is_aborted())
+        with self.assertRaises(Exception):
+            compiled.invoke({"value": 0}, control=control)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use langgraph_rs::{
-    CompileOptions, InMemorySaver, JsonState, NodeOutput, RetryPolicy, RunConfig, StateGraph,
-    StateSchema, get_config, json,
+    CompileOptions, InMemorySaver, JsonState, NodeOutput, RetryPolicy, RunConfig, RunControl,
+    StateGraph, StateSchema, get_config, json,
 };
 
 #[test]
@@ -125,4 +125,23 @@ fn prune_keeps_the_newest_checkpoints() {
     let after = graph.get_state_history("prune").unwrap();
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].checkpoint_id, latest);
+}
+
+#[test]
+fn aborted_run_control_stops_the_graph() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |_state: &JsonState| {
+            Ok(NodeOutput::new().update("value", json!(1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile()
+        .unwrap();
+
+    let control = RunControl::new();
+    control.abort();
+    let error = graph
+        .run(&JsonState::new(), &RunConfig::new().with_control(control))
+        .unwrap_err();
+    assert!(error.to_string().contains("RunControl"));
 }

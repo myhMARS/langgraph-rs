@@ -9,6 +9,7 @@ pub mod channel;
 pub mod checkpoint;
 pub mod command;
 pub mod context;
+pub mod control;
 pub mod error;
 pub mod executor;
 pub mod graph;

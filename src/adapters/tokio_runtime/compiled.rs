@@ -645,6 +645,13 @@ impl<S: State> AsyncCompiledGraph<S> {
             std::collections::HashMap::new();
         let mut iteration = 0usize;
         loop {
+            if config
+                .control
+                .as_ref()
+                .is_some_and(crate::RunControl::is_aborted)
+            {
+                return Err(Error::other("run aborted by RunControl"));
+            }
             if iteration >= recursion_limit {
                 return Err(Error::RecursionLimit(recursion_limit));
             }

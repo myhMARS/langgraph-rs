@@ -216,14 +216,16 @@ impl PyGraph {
 #[pymethods]
 impl PyCompiledGraph {
     /// Run the graph and return the final state dict.
-    #[pyo3(signature = (input=None, thread_id=None, context=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, control=None))]
     fn invoke(
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
         context: Option<&Bound<'_, PyAny>>,
+        control: Option<PyRef<'_, super::types::PyRunControl>>,
     ) -> PyResult<Py<PyAny>> {
+        let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
                 let thread = thread_id.as_deref().ok_or_else(|| {
@@ -250,6 +252,9 @@ impl PyCompiledGraph {
         }
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
+        if let Some(control) = control {
+            config = config.with_control(control);
+        }
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
@@ -292,7 +297,7 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, control=None))]
     #[allow(clippy::too_many_arguments)]
     fn stream(
         &self,
@@ -303,9 +308,13 @@ impl PyCompiledGraph {
         context: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
         version: Option<String>,
+        control: Option<PyRef<'_, super::types::PyRunControl>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
+        if let Some(control) = control {
+            config = config.with_control(control.inner.clone());
+        }
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
