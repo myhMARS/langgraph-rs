@@ -824,17 +824,40 @@ impl<S: State> AsyncCompiledGraph<S> {
                 .collect();
             if !interrupts.is_empty() {
                 if interrupts.len() == 1 {
-                    let interrupted = interrupts.into_iter().next().expect("one interrupt");
-                    self.save_checkpoint(
+                    let interrupted = interrupts.first().expect("one interrupt").clone();
+                    let interrupted_ids: HashSet<String> = tasks
+                        .iter()
+                        .zip(&outcomes)
+                        .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
+                        .map(|(task, _)| task.id.clone())
+                        .collect();
+                    let pending_writes = self.collect_pending_writes(&tasks, &outcomes);
+                    let successful: Vec<TaskOutcome> = outcomes
+                        .into_iter()
+                        .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
+                        .collect();
+                    let processed = self.process_outcomes(successful, step, &mut report, sink)?;
+                    let mut next_tasks: Vec<Task> = tasks
+                        .iter()
+                        .filter(|task| interrupted_ids.contains(&task.id))
+                        .cloned()
+                        .collect();
+                    for task in processed.next_tasks {
+                        if !next_tasks.iter().any(|existing| existing.id == task.id) {
+                            next_tasks.push(task);
+                        }
+                    }
+                    self.save_checkpoint_inner(
                         thread_id.as_deref(),
                         &namespace,
                         &mut parent,
                         &values,
-                        &tasks,
+                        &next_tasks,
                         step,
                         true,
                         false,
                         vec![interrupted.clone()],
+                        pending_writes,
                         sink,
                     )
                     .await?;
@@ -1531,6 +1554,38 @@ impl<S: State> AsyncCompiledGraph<S> {
         futures::executor::block_on(self.saver_history(thread_id))
     }
 
+    fn collect_pending_writes(
+        &self,
+        tasks: &[Task],
+        outcomes: &[TaskOutcome],
+    ) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+        let mut writes = Vec::new();
+        for (task, outcome) in tasks.iter().zip(outcomes) {
+            let TaskOutcome::Ok(result) = outcome else {
+                continue;
+            };
+            for (channel, value) in result.output.updates_map() {
+                writes.push(crate::kernel::checkpoint::PendingWrite {
+                    task_id: task.id.clone(),
+                    node: task.node.clone(),
+                    channel: channel.clone(),
+                    value: value.clone(),
+                    replace: false,
+                });
+            }
+            for (channel, value) in result.output.replaces_map() {
+                writes.push(crate::kernel::checkpoint::PendingWrite {
+                    task_id: task.id.clone(),
+                    node: task.node.clone(),
+                    channel: channel.clone(),
+                    value: value.clone(),
+                    replace: true,
+                });
+            }
+        }
+        writes
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn save_checkpoint(
         &self,
@@ -1543,6 +1598,37 @@ impl<S: State> AsyncCompiledGraph<S> {
         interrupted: bool,
         paused_before: bool,
         interrupts: Vec<Interrupt>,
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
+    ) -> Result<()> {
+        self.save_checkpoint_inner(
+            thread_id,
+            namespace,
+            parent,
+            values,
+            next,
+            step,
+            interrupted,
+            paused_before,
+            interrupts,
+            Vec::new(),
+            sink,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn save_checkpoint_inner(
+        &self,
+        thread_id: Option<&str>,
+        namespace: &str,
+        parent: &mut Option<String>,
+        values: &Map<String, Value>,
+        next: &[Task],
+        step: usize,
+        interrupted: bool,
+        paused_before: bool,
+        interrupts: Vec<Interrupt>,
+        pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<()> {
         let Some(thread_id) = thread_id else {
@@ -1576,7 +1662,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             channel_versions,
             versions_seen,
             updated_channels,
-            pending_writes: Vec::new(),
+            pending_writes,
         };
         self.saver_put(checkpoint).await?;
         *parent = Some(id.clone());
