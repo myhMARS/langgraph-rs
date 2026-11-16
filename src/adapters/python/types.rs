@@ -815,6 +815,41 @@ impl PyInMemoryCache {
     }
 }
 
+/// SQLite node cache object for `compile(cache=...)` (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+#[pyclass(name = "SqliteCache")]
+pub struct PySqliteCache {
+    pub(crate) inner: Arc<crate::SqliteCache>,
+}
+
+#[cfg(feature = "sqlite")]
+#[pymethods]
+impl PySqliteCache {
+    #[new]
+    #[pyo3(signature = (path=":memory:", max_entries=None))]
+    fn new(path: &str, max_entries: Option<usize>) -> PyResult<Self> {
+        let cache = crate::SqliteCache::open(path)
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+        let cache = match max_entries {
+            Some(max_entries) => cache.with_max_entries(max_entries),
+            None => cache,
+        };
+        Ok(Self {
+            inner: Arc::new(cache),
+        })
+    }
+
+    fn clear(&self) -> PyResult<()> {
+        self.inner
+            .clear()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        "SqliteCache()".to_string()
+    }
+}
+
 /// Resolve a Python `store=` keyword into a kernel store.
 pub(super) fn store_from_py(
     obj: Option<&Bound<'_, PyAny>>,

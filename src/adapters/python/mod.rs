@@ -38,12 +38,12 @@ use types::PyPostgresSaver;
 use types::PyRedisSaver;
 #[cfg(feature = "sqlite")]
 use types::PySqliteSaver;
-#[cfg(feature = "sqlite")]
-use types::PySqliteStore;
 use types::{
     PyCachePolicy, PyCommand, PyInMemoryCache, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage,
     PyRetryPolicy, PyRunControl, PySend, PyStore, PyStreamWriter, PyTask,
 };
+#[cfg(feature = "sqlite")]
+use types::{PySqliteCache, PySqliteStore};
 
 create_exception!(
     langgraph_rs,
@@ -242,6 +242,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInMemoryStore>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteStore>()?;
+    module.add_class::<PySqliteCache>()?;
     module.add_class::<PyTask>()?;
     module.add_class::<prebuilt::PyToolNode>()?;
     module.add_function(wrap_pyfunction!(prebuilt::tools_condition, module)?)?;

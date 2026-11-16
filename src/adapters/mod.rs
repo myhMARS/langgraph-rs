@@ -19,6 +19,10 @@ pub mod sqlite;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_store;
 
+/// SQLite node cache (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+pub mod sqlite_cache;
+
 /// Redis checkpoint persistence (feature `redis`).
 #[cfg(feature = "redis")]
 pub mod redis;

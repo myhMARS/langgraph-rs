@@ -115,6 +115,10 @@ pub use adapters::sqlite::SqliteSaver;
 /// SQLite-backed long-term memory store.
 pub use adapters::sqlite_store::SqliteStore;
 
+#[cfg(feature = "sqlite")]
+/// SQLite-backed node cache.
+pub use adapters::sqlite_cache::SqliteCache;
+
 /// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
 #[cfg(feature = "async")]
 pub type AsyncInMemorySaver = InMemorySaver;
