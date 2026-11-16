@@ -552,6 +552,61 @@ impl<S: State> CompiledGraph<S> {
     /// let state = graph.resume_command("demo", command).unwrap();
     /// assert_eq!(state.value, 41);
     /// ```
+    /// Run a graph starting at the `Command`'s `goto` nodes (LangGraph
+    /// `invoke(Command(goto=...))`), applying `Command.update` first.
+    pub fn run_command(
+        &self,
+        command: Command,
+        config: &RunConfig,
+    ) -> Result<crate::RunOutcome<S>> {
+        if command.resume.is_some() {
+            return Err(Error::validation(
+                "Command(goto=...) cannot also carry a resume value",
+            ));
+        }
+        if command.parent {
+            return Err(Error::validation(
+                "Command(graph=PARENT) is only supported for subgraphs",
+            ));
+        }
+        if command.goto.is_empty() {
+            return Err(Error::validation(
+                "Command(goto=...) requires at least one target node",
+            ));
+        }
+        let mut values = Map::new();
+        if let Some(updates) = command.update {
+            apply_updates(
+                &self.schema,
+                &mut values,
+                updates
+                    .into_iter()
+                    .map(|(channel, value)| ChannelUpdate {
+                        channel,
+                        value,
+                        node: "<input>".to_string(),
+                    })
+                    .collect(),
+            )?;
+        }
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute(
+            self,
+            executor::StartInput::Gateways {
+                values,
+                nodes: command.goto,
+            },
+            config,
+            &mut sink,
+        )
+    }
+
+    /// Convenience state-only form of [`Self::run_command`].
+    pub fn invoke_command(&self, command: Command, config: &RunConfig) -> Result<S> {
+        self.run_command(command, config)
+            .map(|outcome| outcome.state)
+    }
+
     pub fn resume_command(&self, thread_id: &str, command: Command) -> Result<S> {
         let updates = command
             .update

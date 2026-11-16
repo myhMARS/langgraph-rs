@@ -30,6 +30,10 @@ use crate::{END, START};
 /// Where a run starts from.
 enum StartInput {
     Values(Map<String, Value>),
+    Gateways {
+        values: Map<String, Value>,
+        nodes: Vec<String>,
+    },
     Updates(Map<String, Value>),
     Resume {
         thread_id: String,
@@ -226,6 +230,61 @@ impl<S: State> AsyncCompiledGraph<S> {
         .await;
         indexed.sort_by_key(|(index, _)| *index);
         indexed.into_iter().map(|(_, result)| result).collect()
+    }
+
+    /// Run a graph starting at the `Command`'s `goto` nodes.
+    pub async fn run_command(
+        &self,
+        command: crate::Command,
+        config: &RunConfig,
+    ) -> Result<RunOutcome<S>> {
+        if command.resume.is_some() {
+            return Err(Error::validation(
+                "Command(goto=...) cannot also carry a resume value",
+            ));
+        }
+        if command.parent {
+            return Err(Error::validation(
+                "Command(graph=PARENT) is only supported for subgraphs",
+            ));
+        }
+        if command.goto.is_empty() {
+            return Err(Error::validation(
+                "Command(goto=...) requires at least one target node",
+            ));
+        }
+        let mut values = Map::new();
+        if let Some(updates) = command.update {
+            apply_updates(
+                &self.schema,
+                &mut values,
+                updates
+                    .into_iter()
+                    .map(|(channel, value)| ChannelUpdate {
+                        channel,
+                        value,
+                        node: "<input>".to_string(),
+                    })
+                    .collect(),
+            )?;
+        }
+        let mut sink = |_chunk: StreamChunk| {};
+        self.execute(
+            StartInput::Gateways {
+                values,
+                nodes: command.goto,
+            },
+            config,
+            &mut sink,
+        )
+        .await
+    }
+
+    /// Convenience state-only form of [`Self::run_command`].
+    pub async fn invoke_command(&self, command: crate::Command, config: &RunConfig) -> Result<S> {
+        self.run_command(command, config)
+            .await
+            .map(|outcome| outcome.state)
     }
 
     /// Run the graph to completion.
@@ -526,7 +585,10 @@ impl<S: State> AsyncCompiledGraph<S> {
             return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
         }
 
-        let fresh = matches!(&start, StartInput::Values(_) | StartInput::Updates(_));
+        let fresh = matches!(
+            &start,
+            StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
+        );
         let mut parent: Option<String> = None;
         let mut skip_interrupt_before = false;
 
@@ -552,6 +614,18 @@ impl<S: State> AsyncCompiledGraph<S> {
                 )?;
                 let state = values_to_state::<S>(&values)?;
                 let tasks = self.entry_tasks(&state)?;
+                (values, state, tasks, 0usize)
+            }
+            StartInput::Gateways { values, nodes } => {
+                for node in &nodes {
+                    if !self.nodes.contains_key(node) {
+                        return Err(Error::validation(format!(
+                            "Command(goto=...): `{node}` is not a registered node"
+                        )));
+                    }
+                }
+                let state = values_to_state::<S>(&values)?;
+                let tasks = dedupe(nodes).into_iter().map(Task::new).collect();
                 (values, state, tasks, 0usize)
             }
             StartInput::Resume {

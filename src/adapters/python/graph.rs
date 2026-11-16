@@ -228,6 +228,33 @@ impl PyCompiledGraph {
         let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+                let targets = command.goto_targets(py)?;
+                if !targets.is_empty() {
+                    if command.resume.is_some() {
+                        return Err(PyTypeError::new_err(
+                            "Command(goto=...) cannot also carry a resume value",
+                        ));
+                    }
+                    let updates = command.to_update_map(py)?;
+                    let mut config = run_config(thread_id);
+                    if let Some(control) = control.clone() {
+                        config = config.with_control(control);
+                    }
+                    if let Some(context) = context {
+                        config = config.with_context(py_to_value(context)?);
+                    }
+                    let command = crate::Command {
+                        resume: None,
+                        update: Some(updates),
+                        goto: targets,
+                        parent: false,
+                    };
+                    let result = py.detach(|| self.graph.run_command(command, &config));
+                    return match result {
+                        Ok(outcome) => json_state_to_py(py, &outcome.state),
+                        Err(error) => Err(to_pyerr(py, error)),
+                    };
+                }
                 let thread = thread_id.as_deref().ok_or_else(|| {
                     PyTypeError::new_err("invoke(Command(...)) requires thread_id")
                 })?;

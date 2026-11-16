@@ -32,6 +32,12 @@ use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 pub(crate) enum StartInput {
     /// Full channel values (from a typed input state).
     Values(Map<String, Value>),
+    /// Partial writes applied over the default state, starting at explicit nodes
+    /// (LangGraph `invoke(Command(goto=...))`).
+    Gateways {
+        values: Map<String, Value>,
+        nodes: Vec<String>,
+    },
     /// Partial writes applied over the default state.
     Updates(Map<String, Value>),
     /// Continue a checkpointed thread.
@@ -77,7 +83,10 @@ pub(crate) fn execute<S: State>(
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
     }
 
-    let fresh = matches!(&start, StartInput::Values(_) | StartInput::Updates(_));
+    let fresh = matches!(
+        &start,
+        StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
+    );
     let mut parent: Option<String> = None;
     let mut skip_interrupt_before = false;
 
@@ -103,6 +112,18 @@ pub(crate) fn execute<S: State>(
             )?;
             let state = values_to_state::<S>(&values)?;
             let tasks = graph.entry_tasks(&state)?;
+            (values, state, tasks, 0usize)
+        }
+        StartInput::Gateways { values, nodes } => {
+            for node in &nodes {
+                if graph.node(node).is_none() {
+                    return Err(Error::validation(format!(
+                        "Command(goto=...): `{node}` is not a registered node"
+                    )));
+                }
+            }
+            let state = values_to_state::<S>(&values)?;
+            let tasks = dedupe(nodes).into_iter().map(Task::new).collect();
             (values, state, tasks, 0usize)
         }
         StartInput::Resume {
