@@ -1622,5 +1622,28 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertNotIn("remaining_steps", output)
 
 
+    def test_msgpack_checkpoint_interop(self):
+        if not hasattr(lg.CompiledGraph, "export_checkpoint_msgpack"):
+            self.skipTest("msgpack feature is not built")
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, thread_id="py-msgpack")
+        document = compiled.export_checkpoint("py-msgpack")
+        raw = compiled.export_checkpoint_msgpack("py-msgpack")
+        serde = JsonPlusSerializer()
+        self.assertEqual(serde.loads_typed(("msgpack", raw)), document)
+
+        encoded = serde.dumps_typed(document)
+        self.assertEqual(encoded[0], "msgpack")
+        compiled.import_checkpoint_msgpack("py-msgpack-imported", encoded[1])
+        snapshot = compiled.get_state("py-msgpack-imported")
+        self.assertEqual(snapshot["values"], document["checkpoint"]["channel_values"])
+
+
 if __name__ == "__main__":
     unittest.main()

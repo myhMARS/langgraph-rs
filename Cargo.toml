@@ -42,6 +42,7 @@ python = ["dep:pyo3"]
 python-async = ["python", "async", "dep:pyo3-async-runtimes"]
 async = ["dep:tokio", "dep:futures"]
 sqlite = ["dep:rusqlite"]
+msgpack = []
 redis = ["dep:redis"]
 postgres = ["dep:postgres", "dep:tokio-postgres"]
 

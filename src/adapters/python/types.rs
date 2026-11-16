@@ -1045,6 +1045,28 @@ impl PyPostgresCache {
     }
 }
 
+/// Resolve a Python `cache=` object into a kernel node cache.
+pub(super) fn cache_from_py(
+    obj: &Bound<'_, PyAny>,
+) -> Option<Arc<dyn crate::kernel::cache::NodeCache>> {
+    if let Ok(cache) = obj.extract::<PyRef<'_, PyInMemoryCache>>() {
+        return Some(cache.inner.clone());
+    }
+    #[cfg(feature = "sqlite")]
+    if let Ok(cache) = obj.extract::<PyRef<'_, PySqliteCache>>() {
+        return Some(cache.inner.clone());
+    }
+    #[cfg(feature = "redis")]
+    if let Ok(cache) = obj.extract::<PyRef<'_, PyRedisCache>>() {
+        return Some(cache.inner.clone());
+    }
+    #[cfg(feature = "postgres")]
+    if let Ok(cache) = obj.extract::<PyRef<'_, PyPostgresCache>>() {
+        return Some(cache.inner.clone());
+    }
+    None
+}
+
 /// Resolve a Python `store=` keyword into a kernel store.
 pub(super) fn store_from_py(
     obj: Option<&Bound<'_, PyAny>>,

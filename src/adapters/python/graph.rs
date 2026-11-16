@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{PyLookupError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
 
 use super::convert::*;
 use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py, store_from_py};
@@ -187,18 +187,10 @@ impl PyStateGraph {
                 if flag {
                     builder = builder.with_cache(Arc::new(crate::InMemoryCache::new()));
                 }
-            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyInMemoryCache>>() {
-                builder = builder.with_cache(cache.inner.clone());
-            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PySqliteCache>>() {
-                builder = builder.with_cache(cache.inner.clone());
-            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyRedisCache>>() {
-                builder = builder.with_cache(cache.inner.clone());
-            } else if let Ok(cache) = cache.extract::<PyRef<'_, super::types::PyPostgresCache>>() {
-                builder = builder.with_cache(cache.inner.clone());
+            } else if let Some(cache_object) = super::types::cache_from_py(cache) {
+                builder = builder.with_cache(cache_object);
             } else {
-                return Err(PyTypeError::new_err(
-                    "cache must be True or an InMemoryCache object",
-                ));
+                return Err(PyTypeError::new_err("cache must be True or a cache object"));
             }
         }
         if let Some(store) = store_from_py(store)? {
@@ -667,6 +659,50 @@ impl PyCompiledGraph {
     /// List threads that have at least one checkpoint.
     fn threads(&self, py: Python<'_>) -> PyResult<Vec<String>> {
         self.graph.threads().map_err(|error| to_pyerr(py, error))
+    }
+
+    /// Export the latest checkpoint as LangGraph-compatible MessagePack bytes.
+    #[cfg(feature = "msgpack")]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn export_checkpoint_msgpack(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Py<PyBytes>> {
+        let checkpointer = self
+            .graph
+            .checkpointer()
+            .ok_or_else(|| PyRuntimeError::new_err("graph has no checkpointer"))?;
+        let checkpoint = match checkpoint_ns.as_deref() {
+            Some(namespace) => checkpointer.latest_in(&thread_id, namespace),
+            None => checkpointer.latest(&thread_id),
+        }
+        .map_err(|error| to_pyerr(py, error))?;
+        let Some(checkpoint) = checkpoint else {
+            return Err(PyLookupError::new_err(format!(
+                "no checkpoint found for thread `{thread_id}`"
+            )));
+        };
+        let bytes = crate::interop::checkpoint_to_langgraph_msgpack(&checkpoint)
+            .map_err(|error| to_pyerr(py, error))?;
+        Ok(PyBytes::new(py, &bytes).unbind())
+    }
+
+    /// Import LangGraph-compatible MessagePack checkpoint bytes into a thread.
+    #[cfg(feature = "msgpack")]
+    fn import_checkpoint_msgpack(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        data: &[u8],
+    ) -> PyResult<()> {
+        let checkpoint = crate::interop::checkpoint_from_langgraph_msgpack(data)
+            .map_err(|error| to_pyerr(py, error))?;
+        let document = crate::interop::checkpoint_to_langgraph(&checkpoint);
+        self.graph
+            .import_checkpoint(&thread_id, &document)
+            .map_err(|error| to_pyerr(py, error))
     }
 
     /// Keep only the newest `keep_last` checkpoints of a thread.

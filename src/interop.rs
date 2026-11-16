@@ -10,6 +10,9 @@
 use serde_json::{Map, Value, json};
 
 use crate::kernel::checkpoint::{Checkpoint, now_millis};
+
+#[cfg(feature = "msgpack")]
+pub mod msgpack;
 use crate::kernel::error::{Error, Result};
 
 /// Export a checkpoint as a LangGraph-shaped checkpoint tuple document.
@@ -370,6 +373,19 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// Encode the LangGraph-shaped checkpoint tuple as standard MessagePack bytes.
+#[cfg(feature = "msgpack")]
+pub fn checkpoint_to_langgraph_msgpack(checkpoint: &Checkpoint) -> Result<Vec<u8>> {
+    Ok(msgpack::encode(&checkpoint_to_langgraph(checkpoint)))
+}
+
+/// Decode MessagePack bytes produced by LangGraph's `JsonPlusSerializer` (JSON-shaped
+/// documents) into a checkpoint.
+#[cfg(feature = "msgpack")]
+pub fn checkpoint_from_langgraph_msgpack(bytes: &[u8]) -> Result<Checkpoint> {
+    checkpoint_from_langgraph(&msgpack::decode(bytes)?)
 }
 
 #[cfg(test)]

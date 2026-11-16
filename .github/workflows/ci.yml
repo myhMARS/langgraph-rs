@@ -69,7 +69,7 @@ jobs:
         run: cargo test --all-targets --features "async sqlite sqlite"
 
       - name: Run persistence tests (Redis/Postgres)
-        run: cargo test --all-targets --features "async redis postgres"
+        run: cargo test --all-targets --features "async redis postgres msgpack"
 
       - name: Run doctests
         run: cargo test --doc
@@ -118,7 +118,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Build the extension module
-        run: cargo build --features "python python-async sqlite redis postgres"
+        run: cargo build --features "python python-async sqlite redis postgres msgpack"
 
       - name: Make the module importable
         run: |

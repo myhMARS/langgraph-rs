@@ -804,8 +804,9 @@ checkpoint/HITL/retry/error-routing surface, subgraphs, cache and batch; optiona
 functional/performance benchmark against Python LangGraph, including scaling, threading and
 memory scenarios.
 
-Known limitations (documented in `benchmarks/features.md`): checkpoint interop is JSON-level
-(`export_checkpoint` / `import_checkpoint`), not LangGraph's msgpack/database byte format;
+Known limitations (documented in `benchmarks/features.md`): checkpoint tuple interop supports JSON and, with the `msgpack` feature, LangGraph-compatible
+MessagePack bytes (`export_checkpoint_msgpack` / `import_checkpoint_msgpack`), but not
+LangGraph's database table layout;
 native async Postgres/Redis checkpointers are available, while SQLite still offloads through
 `BlockingSaver`; `RunControl` cancels async node awaits immediately, while synchronous
 blocking nodes are interrupted only between supersteps; the functional API
