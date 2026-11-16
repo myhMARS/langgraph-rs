@@ -538,6 +538,12 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - `graph.compile(checkpointer=True)` 启用 checkpoint；`invoke(..., thread_id="t")` 在节点调用
   `lg.interrupt(payload)` 时以 `lg.GraphInterrupt` 暂停；`resume("t", answer)` 继续，
   `get_state` / `get_state_history` 检查 checkpoint 链。
+- 提供 LangGraph 风格类：`Send`（节点可返回 Send 列表）、节点返回
+  `Command(update=..., goto=...)`、`invoke` 传入 `Command(resume=..., update=...)`、
+  `RetryPolicy` / `CachePolicy`（通过 `add_node(..., retry_policy=..., cache_policy=...,
+  error_handler="node")`）、`compile(cache=True)` 以及 `lg.add_messages`。
+- Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`（启用 `sqlite` feature 时还支持
+  `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`）。
 - `compiled.run(...)` 返回 `{"state": ..., "report": ...}`，包含与 Rust 相同的节点消耗报告；
   `compiled.stream(...)` 返回 chunk 字典。
 - 节点可返回保留键 `__goto__`（节点名或列表）与 `__usage__`（包含 `model`、`input_tokens`、

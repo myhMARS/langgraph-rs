@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
+use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -32,9 +33,30 @@ impl PyStateGraph {
     }
 
     /// Register a Python callable as a node.
-    fn add_node(&mut self, name: String, function: Py<PyAny>) -> PyResult<()> {
-        let graph = std::mem::take(&mut self.inner);
-        self.inner = graph.add_node(name.clone(), node_from_python(name, function));
+    ///
+    /// Optional LangGraph-style keywords: ``retry_policy``, ``cache_policy`` and
+    /// ``error_handler`` (node name).
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None))]
+    fn add_node(
+        &mut self,
+        name: String,
+        function: Py<PyAny>,
+        retry_policy: Option<PyRef<'_, PyRetryPolicy>>,
+        cache_policy: Option<PyRef<'_, PyCachePolicy>>,
+        error_handler: Option<String>,
+    ) -> PyResult<()> {
+        let mut graph = std::mem::take(&mut self.inner);
+        graph = graph.add_node(name.clone(), node_from_python(name.clone(), function));
+        if let Some(policy) = retry_policy {
+            graph = graph.set_retry(name.clone(), policy.to_policy());
+        }
+        if let Some(policy) = cache_policy {
+            graph = graph.set_cache(name.clone(), policy.to_policy());
+        }
+        if let Some(handler) = error_handler {
+            graph = graph.add_error_edge(name, normalize_node(&handler));
+        }
+        self.inner = graph;
         Ok(())
     }
 
@@ -82,21 +104,25 @@ impl PyStateGraph {
     }
 
     /// Validate and compile the graph.
-    #[pyo3(signature = (checkpointer=false, recursion_limit=None, interrupt_before=None, interrupt_after=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None))]
     fn compile(
         &self,
         py: Python<'_>,
-        checkpointer: bool,
+        checkpointer: Option<&Bound<'_, PyAny>>,
         recursion_limit: Option<usize>,
         interrupt_before: Option<Vec<String>>,
         interrupt_after: Option<Vec<String>>,
+        cache: Option<bool>,
     ) -> PyResult<PyCompiledGraph> {
         let mut options = CompileOptions::new();
         let mut saver = None;
-        if checkpointer {
-            let memory = Arc::new(InMemorySaver::new());
-            options = options.with_checkpointer(memory.clone());
-            saver = Some(memory);
+        let mut builder = self.inner.clone();
+        if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
+            options = options.with_checkpointer(checkpointer.clone());
+            saver = Some(checkpointer);
+        }
+        if cache == Some(true) {
+            builder = builder.with_cache(Arc::new(crate::InMemoryCache::new()));
         }
         if let Some(limit) = recursion_limit {
             options = options.with_recursion_limit(limit);
@@ -107,9 +133,7 @@ impl PyStateGraph {
         if let Some(nodes) = interrupt_after {
             options = options.interrupt_after(nodes);
         }
-        let compiled = self
-            .inner
-            .clone()
+        let compiled = builder
             .compile_with(options)
             .map_err(|error| to_pyerr(py, error))?;
         Ok(PyCompiledGraph {
@@ -123,7 +147,7 @@ impl PyStateGraph {
 #[pyclass(name = "CompiledGraph")]
 pub struct PyCompiledGraph {
     graph: CompiledGraph<JsonState>,
-    saver: Option<Arc<InMemorySaver>>,
+    saver: Option<Arc<dyn Checkpointer>>,
 }
 
 #[pymethods]
@@ -136,6 +160,28 @@ impl PyCompiledGraph {
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        if let Some(obj) = input {
+            if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+                let thread = thread_id.as_deref().ok_or_else(|| {
+                    PyTypeError::new_err("invoke(Command(...)) requires thread_id")
+                })?;
+                let (resume, updates) = command.to_resume_command(py)?;
+                let result = py.detach(|| match resume {
+                    Some(value) => self.graph.resume_with_updates(thread, value, updates),
+                    None => self.graph.resume_command(
+                        thread,
+                        crate::Command {
+                            resume: None,
+                            update: Some(updates),
+                        },
+                    ),
+                });
+                return match result {
+                    Ok(state) => json_state_to_py(py, &state),
+                    Err(error) => Err(to_pyerr(py, error)),
+                };
+            }
+        }
         let state = state_from_py(input)?;
         let config = run_config(thread_id);
         let result = py.detach(|| self.graph.invoke(&state, &config));

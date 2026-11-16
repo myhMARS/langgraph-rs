@@ -570,6 +570,12 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
 - `graph.compile(checkpointer=True)` enables checkpoints; `invoke(..., thread_id="t")` pauses
   with `lg.GraphInterrupt` when a node calls `lg.interrupt(payload)`; `resume("t", answer)`
   continues and `get_state` / `get_state_history` inspect the checkpoint chain.
+- LangGraph-style classes are available: `Send` (nodes can return a list of `Send` targets),
+  `Command(update=..., goto=...)` returned from a node, `Command(resume=..., update=...)`
+  passed to `invoke`, `RetryPolicy` / `CachePolicy` (via `add_node(..., retry_policy=...,
+  cache_policy=..., error_handler="node")`), `compile(cache=True)`, and `lg.add_messages`.
+- Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())` (and
+  `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()` when built with the `sqlite` feature).
 - `compiled.run(...)` returns `{"state": ..., "report": ...}` with the same per-node usage
   report; `compiled.stream(...)` returns chunk dicts.
 - Nodes may return the reserved keys `__goto__` (node name or list) and `__usage__` (a dict

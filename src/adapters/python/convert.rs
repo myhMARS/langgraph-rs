@@ -3,6 +3,8 @@
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
+
+use super::types::{PyCommand, PySend};
 use serde_json::Map;
 
 use super::GraphInterrupt;
@@ -218,8 +220,42 @@ pub(super) fn node_output_from_py(obj: &Bound<'_, PyAny>) -> PyResult<NodeOutput
     if obj.is_none() {
         return Ok(NodeOutput::new());
     }
+    if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+        return command.to_output(obj.py());
+    }
+    if let Ok(send) = obj.extract::<PyRef<PySend>>() {
+        return Ok(NodeOutput::new().send(send.to_send(obj.py())?));
+    }
+    if let Ok(list) = obj.cast::<PyList>() {
+        let mut output = NodeOutput::new();
+        for item in list.iter() {
+            if let Ok(send) = item.extract::<PyRef<PySend>>() {
+                output = output.send(send.to_send(obj.py())?);
+            } else if let Ok(command) = item.extract::<PyRef<PyCommand>>() {
+                let converted = command.to_output(obj.py())?;
+                let (updates, replaces, goto, sends) = converted.into_parts();
+                for (channel, value) in updates {
+                    output = output.update(channel, value);
+                }
+                for (channel, value) in replaces {
+                    output = output.replace(channel, value);
+                }
+                for target in goto {
+                    output = output.goto(target);
+                }
+                for send in sends {
+                    output = output.send(send);
+                }
+            } else {
+                return Err(PyTypeError::new_err(
+                    "a node list must contain Send or Command objects",
+                ));
+            }
+        }
+        return Ok(output);
+    }
     let dict = obj.cast::<PyDict>().map_err(|_| {
-        PyTypeError::new_err("a node must return a dict of channel updates or None")
+        PyTypeError::new_err("a node must return a dict of channel updates, Send/Command, or None")
     })?;
 
     let mut output = NodeOutput::new();
@@ -236,6 +272,15 @@ pub(super) fn node_output_from_py(obj: &Bound<'_, PyAny>) -> PyResult<NodeOutput
                 }
             }
             "__usage__" => output = output.with_usage(usage_from_py(&value)?),
+            "__send__" | "send" => {
+                let sends = value
+                    .extract::<Vec<Py<PyAny>>>()
+                    .map_err(|_| PyTypeError::new_err("`send` must be a list of Send objects"))?;
+                for send in sends {
+                    let send = send.bind(obj.py()).extract::<PyRef<PySend>>()?;
+                    output = output.send(send.to_send(obj.py())?);
+                }
+            }
             _ => output = output.update(key, py_to_value(&value)?),
         }
     }
@@ -263,6 +308,7 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
         })?;
         let spec = match spec.as_str() {
             "last" | "value" => "last_value".to_string(),
+            "add_messages" | "messages" => "messages".to_string(),
             other => other.to_string(),
         };
         entries.push((name, spec));

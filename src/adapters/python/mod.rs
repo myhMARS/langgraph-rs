@@ -18,6 +18,7 @@
 
 mod convert;
 mod graph;
+mod types;
 
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -26,6 +27,9 @@ use pyo3::types::PyAny;
 
 use convert::*;
 use graph::{PyCompiledGraph, PyStateGraph};
+#[cfg(feature = "sqlite")]
+use types::PySqliteSaver;
+use types::{PyCachePolicy, PyCommand, PyInMemorySaver, PyRetryPolicy, PySend};
 
 create_exception!(
     langgraph_rs,
@@ -86,6 +90,13 @@ fn version() -> &'static str {
 fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStateGraph>()?;
     module.add_class::<PyCompiledGraph>()?;
+    module.add_class::<PySend>()?;
+    module.add_class::<PyCommand>()?;
+    module.add_class::<PyRetryPolicy>()?;
+    module.add_class::<PyCachePolicy>()?;
+    module.add_class::<PyInMemorySaver>()?;
+    #[cfg(feature = "sqlite")]
+    module.add_class::<PySqliteSaver>()?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;
@@ -93,6 +104,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(record_usage, module)?)?;
     module.add_function(wrap_pyfunction!(record_tokens, module)?)?;
     module.add_function(wrap_pyfunction!(version, module)?)?;
+    module.add("add_messages", "messages")?;
     module.add("START", crate::START)?;
     module.add("END", crate::END)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;

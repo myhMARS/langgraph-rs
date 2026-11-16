@@ -307,5 +307,135 @@ class StreamingTests(unittest.TestCase):
         self.assertIsInstance(lg.__version__, str)
 
 
+class PythonApiParityTests(unittest.TestCase):
+    def test_send_map_reduce(self):
+        graph = lg.StateGraph({"log": "append", "value": "last_value"})
+        graph.add_node(
+            "dispatch",
+            lambda state: [lg.Send("worker", {"value": item}) for item in (1, 2, 3)],
+        )
+        graph.add_node("worker", lambda state: {"log": [state["value"]]})
+        graph.set_entry_point("dispatch")
+        graph.set_finish_point("worker")
+        output = graph.compile().invoke({"log": [], "value": 0})
+        self.assertEqual(sorted(output["log"]), [1, 2, 3])
+
+    def test_command_as_node_output(self):
+        graph = lg.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node(
+            "seed",
+            lambda state: lg.Command(update={"value": 1}, goto="finish"),
+        )
+        graph.add_node("finish", lambda state: {"log": ["finish"]})
+        graph.set_entry_point("seed")
+        graph.set_finish_point("finish")
+        output = graph.compile().invoke({"value": 0, "log": []})
+        self.assertEqual(output["value"], 1)
+        self.assertEqual(output["log"], ["finish"])
+
+    def test_command_as_invoke_input(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "ask",
+            lambda state: {"value": state["value"] + lg.interrupt("delta")},
+        )
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(checkpointer=True)
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="cmd-input")
+        output = compiled.invoke(
+            lg.Command(resume=5, update={"value": 10}), thread_id="cmd-input"
+        )
+        self.assertEqual(output["value"], 15)
+
+    def test_retry_policy(self):
+        calls = {"count": 0}
+
+        def flaky(state):
+            calls["count"] += 1
+            if calls["count"] < 3:
+                raise RuntimeError(f"transient {calls['count']}")
+            return {"value": 7}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "flaky",
+            flaky,
+            retry_policy=lg.RetryPolicy(
+                max_attempts=3, initial_interval=0.001, backoff_factor=1.0
+            ),
+        )
+        graph.set_entry_point("flaky")
+        graph.set_finish_point("flaky")
+        output = graph.compile().invoke({"value": 0})
+        self.assertEqual(output["value"], 7)
+        self.assertEqual(calls["count"], 3)
+
+    def test_node_cache(self):
+        calls = {"count": 0}
+
+        def work(state):
+            calls["count"] += 1
+            return {"value": calls["count"]}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("work", work, cache_policy=lg.CachePolicy(ttl=60))
+        graph.set_entry_point("work")
+        graph.set_finish_point("work")
+        compiled = graph.compile(cache=True)
+        first = compiled.invoke({"value": 0})
+        second = compiled.invoke({"value": 0})
+        self.assertEqual(first["value"], 1)
+        self.assertEqual(second["value"], 1)
+        self.assertEqual(calls["count"], 1)
+
+    def test_error_handler(self):
+        def broken(state):
+            raise RuntimeError("boom")
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("work", broken, error_handler="fallback")
+        graph.add_node("fallback", lambda state: {"value": -1})
+        graph.set_entry_point("work")
+        graph.set_finish_point("fallback")
+        self.assertEqual(graph.compile().invoke({"value": 0})["value"], -1)
+
+    def test_saver_object(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        saver = lg.InMemorySaver()
+        compiled = graph.compile(checkpointer=saver)
+        self.assertTrue(compiled.has_checkpointer())
+        compiled.invoke({"value": 0}, thread_id="saver-object")
+        self.assertEqual(compiled.get_state("saver-object")["values"]["value"], 1)
+
+    def test_add_messages_alias(self):
+        graph = lg.StateGraph({"messages": lg.add_messages})
+        graph.add_node(
+            "append",
+            lambda state: {"messages": [{"id": "1", "content": "new"}]},
+        )
+        graph.set_entry_point("append")
+        graph.set_finish_point("append")
+        output = graph.compile().invoke(
+            {"messages": [{"id": "1", "content": "old"}]}
+        )
+        self.assertEqual(len(output["messages"]), 1)
+        self.assertEqual(output["messages"][0]["content"], "new")
+
+    def test_sqlite_saver_when_available(self):
+        if not hasattr(lg, "SqliteSaver"):
+            self.skipTest("built without the sqlite feature")
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        compiled = graph.compile(checkpointer=lg.SqliteSaver.in_memory())
+        compiled.invoke({"value": 0}, thread_id="sqlite-saver")
+        self.assertEqual(compiled.get_state("sqlite-saver")["values"]["value"], 1)
+
 if __name__ == "__main__":
     unittest.main()

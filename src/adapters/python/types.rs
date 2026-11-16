@@ -1,0 +1,299 @@
+//! Python classes mirroring LangGraph's `Send`, `Command`, `RetryPolicy`,
+//! `CachePolicy` and the checkpoint saver objects.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use pyo3::exceptions::PyTypeError;
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
+use serde_json::Value;
+
+use super::convert::{normalize_node, py_to_value};
+use crate::Checkpointer;
+use crate::kernel::node::{NodeOutput, Send};
+use crate::kernel::retry::RetryPolicy;
+
+/// A dynamic fan-out task, mirroring `langgraph.types.Send`.
+#[pyclass(name = "Send")]
+pub struct PySend {
+    #[pyo3(get)]
+    pub node: String,
+    pub arg: Option<Py<PyAny>>,
+}
+
+#[pymethods]
+impl PySend {
+    #[new]
+    #[pyo3(signature = (node, arg=None))]
+    fn new(node: String, arg: Option<Py<PyAny>>) -> Self {
+        Self { node, arg }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Send(node={:?})", self.node)
+    }
+}
+
+impl PySend {
+    pub(super) fn to_send(&self, py: Python<'_>) -> PyResult<Send> {
+        let node = normalize_node(&self.node);
+        match &self.arg {
+            None => Ok(Send::to(node)),
+            Some(arg) => Ok(Send::with_arg(node, py_to_value(arg.bind(py))?)),
+        }
+    }
+}
+
+/// A `Command` returned from a node or passed to `invoke`/`stream`.
+#[pyclass(name = "Command")]
+#[derive(Default)]
+pub struct PyCommand {
+    pub graph: Option<String>,
+    pub update: Option<Py<PyAny>>,
+    pub resume: Option<Py<PyAny>>,
+    pub goto: Option<Py<PyAny>>,
+}
+
+#[pymethods]
+impl PyCommand {
+    #[new]
+    #[pyo3(signature = (update=None, resume=None, goto=None, graph=None))]
+    fn new(
+        update: Option<Py<PyAny>>,
+        resume: Option<Py<PyAny>>,
+        goto: Option<Py<PyAny>>,
+        graph: Option<String>,
+    ) -> Self {
+        Self {
+            graph,
+            update,
+            resume,
+            goto,
+        }
+    }
+
+    #[classattr]
+    const PARENT: &'static str = "__parent__";
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Command(update={}, resume={}, goto={}, graph={:?})",
+            self.update.is_some(),
+            self.resume.is_some(),
+            self.goto.is_some(),
+            self.graph
+        )
+    }
+}
+
+impl PyCommand {
+    /// Convert a Command returned by a node into channel writes + goto targets.
+    pub(super) fn to_output(&self, py: Python<'_>) -> PyResult<NodeOutput> {
+        let mut output = NodeOutput::new();
+        if let Some(update) = &self.update {
+            if !update.bind(py).is_none() {
+                let dict = update.bind(py).cast::<PyDict>().map_err(|_| {
+                    PyTypeError::new_err("Command(update=...) expects a dict of channel writes")
+                })?;
+                for (key, value) in dict.iter() {
+                    output = output.update(key.extract::<String>()?, py_to_value(&value)?);
+                }
+            }
+        }
+        if let Some(goto) = &self.goto {
+            if !goto.bind(py).is_none() {
+                if let Ok(names) = goto.bind(py).extract::<Vec<String>>() {
+                    for name in names {
+                        output = output.goto(normalize_node(&name));
+                    }
+                } else {
+                    output = output.goto(normalize_node(&goto.bind(py).extract::<String>()?));
+                }
+            }
+        }
+        Ok(output)
+    }
+
+    /// Convert a Command passed to `invoke` into resume value + updates.
+    pub(super) fn to_resume_command(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<(Option<Value>, indexmap::IndexMap<String, Value>)> {
+        if self.graph.is_some() {
+            return Err(PyTypeError::new_err(
+                "Command(graph=...) is only supported for subgraphs",
+            ));
+        }
+        if self.goto.is_some() {
+            return Err(PyTypeError::new_err(
+                "Command(goto=...) is only supported when returned by a node",
+            ));
+        }
+        let resume = match &self.resume {
+            Some(value) if !value.bind(py).is_none() => Some(py_to_value(value.bind(py))?),
+            _ => None,
+        };
+        let mut updates = indexmap::IndexMap::new();
+        if let Some(update) = &self.update {
+            if !update.bind(py).is_none() {
+                let dict = update.bind(py).cast::<PyDict>().map_err(|_| {
+                    PyTypeError::new_err("Command(update=...) expects a dict of channel writes")
+                })?;
+                for (key, value) in dict.iter() {
+                    updates.insert(key.extract::<String>()?, py_to_value(&value)?);
+                }
+            }
+        }
+        Ok((resume, updates))
+    }
+}
+
+/// Retry policy usable as `StateGraph.add_node(..., retry_policy=RetryPolicy(...))`.
+#[pyclass(name = "RetryPolicy", from_py_object)]
+#[derive(Clone)]
+pub struct PyRetryPolicy {
+    #[pyo3(get)]
+    pub max_attempts: usize,
+    #[pyo3(get)]
+    pub initial_interval: f64,
+    #[pyo3(get)]
+    pub backoff_factor: f64,
+    #[pyo3(get)]
+    pub max_interval: f64,
+}
+
+#[pymethods]
+impl PyRetryPolicy {
+    #[new]
+    #[pyo3(signature = (max_attempts=3, initial_interval=0.5, backoff_factor=2.0, max_interval=128.0))]
+    fn new(
+        max_attempts: usize,
+        initial_interval: f64,
+        backoff_factor: f64,
+        max_interval: f64,
+    ) -> Self {
+        Self {
+            max_attempts,
+            initial_interval,
+            backoff_factor,
+            max_interval,
+        }
+    }
+}
+
+impl PyRetryPolicy {
+    pub(super) fn to_policy(&self) -> RetryPolicy {
+        RetryPolicy::new(self.max_attempts.max(1))
+            .with_backoff(Duration::from_secs_f64(self.initial_interval.max(0.0)))
+            .with_multiplier(self.backoff_factor.max(1.0))
+            .with_max_backoff(Duration::from_secs_f64(self.max_interval.max(0.0)))
+    }
+}
+
+/// Cache policy usable as `StateGraph.add_node(..., cache_policy=CachePolicy(...))`.
+#[pyclass(name = "CachePolicy", from_py_object)]
+#[derive(Clone, Default)]
+pub struct PyCachePolicy {
+    #[pyo3(get)]
+    pub ttl: Option<u64>,
+}
+
+#[pymethods]
+impl PyCachePolicy {
+    #[new]
+    #[pyo3(signature = (ttl=None))]
+    fn new(ttl: Option<u64>) -> Self {
+        Self { ttl }
+    }
+}
+
+impl PyCachePolicy {
+    pub(super) fn to_policy(&self) -> crate::kernel::cache::CachePolicy {
+        let policy = crate::kernel::cache::CachePolicy::new();
+        match self.ttl {
+            Some(ttl) => policy.with_ttl(Duration::from_secs(ttl)),
+            None => policy,
+        }
+    }
+}
+
+/// In-memory checkpointer object for `StateGraph.compile(checkpointer=...)`.
+#[pyclass(name = "InMemorySaver")]
+pub struct PyInMemorySaver {
+    pub(super) inner: Arc<crate::InMemorySaver>,
+}
+
+#[pymethods]
+impl PyInMemorySaver {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(crate::InMemorySaver::new()),
+        }
+    }
+
+    fn __repr__(&self) -> &'static str {
+        "InMemorySaver()"
+    }
+}
+
+/// SQLite checkpointer object (available with the `sqlite` feature).
+#[cfg(feature = "sqlite")]
+#[pyclass(name = "SqliteSaver")]
+pub struct PySqliteSaver {
+    pub(super) inner: Arc<crate::SqliteSaver>,
+}
+
+#[cfg(feature = "sqlite")]
+#[pymethods]
+impl PySqliteSaver {
+    #[new]
+    fn new(path: String) -> PyResult<Self> {
+        Ok(Self {
+            inner: Arc::new(
+                crate::SqliteSaver::open(path)
+                    .map_err(|error| PyTypeError::new_err(error.to_string()))?,
+            ),
+        })
+    }
+
+    #[staticmethod]
+    fn in_memory() -> PyResult<Self> {
+        Ok(Self {
+            inner: Arc::new(
+                crate::SqliteSaver::in_memory()
+                    .map_err(|error| PyTypeError::new_err(error.to_string()))?,
+            ),
+        })
+    }
+
+    fn __repr__(&self) -> &'static str {
+        "SqliteSaver()"
+    }
+}
+
+/// Extract a checkpointer from a Python `bool` or saver object.
+pub(super) fn checkpointer_from_py(
+    obj: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Arc<dyn Checkpointer>>> {
+    let Some(obj) = obj else {
+        return Ok(None);
+    };
+    if obj.is_none() {
+        return Ok(None);
+    }
+    if let Ok(enabled) = obj.extract::<bool>() {
+        return Ok(enabled.then(|| Arc::new(crate::InMemorySaver::new()) as Arc<dyn Checkpointer>));
+    }
+    if let Ok(saver) = obj.extract::<PyRef<PyInMemorySaver>>() {
+        return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
+    }
+    #[cfg(feature = "sqlite")]
+    if let Ok(saver) = obj.extract::<PyRef<PySqliteSaver>>() {
+        return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
+    }
+    Err(PyTypeError::new_err(
+        "checkpointer must be a bool or a saver object (InMemorySaver, SqliteSaver, ...)",
+    ))
+}

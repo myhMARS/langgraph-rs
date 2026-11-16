@@ -121,7 +121,7 @@ below is the complete audit.
 | Long-term memory (`BaseStore`) | ❌ | ✅ `compile(store=...)`, `Runtime.store` | absent |
 | Mermaid export | ✅ sync + async `to_mermaid()` (+ Python) | ✅ `draw_mermaid()`, PNG, ASCII, xray subgraph view | static topology export only |
 | Per-node usage/report (`RunReport`, `TraceSink`) | ✅ first-class (extension) | ⚠️ callbacks / metadata / LangSmith | not a LangGraph feature; superset here |
-| Python bindings | ⚠️ subset (`StateGraph`, `CompiledGraph`, `interrupt`, `resume`, `run` report, `to_mermaid`, in-memory checkpointer) | ✅ full Python API | missing from Python: `Send`, `Command`, stream modes, cache/retry/error-handler config, persistent savers, subgraphs, async, `add_messages` helper |
+| Python bindings | ⚠️ PyO3 bindings (`python` feature): `StateGraph`/`CompiledGraph`, `interrupt`/`resume`, `Send`, `Command` (node output / invoke input), `RetryPolicy`/`CachePolicy`/`error_handler`, `compile(cache=True)`, saver objects (`InMemorySaver`, `SqliteSaver` with `sqlite`), `add_messages`, `update_state`, thread delete/copy, `stream_mode`, run reports | ✅ full Python API | still missing from Python: async API, subgraphs, Redis/Postgres saver classes, `Command(graph=PARENT)`, multi-resume interrupts |
 
 ## How the matrix was produced
 
