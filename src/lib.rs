@@ -123,6 +123,10 @@ pub use adapters::sqlite_cache::SqliteCache;
 /// Read-only reader for LangGraph SQLite checkpoint databases.
 pub use adapters::langgraph_sqlite::LangGraphSqliteReader;
 
+#[cfg(feature = "sqlite")]
+/// Checkpointer writing LangGraph's SQLite table layout.
+pub use adapters::langgraph_sqlite_saver::LangGraphSqliteSaver;
+
 /// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
 #[cfg(feature = "async")]
 pub type AsyncInMemorySaver = InMemorySaver;

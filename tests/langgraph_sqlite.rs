@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use langgraph_rs::{
-    CompileOptions, InMemorySaver, JsonState, LangGraphSqliteReader, NodeOutput, StateGraph,
-    StateSchema, interrupt, json,
+    CompileOptions, InMemorySaver, JsonState, LangGraphSqliteReader, LangGraphSqliteSaver,
+    NodeOutput, RunConfig, StateGraph, StateSchema, interrupt, json,
 };
 
 fn fixture() -> String {
@@ -84,4 +84,73 @@ fn reads_interrupts_and_resumes_from_an_imported_checkpoint() {
         .unwrap();
     let output = graph.resume("imported-interrupt", json!(5)).unwrap();
     assert_eq!(output.get("value"), Some(&json!(5)));
+}
+
+#[test]
+fn saver_writes_langgraph_tables_and_reader_resumes() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join(format!(
+            "langgraph_rs_saver_{}_{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+    let saver = Arc::new(LangGraphSqliteSaver::open(&path).unwrap());
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+    graph
+        .run(
+            &JsonState::from(json!({"value": 41}).as_object().unwrap().clone()),
+            &RunConfig::new().with_thread("saver-thread"),
+        )
+        .unwrap();
+
+    let reader = LangGraphSqliteReader::open(&path).unwrap();
+    let latest = reader.latest("saver-thread", "").unwrap().expect("latest");
+    assert_eq!(latest.values.get("value"), Some(&json!(42)));
+    assert!(!reader.history("saver-thread", "").unwrap().is_empty());
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+#[ignore = "regenerates the cross-language fixture used by the Python interop test"]
+fn write_python_interop_fixture() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("langgraph_rs_written.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let saver = Arc::new(LangGraphSqliteSaver::open(&path).unwrap());
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+    graph
+        .run(
+            &JsonState::from(json!({"value": 41}).as_object().unwrap().clone()),
+            &RunConfig::new().with_thread("written-thread"),
+        )
+        .unwrap();
 }

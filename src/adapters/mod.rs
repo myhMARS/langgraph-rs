@@ -27,6 +27,10 @@ pub mod sqlite_cache;
 #[cfg(feature = "sqlite")]
 pub mod langgraph_sqlite;
 
+/// LangGraph-schema SQLite saver (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+pub mod langgraph_sqlite_saver;
+
 /// Redis checkpoint persistence (feature `redis`).
 #[cfg(feature = "redis")]
 pub mod redis;

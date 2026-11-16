@@ -16,7 +16,7 @@ use crate::kernel::error::Interrupt;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::Task;
 
-type CheckpointRow = (
+pub(crate) type CheckpointRow = (
     String,
     String,
     String,
@@ -241,60 +241,10 @@ impl LangGraphSqliteReader {
     /// Fill LangGraph pending tasks from the `writes` table.
     fn enrich(&self, checkpoint: &mut Checkpoint) -> Result<()> {
         let connection = self.lock();
-        let mut statement = connection
-            .prepare(
-                "SELECT task_id, task_path FROM writes
-                 WHERE thread_id = ?1 AND checkpoint_ns = ?2 AND checkpoint_id = ?3
-                 ORDER BY task_id, idx",
-            )
-            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
-        let rows = statement
-            .query_map(
-                params![checkpoint.thread_id, checkpoint.namespace, checkpoint.id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
-        let mut collected: Vec<(String, String)> = Vec::new();
-        for row in rows {
-            collected.push(row.map_err(|error| {
-                Error::Checkpoint(format!("langgraph sqlite writes row: {error}"))
-            })?);
-        }
-        drop(statement);
-        drop(connection);
-        let mut seen = std::collections::HashSet::new();
-        for (task_id, task_path) in collected {
-            if !seen.insert(task_id.clone()) {
-                continue;
-            }
-            let node = task_path
-                .rsplit(',')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if node.is_empty()
-                || node == "__start__"
-                || node == "__input__"
-                || node.starts_with("~__pregel")
-                || node.starts_with("__pregel")
-            {
-                continue;
-            }
-            checkpoint.next.push(Task {
-                id: task_id,
-                node,
-                input: None,
-                resume: None,
-                resume_history: Vec::new(),
-                error: None,
-                timeout_millis: None,
-            });
-        }
-        Ok(())
+        enrich_with(&connection, checkpoint)
     }
 
-    fn convert_row(row: CheckpointRow) -> Result<Checkpoint> {
+    pub(crate) fn convert_row(row: CheckpointRow) -> Result<Checkpoint> {
         let (thread_id, namespace, checkpoint_id, parent_id, checkpoint_blob, metadata_blob) = row;
         let checkpoint_blob = checkpoint_blob.ok_or_else(|| {
             Error::Checkpoint("langgraph sqlite: checkpoint blob is missing".to_string())
@@ -335,6 +285,16 @@ impl LangGraphSqliteReader {
             .as_deref()
             .and_then(|blob| serde_json::from_slice::<Map<String, Value>>(blob).ok())
             .unwrap_or_default();
+        if let Some(extension) = metadata.get("langgraph_rs") {
+            if let Ok(mut checkpoint) = serde_json::from_value::<Checkpoint>(extension.clone()) {
+                checkpoint.thread_id = thread_id;
+                checkpoint.namespace = namespace;
+                if checkpoint.id.is_empty() {
+                    checkpoint.id = checkpoint_id;
+                }
+                return Ok(checkpoint);
+            }
+        }
         let step = metadata
             .get("step")
             .and_then(Value::as_i64)
@@ -383,6 +343,64 @@ fn normalize_channel_values(channel_values: Map<String, Value>) -> Map<String, V
         values.insert(channel, value);
     }
     values
+}
+
+pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) -> Result<()> {
+    if !checkpoint.next.is_empty() {
+        return Ok(());
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT task_id, task_path FROM writes
+             WHERE thread_id = ?1 AND checkpoint_ns = ?2 AND checkpoint_id = ?3
+             ORDER BY task_id, idx",
+        )
+        .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
+    let rows = statement
+        .query_map(
+            params![checkpoint.thread_id, checkpoint.namespace, checkpoint.id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
+    let mut collected: Vec<(String, String)> = Vec::new();
+    for row in rows {
+        collected.push(
+            row.map_err(|error| {
+                Error::Checkpoint(format!("langgraph sqlite writes row: {error}"))
+            })?,
+        );
+    }
+    drop(statement);
+    let mut seen = std::collections::HashSet::new();
+    for (task_id, task_path) in collected {
+        if !seen.insert(task_id.clone()) {
+            continue;
+        }
+        let node = task_path
+            .rsplit(',')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if node.is_empty()
+            || node == "__start__"
+            || node == "__input__"
+            || node.starts_with("~__pregel")
+            || node.starts_with("__pregel")
+        {
+            continue;
+        }
+        checkpoint.next.push(Task {
+            id: task_id,
+            node,
+            input: None,
+            resume: None,
+            resume_history: Vec::new(),
+            error: None,
+            timeout_millis: None,
+        });
+    }
+    Ok(())
 }
 
 fn extract_interrupts(channel_values: &Map<String, Value>) -> Vec<Interrupt> {

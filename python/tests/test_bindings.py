@@ -1733,5 +1733,47 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(imported["values"]["value"], 42)
 
 
+    def test_langgraph_reads_rust_written_sqlite(self):
+        try:
+            from langgraph.checkpoint.sqlite import SqliteSaver
+        except ImportError:
+            self.skipTest("langgraph-checkpoint-sqlite is not installed")
+        from langgraph.graph import END, START, StateGraph
+        import sqlite3
+
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "tests", "fixtures",
+            "langgraph_rs_written.sqlite",
+        )
+        conn = sqlite3.connect(path)
+        saver = SqliteSaver(conn)
+        graph = StateGraph(dict)
+        graph.add_node("inc", lambda state: {"value": state.get("value", 0) + 1})
+        graph.add_edge(START, "inc")
+        graph.add_edge("inc", END)
+        compiled = graph.compile(checkpointer=saver)
+        state = compiled.get_state({"configurable": {"thread_id": "written-thread"}})
+        self.assertEqual(state.values["value"], 42)
+
+
+    def test_langgraph_sqlite_saver_binding(self):
+        if not hasattr(lg, "LangGraphSqliteSaver"):
+            self.skipTest("sqlite feature is not built")
+        import os
+        import tempfile
+
+        path = os.path.join(tempfile.mkdtemp(), "lg-saver.sqlite")
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.LangGraphSqliteSaver(path))
+        compiled.invoke({"value": 41}, thread_id="py-lg-saver")
+        self.assertEqual(
+            compiled.get_state("py-lg-saver")["values"]["value"], 42
+        )
+        self.assertTrue(os.path.exists(path))
+
+
 if __name__ == "__main__":
     unittest.main()

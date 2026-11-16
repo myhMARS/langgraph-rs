@@ -400,6 +400,10 @@ pub(super) fn checkpointer_from_py(
     if let Ok(saver) = obj.extract::<PyRef<PySqliteSaver>>() {
         return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
     }
+    #[cfg(feature = "sqlite")]
+    if let Ok(saver) = obj.extract::<PyRef<PyLangGraphSqliteSaver>>() {
+        return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
+    }
     #[cfg(feature = "redis")]
     if let Ok(saver) = obj.extract::<PyRef<PyRedisSaver>>() {
         return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
@@ -1065,6 +1069,26 @@ pub(super) fn cache_from_py(
         return Some(cache.inner.clone());
     }
     None
+}
+
+/// Checkpointer writing LangGraph's SQLite table layout (feature `sqlite`).
+#[cfg(feature = "sqlite")]
+#[pyclass(name = "LangGraphSqliteSaver")]
+pub struct PyLangGraphSqliteSaver {
+    inner: Arc<crate::LangGraphSqliteSaver>,
+}
+
+#[cfg(feature = "sqlite")]
+#[pymethods]
+impl PyLangGraphSqliteSaver {
+    #[new]
+    fn new(path: &str) -> PyResult<Self> {
+        let saver = crate::LangGraphSqliteSaver::open(path)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(saver),
+        })
+    }
 }
 
 /// Read-only LangGraph SQLite checkpoint reader (feature `sqlite`).
