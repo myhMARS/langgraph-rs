@@ -1648,5 +1648,31 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(snapshot["values"], document["checkpoint"]["channel_values"])
 
 
+    def test_message_metadata_in_v2_stream(self):
+        def emit(state):
+            lg.message(
+                {
+                    "token": "hello",
+                    "tags": ["stream"],
+                    "metadata": {"model": "fake"},
+                }
+            )
+            return {"value": 1}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("emit", emit)
+        graph.set_entry_point("emit")
+        graph.set_finish_point("emit")
+        chunks = graph.compile().stream(
+            {}, stream_mode=["messages"], version="v2"
+        )
+        message_chunk = next(chunk for chunk in chunks if chunk["type"] == "messages")
+        message, metadata = message_chunk["data"]
+        self.assertEqual(message["token"], "hello")
+        self.assertEqual(metadata["langgraph_node"], "emit")
+        self.assertEqual(metadata["tags"], ["stream"])
+        self.assertEqual(metadata["model"], "fake")
+
+
 if __name__ == "__main__":
     unittest.main()

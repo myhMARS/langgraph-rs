@@ -533,7 +533,25 @@ pub(super) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             data.append(value_to_py(py, message)?)?;
             let metadata = PyDict::new(py);
             metadata.set_item("langgraph_node", node)?;
-            metadata.set_item("tags", PyList::empty(py))?;
+            let tags = PyList::empty(py);
+            if let Some(object) = message.as_object() {
+                if let Some(values) = object.get("tags").and_then(serde_json::Value::as_array) {
+                    for tag in values {
+                        tags.append(value_to_py(py, tag)?)?;
+                    }
+                }
+                if let Some(extra) = object
+                    .get("metadata")
+                    .and_then(serde_json::Value::as_object)
+                {
+                    for (key, value) in extra {
+                        if key != "langgraph_node" && key != "tags" {
+                            metadata.set_item(key, value_to_py(py, value)?)?;
+                        }
+                    }
+                }
+            }
+            metadata.set_item("tags", tags)?;
             data.append(metadata)?;
             dict.set_item("data", data)?;
         }
