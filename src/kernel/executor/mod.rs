@@ -214,6 +214,23 @@ pub(crate) fn execute<S: State>(
                 .latest_in(tid, &namespace)?
                 .map(|checkpoint| checkpoint.id);
         }
+        // LangGraph records an input checkpoint before the first superstep.
+        save_checkpoint(
+            graph,
+            thread_id.as_deref(),
+            &namespace,
+            &mut parent,
+            &values,
+            &tasks,
+            step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            &[],
+            sink,
+            checkpoint_writer.as_ref(),
+        )?;
         save_checkpoint(
             graph,
             thread_id.as_deref(),

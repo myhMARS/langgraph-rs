@@ -1053,6 +1053,22 @@ impl<S: State> AsyncCompiledGraph<S> {
                 sink,
             )
             .await?;
+            // LangGraph records an input checkpoint before the first superstep.
+            self.save_checkpoint(
+                thread_id.as_deref(),
+                &namespace,
+                &mut parent,
+                &values,
+                &tasks,
+                step,
+                false,
+                false,
+                Vec::new(),
+                &[],
+                writer,
+                sink,
+            )
+            .await?;
         }
 
         let mut pending_deferred: Vec<Task> = Vec::new();

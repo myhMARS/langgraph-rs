@@ -118,7 +118,7 @@ mod sqlite_tests {
         assert_eq!(one.values.get("value"), Some(&serde_json::json!(1)));
         assert_eq!(two.values.get("value"), Some(&serde_json::json!(11)));
         assert!(saver.latest_in(thread, "sub/missing").unwrap().is_none());
-        assert_eq!(saver.history_in(thread, "sub/one").unwrap().len(), 2);
+        assert_eq!(saver.history_in(thread, "sub/one").unwrap().len(), 3);
 
         saver.copy_thread(thread, "sqlite-copy").unwrap();
         let copied = saver.latest_in("sqlite-copy", "sub/two").unwrap().unwrap();

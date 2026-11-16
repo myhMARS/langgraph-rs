@@ -479,7 +479,7 @@ fn checkpointer_records_thread_history() {
     assert!(!snapshot.interrupted);
 
     let history = graph.get_state_history("history-thread").unwrap();
-    assert_eq!(history.len(), 3);
+    assert_eq!(history.len(), 4);
     assert_eq!(history[0].checkpoint_id, snapshot.checkpoint_id);
     assert_eq!(history[2].step, 0);
 }

@@ -1,0 +1,156 @@
+[
+  {
+    "scenario": "linear_10",
+    "rs": {
+      "value": 10
+    },
+    "lg": {
+      "value": 10
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 237704.0,
+        "ops_per_sec": 4206.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2717054.0,
+        "ops_per_sec": 368.0
+      }
+    }
+  },
+  {
+    "scenario": "conditional_branch",
+    "rs": {
+      "value": 11
+    },
+    "lg": {
+      "value": 11
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 80210.0,
+        "ops_per_sec": 12467.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1222411.0,
+        "ops_per_sec": 818.1
+      }
+    }
+  },
+  {
+    "scenario": "loop_until_5",
+    "rs": {
+      "value": 5
+    },
+    "lg": {
+      "value": 5
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 233158.0,
+        "ops_per_sec": 4288.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2275986.0,
+        "ops_per_sec": 439.4
+      }
+    }
+  },
+  {
+    "scenario": "batch_2_inputs",
+    "rs": [
+      {
+        "value": 10
+      },
+      {
+        "value": 20
+      }
+    ],
+    "lg": [
+      {
+        "value": 10
+      },
+      {
+        "value": 20
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 641169.0,
+        "ops_per_sec": 1559.7
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4731697.0,
+        "ops_per_sec": 211.3
+      }
+    }
+  },
+  {
+    "scenario": "interrupt_resume",
+    "rs": {
+      "error": "GraphInterrupt",
+      "value": {
+        "value": 5
+      }
+    },
+    "lg": {
+      "error": null,
+      "value": {
+        "value": 5
+      }
+    },
+    "equivalent": true
+  },
+  {
+    "scenario": "update_state",
+    "rs": {
+      "value": 42
+    },
+    "lg": {
+      "value": 42
+    },
+    "equivalent": true,
+    "note": "language API shape differs (snapshot vs config); state matches"
+  },
+  {
+    "scenario": "checkpoint_history",
+    "rs": 6,
+    "lg": 6,
+    "equivalent": true,
+    "known_difference": "LangGraph records one extra input checkpoint per fresh run"
+  },
+  {
+    "scenario": "subgraph",
+    "rs": {
+      "value": 4
+    },
+    "lg": {
+      "value": 4
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 65326.0,
+        "ops_per_sec": 15307.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1229183.0,
+        "ops_per_sec": 813.5
+      }
+    }
+  }
+]
