@@ -1,6 +1,6 @@
 //! Python bindings (enabled with the `python` feature).
 //!
-//! The Python surface mirrors the Rust API using [`JsonState`]: a graph is built from
+//! The Python surface mirrors the Rust API using [`JsonState`](crate::JsonState): a graph is built from
 //! Python callables, every node receives the state as a `dict` and returns a `dict` of
 //! channel writes (optionally with the reserved `__goto__` and `__usage__` keys), and
 //! `interrupt()` inside a node pauses the run so the caller can `resume()` it later.
