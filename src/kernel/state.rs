@@ -55,7 +55,7 @@ impl StateSchema {
 
     /// Declare an appending channel.
     pub fn topic(self, name: impl Into<String>) -> Self {
-        self.with_channel(name, Channel::Topic)
+        self.with_channel(name, Channel::topic(true))
     }
 
     /// Declare a last-write-wins channel that tolerates concurrent writes.
@@ -88,6 +88,11 @@ impl StateSchema {
         self.channels
             .get(name)
             .is_some_and(Channel::is_finish_value)
+    }
+
+    /// Declare a topic channel that only keeps the current superstep's values.
+    pub fn topic_current(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::topic(false))
     }
 
     /// Declare a barrier channel that opens after `names` wrote to it.

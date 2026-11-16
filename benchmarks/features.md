@@ -42,7 +42,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | --- | --- | --- | --- |
 | Typed state + channels | ⚠️ `State::schema` / `StateSchema`, `JsonState` | ✅ `StateGraph(StateT)` with annotated channels | one state schema per graph; no separate input/output/private schemas |
 | `LastValue` channel | ✅ | ✅ `LastValue` | concurrent writes fail in both |
-| `Topic` channel | ⚠️ always appends | ✅ `Topic(accumulate=...)` | no `accumulate=False` mode |
+| `Topic` channel | ✅ `Topic { accumulate }`: `topic`/`Topic(accumulate=true)` keeps values across supersteps, `topic_current` / `Topic(accumulate=false)` only the current superstep (lists are flattened, like LangGraph) | ✅ `Topic(accumulate=...)` | default plugin `topic` accumulates (LangGraph's constructor default is false) |
 | Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
 | Extra channel types | ✅ `AnyValue`, `EphemeralValue`, `UntrackedValue`, `NamedBarrierValue`, `DeltaChannel` (`delta`), `LastValueAfterFinish`, `Overwrite`; Python specs `any_value` / `ephemeral_value` / `untracked_value` / `delta` / `last_value_after_finish` | ✅ all of these | barrier value is the seen-name array until open, then `true`; ephemeral values cleared between steps; untracked values excluded from checkpoints; finish-value writes published only at graph end; delta `snapshot_frequency` stored but this engine always snapshots full values |
 | `add_messages` semantics | ✅ id-based replace/append (`reducers::messages`), `RemoveMessage` removals, `MessagesState` convenience state (Rust) and `lg.MessagesState` schema (Python); `MessageGraph` type alias (Rust) and `lg.message_graph()` factory | ✅ `add_messages` incl. `RemoveMessage` | no LangGraph `pending_writes` configuration |
@@ -94,7 +94,7 @@ API and the Python / Python-async bindings — is implemented and covered by the
 | Pending writes / `put_writes` | ⚠️ pending `Task`s embedded in the checkpoint | ✅ separate writes + checkpoint tuple | resume replays pending tasks in both |
 | `get_state` / history | ⚠️ `get_state(thread)` / `get_state_in(thread, ns)`, `get_state_history(before=, limit=)`; snapshots expose values/next/tasks/interrupts/metadata/parent id/checkpoint_ns | ✅ + `subgraphs=`, filter, metadata/config, tasks | no LangGraph `config` object and no interrupt/task ids |
 | `update_state` (`as_node`, `task_id`) | ⚠️ `update_state(thread, values, as_node=)` / Python; no `task_id` | ✅ | recomputes next tasks from `as_node`'s edges, or keeps pending tasks |
-| Thread management | ⚠️ `threads()` list, `delete_thread` + `copy_thread` (all adapters, Rust and Python); no `prune` | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | |
+| Thread management | ✅ `threads()` list, `delete_thread`, `prune_thread(thread, keep_last)` (memory/sqlite/BlockingSaver) and `copy_thread`, Rust and Python | ✅ `delete_thread`, `prune`, `copy_thread`, `list` | redis/postgres prune falls back to unsupported |
 | Time travel | ⚠️ `resume_from(thread, checkpoint_id, value)` | ✅ `get_state_history` + replay from any config | history supports `before`/`limit`; snapshots expose LangGraph-style `config` |
 | Checkpoint metadata / created_at semantics | ⚠️ basic (`parent_id`, `created_at_millis`, `source`) | ✅ rich metadata, versions/versions_seen | our checkpoint model is simpler |
 

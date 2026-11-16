@@ -77,3 +77,52 @@ fn jitter_shortens_but_never_extends_backoff() {
     }
     assert!(jittered.backoff_for(1) > std::time::Duration::ZERO);
 }
+
+#[test]
+fn topic_current_only_keeps_the_current_superstep() {
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::new().topic_current("events"))
+        .add_node("first", |_state: &JsonState| {
+            Ok(NodeOutput::new().update("events", json!(["a", "b"])))
+        })
+        .add_node("second", |_state: &JsonState| {
+            Ok(NodeOutput::new().update("events", json!(["c"])))
+        })
+        .set_entry_point("first")
+        .add_edge("first", "second")
+        .set_finish_point("second")
+        .compile()
+        .unwrap();
+
+    let output = graph.invoke(&JsonState::new(), &RunConfig::new()).unwrap();
+    assert_eq!(output.get("events"), Some(&json!(["c"])));
+}
+
+#[test]
+fn prune_keeps_the_newest_checkpoints() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(saver.clone()))
+        .unwrap();
+
+    for _ in 0..3 {
+        graph
+            .run(&JsonState::new(), &RunConfig::new().with_thread("prune"))
+            .unwrap();
+    }
+    let before = graph.get_state_history("prune").unwrap();
+    assert!(before.len() >= 3);
+    let latest = graph.get_state("prune").unwrap().unwrap().checkpoint_id;
+    graph.prune_thread("prune", 1).unwrap();
+    let after = graph.get_state_history("prune").unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].checkpoint_id, latest);
+}

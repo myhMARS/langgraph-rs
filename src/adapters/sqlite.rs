@@ -198,6 +198,24 @@ impl Checkpointer for SqliteSaver {
         Ok(checkpoints)
     }
 
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        let connection = self.lock();
+        connection
+            .execute(
+                "DELETE FROM langgraph_rs_checkpoints
+                 WHERE thread_id = ?1
+                   AND id NOT IN (
+                       SELECT id FROM langgraph_rs_checkpoints
+                       WHERE thread_id = ?1
+                       ORDER BY step DESC, created_at DESC, id DESC
+                       LIMIT ?2
+                   )",
+                params![thread_id, keep_last as i64],
+            )
+            .map_err(|error| Error::Checkpoint(format!("sqlite: prune thread: {error}")))?;
+        Ok(())
+    }
+
     fn delete_thread(&self, thread_id: &str) -> Result<()> {
         self.lock()
             .execute(

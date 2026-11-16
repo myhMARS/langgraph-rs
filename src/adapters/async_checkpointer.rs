@@ -160,6 +160,18 @@ impl AsyncCheckpointer for BlockingSaver {
         })
     }
 
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> BoxFuture<'_, Result<()>> {
+        let inner = self.inner.clone();
+        let thread_id = thread_id.to_string();
+        Box::pin(async move {
+            let handle = self.handle();
+            handle
+                .spawn_blocking(move || inner.prune_thread(&thread_id, keep_last))
+                .await
+                .map_err(join_error)?
+        })
+    }
+
     fn delete_thread(&self, thread_id: &str) -> BoxFuture<'_, Result<()>> {
         let inner = self.inner.clone();
         let thread_id = thread_id.to_string();

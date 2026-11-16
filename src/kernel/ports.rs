@@ -44,6 +44,14 @@ pub trait Checkpointer: Send + Sync {
         self.history(thread_id)
     }
 
+    /// Keep only the newest `keep_last` checkpoints of a thread.
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        let _ = (thread_id, keep_last);
+        Err(crate::kernel::error::Error::Checkpoint(
+            "prune_thread is not supported by this checkpointer".to_string(),
+        ))
+    }
+
     /// Delete every checkpoint of a thread.
     fn delete_thread(&self, thread_id: &str) -> Result<()> {
         let _ = thread_id;
@@ -108,6 +116,16 @@ pub trait AsyncCheckpointer: Send + Sync {
     fn threads(&self) -> BoxFuture<'_, Result<Vec<String>>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+    /// Keep only the newest `keep_last` checkpoints of a thread.
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> BoxFuture<'_, Result<()>> {
+        let _ = (thread_id, keep_last);
+        Box::pin(async {
+            Err(crate::kernel::error::Error::Checkpoint(
+                "prune_thread is not supported by this async checkpointer".to_string(),
+            ))
+        })
+    }
+
     /// Delete every checkpoint of a thread.
     fn delete_thread(&self, thread_id: &str) -> BoxFuture<'_, Result<()>> {
         let _ = thread_id;

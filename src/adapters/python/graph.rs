@@ -556,6 +556,14 @@ impl PyCompiledGraph {
         self.graph.threads().map_err(|error| to_pyerr(py, error))
     }
 
+    /// Keep only the newest `keep_last` checkpoints of a thread.
+    #[pyo3(signature = (thread_id, keep_last=1))]
+    fn prune_thread(&self, py: Python<'_>, thread_id: String, keep_last: usize) -> PyResult<()> {
+        self.graph
+            .prune_thread(&thread_id, keep_last)
+            .map_err(|error| to_pyerr(py, error))
+    }
+
     /// Delete every checkpoint of a thread.
     fn delete_thread(&self, py: Python<'_>, thread_id: String) -> PyResult<()> {
         self.graph

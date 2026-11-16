@@ -38,8 +38,11 @@ pub enum Channel {
     },
     /// Keep the last write but only publish it when the graph finishes.
     LastValueAfterFinish,
-    /// Append every write to a JSON array (useful for event logs / pub-sub style fields).
-    Topic,
+    /// Collect writes into a JSON array (LangGraph `Topic`).
+    Topic {
+        /// Keep values across supersteps (`true`) or only the current superstep (`false`).
+        accumulate: bool,
+    },
     /// Fold writes with a user supplied binary reducer (e.g. message list merging).
     Reducer(Reducer),
 }
@@ -56,7 +59,7 @@ impl fmt::Debug for Channel {
                 snapshot_frequency, ..
             } => write!(f, "Delta(snapshot_frequency={snapshot_frequency})"),
             Channel::LastValueAfterFinish => f.write_str("LastValueAfterFinish"),
-            Channel::Topic => f.write_str("Topic"),
+            Channel::Topic { accumulate } => write!(f, "Topic(accumulate={accumulate})"),
             Channel::Reducer(_) => f.write_str("Reducer(..)"),
         }
     }
@@ -77,6 +80,12 @@ impl Channel {
     /// Build a reducer channel from a prebuilt [`Reducer`].
     pub fn with_reducer(reducer: Reducer) -> Self {
         Channel::Reducer(reducer)
+    }
+
+    /// Topic channel: `accumulate=true` keeps values across supersteps (LangGraph
+    /// `Topic(accumulate=True)`), `false` keeps only the current superstep's values.
+    pub fn topic(accumulate: bool) -> Self {
+        Channel::Topic { accumulate }
     }
 
     /// Last write wins and concurrent writes are allowed (`AnyValue`).
@@ -197,17 +206,26 @@ impl Channel {
                     )))
                 }
             }
-            Channel::Topic => {
-                let mut accumulated = match current {
-                    None | Some(Value::Null) => Vec::new(),
-                    Some(Value::Array(values)) => values.clone(),
-                    Some(other) => {
-                        return Err(Error::other(format!(
-                            "channel with `Topic` semantics expects an array, found `{other}`"
-                        )));
+            Channel::Topic { accumulate } => {
+                let mut accumulated = if *accumulate {
+                    match current {
+                        None | Some(Value::Null) => Vec::new(),
+                        Some(Value::Array(values)) => values.clone(),
+                        Some(other) => {
+                            return Err(Error::other(format!(
+                                "channel with `Topic` semantics expects an array, found `{other}`"
+                            )));
+                        }
                     }
+                } else {
+                    Vec::new()
                 };
-                accumulated.extend(incoming.iter().cloned());
+                for value in incoming {
+                    match value {
+                        Value::Array(values) => accumulated.extend(values.iter().cloned()),
+                        other => accumulated.push(other.clone()),
+                    }
+                }
                 Ok(Some(Value::Array(accumulated)))
             }
             Channel::LastValueAfterFinish => {
@@ -434,7 +452,7 @@ mod tests {
 
     #[test]
     fn topic_appends_writes() {
-        let channel = Channel::Topic;
+        let channel = Channel::topic(true);
         let merged = channel
             .apply(Some(&json!(["a"])), &[json!("b"), json!("c")])
             .unwrap();

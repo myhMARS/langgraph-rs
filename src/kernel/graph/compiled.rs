@@ -798,6 +798,15 @@ impl<S: State> CompiledGraph<S> {
         checkpointer.threads()
     }
 
+    /// Keep only the newest `keep_last` checkpoints of a thread.
+    pub fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        let checkpointer = self
+            .checkpointer
+            .as_ref()
+            .ok_or(crate::Error::MissingCheckpointer("prune_thread"))?;
+        checkpointer.prune_thread(thread_id, keep_last)
+    }
+
     /// Delete every checkpoint of a thread.
     pub fn delete_thread(&self, thread_id: &str) -> Result<()> {
         let checkpointer = self

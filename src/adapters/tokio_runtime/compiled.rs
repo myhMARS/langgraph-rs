@@ -204,11 +204,28 @@ impl<S: State> AsyncCompiledGraph<S> {
     where
         I: IntoIterator<Item = S>,
     {
-        let mut results = Vec::new();
-        for input in inputs {
-            results.push(self.run(&input, config).await);
+        use futures::StreamExt;
+
+        let inputs: Vec<S> = inputs.into_iter().collect();
+        let max_concurrency = config.max_concurrency.unwrap_or(1).max(1);
+        if max_concurrency <= 1 || inputs.len() <= 1 {
+            let mut results = Vec::with_capacity(inputs.len());
+            for input in inputs {
+                results.push(self.run(&input, config).await);
+            }
+            return results;
         }
-        results
+        let mut indexed: Vec<(usize, Result<RunOutcome<S>>)> = futures::stream::iter(
+            inputs
+                .into_iter()
+                .enumerate()
+                .map(|(index, input)| async move { (index, self.run(&input, config).await) }),
+        )
+        .buffer_unordered(max_concurrency)
+        .collect()
+        .await;
+        indexed.sort_by_key(|(index, _)| *index);
+        indexed.into_iter().map(|(_, result)| result).collect()
     }
 
     /// Run the graph to completion.
@@ -395,6 +412,17 @@ impl<S: State> AsyncCompiledGraph<S> {
     /// List threads that have at least one checkpoint.
     pub fn threads(&self) -> Result<Vec<String>> {
         self.saver_threads_sync()
+    }
+
+    /// Keep only the newest `keep_last` checkpoints of a thread.
+    pub fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        if let Some(saver) = &self.async_checkpointer {
+            futures::executor::block_on(saver.prune_thread(thread_id, keep_last))
+        } else if let Some(checkpointer) = &self.checkpointer {
+            checkpointer.prune_thread(thread_id, keep_last)
+        } else {
+            Err(Error::MissingCheckpointer("prune_thread"))
+        }
     }
 
     /// Delete every checkpoint of a thread.

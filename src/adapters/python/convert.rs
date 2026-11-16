@@ -321,6 +321,7 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
                 "any" | "any_value" => "any_value".to_string(),
                 "ephemeral" | "ephemeral_value" => "ephemeral_value".to_string(),
                 "untracked" | "untracked_value" => "untracked_value".to_string(),
+                "topic_current" | "topic_no_accumulate" => "topic_current".to_string(),
                 other => other.to_string(),
             };
             let channel = kernel.resolve_channel(&spec).ok_or_else(|| {

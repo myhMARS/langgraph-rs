@@ -111,6 +111,18 @@ impl Checkpointer for InMemorySaver {
             .unwrap_or_default())
     }
 
+    fn prune_thread(&self, thread_id: &str, keep_last: usize) -> Result<()> {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(checkpoints) = inner.get_mut(thread_id) {
+            let excess = checkpoints.len().saturating_sub(keep_last);
+            checkpoints.drain(..excess);
+        }
+        Ok(())
+    }
+
     fn delete_thread(&self, thread_id: &str) -> Result<()> {
         self.inner
             .lock()

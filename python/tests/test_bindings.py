@@ -1308,5 +1308,32 @@ class AsyncPythonTests(unittest.TestCase):
         )
 
 
+    def test_topic_current_and_prune_thread(self):
+        graph = lg.StateGraph({"events": "topic_current"})
+        graph.add_node("first", lambda state: {"events": ["a", "b"]})
+        graph.add_node("second", lambda state: {"events": ["c"]})
+        graph.set_entry_point("first")
+        graph.add_edge("first", "second")
+        graph.set_finish_point("second")
+        output = graph.compile().invoke({"events": []})
+        self.assertEqual(output["events"], ["c"])
+
+        pr = lg.StateGraph({"value": "last_value"})
+        pr.add_node("inc", lambda state: {"value": state["value"] + 1})
+        pr.set_entry_point("inc")
+        pr.set_finish_point("inc")
+        compiled = pr.compile(checkpointer=lg.InMemorySaver())
+        for _ in range(3):
+            compiled.invoke({"value": 0}, thread_id="py-prune")
+        self.assertGreaterEqual(len(compiled.get_state_history("py-prune")), 3)
+        latest = compiled.get_state("py-prune")["config"]["configurable"]["checkpoint_id"]
+        compiled.prune_thread("py-prune", 1)
+        history = compiled.get_state_history("py-prune")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(
+            history[0]["config"]["configurable"]["checkpoint_id"], latest
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
