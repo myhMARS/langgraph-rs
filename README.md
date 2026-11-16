@@ -809,8 +809,8 @@ not byte-compatible with LangGraph; async checkpointers offload synchronous save
 `BlockingSaver` instead of native async DB drivers; the
 functional API executes tasks inline; completed task results are persisted in
 `checkpoint.task_results` (and optionally a `BaseStore`) instead of separate pending writes;
-Python nodes are plain callables (not coroutines); custom reducers are supported as Python
-callables in the schema.
+Python nodes can be sync callables or coroutine functions; custom reducers are supported as
+Python callables in the schema.
 
 ## Differences from LangGraph
 
