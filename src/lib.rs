@@ -116,8 +116,8 @@ pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
     current_context, current_namespace, current_node, current_resume, current_runtime,
-    current_thread_id, custom, get_store, interrupt, last_error, message, push_custom,
-    push_message, record_tokens, record_usage,
+    current_thread_id, custom, get_store, interrupt, is_last_step, last_error, message,
+    push_custom, push_message, record_tokens, record_usage, remaining_steps,
 };
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 pub use kernel::graph::{
@@ -131,6 +131,7 @@ pub use kernel::retry::RetryPolicy;
 pub use kernel::state::{JsonState, State, StateSchema};
 pub use kernel::store::{BaseStore, Namespace, Runtime, StoreItem};
 pub use kernel::stream::{StreamChunk, StreamMode};
+pub use kernel::timeout::TimeoutPolicy;
 pub use kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 pub use indexmap::IndexMap;

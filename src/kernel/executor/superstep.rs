@@ -1,7 +1,7 @@
 //! Node execution for one superstep.
 
 use std::panic;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -9,7 +9,7 @@ use crate::kernel::cache::CachedOutput;
 use crate::kernel::context::TaskContext;
 use crate::kernel::error::{Error, Interrupt, NodeFailure};
 use crate::kernel::graph::CompiledGraph;
-use crate::kernel::node::{NodeOutput, Task};
+use crate::kernel::node::{NodeFn, NodeOutput, Task};
 use crate::kernel::state::{State, state_to_values, values_to_state};
 use crate::kernel::usage::Usage;
 
@@ -148,10 +148,17 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
     let mut last_error: Option<String> = None;
 
     for attempt in 1..=max_attempts {
-        let context =
-            TaskContext::new(task.node.clone(), task.resume.clone()).with_error(task.error.clone());
-        let (result, custom, messages, mut reported) =
-            crate::kernel::context::with_task(context, || node(&node_state));
+        let timeout = graph
+            .timeout_of(&task.node)
+            .and_then(|policy| policy.run_timeout());
+        let (result, custom, messages, mut reported) = match timeout {
+            Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
+            None => {
+                let context = TaskContext::new(task.node.clone(), task.resume.clone())
+                    .with_error(task.error.clone());
+                crate::kernel::context::with_task(context, || node(&node_state))
+            }
+        };
         usage.append(&mut reported);
 
         match result {
@@ -233,4 +240,42 @@ fn failed(
         duration_millis: started.elapsed().as_millis() as u64,
         input: task.input.clone().map(Value::Object),
     }))
+}
+
+/// Run a node attempt on a helper thread so a configured `run_timeout` can expire.
+///
+/// The thread keeps running when the timeout fires (Rust cannot cancel a blocking
+/// closure); the run fails with [`Error::Timeout`] and the late result is discarded.
+fn run_node_timed<S: State>(
+    node: NodeFn<S>,
+    node_state: S,
+    task: &Task,
+    timeout: Duration,
+) -> (
+    crate::Result<NodeOutput>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Usage>,
+) {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let node_name = task.node.clone();
+    let resume = task.resume.clone();
+    let error = task.error.clone();
+    std::thread::spawn(move || {
+        let context = TaskContext::new(node_name.clone(), resume).with_error(error);
+        let outcome = crate::kernel::context::with_task(context, || node(&node_state));
+        let _ = sender.send(outcome);
+    });
+    match receiver.recv_timeout(timeout) {
+        Ok(outcome) => outcome,
+        Err(_) => (
+            Err(Error::Timeout {
+                node: task.node.clone(),
+                millis: timeout.as_millis() as u64,
+            }),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ),
+    }
 }

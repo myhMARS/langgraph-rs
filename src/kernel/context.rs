@@ -17,6 +17,7 @@ use crate::{Error, Interrupt, Result};
 thread_local! {
     static CURRENT_TASK: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
     static CURRENT_RUN: RefCell<Option<RunContext>> = const { RefCell::new(None) };
+    static CURRENT_STEP: RefCell<Option<(usize, usize)>> = const { RefCell::new(None) };
 }
 
 /// Execution context of the current run.
@@ -80,6 +81,47 @@ pub fn current_runtime() -> Option<Runtime> {
             context: run.context.clone(),
         })
     })
+}
+
+/// RAII guard restoring the previous step context.
+pub(crate) struct StepGuard {
+    previous: Option<(usize, usize)>,
+}
+
+impl Drop for StepGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_STEP.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+/// Install the current superstep number and recursion limit for managed values.
+pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
+    let previous = CURRENT_STEP.with(|slot| slot.borrow_mut().replace((step, recursion_limit)));
+    StepGuard { previous }
+}
+
+/// Remaining supersteps before the recursion limit (LangGraph `RemainingSteps`).
+///
+/// Returns `None` outside a run. The value is `recursion_limit - step`, so the first
+/// superstep of a graph compiled with a limit of 25 reports 25.
+pub fn remaining_steps() -> Option<usize> {
+    CURRENT_STEP.with(|slot| {
+        slot.borrow()
+            .map(|(step, recursion_limit)| recursion_limit.saturating_sub(step))
+    })
+}
+
+/// Whether the current superstep is the last one before the recursion limit.
+///
+/// Mirrors LangGraph's `IsLastStep` managed value: `true` when at most one superstep is
+/// left (`remaining_steps() <= 1`).
+pub fn is_last_step() -> bool {
+    remaining_steps()
+        .map(|remaining| remaining <= 1)
+        .unwrap_or(false)
 }
 
 /// Thread id of the current run, when it is bound to a checkpoint thread.

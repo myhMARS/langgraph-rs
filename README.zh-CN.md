@@ -278,6 +278,11 @@ let graph = StateGraph::<WorkState>::new()
     .unwrap();
 ```
 
+节点级超时通过 `TimeoutPolicy`（`add_node_with_timeout` / `set_timeout`）配置：`run_timeout`
+会被强制执行——同步图在辅助线程上运行节点，超时以 `Error::Timeout` 失败（Rust 无法取消阻塞
+闭包），异步图使用 `tokio::time::timeout`；`idle_timeout` 仅为 LangGraph API 兼容而保存，暂不
+强制执行。managed values 通过 `remaining_steps()` 与 `is_last_step()` 获取（Python 同样可用）。
+
 ## 子图
 
 `add_subgraph` 把已编译图作为节点嵌入。子图针对父状态运行，其发生变化的 channel 以 **直接替换**

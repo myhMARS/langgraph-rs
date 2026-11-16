@@ -575,5 +575,23 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(sorted(output["log"]), [1, 2])
 
 
+    def test_managed_values(self):
+        graph = lg.StateGraph({"value": "last_value", "last": "last_value"})
+        graph.add_node(
+            "inspect",
+            lambda state: {
+                "value": lg.remaining_steps(),
+                "last": int(lg.is_last_step()),
+            },
+        )
+        graph.set_entry_point("inspect")
+        graph.set_finish_point("inspect")
+        output = graph.compile(recursion_limit=2).invoke(
+            {"value": 0, "last": 0}
+        )
+        self.assertEqual(output["value"], 2)
+        self.assertEqual(output["last"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

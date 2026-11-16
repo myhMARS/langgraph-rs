@@ -14,6 +14,7 @@ use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::state_to_values;
 use crate::kernel::state::{State, StateSchema};
 use crate::kernel::store::BaseStore;
+use crate::kernel::timeout::TimeoutPolicy;
 use crate::{END, START};
 use serde_json::{Map, Value};
 
@@ -57,6 +58,7 @@ pub struct StateGraph<S: State> {
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) node_metadata: IndexMap<String, Map<String, Value>>,
+    pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
 }
@@ -81,6 +83,7 @@ impl<S: State> StateGraph<S> {
             cache_policies: IndexMap::new(),
             store: None,
             node_metadata: IndexMap::new(),
+            timeouts: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
         }
@@ -111,6 +114,26 @@ impl<S: State> StateGraph<S> {
         let name = name.into();
         self.set_node_metadata(name.clone(), metadata)
             .add_node(name, node)
+    }
+
+    /// Attach a timeout policy to a node name (`TimeoutPolicy`).
+    pub fn set_timeout(mut self, name: impl Into<String>, policy: TimeoutPolicy) -> Self {
+        self.timeouts.insert(name.into(), policy);
+        self
+    }
+
+    /// Register a node together with a timeout policy.
+    pub fn add_node_with_timeout<F>(
+        self,
+        name: impl Into<String>,
+        policy: TimeoutPolicy,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.set_timeout(name.clone(), policy).add_node(name, node)
     }
 
     /// Attach metadata to a node name (LangGraph node `metadata`).
@@ -390,6 +413,9 @@ impl<S: State> StateGraph<S> {
         for node in self.cache_policies.keys() {
             self.require_node("cache policy", node)?;
         }
+        for node in self.timeouts.keys() {
+            self.require_node("timeout policy", node)?;
+        }
 
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
@@ -410,6 +436,7 @@ impl<S: State> StateGraph<S> {
             cache_policies: self.cache_policies,
             store: options.store.or(self.store),
             node_metadata: self.node_metadata,
+            timeouts: self.timeouts,
             recursion_limit: options.recursion_limit.unwrap_or(DEFAULT_RECURSION_LIMIT),
             interrupt_before: options.interrupt_before.into_iter().collect(),
             interrupt_after: options.interrupt_after.into_iter().collect(),

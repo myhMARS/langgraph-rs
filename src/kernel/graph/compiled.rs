@@ -23,6 +23,7 @@ use crate::kernel::state::{
 };
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
+use crate::kernel::timeout::TimeoutPolicy;
 use crate::kernel::usage::RunOutcome;
 use crate::{END, START};
 
@@ -42,6 +43,7 @@ pub struct CompiledGraph<S: State> {
     pub(crate) error_edges: IndexMap<String, String>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
     pub(crate) node_metadata: indexmap::IndexMap<String, serde_json::Map<String, Value>>,
+    pub(crate) timeouts: indexmap::IndexMap<String, TimeoutPolicy>,
     pub(crate) cache: Option<Arc<dyn NodeCache>>,
     pub(crate) cache_policies: IndexMap<String, CachePolicy>,
     pub(crate) recursion_limit: usize,
@@ -63,6 +65,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             error_edges: self.error_edges.clone(),
             store: self.store.clone(),
             node_metadata: self.node_metadata.clone(),
+            timeouts: self.timeouts.clone(),
             cache: self.cache.clone(),
             cache_policies: self.cache_policies.clone(),
             recursion_limit: self.recursion_limit,
@@ -689,6 +692,11 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("copy_thread"))?;
         checkpointer.copy_thread(source_thread, target_thread)
+    }
+
+    /// Timeout policy of one node, when configured.
+    pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
+        self.timeouts.get(node)
     }
 
     /// Metadata attached to nodes (owner, tags, ...).

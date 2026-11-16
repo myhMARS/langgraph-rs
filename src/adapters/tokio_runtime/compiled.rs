@@ -22,6 +22,7 @@ use crate::kernel::state::{
 };
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
+use crate::kernel::timeout::TimeoutPolicy;
 use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 use crate::{END, START};
 
@@ -85,6 +86,7 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) entry: Entry<S>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
+    pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) trace_sinks: Vec<Arc<dyn TraceSink>>,
@@ -92,6 +94,11 @@ pub struct AsyncCompiledGraph<S: State> {
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
+    /// Timeout policy of one node, when configured.
+    pub fn timeout_of(&self, node: &str) -> Option<&TimeoutPolicy> {
+        self.timeouts.get(node)
+    }
+
     /// Channel schema of the graph.
     pub fn schema(&self) -> &StateSchema {
         &self.schema
@@ -439,6 +446,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 return Err(Error::RecursionLimit(recursion_limit));
             }
             iteration += 1;
+            let _step_guard = crate::kernel::context::install_step(step, recursion_limit);
 
             let paused = if skip_interrupt_before {
                 None
@@ -661,7 +669,19 @@ impl<S: State> AsyncCompiledGraph<S> {
                 task.resume.clone(),
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
-            let result = future.await;
+            let timeout = self
+                .timeout_of(&task.node)
+                .and_then(|policy| policy.run_timeout());
+            let result = match timeout {
+                Some(timeout) => match tokio::time::timeout(timeout, future).await {
+                    Ok(result) => result,
+                    Err(_) => Err(Error::Timeout {
+                        node: task.node.clone(),
+                        millis: timeout.as_millis() as u64,
+                    }),
+                },
+                None => future.await,
+            };
             let (mut reported, custom, messages) = context.take();
             usage.append(&mut reported);
             match result {

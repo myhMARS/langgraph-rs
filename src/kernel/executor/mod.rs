@@ -173,6 +173,7 @@ pub(crate) fn execute<S: State>(
             return Err(Error::RecursionLimit(recursion_limit));
         }
         iteration += 1;
+        let _step_guard = crate::kernel::context::install_step(step, recursion_limit);
 
         // `interrupt_before` hooks stop the graph before the node runs. Resuming a
         // checkpoint that was written by such a hook must let the node run instead of

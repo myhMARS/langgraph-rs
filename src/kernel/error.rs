@@ -73,6 +73,9 @@ pub enum Error {
     /// A node returned an error.
     #[error("node `{node}` failed: {message}")]
     Node { node: String, message: String },
+    /// A node exceeded its configured run timeout.
+    #[error("node `{node}` timed out after {millis} ms")]
+    Timeout { node: String, millis: u64 },
     /// A node wrote to a channel that is not part of the state schema.
     #[error("channel `{0}` is not declared in the state schema")]
     UnknownChannel(String),

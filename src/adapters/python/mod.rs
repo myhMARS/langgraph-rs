@@ -76,6 +76,18 @@ fn current_resume(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
     }
 }
 
+/// Remaining supersteps before the recursion limit (managed value).
+#[pyfunction]
+fn remaining_steps() -> Option<usize> {
+    crate::remaining_steps()
+}
+
+/// Whether the current superstep is the last one (managed value).
+#[pyfunction]
+fn is_last_step() -> bool {
+    crate::is_last_step()
+}
+
 /// Runtime information of the current run (thread, namespace, store, context).
 #[pyfunction]
 fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
@@ -163,6 +175,8 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_namespace, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
+    module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
+    module.add_function(wrap_pyfunction!(is_last_step, module)?)?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;

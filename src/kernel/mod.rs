@@ -19,4 +19,5 @@ pub mod retry;
 pub mod state;
 pub mod store;
 pub mod stream;
+pub mod timeout;
 pub mod usage;

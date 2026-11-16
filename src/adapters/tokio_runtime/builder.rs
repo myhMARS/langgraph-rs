@@ -16,6 +16,7 @@ use crate::kernel::ports::Checkpointer;
 use crate::kernel::retry::RetryPolicy;
 use crate::kernel::state::{State, StateSchema};
 use crate::kernel::store::BaseStore;
+use crate::kernel::timeout::TimeoutPolicy;
 use crate::{END, START};
 
 /// Builder for an async graph.
@@ -35,6 +36,7 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
     pub(crate) checkpointer: Option<Arc<dyn Checkpointer>>,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
+    pub(crate) timeouts: IndexMap<String, TimeoutPolicy>,
     pub(crate) interrupt_before: HashSet<String>,
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) kernel: Kernel,
@@ -67,6 +69,7 @@ impl<S: State> AsyncStateGraph<S> {
             conditional_entry: None,
             checkpointer: None,
             store: None,
+            timeouts: IndexMap::new(),
             interrupt_before: HashSet::new(),
             interrupt_after: HashSet::new(),
             kernel: Kernel::builtin(),
@@ -125,6 +128,12 @@ impl<S: State> AsyncStateGraph<S> {
     /// Enable checkpointing (required for resume and state queries).
     pub fn with_checkpointer(mut self, checkpointer: Arc<dyn Checkpointer>) -> Self {
         self.checkpointer = Some(checkpointer);
+        self
+    }
+
+    /// Attach a timeout policy to a node.
+    pub fn set_timeout(mut self, name: impl Into<String>, policy: TimeoutPolicy) -> Self {
+        self.timeouts.insert(name.into(), policy);
         self
     }
 
@@ -249,6 +258,7 @@ impl<S: State> AsyncStateGraph<S> {
             entry,
             checkpointer: self.checkpointer,
             store: self.store,
+            timeouts: self.timeouts,
             interrupt_before: self.interrupt_before,
             interrupt_after: self.interrupt_after,
             trace_sinks: self.kernel.trace_sinks().to_vec(),

@@ -295,6 +295,13 @@ let graph = StateGraph::<WorkState>::new()
     .unwrap();
 ```
 
+Per-node timeouts use `TimeoutPolicy` (`add_node_with_timeout` / `set_timeout`). `run_timeout`
+is enforced; sync graphs run the node on a helper thread so the run fails with
+`Error::Timeout` when it expires (Rust cannot cancel a blocking closure), while async graphs
+use `tokio::time::timeout`. `idle_timeout` is accepted for LangGraph API compatibility but is
+not enforced yet. Managed values are available through `remaining_steps()` and
+`is_last_step()` (also exposed from Python).
+
 ## Subgraphs
 
 `add_subgraph` embeds a compiled graph as a node. The subgraph runs against the parent
