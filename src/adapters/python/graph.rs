@@ -43,7 +43,7 @@ impl PyStateGraph {
     /// Optional LangGraph-style keywords: ``retry_policy``, ``cache_policy`` and
     /// ``error_handler`` (node name).
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, input_schema=None))]
     fn add_node(
         &mut self,
         name: String,
@@ -53,6 +53,7 @@ impl PyStateGraph {
         error_handler: Option<String>,
         deferred: bool,
         destinations: Option<Vec<String>>,
+        input_schema: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         let mut graph = std::mem::take(&mut self.inner);
         if deferred {
@@ -60,6 +61,9 @@ impl PyStateGraph {
         }
         if let Some(destinations) = destinations {
             graph = graph.set_destinations(name.clone(), destinations);
+        }
+        if let Some(schema) = input_schema {
+            graph = graph.set_node_input_schema(name.clone(), py_to_value(schema)?);
         }
         graph = graph.add_node(name.clone(), node_from_python(name.clone(), function));
         if let Some(policy) = retry_policy {

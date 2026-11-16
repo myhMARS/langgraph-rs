@@ -319,6 +319,25 @@ pub(super) fn checkpointer_from_py(
     ))
 }
 
+/// Removal marker for `add_messages`-style reducers (LangGraph `RemoveMessage`).
+#[pyclass(name = "RemoveMessage")]
+pub struct PyRemoveMessage {
+    #[pyo3(get)]
+    pub id: String,
+}
+
+#[pymethods]
+impl PyRemoveMessage {
+    #[new]
+    fn new(id: String) -> Self {
+        Self { id }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("RemoveMessage(id={:?})", self.id)
+    }
+}
+
 /// A Python callable whose result is memoized in the current run's store.
 #[pyclass(name = "Task")]
 pub struct PyTask {

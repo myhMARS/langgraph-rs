@@ -750,6 +750,13 @@ impl<S: State> CompiledGraph<S> {
         &self.node_metadata
     }
 
+    /// JSON input schema attached to a node, when present.
+    pub fn node_input_schema(&self, node: &str) -> Option<&Value> {
+        self.node_metadata
+            .get(node)
+            .and_then(|metadata| metadata.get("input_schema"))
+    }
+
     /// Metadata of one node.
     pub fn node_metadata_for(&self, node: &str) -> Option<&serde_json::Map<String, Value>> {
         self.node_metadata.get(node)

@@ -40,12 +40,12 @@ below is the complete audit.
 | `Topic` channel | ⚠️ always appends | ✅ `Topic(accumulate=...)` | no `accumulate=False` mode |
 | Custom binary reducers | ✅ `Reducer`, `reducers::{append,add}` | ✅ `BinaryOperatorAggregate`, `Annotated[..., reducer]` | |
 | Extra channel types | ✅ `AnyValue`, `EphemeralValue`, `UntrackedValue`, `NamedBarrierValue`, `DeltaChannel` (`delta`), `LastValueAfterFinish`, `Overwrite`; Python specs `any_value` / `ephemeral_value` / `untracked_value` / `delta` / `last_value_after_finish` | ✅ all of these | barrier value is the seen-name array until open, then `true`; ephemeral values cleared between steps; untracked values excluded from checkpoints; finish-value writes published only at graph end; delta `snapshot_frequency` stored but this engine always snapshots full values |
-| `add_messages` semantics | ⚠️ id-based replace/append (`reducers::messages`) | ✅ `add_messages` incl. `RemoveMessage` | no remove/delete messages; no `MessagesState` / `MessageGraph` |
+| `add_messages` semantics | ✅ id-based replace/append (`reducers::messages`), `RemoveMessage` removals, `MessagesState` convenience state (Rust) and `lg.MessagesState` schema (Python) | ✅ `add_messages` incl. `RemoveMessage` | no `MessageGraph`; no LangGraph `pending_writes` configuration |
 | Static edges | ✅ | ✅ | `add_edge` takes one source; `add_edges_from` fans several sources into one target |
 | Conditional edges + path map | ✅ | ✅ | |
 | Conditional entry point | ✅ | ✅ | |
 | `add_sequence` | ✅ (takes `(name, NodeFn)` pairs) | ✅ | heterogeneous closures need `Arc::new(...)` |
-| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; destination allow-lists via `set_destinations` / `add_node_with_destinations` (Python `add_node(..., destinations=...)`); no `input_schema` or custom node names | ✅ | |
+| Node metadata / `input_schema` / `destinations` / custom names | ⚠️ metadata via `add_node_with_metadata` / `node_metadata()`; destination allow-lists via `set_destinations` / `add_node_with_destinations` (Python `add_node(..., destinations=...)`); JSON `input_schema` stored via `set_node_input_schema` / `add_node(..., input_schema=...)` (not enforced); arbitrary node names supported | ✅ | `input_schema` is metadata only, no runtime validation |
 | `Send` map/reduce from nodes | ✅ `Send::to` / `Send::with_arg` / `Send::with_timeout` (per-task timeout; Python `lg.Send(..., timeout=seconds)`) | ✅ `Send` (node, arg, timeout) | |
 | `Send` from routers / conditional edges | ✅ `Route::send` / `Route::sends` (also conditional entry points; Python routers may return `Send` objects) | ✅ | |
 | `goto` | ✅ `NodeOutput::goto` | ✅ `Command(goto=...)` / node return | |
@@ -131,7 +131,7 @@ below is the complete audit.
 ## How the matrix was produced
 
 Statuses are based on the public Rust/Python APIs of this crate, its integration tests
-(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/subgraph_streaming.rs`, `tests/multi_interrupt.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
+(`tests/graph.rs`, `tests/channels.rs`, `tests/delta_channels.rs`, `tests/messages.rs`, `tests/subgraph_streaming.rs`, `tests/multi_interrupt.rs`, `tests/advanced.rs`, `tests/deferred.rs`, `tests/destinations.rs`, `tests/functional.rs`, `tests/managed.rs`, `tests/store.rs`,
 `tests/checkpoint.rs`, `tests/state_model.rs`, `tests/usage.rs`,
 `tests/resilience.rs`,
 `tests/subgraph.rs`, `tests/cache.rs`, `tests/visualize.rs`, `tests/async_graph.rs`,

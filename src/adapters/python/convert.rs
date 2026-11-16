@@ -22,6 +22,9 @@ pub(super) fn type_name(obj: &Bound<'_, PyAny>) -> String {
 }
 
 pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if let Ok(remove) = obj.extract::<PyRef<'_, super::types::PyRemoveMessage>>() {
+        return Ok(crate::RemoveMessage::new(remove.id.clone()).to_value());
+    }
     if obj.is_none() {
         return Ok(Value::Null);
     }

@@ -178,6 +178,21 @@ impl StateSchema {
     }
 }
 
+/// Convenience state with a single `messages` channel merged by `reducers::messages`.
+///
+/// Equivalent to LangGraph's `MessagesState`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MessagesState {
+    /// Chat messages merged by `id` (removals supported through `RemoveMessage`).
+    pub messages: Vec<Value>,
+}
+
+impl State for MessagesState {
+    fn schema() -> StateSchema {
+        StateSchema::new().with_reducer("messages", crate::reducers::messages())
+    }
+}
+
 /// A graph state.
 ///
 /// Implement this trait for any `Serialize + DeserializeOwned + Default` type and

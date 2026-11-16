@@ -761,5 +761,41 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["b"], 7)
 
 
+    def test_messages_state_and_remove_message(self):
+        schema = getattr(lg, "MessagesState", {"messages": "add_messages"})
+        graph = lg.StateGraph(schema)
+        graph.add_node(
+            "append",
+            lambda state: {
+                "messages": [
+                    {"id": "1", "content": "a"},
+                    {"id": "2", "content": "b"},
+                ]
+            },
+        )
+        graph.add_node(
+            "remove", lambda state: {"messages": [lg.RemoveMessage("1")]}
+        )
+        graph.set_entry_point("append")
+        graph.add_edge("append", "remove")
+        graph.set_finish_point("remove")
+        output = graph.compile().invoke({"messages": []})
+        self.assertEqual(len(output["messages"]), 1)
+        self.assertEqual(output["messages"][0]["id"], "2")
+
+    def test_node_input_schema_keyword(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "work",
+            lambda state: {"value": 1},
+            input_schema={"type": "object", "properties": {"value": {"type": "integer"}}},
+        )
+        graph.set_entry_point("work")
+        graph.set_finish_point("work")
+        self.assertEqual(
+            graph.compile().invoke({"value": 0})["value"], 1
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

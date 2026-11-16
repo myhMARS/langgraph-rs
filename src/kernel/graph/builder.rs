@@ -187,6 +187,30 @@ impl<S: State> StateGraph<S> {
         self.set_timeout(name.clone(), policy).add_node(name, node)
     }
 
+    /// Attach a JSON input schema to a node (stored as metadata, not enforced).
+    pub fn set_node_input_schema(mut self, name: impl Into<String>, schema: Value) -> Self {
+        self.node_metadata
+            .entry(name.into())
+            .or_default()
+            .insert("input_schema".to_string(), schema);
+        self
+    }
+
+    /// Register a node together with a JSON input schema (stored as metadata).
+    pub fn add_node_with_input_schema<F>(
+        self,
+        name: impl Into<String>,
+        schema: Value,
+        node: F,
+    ) -> Self
+    where
+        F: Fn(&S) -> Result<NodeOutput> + Send + Sync + 'static,
+    {
+        let name = name.into();
+        self.set_node_input_schema(name.clone(), schema)
+            .add_node(name, node)
+    }
+
     /// Attach metadata to a node name (LangGraph node `metadata`).
     pub fn set_node_metadata(
         mut self,

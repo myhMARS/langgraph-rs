@@ -112,7 +112,7 @@ pub use adapters::redis::RedisSaver;
 #[cfg(feature = "postgres")]
 pub use adapters::postgres::PostgresSaver;
 pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
-pub use kernel::channel::{Channel, Reducer, reducers};
+pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
 pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
@@ -129,7 +129,7 @@ pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send
 pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
 pub use kernel::ports::{Checkpointer, TraceSink};
 pub use kernel::retry::RetryPolicy;
-pub use kernel::state::{JsonState, State, StateSchema};
+pub use kernel::state::{JsonState, MessagesState, State, StateSchema};
 pub use kernel::store::{BaseStore, Namespace, Runtime, StoreItem};
 pub use kernel::stream::{StreamChunk, StreamMode};
 pub use kernel::timeout::TimeoutPolicy;

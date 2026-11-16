@@ -8,6 +8,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{Error, Result};
@@ -252,6 +253,47 @@ impl Reducer {
     }
 }
 
+/// A removal marker for `add_messages`-style reducers (LangGraph `RemoveMessage`).
+///
+/// Serializes to `{"type": "remove", "id": ...}`; the `messages` reducer removes the
+/// message with the same id instead of merging it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoveMessage {
+    /// Id of the message to remove.
+    pub id: String,
+}
+
+impl RemoveMessage {
+    /// Create a removal marker.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+
+    /// JSON representation understood by the `messages` reducer.
+    pub fn to_value(&self) -> Value {
+        serde_json::json!({ "type": "remove", "id": self.id })
+    }
+}
+
+impl From<RemoveMessage> for Value {
+    fn from(message: RemoveMessage) -> Self {
+        message.to_value()
+    }
+}
+
+impl Serialize for RemoveMessage {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("RemoveMessage", 2)?;
+        state.serialize_field("type", "remove")?;
+        state.serialize_field("id", &self.id)?;
+        state.end()
+    }
+}
+
 /// Ready made reducers for the most common state shapes.
 pub mod reducers {
     use super::*;
@@ -321,6 +363,24 @@ pub mod reducers {
                 }
             };
             for message in incoming {
+                let removal = message.as_object().and_then(|object| {
+                    let remove = object.get("type").and_then(Value::as_str) == Some("remove")
+                        || object
+                            .get("__remove__")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                    remove.then(|| object.get("id").and_then(Value::as_str).map(str::to_owned))
+                });
+                if let Some(Some(remove_id)) = removal {
+                    accumulated.retain(|candidate| {
+                        candidate
+                            .as_object()
+                            .and_then(|object| object.get("id"))
+                            .and_then(Value::as_str)
+                            != Some(remove_id.as_str())
+                    });
+                    continue;
+                }
                 let id = message
                     .as_object()
                     .and_then(|object| object.get("id"))

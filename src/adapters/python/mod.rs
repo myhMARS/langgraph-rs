@@ -34,8 +34,8 @@ use types::PyRedisSaver;
 #[cfg(feature = "sqlite")]
 use types::PySqliteSaver;
 use types::{
-    PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRetryPolicy, PySend, PyStore,
-    PyTask,
+    PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage, PyRetryPolicy,
+    PySend, PyStore, PyTask,
 };
 
 create_exception!(
@@ -195,6 +195,10 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStore>()?;
     module.add_class::<PyInMemoryStore>()?;
     module.add_class::<PyTask>()?;
+    module.add_class::<PyRemoveMessage>()?;
+    let messages_state = PyDict::new(module.py());
+    messages_state.set_item("messages", "add_messages")?;
+    module.add("MessagesState", messages_state)?;
     #[cfg(feature = "redis")]
     module.add_class::<PyRedisSaver>()?;
     #[cfg(feature = "postgres")]

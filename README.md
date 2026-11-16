@@ -177,7 +177,9 @@ A channel is one field of the state and decides how a superstep's writes become 
 `NodeOutput::overwrite(channel, value)` writes directly to a channel, bypassing its reducer
 (LangGraph's `Overwrite`). `Channel::delta(reducer)` accepts a snapshot frequency for API compatibility; this engine always snapshots the full value.
 
-Built-ins: `reducers::append()`, `reducers::add()`, `reducers::messages()` (merge by `id`).
+Built-ins: `reducers::append()`, `reducers::add()`, `reducers::messages()` (merge by `id`,
+`RemoveMessage` removes a message). `MessagesState` is the convenience state for chat
+transcripts; Python exposes `lg.MessagesState` and `lg.RemoveMessage`.
 `JsonState` is the schemaless alternative: a JSON map whose undeclared channels behave like
 `LastValue` (build with `StateGraph::<JsonState>::with_schema` to register reducers).
 
