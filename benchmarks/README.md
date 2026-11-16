@@ -1,5 +1,7 @@
 # Benchmarks: langgraph-rs vs Python LangGraph
 
+English | [简体中文](README.zh-CN.md)
+
 This directory contains the functional and performance comparison between **langgraph-rs**
 and the reference **Python LangGraph**. Results are regenerated on the machine you run them
 on; do not compare absolute numbers across different machines.

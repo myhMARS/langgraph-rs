@@ -1,5 +1,7 @@
 # Architecture
 
+English | [简体中文](architecture.zh-CN.md)
+
 How `langgraph-rs` executes a graph: modules, the superstep loop, channel merging,
 scheduling, checkpoints, interrupts and streaming. It describes the code in `src/` (crate
 version 0.1.0) for contributors who need to reason about execution semantics.

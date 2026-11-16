@@ -1,5 +1,7 @@
 # langgraph-rs
 
+English | [简体中文](README.zh-CN.md)
+
 **A Rust port of LangGraph's core runtime**: a synchronous, state-and-graph engine for
 orchestrating LLM agents and workflows. Work is a `StateGraph` whose nodes are plain
 `Fn(&State) -> Result<NodeOutput>` closures; nodes return *writes*, the engine merges them
@@ -574,11 +576,15 @@ Snapshot (Windows 11, rustc 1.99.1, Python 3.12.10, LangGraph 1.2.22):
 
 | Scenario | Rust native | Rust via Python binding | Python LangGraph | Rust vs LangGraph |
 | --- | --- | --- | --- | --- |
-| linear_10 (10-node pipeline) | 27.27 µs/op | 41.94 µs/op | 4,792.14 µs/op | **175.8×** |
-| loop_50 (50-step loop) | 128.33 µs/op | 224.08 µs/op | 23,165.64 µs/op | **180.5×** |
-| fanout_4 (1 → 4 parallel → join) | 372.24 µs/op | 700.43 µs/op | 3,455.19 µs/op | **9.3×** |
-| checkpoint_5 (5 nodes + checkpoints) | 17.22 µs/op | 44.05 µs/op | 6,116.85 µs/op | **355.2×** |
-| build_compile (10-node graph) | 8.08 µs/op | 27.90 µs/op | 1,038.64 µs/op | **128.5×** |
+| linear_10 (10-node pipeline) | 22.85 µs/op | 35.61 µs/op | 3,362.68 µs/op | **147.1×** |
+| loop_50 (50-step loop) | 206.82 µs/op | 167.08 µs/op | 18,680.04 µs/op | **90.3×** |
+| fanout_4 (1 → 4 parallel → join) | 704.23 µs/op | 468.25 µs/op | 3,785.87 µs/op | **5.4×** |
+| checkpoint_5 (5 nodes + checkpoints) | 19.28 µs/op | 25.36 µs/op | 5,592.27 µs/op | **290.0×** |
+| build_compile (10-node graph) | 11.47 µs/op | 22.45 µs/op | 1,442.46 µs/op | **125.8×** |
+
+The full report also covers graph-size scaling (`scale_005` … `scale_100`), 8-thread
+throughput (`mt_8x_linear_10`) and peak allocated memory (`mem_linear_10`, `mem_loop_50`);
+see [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 These measure orchestration overhead only (no LLM or I/O calls): native Rust is one to two
 orders of magnitude faster, the bindings pay Python callable dispatch per node, and the
@@ -591,19 +597,20 @@ nodes, durable backends) — is in [benchmarks/features.md](benchmarks/features.
 Implemented and tested: microkernel + hexagonal layout (kernel ports, adapters, plugin registry);
 strict or dynamic channel schemas; static, multi-target and conditional edges with path maps and
 conditional entry points; parallel supersteps, `Send`, `goto`; the recursion limit (25 supersteps);
-checkpointing, thread history, snapshots; `interrupt()` with before/after hooks; resume, updates,
-time travel; retry policies with backoff and `last_error()` error routing; subgraphs; streaming;
-per-node duration/usage tracing with run reports and trace-sink adapters; optional Tokio async
-adapter (`async` feature); validation and merge errors; optional Python bindings (PyO3); a
-functional/performance benchmark against Python LangGraph.
+checkpointing, thread history, snapshots, `interrupt()` with before/after hooks, resume, updates,
+time travel; retry policies with backoff and `last_error()` error routing; subgraphs; node-level
+caching with TTLs and custom keys; Mermaid visualisation; persistent SQLite/Redis/Postgres
+checkpointers; streaming; per-node duration/usage tracing with run reports and trace-sink
+adapters; optional Tokio async adapter (`async` feature) with the full checkpoint/HITL/retry/
+error-routing surface; validation and merge errors; optional Python bindings (PyO3); a
+functional/performance benchmark against Python LangGraph, including scaling, threading and
+memory scenarios.
 
 Not implemented yet:
 
-- async checkpointing/HITL (the `async` adapter covers execution, streaming and usage; the sync
-  engine owns checkpoints, interrupts, retries and error routing)
-- durable checkpoint backends beyond memory (the `Checkpointer` trait is ready)
 - external persistence of graph definitions, cross-process time travel, a time-travel UI,
-  node-level retries/caching, checkpoint namespaces, `Send` from routers
+  checkpoint namespaces, `Send` from routers
+- async-adapter node caching, subgraph state mapping and per-subgraph checkpoint namespaces
 - Python-defined custom reducers and async Python nodes (the bindings use built-in reducers and
   release the GIL around the engine)
 

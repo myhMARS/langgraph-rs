@@ -1,0 +1,620 @@
+# langgraph-rs
+
+[English](README.md) | 简体中文
+
+**LangGraph 核心运行时的 Rust 重写**：一个同步的、状态 + 图引擎，用于编排 LLM Agent 与工作流。
+工作单元是一个 `StateGraph`，节点是普通的 `Fn(&State) -> Result<NodeOutput>` 闭包；节点返回
+*写入*，引擎通过 channel 合并写入、路由边、在步骤之间做 checkpoint，并且可以暂停等待人工输入后
+从断点恢复。没有异步运行时、没有隐藏的全局状态，并提供可选的 Python 绑定。
+
+## 特性
+
+- **Channel 与 reducer** — `LastValue`、`Topic` 或针对自定义 `Serialize + Deserialize` 状态
+  类型的任意折叠函数，并由 `StateSchema` 校验。
+- **静态 + 条件边** — 多目标扇出、router 返回节点名、通过 `PathMap` 解析符号键、条件入口、
+  `goto` 覆盖。
+- **并行 superstep + `Send` map/reduce** — 同一 superstep 的节点在 scoped 线程上并行执行；
+  `Send` 为每个元素创建带独立状态的任务，并通过 channel 归约。
+- **重试 + 错误路由** — 每节点 `RetryPolicy`（次数、指数退避）以及通过 `last_error()` 读取失败
+  信息的 `add_error_edge` 兜底 handler。
+- **子图** — `add_subgraph` 把已编译图作为节点嵌入；共享状态类型，仅发布发生变化的 channel。
+- **Mermaid 可视化** — `graph.to_mermaid()` 渲染节点、静态/条件边、path-map 标签、错误边、
+  重试与中断钩子；Python 绑定同样可用。
+- **节点级缓存** — 按节点 opt-in 的 `CachePolicy` + `NodeCache` 端口；`InMemoryCache` 适配器
+  支持 TTL 与自定义 key，命中会在运行报告中标记。
+- **持久化 Checkpointer** — `SqliteSaver`、`RedisSaver`、`PostgresSaver` 实现同一个
+  `Checkpointer` 端口，分别对应 `sqlite` / `redis` / `postgres` feature。
+- **Tokio 异步运行时（`async` feature）** — `AsyncStateGraph` 在 Tokio 上运行异步节点并并发
+  等待 superstep；同步路径不引入运行时依赖。
+- **Checkpoint + 线程历史** — `InMemorySaver`、类型化快照、父子链历史、`resume_from` 时间旅行。
+- **Human-in-the-loop** — `interrupt()` 携带 payload 暂停运行，`resume` 重新执行节点并注入答复；
+  `interrupt_before` / `interrupt_after` 提供粗粒度闸门。
+- **流式输出** — 值、节点级更新、自定义事件、中断、checkpoint id。
+- **节点级消耗追踪** — 节点通过 `record_usage` 或 `NodeOutput::with_usage` 上报 token/成本；
+  `run` 返回包含每节点耗时、usage 与聚合总量的 `RunReport`。
+- **Python 绑定** — 可选 `python` feature 通过 PyO3 暴露同一引擎（`StateGraph` /
+  `CompiledGraph`、`interrupt` / `resume`、运行报告）。
+- **Microkernel + Hexagonal 架构** — 领域内核（图模型、superstep 执行器、端口）与适配器
+  （checkpoint、追踪、语言绑定）分离；channel 合并策略是注册在 `Kernel` 中的插件。
+- **与 Python LangGraph 的基准对比** — Rust 原生、PyO3 绑定、LangGraph 三引擎同场景对比，
+  并提供功能矩阵（见 [benchmarks/](benchmarks/)）。
+
+## 为什么用 Rust 重写？
+
+LangGraph 的模型——状态、superstep、显式写入、中断——在 Python 之外同样有价值。忠实的重写不应
+只是语法翻译：状态是编译期检查的类型，节点写入未声明的 channel 会直接失败，模糊合并不可能发生
+——对 `LastValue` 的并发写入是错误而不是竞态。节点是同步闭包，superstep 运行在
+`std::thread::scope` 上，`Checkpointer` 是 trait，持久化后端由你决定。
+
+## 架构：Microkernel + Hexagonal
+
+crate 由 **kernel**（纯领域逻辑）与 **adapters**（基础设施）组成，通过 **ports**（trait）连接：
+
+```text
+                 ┌────────────────────────── adapters ──────────────────────────┐
+   Python ─────► │ adapters::python (PyO3)   adapters::memory (checkpoint saver) │
+                 └───────────────▲───────────────────────────▲──────────────────┘
+                                 │ implements ports          │
+                 ┌───────────────┴───────────────────────────┴──────────────────┐
+                 │ kernel::ports   Checkpointer, TraceSink                      │
+                 │ kernel::plugin  Kernel / Plugin / ChannelFactory             │
+                 │ kernel          graph model, channels, state, executor,      │
+                 │                 usage, streaming, checkpoints, interrupts     │
+                 └──────────────────────────────────────────────────────────────┘
+```
+
+- **端口**（`kernel::ports`）是内核唯一依赖的契约：`Checkpointer`（持久化）与 `TraceSink`
+  （消耗记录）。
+- **适配器**（`adapters::*`）实现端口：`InMemorySaver`（内存 checkpoint）、PyO3 绑定，以及
+  下游自定义的 Redis/Postgres/OTel 等实现。
+- **微内核**（`kernel::plugin`）：内核从 `Kernel` 注册表解析能力，而不是自行构造。内建 channel
+  策略（`last_value`、`topic`、`append`、`add`、`messages`）由 `BuiltinChannels` 注册；下游通过
+  `Plugin` 扩展：
+
+```rust
+use langgraph_rs::{Channel, CompileOptions, Kernel, Plugin, StateGraph};
+
+struct MyReducer;
+
+impl Plugin for MyReducer {
+    fn name(&self) -> &'static str {
+        "my-reducer"
+    }
+
+    fn install(&self, kernel: &mut Kernel) -> langgraph_rs::Result<()> {
+        kernel.register_channel("trimmed_append", || {
+            Channel::reducer(|current, incoming| {
+                let mut values = current.as_array().cloned().unwrap_or_default();
+                if let Some(items) = incoming.as_array() {
+                    values.extend(items.iter().cloned());
+                }
+                Ok(serde_json::Value::Array(values))
+            })
+        });
+        Ok(())
+    }
+}
+
+let kernel = Kernel::builder().with_plugin(MyReducer)?.build();
+let schema = kernel.schema([("messages".to_string(), "trimmed_append".to_string())])?;
+let graph = StateGraph::<Pipeline>::with_schema(schema)
+    .add_node("node", |_state: &Pipeline| Ok(Default::default()))
+    .set_entry_point("node")
+    .set_finish_point("node")
+    .compile_with(CompileOptions::new().with_kernel(kernel))
+    .unwrap();
+```
+
+内核不引用任何具体适配器：持久化、追踪与 Python 都在内核之外。
+
+## 快速开始
+
+添加 `langgraph-rs`（发布前先用 path 依赖）、`serde`（derive）与 `serde_json`。状态是任意
+`Clone + Default + Serialize + Deserialize` 类型，`State::schema` 声明 channel 与合并规则。
+
+```rust
+use langgraph_rs::{NodeOutput, Route, RunConfig, State, StateGraph, StateSchema};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct Counter {
+    value: i64,
+}
+
+impl State for Counter {
+    fn schema() -> StateSchema {
+        StateSchema::new().last_value("value")
+    }
+}
+
+let graph = StateGraph::<Counter>::new()
+    .add_node("increment", |state: &Counter| {
+        Ok(NodeOutput::new().set("value", state.value + 1))
+    })
+    .set_entry_point("increment")
+    .add_conditional_edges("increment", |state: &Counter| {
+        Ok(if state.value < 3 {
+            Route::node("increment")
+        } else {
+            Route::end()
+        })
+    })
+    .compile()
+    .unwrap();
+
+let output = graph.invoke(&Counter::default(), &RunConfig::new()).unwrap();
+assert_eq!(output.value, 3);
+```
+
+## 状态 channel 类型
+
+channel 是状态的一个字段，决定一个 superstep 的写入如何成为下一个值：
+
+| Channel | 合并行为 | 适用场景 |
+| --- | --- | --- |
+| `LastValue` | 最新写入获胜；同一 superstep 两次写入会以 `Error::ConcurrentUpdate` 失败 | 标量与单节点每步拥有的控制标志 |
+| `Topic` | 每次写入追加到 JSON 数组 | 对顺序敏感的事件日志与 trace |
+| `Reducer` | 写入按左到右折叠 | 多方更新的消息、计数器、映射 |
+
+内置 reducer：`reducers::append()`、`reducers::add()`、`reducers::messages()`（按 `id` 合并）。
+`JsonState` 是无 schema 的替代方案：JSON map，未声明的 channel 按 `LastValue` 处理（用
+`StateGraph::<JsonState>::with_schema` 注册 reducer）。
+
+## 条件路由
+
+router 是纯函数 `Fn(&State) -> Result<Route>`，在 superstep 写入合并 *之后* 的状态上求值。可返回
+单个节点、多个节点（`Route::nodes([...])` 扇出）或 `Route::end()`。配合 path map 时返回符号键而
+不是节点名；缺失的键是硬错误。
+
+```rust
+let graph = StateGraph::<Counter>::new()
+    .add_node("work", |state: &Counter| Ok(NodeOutput::new().set("value", state.value + 1)))
+    .add_node("done", |_state: &Counter| Ok(NodeOutput::new()))
+    .set_entry_point("work")
+    .add_conditional_edges_mapped("work", |state: &Counter| {
+        Ok(Route::node(if state.value >= 7 { "done" } else { "retry" }))
+    }, [("done", "done"), ("retry", "work")])
+    .set_finish_point("done")
+    .compile()
+    .unwrap();
+```
+
+`add_conditional_edges` 直接路由到具体节点名；节点也可用 `NodeOutput::goto("target")` 覆盖当前步骤
+的出边。
+
+## 并行执行与 `Send`
+
+同一 superstep 调度的节点共享状态快照并并发执行，下一个 superstep 看到合并后的写入。边可以静态
+扇出，`Send` 则携带每任务独立状态。
+
+```rust
+use serde_json::json;
+use langgraph_rs::{NodeOutput, RunConfig, Send, State, StateGraph, StateSchema, reducers};
+
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+struct Pipeline {
+    value: i64,
+    #[serde(default)]
+    log: Vec<String>,
+}
+
+impl State for Pipeline {
+    fn schema() -> StateSchema {
+        StateSchema::new().last_value("value").with_reducer("log", reducers::append())
+    }
+}
+
+// Map/reduce：`dispatch` 派发三个带独立状态的任务，写入通过 `log` 归约。
+let map_reduce = StateGraph::<Pipeline>::new()
+    .add_node("dispatch", |_s: &Pipeline| {
+        Ok([1, 2, 3].into_iter().fold(NodeOutput::new(), |output, item| {
+            output.send(Send::with_arg("worker", json!({ "value": item })))
+        }))
+    })
+    .add_node("worker", |state: &Pipeline| {
+        Ok(NodeOutput::new().set("log", vec![format!("worker-{}", state.value)]))
+    })
+    .set_entry_point("dispatch")
+    .set_finish_point("worker")
+    .compile()
+    .unwrap();
+
+let output = map_reduce.invoke(&Pipeline::default(), &RunConfig::new()).unwrap();
+assert_eq!(output.log.len(), 3);
+```
+
+`Send::with_arg` 替换目标任务的全部状态（必须能反序列化为 `S`）；`Send::to` 转发当前状态。不同的
+`Send` 并发执行并通过 reducer 合并。
+
+## 可靠性：重试与错误路由
+
+节点可配置重试策略；失败时引擎自动重试。中断永不重试。重试耗尽后运行失败——除非配置了错误边，
+失败会路由到 handler 节点，在下一个 superstep 执行，并可通过 `last_error()` 读取失败信息。
+
+```rust
+use std::time::Duration;
+use langgraph_rs::{Error, NodeOutput, RetryPolicy, StateGraph, WorkState, last_error};
+
+let graph = StateGraph::<WorkState>::new()
+    .add_node_with_retry(
+        "call_model",
+        RetryPolicy::new(3)
+            .with_backoff(Duration::from_millis(200))
+            .with_multiplier(2.0),
+        |state: &WorkState| call_model(state),
+    )
+    .add_node("fallback", |_state: &WorkState| {
+        let failure = last_error().expect("handler sees the failure");
+        Ok(NodeOutput::new().set("answer", format!("degraded: {}", failure.message)))
+    })
+    .add_error_edge("call_model", "fallback")
+    .set_entry_point("call_model")
+    .set_finish_point("fallback")
+    .compile()
+    .unwrap();
+```
+
+## 子图
+
+`add_subgraph` 把已编译图作为节点嵌入。子图针对父状态运行，其发生变化的 channel 以 **直接替换**
+写回（绕过父级 reducer），因此 reducer channel 不会被重复追加。
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{NodeOutput, RunConfig, StateGraph};
+
+let inner = Arc::new(
+    StateGraph::<WorkState>::new()
+        .add_node("step", |state: &WorkState| Ok(NodeOutput::new().set("value", state.value + 1)))
+        .set_entry_point("step")
+        .set_finish_point("step")
+        .compile()
+        .unwrap(),
+);
+
+let outer = StateGraph::<WorkState>::new()
+    .add_node("seed", |_state: &WorkState| Ok(NodeOutput::new().set("value", 10)))
+    .add_subgraph("inner", inner)
+    .set_entry_point("seed")
+    .add_edge("seed", "inner")
+    .set_finish_point("inner")
+    .compile()
+    .unwrap();
+```
+
+子图共享父状态类型；目前没有独立 checkpointer 或状态映射，子图内调用 `interrupt()` 会以节点
+失败的形式暴露。
+
+## 节点级缓存
+
+缓存按节点 opt-in：给图挂 `NodeCache` 后端，给节点挂 `CachePolicy`。节点执行前，执行器用「节点名 +
+输入状态」派生的 key 查找缓存；成功后写入。中断与失败永不缓存，命中会在运行报告中标记 `cached`。
+
+```rust
+use std::sync::Arc;
+use std::time::Duration;
+use langgraph_rs::{CachePolicy, InMemoryCache, StateGraph};
+
+let graph = StateGraph::<WorkState>::new()
+    .add_node("call_model", |state: &WorkState| call_model(state))
+    .set_entry_point("call_model")
+    .set_finish_point("call_model")
+    .with_cache(Arc::new(InMemoryCache::new()))
+    .set_cache(
+        "call_model",
+        CachePolicy::new().with_ttl(Duration::from_secs(300)),
+    )
+    .compile()
+    .unwrap();
+```
+
+默认 key 哈希节点名与序列化后的输入状态（只有完全相同的输入才命中）；`CachePolicy::with_key` 可
+安装更粗粒度的自定义 key。`NodeCache` 是端口，后续可接入 SQLite/Redis/Postgres 缓存。
+
+## 可视化
+
+`CompiledGraph::to_mermaid()`（以及 `AsyncCompiledGraph::to_mermaid()`）把编译后的拓扑渲染为
+Mermaid `graph TD`：静态边为实线，条件边经过 router 菱形节点并以 path-map 标签标注，错误路由为
+`on error` 虚线，节点标签包含重试次数与中断钩子。
+
+```rust
+let mermaid = graph.to_mermaid();
+std::fs::write("graph.mmd", mermaid)?;
+```
+
+渲染结果可粘贴到 GitHub、GitLab、Notion 或任意 Mermaid 渲染器。Python 绑定同样提供
+`compiled.to_mermaid()`。
+
+## Tokio 异步
+
+启用 `async` feature 获得异步运行时适配器。节点是异步闭包，接收按值传递的状态与 `AsyncContext`；
+superstep 通过 `futures::future::join_all` 并发等待。
+
+```rust
+use langgraph_rs::tokio_runtime::AsyncStateGraph;
+use langgraph_rs::{JsonState, NodeOutput};
+
+async fn example() -> langgraph_rs::Result<()> {
+    let graph = AsyncStateGraph::<JsonState>::new()
+        .add_node("call", |_state: JsonState, ctx| async move {
+            // 在这里执行异步 I/O，例如调用 LLM 的 HTTP 请求
+            ctx.record_tokens(120, 24);
+            Ok(NodeOutput::new().set("answer", "42"))
+        })
+        .set_entry_point("call")
+        .set_finish_point("call")
+        .compile()?;
+
+    let outcome = graph.run(&JsonState::default(), &Default::default()).await?;
+    assert_eq!(outcome.report.total_tokens(), 144);
+    Ok(())
+}
+```
+
+async 适配器具备与同步路径相同的引擎能力：checkpoint 与线程历史、HITL（`ctx.interrupt(...)` +
+`graph.resume(thread, value)`）、`interrupt_before` / `interrupt_after`、每节点 `RetryPolicy`、
+`ctx.last_error()` 错误路由、goto/`Send`、流式与 usage/trace 上报。checkpoint 通过
+`.with_checkpointer(Arc::new(InMemorySaver::new()))` 启用，并需要 `RunConfig::with_thread(...)`：
+
+```rust
+use langgraph_rs::tokio_runtime::AsyncStateGraph;
+use langgraph_rs::{InMemorySaver, RunConfig, json};
+use std::sync::Arc;
+
+async fn example() -> langgraph_rs::Result<()> {
+    let graph = AsyncStateGraph::<JsonState>::new()
+        .add_node("approve", |_state: JsonState, ctx| async move {
+            let answer = ctx.interrupt(json!({ "question": "approve?" }))?;
+            Ok(langgraph_rs::NodeOutput::new().set("approved", answer))
+        })
+        .set_entry_point("approve")
+        .set_finish_point("approve")
+        .with_checkpointer(Arc::new(InMemorySaver::new()))
+        .compile()?;
+
+    let _ = graph
+        .run(&JsonState::default(), &RunConfig::new().with_thread("demo"))
+        .await
+        .unwrap_err(); // 对应 GraphInterrupt：Error::Interrupt
+
+    let state = graph.resume("demo", json!(true)).await?;
+    assert_eq!(state.get("approved"), Some(&json!(true)));
+    Ok(())
+}
+```
+
+## Checkpoint 与 Human-in-the-loop
+
+通过 `CompileOptions` 挂载 saver，并让每次运行绑定 `thread_id`。运行开始、每个 superstep 与每次
+暂停都会写 checkpoint。
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{CompileOptions, InMemorySaver, NodeOutput, RunConfig, StateGraph, interrupt, json};
+
+let saver = Arc::new(InMemorySaver::new());
+let graph = StateGraph::<Pipeline>::new()
+    .add_node("ask", |state: &Pipeline| {
+        let answer = interrupt(json!({ "question": "how much to add?" }))?;
+        Ok(NodeOutput::new()
+            .set("value", state.value + answer.as_i64().unwrap_or_default())
+            .set("log", vec!["ask".to_string()]))
+    })
+    .add_node("finish", |_s: &Pipeline| Ok(NodeOutput::new().set("log", vec!["finish".to_string()])))
+    .set_entry_point("ask")
+    .add_edge("ask", "finish")
+    .set_finish_point("finish")
+    .compile_with(CompileOptions::new().with_checkpointer(saver))
+    .unwrap();
+
+let paused = graph.invoke(&Pipeline::default(), &RunConfig::new().with_thread("demo")).unwrap_err();
+assert!(paused.is_interrupt());
+
+// `ask` 节点重新执行，这次 `interrupt()` 返回 41 而不是暂停。
+let output = graph.resume("demo", json!(41)).unwrap();
+assert_eq!(output.value, 41);
+```
+
+`get_state(thread)` 报告 `interrupted` 与待执行的 `next` 任务。`resume_with_updates` 在继续前应用
+人工编辑；`resume_command(thread, Command::resume(v).with_update([...]))` 是同一意图的显式 builder
+形式；`resume_from` 从旧 checkpoint 重放；`get_state_history` 返回按父链组织、最新在前的历史。
+粗粒度闸门可用 `.interrupt_before(["finish"])` 或 `.interrupt_after(["ask"])`，这类暂停携带
+`null` payload，并通过 `graph.continue_thread("demo")` 继续。
+
+### 持久化 Checkpointer
+
+`InMemorySaver` 适合测试；生产环境可换成持久化 `Checkpointer`。所有适配器存储相同的 `Checkpoint`
+payload（状态值、待执行任务、中断标志、父链）并实现 `latest` / `history` / `threads`。
+
+| 适配器 | Feature | 连接方式 |
+| --- | --- | --- |
+| `SqliteSaver` | `sqlite`（需要 `libsqlite3`） | `SqliteSaver::open("checkpoints.db")` / `SqliteSaver::in_memory()` |
+| `RedisSaver` | `redis` | `RedisSaver::connect("redis://127.0.0.1/")` |
+| `PostgresSaver` | `postgres` | `PostgresSaver::connect("postgres://user:pass@host/db")` |
+
+```rust
+use std::sync::Arc;
+use langgraph_rs::{CompileOptions, SqliteSaver}; // feature = "sqlite"
+
+let saver = Arc::new(SqliteSaver::open("checkpoints.db")?);
+let graph = builder
+    .compile_with(CompileOptions::new().with_checkpointer(saver))?;
+```
+
+SQLite 适配器在 CI 中运行测试；Redis/Postgres 测试通过 `LANGGRAPH_RS_REDIS_URL` /
+`LANGGRAPH_RS_POSTGRES_URL` 选择性开启，未设置时跳过。Debian/Ubuntu 上启用 `sqlite` feature 前
+请安装 `libsqlite3-dev`。
+
+## 流式
+
+`stream` 收集全部 chunk；`stream_with` 在调用线程把 chunk 推给 sink，因此无需异步运行时即可转发
+到 channel、WebSocket 或日志。chunk 包括 `Values`、节点级 `Updates`、`Custom` 事件、`Interrupt`
+payload 与 `Checkpoint` id。
+
+```rust
+use langgraph_rs::{NodeOutput, RunConfig, StateGraph, StreamChunk, custom, json};
+
+let graph = StateGraph::<Pipeline>::new()
+    .add_node("emit", |_s: &Pipeline| {
+        custom(json!({ "progress": 0.5 }))?;
+        Ok(NodeOutput::new())
+    })
+    .set_entry_point("emit")
+    .set_finish_point("emit")
+    .compile()
+    .unwrap();
+
+let chunks = graph.stream(&Pipeline::default(), &RunConfig::new()).unwrap();
+assert!(chunks.iter().any(|chunk| matches!(chunk, StreamChunk::Custom { .. })));
+```
+
+## 节点级消耗与追踪
+
+每次节点执行都会被记录：墙钟耗时加上节点上报的内容。节点可以分多次上报（`record_tokens`、
+`record_usage`）或把 usage 附加到输出；同一次执行的多次记录会求和。
+
+```rust
+use langgraph_rs::{NodeOutput, RunConfig, StateGraph, Usage, record_tokens};
+
+let graph = StateGraph::<Pipeline>::new()
+    .add_node("llm", |state: &Pipeline| {
+        record_tokens(512, 96)?;
+        Ok(NodeOutput::new()
+            .set("value", state.value + 1)
+            .with_usage(Usage::new().with_model("gpt-4o").with_cost_usd(0.006)))
+    })
+    .set_entry_point("llm")
+    .set_finish_point("llm")
+    .compile()
+    .unwrap();
+
+// `run` 返回最终状态 + 报告；`invoke` 保持仅返回状态的形态。
+let outcome = graph.run(&Pipeline::default(), &RunConfig::new()).unwrap();
+let report = &outcome.report;
+println!("{:?}", report.usage_by_node());   // BTreeMap<node, Usage>
+println!("{}", report.total_tokens());      // 跨节点求和
+println!("{}", report.total_cost_usd());
+for execution in report.executions() {
+    println!("{} step={} {}ms", execution.node, execution.step, execution.duration_millis);
+}
+```
+
+`RunReport` 提供 `executions()`（每个节点一次 `NodeExecution`）、`usage_by_node()`、
+`total_usage()`、`total_tokens()` 与 `total_cost_usd()`。`stream` 还会为每个节点发出
+`StreamChunk::Usage`，便于 UI 实时展示消耗。
+
+## Python 绑定
+
+启用 `python` feature（PyO3）构建原生扩展模块。使用 [maturin](https://maturin.rs)：
+
+```bash
+pip install maturin
+maturin develop --features python     # 安装 `langgraph_rs` 到当前 venv
+python python/examples/quickstart.py
+```
+
+也可以直接构建 cdylib（`cargo build --features python`），把 `liblanggraph_rs.so` /
+`langgraph_rs.dll` 放到测试代码旁并命名为 `langgraph_rs.pyd` / `langgraph_rs.so`。Python API 使用
+`JsonState` 与 Python 可调用对象：
+
+```python
+import langgraph_rs as lg
+
+graph = lg.StateGraph({"count": "last_value", "log": "append"})
+graph.add_node("inc", lambda state: {"count": state["count"] + 1, "log": ["inc"]})
+graph.add_edge("START", "inc")
+graph.add_conditional_edges("inc", lambda state: "inc" if state["count"] < 3 else None)
+compiled = graph.compile()
+assert compiled.invoke({"count": 0, "log": []})["count"] == 3
+```
+
+- `graph.compile(checkpointer=True)` 启用 checkpoint；`invoke(..., thread_id="t")` 在节点调用
+  `lg.interrupt(payload)` 时以 `lg.GraphInterrupt` 暂停；`resume("t", answer)` 继续，
+  `get_state` / `get_state_history` 检查 checkpoint 链。
+- `compiled.run(...)` 返回 `{"state": ..., "report": ...}`，包含与 Rust 相同的节点消耗报告；
+  `compiled.stream(...)` 返回 chunk 字典。
+- 节点可返回保留键 `__goto__`（节点名或列表）与 `__usage__`（包含 `model`、`input_tokens`、
+  `output_tokens`、`cost_usd`、`metadata` 的字典）。
+
+## 与 Python LangGraph 的基准
+
+仓库提供可复现的对比：相同的图、节点数与迭代次数，所有引擎使用同一协议。场景说明见
+[benchmarks/README.md](benchmarks/README.md)（中文：[benchmarks/README.zh-CN.md](benchmarks/README.zh-CN.md)），
+当前数据见 [benchmarks/RESULTS.md](benchmarks/RESULTS.md)，可用 `python benchmarks/run.py` 重新生成。
+
+快照（Windows 11，rustc 1.99.1，Python 3.12.10，LangGraph 1.2.22）：
+
+| 场景 | Rust 原生 | Rust Python 绑定 | Python LangGraph | Rust 相对 LangGraph |
+| --- | --- | --- | --- | --- |
+| linear_10（10 节点流水线） | 22.85 µs/op | 35.61 µs/op | 3,362.68 µs/op | **147.1×** |
+| loop_50（50 步循环） | 206.82 µs/op | 167.08 µs/op | 18,680.04 µs/op | **90.3×** |
+| fanout_4（1 → 4 并行 → join） | 704.23 µs/op | 468.25 µs/op | 3,785.87 µs/op | **5.4×** |
+| checkpoint_5（5 节点 + checkpoint） | 19.28 µs/op | 25.36 µs/op | 5,592.27 µs/op | **290.0×** |
+| build_compile（10 节点图） | 11.47 µs/op | 22.45 µs/op | 1,442.46 µs/op | **125.8×** |
+
+完整报告还包含图规模扩展（`scale_005` … `scale_100`）、8 线程并发（`mt_8x_linear_10`）与峰值
+内存（`mem_linear_10`、`mem_loop_50`），见 [benchmarks/RESULTS.md](benchmarks/RESULTS.md)。
+
+这些数字只衡量编排开销（无 LLM 或 I/O 调用）：Rust 原生快一到两个数量级，绑定在每个节点上付出
+Python 可调用派发成本，扇出场景差距最小，因为原生 Rust 每个 superstep 会启动真实线程。功能矩阵
+——哪些达到对等、哪些没有（子图、异步节点、持久化后端）——见
+[benchmarks/features.md](benchmarks/features.md)。
+
+## 状态 / 路线图
+
+已实现并测试：Microkernel + Hexagonal 布局（kernel ports、adapters、插件注册表）；严格或动态
+channel schema；静态、多目标与条件边（含 path map 与条件入口）；并行 superstep、`Send`、`goto`；
+递归上限（25 superstep）；checkpoint、线程历史、快照、`interrupt()`（含 before/after 钩子）、
+resume、更新、时间旅行；带退避的 `RetryPolicy` 与 `last_error()` 错误路由；子图；节点级缓存
+（TTL 与自定义 key）；Mermaid 可视化；SQLite/Redis/Postgres 持久化 checkpointer；流式；节点级
+耗时/usage 追踪与运行报告、trace-sink 适配器；可选 Tokio 异步适配器（`async` feature，覆盖完整
+checkpoint/HITL/重试/错误路由能力）；校验与合并错误；可选 Python 绑定（PyO3）；以及包含扩展性、
+线程与内存场景的功能/性能基准。
+
+尚未实现：
+
+- 图定义的外部持久化、跨进程时间旅行、时间旅行 UI、checkpoint 命名空间、从 router 发起 `Send`
+- async 适配器的节点缓存、子图状态映射与子图独立 checkpoint 命名空间
+- Python 自定义 reducer 与异步 Python 节点（绑定目前使用内置 reducer，并在引擎执行期间释放 GIL）
+
+## 与 LangGraph 的差异
+
+- **同步优先，异步可选。** 默认引擎在 scoped 线程上运行 `Fn(&S) -> Result<NodeOutput>` 节点；
+  `async` feature 增加 Tokio 适配器支持异步节点。默认路径没有事件循环。
+- **节点上下文是 thread-local。** `interrupt()`、`custom()` 与 `current_node()` 读取每次节点调用
+  安装的 thread-local，因此只在执行线程内有效。
+- **状态必须序列化为 JSON 对象。** channel 值是 `serde_json::Value`；非对象状态以
+  `Error::NonObjectState` 失败，从而保持 checkpoint 语言中立。
+- **superstep 通过 scoped 线程在同一墙钟窗口执行节点** —— 对共享 `&State` 的真实 OS 并行，而不是
+  协作式调度任务。
+- **router 是纯函数**，只返回目标（或 path-map 键）。
+- **子图共享状态类型**，并以替换方式发布变化的 channel；目前没有子图状态映射或 checkpoint 命名空间。
+- **Python 绑定使用 `JsonState`。** Python 节点交换普通 dict，状态是 JSON；自定义 reducer 目前需用
+  内置策略（`last_value`、`topic`、`append`、`add`、`messages`）表达。引擎执行期间释放 GIL，因此
+  Python 可调用对象只在节点执行时运行。
+
+## 构建与测试
+
+```bash
+cargo test                 # 单元 + 集成测试
+cargo test --features async   # async（Tokio）适配器测试
+cargo test --features sqlite  # 持久化 checkpointer 测试（需要 libsqlite3）
+cargo test --doc           # doctest，包括上面的快速开始
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+
+# Python 绑定
+cargo build --features python
+maturin develop --features python   # 或：pip install maturin
+python -m unittest discover -s python/tests -v
+
+# 与 Python LangGraph 的基准（需要 `pip install langgraph`）
+python benchmarks/run.py
+```
+
+需要 Rust 1.85+（edition 2024）。设计与内部实现：[docs/architecture.md](docs/architecture.md)（中文摘要：
+[docs/architecture.zh-CN.md](docs/architecture.zh-CN.md)）。
+
+## License
+
+MIT。本项目是独立重写，与 LangChain 或 LangGraph 项目**无关联**；LangGraph 是其各自所有者的商标。
