@@ -9,10 +9,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
 
-use super::convert::{normalize_node, py_to_value};
+use super::convert::{normalize_node, py_to_value, value_to_py};
 use crate::Checkpointer;
+use crate::InMemoryStore;
 use crate::kernel::node::{NodeOutput, Send};
 use crate::kernel::retry::RetryPolicy;
+use crate::kernel::store::{BaseStore, StoreItem};
 
 /// A dynamic fan-out task, mirroring `langgraph.types.Send`.
 #[pyclass(name = "Send")]
@@ -295,5 +297,179 @@ pub(super) fn checkpointer_from_py(
     }
     Err(PyTypeError::new_err(
         "checkpointer must be a bool or a saver object (InMemorySaver, SqliteSaver, ...)",
+    ))
+}
+
+/// Python wrapper around a long-term memory store (`BaseStore`).
+#[pyclass(name = "Store", from_py_object)]
+#[derive(Clone)]
+pub struct PyStore {
+    pub(crate) store: Arc<dyn BaseStore>,
+}
+
+impl PyStore {
+    pub(super) fn new(store: Arc<dyn BaseStore>) -> Self {
+        Self { store }
+    }
+}
+
+#[pymethods]
+impl PyStore {
+    fn get(
+        &self,
+        py: Python<'_>,
+        namespace: Vec<String>,
+        key: String,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let value = self
+            .store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        value.map(|value| value_to_py(py, &value)).transpose()
+    }
+
+    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.store
+            .put(&namespace, &key, py_to_value(value)?)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
+        self.store
+            .delete(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let items: Vec<StoreItem> = self
+            .store
+            .search(&namespace_prefix, query.as_deref(), limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        items
+            .iter()
+            .map(|item| store_item_to_py(py, item))
+            .collect()
+    }
+
+    fn namespaces(&self) -> PyResult<Vec<Vec<String>>> {
+        self.store
+            .namespaces()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        "Store()".to_string()
+    }
+}
+
+fn store_item_to_py(py: Python<'_>, item: &StoreItem) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("namespace", item.namespace.clone())?;
+    dict.set_item("key", item.key.clone())?;
+    dict.set_item("value", value_to_py(py, &item.value)?)?;
+    dict.set_item("created_at_millis", item.created_at_millis)?;
+    dict.set_item("updated_at_millis", item.updated_at_millis)?;
+    Ok(dict.into_any().unbind())
+}
+
+/// In-memory long-term memory store, mirroring `langgraph.store.memory.InMemoryStore`.
+#[pyclass(name = "InMemoryStore")]
+pub struct PyInMemoryStore {
+    pub(crate) store: Arc<InMemoryStore>,
+}
+
+#[pymethods]
+impl PyInMemoryStore {
+    #[new]
+    fn new() -> Self {
+        Self {
+            store: Arc::new(InMemoryStore::new()),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.store.len()
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        namespace: Vec<String>,
+        key: String,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let value = self
+            .store
+            .get(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        value.map(|value| value_to_py(py, &value)).transpose()
+    }
+
+    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.store
+            .put(&namespace, &key, py_to_value(value)?)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
+        self.store
+            .delete(&namespace, &key)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let items: Vec<StoreItem> = self
+            .store
+            .search(&namespace_prefix, query.as_deref(), limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        items
+            .iter()
+            .map(|item| store_item_to_py(py, item))
+            .collect()
+    }
+
+    fn namespaces(&self) -> PyResult<Vec<Vec<String>>> {
+        self.store
+            .namespaces()
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        "InMemoryStore()".to_string()
+    }
+}
+
+/// Resolve a Python `store=` keyword into a kernel store.
+pub(super) fn store_from_py(
+    obj: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Arc<dyn BaseStore>>> {
+    let Some(obj) = obj else {
+        return Ok(None);
+    };
+    if obj.is_none() {
+        return Ok(None);
+    }
+    if let Ok(store) = obj.extract::<PyRef<'_, PyInMemoryStore>>() {
+        let store: Arc<dyn BaseStore> = store.store.clone();
+        return Ok(Some(store));
+    }
+    if let Ok(store) = obj.extract::<PyRef<'_, PyStore>>() {
+        return Ok(Some(store.store.clone()));
+    }
+    Err(PyTypeError::new_err(
+        "store must be an InMemoryStore or Store object",
     ))
 }

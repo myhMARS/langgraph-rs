@@ -631,6 +631,16 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   cache_policy=..., error_handler="node")`), `compile(cache=True)`, and `lg.add_messages`.
 - Checkpointer objects: `compile(checkpointer=lg.InMemorySaver())` (and
   `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()` when built with the `sqlite` feature).
+- Subgraphs: `parent.add_subgraph("child", child_compiled)` embeds a compiled graph. The
+  child runs in a checkpoint namespace named after the node, a nested `interrupt()` pauses
+  the parent, and `get_state(thread, checkpoint_ns="child")` /
+  `get_state_history(thread, checkpoint_ns="child")` inspect the child chain (share one saver
+  between parent and child to see both chains from the parent object).
+- Long-term memory: `store = lg.InMemoryStore()` with `compile(store=store)`; nodes use
+  `lg.get_store()` (`get` / `put` / `delete` / `search` / `namespaces`).
+- Runtime context: `invoke(..., context={...})` (also `run` / `stream`); nodes read
+  `lg.current_context()`, `lg.current_runtime()`, `lg.current_thread_id()` and
+  `lg.current_namespace()`.
 - `compiled.run(...)` returns `{"state": ..., "report": ...}` with the same per-node usage
   report; `compiled.stream(...)` returns chunk dicts.
 - Nodes may return the reserved keys `__goto__` (node name or list) and `__usage__` (a dict

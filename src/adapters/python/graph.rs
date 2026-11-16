@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::*;
-use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py};
+use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py, store_from_py};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -103,8 +103,20 @@ impl PyStateGraph {
         self.inner = graph.set_finish_point(node);
     }
 
+    /// Embed a compiled graph as a node, sharing the parent thread and state type.
+    ///
+    /// The child runs in a checkpoint namespace derived from the node name, so an
+    /// `interrupt()` inside it pauses the parent and a parent `resume` continues it.
+    fn add_subgraph(&mut self, name: String, subgraph: PyRef<'_, PyCompiledGraph>) -> PyResult<()> {
+        let child = subgraph.graph.clone();
+        let builder = std::mem::take(&mut self.inner);
+        self.inner = builder.add_subgraph(name, child);
+        Ok(())
+    }
+
     /// Validate and compile the graph.
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None))]
     fn compile(
         &self,
         py: Python<'_>,
@@ -113,6 +125,7 @@ impl PyStateGraph {
         interrupt_before: Option<Vec<String>>,
         interrupt_after: Option<Vec<String>>,
         cache: Option<bool>,
+        store: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyCompiledGraph> {
         let mut options = CompileOptions::new();
         let mut saver = None;
@@ -123,6 +136,9 @@ impl PyStateGraph {
         }
         if cache == Some(true) {
             builder = builder.with_cache(Arc::new(crate::InMemoryCache::new()));
+        }
+        if let Some(store) = store_from_py(store)? {
+            options = options.with_store(store);
         }
         if let Some(limit) = recursion_limit {
             options = options.with_recursion_limit(limit);
@@ -137,7 +153,7 @@ impl PyStateGraph {
             .compile_with(options)
             .map_err(|error| to_pyerr(py, error))?;
         Ok(PyCompiledGraph {
-            graph: compiled,
+            graph: Arc::new(compiled),
             saver,
         })
     }
@@ -146,19 +162,20 @@ impl PyStateGraph {
 /// A compiled, runnable graph.
 #[pyclass(name = "CompiledGraph")]
 pub struct PyCompiledGraph {
-    graph: CompiledGraph<JsonState>,
+    graph: Arc<CompiledGraph<JsonState>>,
     saver: Option<Arc<dyn Checkpointer>>,
 }
 
 #[pymethods]
 impl PyCompiledGraph {
     /// Run the graph and return the final state dict.
-    #[pyo3(signature = (input=None, thread_id=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None))]
     fn invoke(
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
+        context: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
@@ -183,7 +200,10 @@ impl PyCompiledGraph {
             }
         }
         let state = state_from_py(input)?;
-        let config = run_config(thread_id);
+        let mut config = run_config(thread_id);
+        if let Some(context) = context {
+            config = config.with_context(py_to_value(context)?);
+        }
         let result = py.detach(|| self.graph.invoke(&state, &config));
         match result {
             Ok(state) => json_state_to_py(py, &state),
@@ -192,15 +212,19 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return `{"state": ..., "report": ...}`.
-    #[pyo3(signature = (input=None, thread_id=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None))]
     fn run(
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
+        context: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let state = state_from_py(input)?;
-        let config = run_config(thread_id);
+        let mut config = run_config(thread_id);
+        if let Some(context) = context {
+            config = config.with_context(py_to_value(context)?);
+        }
         let outcome = py
             .detach(|| self.graph.run(&state, &config))
             .map_err(|error| to_pyerr(py, error))?;
@@ -219,16 +243,20 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None))]
     fn stream(
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<String>,
         stream_mode: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let state = state_from_py(input)?;
-        let config = run_config(thread_id);
+        let mut config = run_config(thread_id);
+        if let Some(context) = context {
+            config = config.with_context(py_to_value(context)?);
+        }
         let modes = stream_modes_from_py(stream_mode)?;
         let chunks = py
             .detach(|| match &modes {
@@ -308,11 +336,18 @@ impl PyCompiledGraph {
     }
 
     /// Return the latest checkpoint of a thread, or `None`.
-    fn get_state(&self, py: Python<'_>, thread_id: String) -> PyResult<Option<Py<PyAny>>> {
-        let snapshot = self
-            .graph
-            .get_state(&thread_id)
-            .map_err(|error| to_pyerr(py, error))?;
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn get_state(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let snapshot = match checkpoint_ns.as_deref() {
+            Some(namespace) => self.graph.get_state_in(&thread_id, namespace),
+            None => self.graph.get_state(&thread_id),
+        }
+        .map_err(|error| to_pyerr(py, error))?;
         snapshot
             .map(|snapshot| snapshot_to_py(py, &snapshot))
             .transpose()
@@ -349,18 +384,27 @@ impl PyCompiledGraph {
     /// Return the checkpoint history of a thread, newest first.
     ///
     /// ``before`` is an exclusive checkpoint id and ``limit`` caps the result size.
-    #[pyo3(signature = (thread_id, before=None, limit=None))]
+    #[pyo3(signature = (thread_id, before=None, limit=None, checkpoint_ns=None))]
     fn get_state_history(
         &self,
         py: Python<'_>,
         thread_id: String,
         before: Option<String>,
         limit: Option<usize>,
+        checkpoint_ns: Option<String>,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        let history = self
-            .graph
-            .get_state_history_filtered(&thread_id, before.as_deref(), limit)
-            .map_err(|error| to_pyerr(py, error))?;
+        let history = match checkpoint_ns.as_deref() {
+            Some(namespace) => self.graph.get_state_history_filtered_in(
+                &thread_id,
+                namespace,
+                before.as_deref(),
+                limit,
+            ),
+            None => self
+                .graph
+                .get_state_history_filtered(&thread_id, before.as_deref(), limit),
+        }
+        .map_err(|error| to_pyerr(py, error))?;
         history
             .iter()
             .map(|snapshot| snapshot_to_py(py, snapshot))

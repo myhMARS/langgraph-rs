@@ -23,13 +23,15 @@ mod types;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::PyAny;
+use pyo3::types::{PyAny, PyDict};
 
 use convert::*;
 use graph::{PyCompiledGraph, PyStateGraph};
 #[cfg(feature = "sqlite")]
 use types::PySqliteSaver;
-use types::{PyCachePolicy, PyCommand, PyInMemorySaver, PyRetryPolicy, PySend};
+use types::{
+    PyCachePolicy, PyCommand, PyInMemorySaver, PyInMemoryStore, PyRetryPolicy, PySend, PyStore,
+};
 
 create_exception!(
     langgraph_rs,
@@ -37,6 +39,62 @@ create_exception!(
     PyException,
     "Raised when a node pauses the graph through langgraph_rs.interrupt()."
 );
+
+/// Long-term memory store attached to the current run, if any.
+#[pyfunction]
+fn get_store() -> Option<PyStore> {
+    crate::get_store().map(PyStore::new)
+}
+
+/// User context passed to `invoke`/`run`/`stream` via `context=`.
+#[pyfunction]
+fn current_context(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+    match crate::current_context() {
+        Some(value) => Ok(Some(value_to_py(py, &value)?)),
+        None => Ok(None),
+    }
+}
+
+/// Thread id of the current run.
+#[pyfunction]
+fn current_thread_id() -> Option<String> {
+    crate::current_thread_id()
+}
+
+/// Checkpoint namespace of the current run.
+#[pyfunction]
+fn current_namespace() -> String {
+    crate::current_namespace()
+}
+
+/// Resume value stamped onto the current task, when replaying an interrupt.
+#[pyfunction]
+fn current_resume(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+    match crate::current_resume() {
+        Some(value) => Ok(Some(value_to_py(py, &value)?)),
+        None => Ok(None),
+    }
+}
+
+/// Runtime information of the current run (thread, namespace, store, context).
+#[pyfunction]
+fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+    let Some(runtime) = crate::current_runtime() else {
+        return Ok(None);
+    };
+    let dict = PyDict::new(py);
+    dict.set_item("thread_id", runtime.thread_id)?;
+    dict.set_item("namespace", runtime.namespace)?;
+    dict.set_item("has_store", runtime.store.is_some())?;
+    dict.set_item(
+        "context",
+        match runtime.context {
+            Some(context) => value_to_py(py, &context)?,
+            None => py.None(),
+        },
+    )?;
+    Ok(Some(dict.into_any().unbind()))
+}
 
 // ---------------------------------------------------------------------------
 // Module level functions
@@ -97,6 +155,14 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyInMemorySaver>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteSaver>()?;
+    module.add_class::<PyStore>()?;
+    module.add_class::<PyInMemoryStore>()?;
+    module.add_function(wrap_pyfunction!(get_store, module)?)?;
+    module.add_function(wrap_pyfunction!(current_context, module)?)?;
+    module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;
+    module.add_function(wrap_pyfunction!(current_namespace, module)?)?;
+    module.add_function(wrap_pyfunction!(current_resume, module)?)?;
+    module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;

@@ -471,5 +471,92 @@ class PythonApiParityTests(unittest.TestCase):
         self.assertEqual(output["seen"], 7)
 
 
+class PythonParityRound2Tests(unittest.TestCase):
+    def test_subgraph_nested_interrupt(self):
+        child = lg.StateGraph({"value": "last_value"})
+        child.add_node(
+            "ask", lambda state: {"value": state["value"] + lg.interrupt("delta")}
+        )
+        child.set_entry_point("ask")
+        child.set_finish_point("ask")
+        saver = lg.InMemorySaver()
+        child_compiled = child.compile(checkpointer=saver)
+
+        parent = lg.StateGraph({"value": "last_value"})
+        parent.add_node("seed", lambda state: {"value": 10})
+        parent.add_subgraph("child", child_compiled)
+        parent.set_entry_point("seed")
+        parent.add_edge("seed", "child")
+        parent.set_finish_point("child")
+        compiled = parent.compile(checkpointer=saver)
+
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="py-sub")
+
+        self.assertTrue(compiled.get_state("py-sub")["interrupted"])
+        child_state = compiled.get_state("py-sub", checkpoint_ns="child")
+        self.assertIsNotNone(child_state)
+        self.assertTrue(child_state["interrupted"])
+
+        output = compiled.resume("py-sub", 5)
+        self.assertEqual(output["value"], 15)
+        self.assertTrue(
+            all(
+                snapshot["checkpoint_ns"] == ""
+                for snapshot in compiled.get_state_history("py-sub")
+            )
+        )
+        child_history = compiled.get_state_history(
+            "py-sub", checkpoint_ns="child"
+        )
+        self.assertGreater(len(child_history), 0)
+
+    def test_store_long_term_memory(self):
+        store = lg.InMemoryStore()
+        graph = lg.StateGraph({"value": "last_value"})
+
+        def remember(state):
+            handle = lg.get_store()
+            previous = handle.get(["mem"], "n") or 0
+            value = previous + 1
+            handle.put(["mem"], "n", value)
+            return {"value": value}
+
+        graph.add_node("remember", remember)
+        graph.set_entry_point("remember")
+        graph.set_finish_point("remember")
+        compiled = graph.compile(store=store)
+
+        self.assertEqual(compiled.invoke({"value": 0})["value"], 1)
+        self.assertEqual(compiled.invoke({"value": 0})["value"], 2)
+        self.assertEqual(store.get(["mem"], "n"), 2)
+        items = store.search(["mem"])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["key"], "n")
+        self.assertIn(["mem"], store.namespaces())
+        store.delete(["mem"], "n")
+        self.assertIsNone(store.get(["mem"], "n"))
+
+    def test_runtime_context(self):
+        graph = lg.StateGraph({"value": "last_value"})
+
+        def inspect(state):
+            runtime = lg.current_runtime()
+            self.assertEqual(runtime["context"], {"tenant": "acme"})
+            self.assertEqual(runtime["namespace"], "")
+            self.assertIsNone(runtime["thread_id"])
+            self.assertEqual(lg.current_context(), {"tenant": "acme"})
+            self.assertIsNone(lg.get_store())
+            return {"value": len(runtime["context"])}
+
+        graph.add_node("inspect", inspect)
+        graph.set_entry_point("inspect")
+        graph.set_finish_point("inspect")
+        output = graph.compile().invoke(
+            {"value": 0}, context={"tenant": "acme"}
+        )
+        self.assertEqual(output["value"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

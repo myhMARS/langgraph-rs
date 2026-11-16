@@ -595,6 +595,15 @@ assert compiled.invoke({"count": 0, "log": []})["count"] == 3
   error_handler="node")`）、`compile(cache=True)` 以及 `lg.add_messages`。
 - Checkpointer 对象：`compile(checkpointer=lg.InMemorySaver())`（启用 `sqlite` feature 时还支持
   `lg.SqliteSaver` / `lg.SqliteSaver.in_memory()`）。
+- 子图：`parent.add_subgraph("child", child_compiled)` 把已编译图嵌入为节点；子图在按节点名
+  派生的 checkpoint 命名空间中运行，子图内 `interrupt()` 暂停父图，可用
+  `get_state(thread, checkpoint_ns="child")` / `get_state_history(thread, checkpoint_ns="child")`
+  查看子图 checkpoint 链（父子共享同一个 saver 对象即可从父对象看到两条链）。
+- 长期记忆：`store = lg.InMemoryStore()` + `compile(store=store)`；节点通过 `lg.get_store()`
+  使用 `get` / `put` / `delete` / `search` / `namespaces`。
+- 运行时上下文：`invoke(..., context={...})`（`run` / `stream` 同样支持）；节点读取
+  `lg.current_context()`、`lg.current_runtime()`、`lg.current_thread_id()` 与
+  `lg.current_namespace()`。
 - `compiled.run(...)` 返回 `{"state": ..., "report": ...}`，包含与 Rust 相同的节点消耗报告；
   `compiled.stream(...)` 返回 chunk 字典。
 - 节点可返回保留键 `__goto__`（节点名或列表）与 `__usage__`（包含 `model`、`input_tokens`、
