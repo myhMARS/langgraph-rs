@@ -673,6 +673,38 @@ impl<S: State> CompiledGraph<S> {
         }
     }
 
+    /// Latest state of every subgraph namespace of a thread (LangGraph `subgraphs=True`).
+    pub fn subgraph_states(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("subgraph_states"))?;
+        let mut namespaces = std::collections::BTreeSet::new();
+        for checkpoint in checkpointer.history(thread_id)? {
+            if !checkpoint.namespace.is_empty() {
+                namespaces.insert(checkpoint.namespace);
+            }
+        }
+        let mut states = Vec::new();
+        for namespace in namespaces {
+            if let Some(checkpoint) = checkpointer.latest_in(thread_id, &namespace)? {
+                states.push(StateSnapshot::from_checkpoint(checkpoint)?);
+            }
+        }
+        Ok(states)
+    }
+
+    /// Root state plus the latest state of each subgraph namespace.
+    #[allow(clippy::type_complexity)]
+    pub fn get_state_subgraphs(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(StateSnapshot<S>, Vec<StateSnapshot<S>>)>> {
+        let Some(root) = self.get_state(thread_id)? else {
+            return Ok(None);
+        };
+        Ok(Some((root, self.subgraph_states(thread_id)?)))
+    }
+
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
         self.get_state_history_filtered(thread_id, None, None)

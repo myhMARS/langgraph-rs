@@ -235,7 +235,7 @@ impl PyGraph {
 #[pymethods]
 impl PyCompiledGraph {
     /// Run the graph and return the final state dict.
-    #[pyo3(signature = (input=None, thread_id=None, context=None, control=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, control=None, checkpoint_ns=None))]
     fn invoke(
         &self,
         py: Python<'_>,
@@ -243,6 +243,7 @@ impl PyCompiledGraph {
         thread_id: Option<String>,
         context: Option<&Bound<'_, PyAny>>,
         control: Option<PyRef<'_, super::types::PyRunControl>>,
+        checkpoint_ns: Option<String>,
     ) -> PyResult<Py<PyAny>> {
         let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
@@ -298,6 +299,9 @@ impl PyCompiledGraph {
         }
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
+        if let Some(namespace) = checkpoint_ns {
+            config = config.with_checkpoint_ns(namespace);
+        }
         if let Some(control) = control {
             config = config.with_control(control);
         }
@@ -464,21 +468,41 @@ impl PyCompiledGraph {
     }
 
     /// Return the latest checkpoint of a thread, or `None`.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]
     fn get_state(
         &self,
         py: Python<'_>,
         thread_id: String,
         checkpoint_ns: Option<String>,
-    ) -> PyResult<Option<Py<PyAny>>> {
+        subgraphs: bool,
+    ) -> PyResult<Py<PyAny>> {
+        if subgraphs {
+            let states = self
+                .graph
+                .get_state_subgraphs(&thread_id)
+                .map_err(|error| to_pyerr(py, error))?;
+            let Some((root, subgraphs)) = states else {
+                return Ok(py.None());
+            };
+            let children = PyDict::new(py);
+            for snapshot in subgraphs {
+                children.set_item(
+                    snapshot.checkpoint_ns.clone(),
+                    snapshot_to_py(py, &snapshot)?,
+                )?;
+            }
+            let result = (snapshot_to_py(py, &root)?, children);
+            return Ok(result.into_pyobject(py)?.into_any().unbind());
+        }
         let snapshot = match checkpoint_ns.as_deref() {
             Some(namespace) => self.graph.get_state_in(&thread_id, namespace),
             None => self.graph.get_state(&thread_id),
         }
         .map_err(|error| to_pyerr(py, error))?;
-        snapshot
-            .map(|snapshot| snapshot_to_py(py, &snapshot))
-            .transpose()
+        match snapshot {
+            Some(snapshot) => snapshot_to_py(py, &snapshot),
+            None => Ok(py.None()),
+        }
     }
 
     /// Apply state updates to the latest checkpoint of a thread.

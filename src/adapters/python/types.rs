@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
-use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
@@ -718,7 +718,7 @@ impl PySqliteStore {
     #[pyo3(signature = (path=":memory:"))]
     fn new(path: &str) -> PyResult<Self> {
         let store = crate::SqliteStore::open(path)
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
         Ok(Self {
             store: Arc::new(store),
         })

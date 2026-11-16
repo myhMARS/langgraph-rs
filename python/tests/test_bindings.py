@@ -1502,5 +1502,24 @@ class AsyncPythonTests(unittest.TestCase):
         compiled.resume("py-schema-rich", {"choice": 2, "tags": ["ok"]})
 
 
+    def test_get_state_subgraphs(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, thread_id="py-substates")
+        compiled.invoke(
+            {"value": 10}, thread_id="py-substates", checkpoint_ns="sub/one"
+        )
+        compiled.invoke(
+            {"value": 20}, thread_id="py-substates", checkpoint_ns="sub/two"
+        )
+        root, subgraphs = compiled.get_state("py-substates", subgraphs=True)
+        self.assertEqual(root["checkpoint_ns"], "")
+        self.assertEqual(set(subgraphs.keys()), {"sub/one", "sub/two"})
+        self.assertEqual(subgraphs["sub/one"]["values"]["value"], 11)
+
+
 if __name__ == "__main__":
     unittest.main()

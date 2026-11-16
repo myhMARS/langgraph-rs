@@ -161,3 +161,33 @@ async fn async_graphs_support_namespaces() {
     assert_eq!(snapshot.values.value, 1);
     assert!(graph.get_state_in("async-ns", "").unwrap().is_none());
 }
+
+#[test]
+fn subgraph_states_returns_each_namespace() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = two_node_graph(saver);
+    let thread = "ns-subgraphs";
+
+    for namespace in ["", "sub/one", "sub/two"] {
+        graph
+            .run(
+                &NsState::default(),
+                &RunConfig::new()
+                    .with_thread(thread)
+                    .with_checkpoint_ns(namespace),
+            )
+            .unwrap();
+    }
+
+    let (root, subgraphs) = graph
+        .get_state_subgraphs(thread)
+        .unwrap()
+        .expect("root state exists");
+    assert_eq!(root.checkpoint_ns, "");
+    assert_eq!(subgraphs.len(), 2);
+    let namespaces: Vec<&str> = subgraphs
+        .iter()
+        .map(|snapshot| snapshot.checkpoint_ns.as_str())
+        .collect();
+    assert_eq!(namespaces, vec!["sub/one", "sub/two"]);
+}
