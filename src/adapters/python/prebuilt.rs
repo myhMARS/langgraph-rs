@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
+use crate::kernel::node::NodeOutput;
 use crate::kernel::state::{JsonState, StateSchema};
 use crate::prebuilt::{
     TOOLS, ToolDefinition, ToolNode, tools_condition as rust_tools_condition,
@@ -128,10 +129,44 @@ pub(super) fn tools_condition(state: &Bound<'_, PyAny>) -> PyResult<String> {
         .unwrap_or_else(|| END.to_string()))
 }
 
+fn runnable_model_node(
+    model: Py<PyAny>,
+    messages_key: String,
+) -> impl Fn(&JsonState) -> Result<NodeOutput> + Send + Sync + 'static {
+    let model = std::sync::Arc::new(model);
+    move |state: &JsonState| {
+        Python::attach(|py| -> Result<NodeOutput> {
+            let messages = state
+                .get(&messages_key)
+                .cloned()
+                .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+            let py_messages =
+                value_to_py(py, &messages).map_err(|error| pyerr_to_error(py, error))?;
+            let result = model
+                .bind(py)
+                .call_method1("invoke", (py_messages,))
+                .map_err(|error| pyerr_to_error(py, error))?;
+            let dumped = result
+                .call_method0("model_dump")
+                .or_else(|_| result.call_method0("dict"))
+                .map_err(|error| pyerr_to_error(py, error))?;
+            let value = py_to_value(&dumped).map_err(|error| pyerr_to_error(py, error))?;
+            let message = match value {
+                serde_json::Value::Array(mut values) => {
+                    values.pop().unwrap_or(serde_json::Value::Null)
+                }
+                other => other,
+            };
+            Ok(NodeOutput::new().update(&messages_key, serde_json::Value::Array(vec![message])))
+        })
+    }
+}
+
 /// Build a minimal ReAct agent from a Python model callable and tools.
 #[pyfunction]
 #[pyo3(signature = (model, tools, messages_key=None, checkpointer=None))]
 pub(super) fn create_react_agent(
+    py: Python<'_>,
     model: Py<PyAny>,
     tools: &Bound<'_, PyAny>,
     messages_key: Option<String>,
@@ -144,14 +179,22 @@ pub(super) fn create_react_agent(
     let messages_key = messages_key.unwrap_or_else(|| "messages".to_string());
     let condition_key = messages_key.clone();
     let schema = StateSchema::dynamic().with_reducer(&messages_key, reducers::messages());
-    let inner = StateGraph::<JsonState>::with_schema(schema)
-        .add_node("agent", node_from_python("agent".to_string(), model))
-        .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
-        .set_entry_point("agent")
-        .add_conditional_edges("agent", move |state: &JsonState| {
-            Ok::<Route, crate::Error>(rust_tools_condition_with(state, &condition_key))
-        })
-        .add_edge(TOOLS, "agent");
+    let builder = StateGraph::<JsonState>::with_schema(schema);
+    let inner = if model.bind(py).hasattr("bind_tools")? {
+        let bound = model
+            .bind(py)
+            .call_method1("bind_tools", (tools,))?
+            .unbind();
+        builder.add_node("agent", runnable_model_node(bound, messages_key.clone()))
+    } else {
+        builder.add_node("agent", node_from_python("agent".to_string(), model))
+    }
+    .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
+    .set_entry_point("agent")
+    .add_conditional_edges("agent", move |state: &JsonState| {
+        Ok::<Route, crate::Error>(rust_tools_condition_with(state, &condition_key))
+    })
+    .add_edge(TOOLS, "agent");
     let mut options = crate::CompileOptions::new();
     let mut saver = None;
     if let Some(checkpointer) = checkpointer {
