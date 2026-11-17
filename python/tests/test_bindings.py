@@ -516,7 +516,9 @@ class PythonParityRound2Tests(unittest.TestCase):
             compiled.invoke({"value": 0}, thread_id="py-sub")
 
         self.assertTrue(compiled.get_state("py-sub")["interrupted"])
-        child_state = compiled.get_state("py-sub", checkpoint_ns="child")
+        _, subgraphs = compiled.get_state("py-sub", subgraphs=True)
+        child_ns = next(ns for ns in subgraphs if ns.startswith("child"))
+        child_state = compiled.get_state("py-sub", checkpoint_ns=child_ns)
         self.assertIsNotNone(child_state)
         self.assertTrue(child_state["interrupted"])
 
@@ -529,7 +531,7 @@ class PythonParityRound2Tests(unittest.TestCase):
             )
         )
         child_history = compiled.get_state_history(
-            "py-sub", checkpoint_ns="child"
+            "py-sub", checkpoint_ns=child_ns
         )
         self.assertGreater(len(child_history), 0)
 
@@ -713,7 +715,9 @@ class PythonParityRound2Tests(unittest.TestCase):
             for chunk in chunks
             if isinstance(chunk, dict) and "namespace" in chunk
         ]
-        self.assertIn("child", namespaces)
+        self.assertTrue(
+            any(namespace and namespace.startswith("child") for namespace in namespaces)
+        )
 
 
     def test_functional_api_task_memoization(self):
