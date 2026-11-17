@@ -278,6 +278,7 @@ pub(crate) fn record_parent_command(updates: Vec<(String, Value)>, goto: Vec<Str
 }
 
 /// Returns `true` when a parent command was recorded in the current task scope.
+#[allow(dead_code)]
 pub(crate) fn has_parent_command() -> bool {
     PARENT_COMMAND
         .try_with(|slot| slot.borrow().is_some())

@@ -72,6 +72,7 @@ pub(crate) fn begin_run(
     context: Option<Value>,
     context_schema: Option<&Value>,
     stream_subgraphs: bool,
+    collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>,
 ) -> Result<RunSetup> {
     if let (Some(schema), Some(context)) = (context_schema, context.as_ref()) {
         crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
@@ -79,8 +80,9 @@ pub(crate) fn begin_run(
         })?;
     }
     let run = crate::kernel::context::install_run(thread_id, namespace, store, context);
-    let collector =
-        stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+    let collector = collector.or_else(|| {
+        stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
+    });
     let collector_guard = collector
         .as_ref()
         .map(|collector| crate::kernel::context::install_subgraph_collector(collector.clone()));

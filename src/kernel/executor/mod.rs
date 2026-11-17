@@ -66,7 +66,8 @@ pub(crate) fn execute<S: State>(
         graph,
         writer: checkpoint_writer.as_ref(),
     };
-    pregel::block_on(pregel::run_loop(&backend, start, config, sink))
+    let mut adapt = |chunk| sink(chunk);
+    pregel::block_on(pregel::run_loop(&backend, start, config, &mut adapt))
 }
 
 /// Inject managed values (`remaining_steps`, `is_last_step`) before a superstep.

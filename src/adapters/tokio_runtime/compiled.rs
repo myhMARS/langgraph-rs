@@ -14,9 +14,7 @@ use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::executor::StartInput;
-use crate::kernel::executor::outcome::{
-    ProcessedResults, TaskFailure, TaskOutcome, TaskResult, finish,
-};
+use crate::kernel::executor::outcome::{TaskFailure, TaskOutcome, TaskResult};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -28,7 +26,7 @@ use crate::kernel::state::{
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::timeout::TimeoutPolicy;
-use crate::kernel::usage::{RunOutcome, RunReport, Usage};
+use crate::kernel::usage::{RunOutcome, Usage};
 
 /// Where a run starts from.
 struct AsyncRunInfo {
@@ -894,409 +892,25 @@ impl<S: State> AsyncCompiledGraph<S> {
         sink: &mut (dyn FnMut(StreamChunk) + Send),
         writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
     ) -> Result<RunOutcome<S>> {
-        let started = Instant::now();
-        let mut report = RunReport::new();
-        let recursion_limit = config.recursion_limit.unwrap_or(self.recursion_limit);
         let thread_id = config.thread_id.clone();
         let namespace = config.checkpoint_ns.clone().unwrap_or_default();
-        let store = config.store.clone().or_else(|| self.store.clone());
-        let setup = crate::kernel::executor::step::begin_run(
-            thread_id.clone(),
-            namespace.clone(),
-            store.clone(),
-            config.context.clone(),
-            self.context_schema(),
-            config.stream_subgraphs,
-        )?;
-        let collector = setup.collector().cloned();
-        let run_info = AsyncRunInfo {
-            thread_id: thread_id.clone(),
-            namespace: namespace.clone(),
-            store: store.clone(),
+        let collector = config
+            .stream_subgraphs
+            .then(|| Arc::new(std::sync::Mutex::new(Vec::new())));
+        let run = AsyncRunInfo {
+            thread_id,
+            namespace,
+            store: config.store.clone().or_else(|| self.store.clone()),
             context: config.context.clone(),
-            collector: collector.clone(),
+            collector,
         };
-        let _setup = setup;
-
-        if thread_id.is_some() && !self.has_checkpointer() {
-            return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
-        }
-
-        let fresh = matches!(
-            &start,
-            StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
-        );
-        let mut parent: Option<String> = None;
-        let mut skip_interrupt_before = false;
-
-        let (mut values, mut state, mut tasks, mut step) = if let Some((values, state, tasks)) =
-            crate::kernel::executor::start::resolve_fresh_start(
-                &start,
-                &self.schema,
-                |node| self.nodes.contains_key(node),
-                |state| self.entry_tasks(state),
-            )? {
-            (values, state, tasks, 0usize)
-        } else {
-            let StartInput::Resume {
-                thread_id: resume_thread,
-                checkpoint_id,
-                resume,
-                updates,
-            } = start
-            else {
-                unreachable!("fresh start inputs were resolved above");
-            };
-            let checkpoint = match checkpoint_id {
-                Some(id) => self.saver_get(&resume_thread, &id).await?,
-                None => self.saver_latest_in(&resume_thread, &namespace).await?,
-            }
-            .ok_or_else(|| {
-                Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
-            })?;
-            parent = Some(checkpoint.id.clone());
-            skip_interrupt_before = checkpoint.paused_before;
-            let (values, state, tasks) = crate::kernel::executor::start::resolve_resume_start(
-                &checkpoint,
-                &resume,
-                updates,
-                &self.schema,
-            )?;
-            (values, state, tasks, checkpoint.step)
+        let backend = AsyncBackend {
+            graph: self,
+            writer,
+            run: &run,
         };
-
-        if tasks.is_empty() {
-            return finish(state, &self.schema, report, started);
-        }
-
-        if fresh {
-            crate::kernel::context::clear_task_results();
-            if let Some(tid) = thread_id.as_deref()
-                && self.has_checkpointer()
-            {
-                parent = self
-                    .saver_latest(tid)
-                    .await?
-                    .map(|checkpoint| checkpoint.id);
-            }
-            self.save_checkpoint(
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
-                &values,
-                &tasks,
-                step,
-                false,
-                false,
-                Vec::new(),
-                &[],
-                writer,
-                sink,
-            )
-            .await?;
-            // LangGraph records an input checkpoint before the first superstep.
-            self.save_checkpoint(
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
-                &values,
-                &tasks,
-                step,
-                false,
-                false,
-                Vec::new(),
-                &[],
-                writer,
-                sink,
-            )
-            .await?;
-        }
-
-        let mut pending_deferred: Vec<Task> = Vec::new();
-        let mut finish_updates: std::collections::HashMap<String, Value> =
-            std::collections::HashMap::new();
-        let mut iteration = 0usize;
-        loop {
-            let prepared = crate::kernel::executor::step::begin_step(
-                config.control.as_ref(),
-                &self.schema,
-                &mut values,
-                &mut state,
-                step,
-                recursion_limit,
-                iteration,
-                &tasks,
-                skip_interrupt_before,
-                |node| self.interrupt_before.contains(node),
-            )?;
-            iteration = prepared.iteration;
-            let _step_guard = prepared.guard;
-            let paused = prepared.paused;
-            skip_interrupt_before = false;
-            if let Some(interrupted) = paused {
-                let (interrupted_interrupt, chunk) =
-                    crate::kernel::executor::outcome::interrupt_before_pause(&interrupted);
-                self.save_checkpoint(
-                    thread_id.as_deref(),
-                    &namespace,
-                    &mut parent,
-                    &values,
-                    &tasks,
-                    step,
-                    true,
-                    true,
-                    vec![interrupted_interrupt.clone()],
-                    &[],
-                    writer,
-                    sink,
-                )
-                .await?;
-                sink(chunk);
-                return Err(Error::Interrupt(interrupted_interrupt));
-            }
-
-            let run_tasks = join_all(
-                tasks
-                    .iter()
-                    .map(|task| self.run_task(task, &state, step, &run_info)),
-            );
-            let outcomes = match &config.control {
-                Some(control) => {
-                    tokio::select! {
-                        outcomes = run_tasks => outcomes,
-                        _ = control.wait_aborted() => {
-                            return Err(Error::other("run aborted by RunControl"));
-                        }
-                    }
-                }
-                None => run_tasks.await,
-            };
-            if let Some(collector) = &collector {
-                let chunks: Vec<StreamChunk> = collector
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .drain(..)
-                    .collect();
-                for chunk in chunks {
-                    sink(chunk);
-                }
-            }
-
-            let interrupts: Vec<Interrupt> = outcomes
-                .iter()
-                .filter_map(|outcome| match outcome {
-                    TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
-                    _ => None,
-                })
-                .collect();
-            if !interrupts.is_empty() {
-                if interrupts.len() == 1 {
-                    let interrupted = interrupts.first().expect("one interrupt").clone();
-                    let interrupted_ids: HashSet<String> = tasks
-                        .iter()
-                        .zip(&outcomes)
-                        .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
-                        .map(|(task, _)| task.id.clone())
-                        .collect();
-                    let pending_writes =
-                        crate::kernel::executor::outcome::collect_pending_writes(&tasks, &outcomes);
-                    let successful: Vec<TaskOutcome> = outcomes
-                        .into_iter()
-                        .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
-                        .collect();
-                    let processed = self.process_outcomes(successful, step, &mut report, sink)?;
-                    let next_tasks = crate::kernel::executor::outcome::merge_interrupted_tasks(
-                        &tasks,
-                        |task| interrupted_ids.contains(&task.id),
-                        processed.next_tasks,
-                        true,
-                    );
-                    self.save_checkpoint_inner(
-                        thread_id.as_deref(),
-                        &namespace,
-                        &mut parent,
-                        &values,
-                        &next_tasks,
-                        step,
-                        true,
-                        false,
-                        vec![interrupted.clone()],
-                        pending_writes,
-                        &[],
-                        writer,
-                        sink,
-                    )
-                    .await?;
-                    sink(StreamChunk::Interrupt {
-                        node: interrupted.node.clone(),
-                        value: interrupted.value.clone(),
-                    });
-                    return Err(Error::Interrupt(interrupted));
-                }
-                let interrupted_nodes: HashSet<String> = interrupts
-                    .iter()
-                    .map(|interrupt| interrupt.node.clone())
-                    .collect();
-                let successful: Vec<TaskOutcome> = outcomes
-                    .into_iter()
-                    .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
-                    .collect();
-                let processed = self.process_outcomes(successful, step, &mut report, sink)?;
-                crate::kernel::executor::outcome::apply_processed_updates(
-                    &self.schema,
-                    &mut values,
-                    processed.channel_updates,
-                    processed.replacements,
-                    &mut finish_updates,
-                )?;
-                sink(crate::kernel::executor::outcome::values_chunk(
-                    step, &values,
-                ));
-                let next_tasks = crate::kernel::executor::outcome::merge_interrupted_tasks(
-                    &tasks,
-                    |task| interrupted_nodes.contains(&task.node),
-                    processed.next_tasks,
-                    false,
-                );
-                self.save_checkpoint(
-                    thread_id.as_deref(),
-                    &namespace,
-                    &mut parent,
-                    &values,
-                    &next_tasks,
-                    step,
-                    true,
-                    false,
-                    interrupts.clone(),
-                    &[],
-                    writer,
-                    sink,
-                )
-                .await?;
-                for interrupt in &interrupts {
-                    sink(StreamChunk::Interrupt {
-                        node: interrupt.node.clone(),
-                        value: interrupt.value.clone(),
-                    });
-                }
-                return Err(Error::Interrupt(
-                    interrupts.into_iter().next().expect("interrupt"),
-                ));
-            }
-
-            let processed = self.process_outcomes(outcomes, step, &mut report, sink)?;
-            let channel_updates = processed.channel_updates;
-            let replacements = processed.replacements;
-            let next_tasks = processed.next_tasks;
-            let goto_targets = processed.goto_targets;
-            let executed = processed.executed;
-            let goto_nodes = processed.goto_nodes;
-
-            crate::kernel::executor::outcome::apply_processed_updates(
-                &self.schema,
-                &mut values,
-                channel_updates,
-                replacements,
-                &mut finish_updates,
-            )?;
-            state = values_to_state::<S>(&values)?;
-            sink(crate::kernel::executor::outcome::values_chunk(
-                step, &values,
-            ));
-            if super::context::has_parent_command() {
-                return finish(state, &self.schema, report, started);
-            }
-
-            let (next_nodes, router_sends) = collect_next_nodes(
-                &state,
-                &executed,
-                &goto_nodes,
-                &goto_targets,
-                |node| self.edges_of(node),
-                |node| self.conditional_of(node),
-                |node| self.nodes.contains_key(node),
-                |node| self.destinations_of(node),
-            )?;
-            let next_tasks = crate::kernel::executor::scheduling::schedule_next_tasks(
-                next_nodes,
-                router_sends,
-                next_tasks,
-                |node| self.nodes.contains_key(node),
-                |node| self.destinations_of(node),
-                |node| self.is_deferred(node),
-                &mut pending_deferred,
-            )?;
-
-            step += 1;
-            let interrupt_after =
-                crate::kernel::executor::outcome::interrupt_after_node(&executed, |node| {
-                    self.interrupt_after.contains(node)
-                });
-            if crate::kernel::executor::outcome::should_save_after_step(
-                config.durability,
-                interrupt_after.is_some(),
-            ) {
-                self.save_checkpoint(
-                    thread_id.as_deref(),
-                    &namespace,
-                    &mut parent,
-                    &values,
-                    &next_tasks,
-                    step,
-                    interrupt_after.is_some(),
-                    false,
-                    interrupt_after
-                        .iter()
-                        .map(|node| Interrupt::new(node.clone(), Value::Null))
-                        .collect(),
-                    &executed,
-                    writer,
-                    sink,
-                )
-                .await?;
-            }
-            if let Some(node) = interrupt_after {
-                sink(StreamChunk::Interrupt {
-                    node: node.clone(),
-                    value: Value::Null,
-                });
-                return Err(Error::Interrupt(Interrupt::new(node, Value::Null)));
-            }
-
-            if next_tasks.is_empty() {
-                if !finish_updates.is_empty() {
-                    crate::kernel::executor::outcome::apply_finish_updates(
-                        &mut values,
-                        &mut finish_updates,
-                    );
-                    state = values_to_state::<S>(&values)?;
-                }
-                if crate::kernel::executor::outcome::should_save_terminal(
-                    config.durability,
-                    thread_id.is_some(),
-                ) {
-                    self.save_checkpoint(
-                        thread_id.as_deref(),
-                        &namespace,
-                        &mut parent,
-                        &values,
-                        &[],
-                        step,
-                        false,
-                        false,
-                        Vec::new(),
-                        &executed,
-                        writer,
-                        sink,
-                    )
-                    .await?;
-                }
-                return finish(state, &self.schema, report, started);
-            }
-            self.schema.clear_ephemeral(&mut values);
-            state = values_to_state::<S>(&values)?;
-            tasks = next_tasks;
-        }
+        let mut adapt = |chunk| sink(chunk);
+        crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt).await
     }
 
     fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
@@ -1485,16 +1099,39 @@ impl<S: State> AsyncCompiledGraph<S> {
         }))
     }
 
-    fn process_outcomes(
-        &self,
-        outcomes: Vec<TaskOutcome>,
-        step: usize,
-        report: &mut RunReport,
-        sink: &mut (dyn FnMut(StreamChunk) + Send),
-    ) -> Result<ProcessedResults> {
-        crate::kernel::executor::outcome::process_outcomes(self, outcomes, step, report, sink)
+    fn edges_of(&self, node: &str) -> Option<&[String]> {
+        self.edges.get(node).map(Vec::as_slice)
     }
 
+    fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
+        self.conditional.get(node).map(Vec::as_slice)
+    }
+}
+
+/// Await a node future, resetting the idle timer whenever the node reports progress.
+async fn run_with_idle_timeout(
+    mut future: BoxNodeFuture,
+    idle: Duration,
+    progress: Arc<std::sync::atomic::AtomicU64>,
+    node: String,
+) -> Result<crate::kernel::node::NodeOutput> {
+    loop {
+        let seen = progress.load(std::sync::atomic::Ordering::Relaxed);
+        tokio::select! {
+            result = &mut future => return result,
+            _ = tokio::time::sleep(idle) => {
+                if progress.load(std::sync::atomic::Ordering::Relaxed) == seen {
+                    return Err(Error::Timeout {
+                        node,
+                        millis: idle.as_millis() as u64,
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl<S: State> AsyncCompiledGraph<S> {
     async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {
         if let Some(saver) = &self.async_checkpointer {
             saver.put(checkpoint).await
@@ -1580,137 +1217,6 @@ impl<S: State> AsyncCompiledGraph<S> {
     fn saver_history_sync(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
         futures::executor::block_on(self.saver_history(thread_id))
     }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn save_checkpoint(
-        &self,
-        thread_id: Option<&str>,
-        namespace: &str,
-        parent: &mut Option<String>,
-        values: &Map<String, Value>,
-        next: &[Task],
-        step: usize,
-        interrupted: bool,
-        paused_before: bool,
-        interrupts: Vec<Interrupt>,
-        executed: &[String],
-        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
-        sink: &mut (dyn FnMut(StreamChunk) + Send),
-    ) -> Result<()> {
-        self.save_checkpoint_inner(
-            thread_id,
-            namespace,
-            parent,
-            values,
-            next,
-            step,
-            interrupted,
-            paused_before,
-            interrupts,
-            Vec::new(),
-            executed,
-            writer,
-            sink,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn save_checkpoint_inner(
-        &self,
-        thread_id: Option<&str>,
-        namespace: &str,
-        parent: &mut Option<String>,
-        values: &Map<String, Value>,
-        next: &[Task],
-        step: usize,
-        interrupted: bool,
-        paused_before: bool,
-        interrupts: Vec<Interrupt>,
-        pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
-        executed: &[String],
-        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
-        sink: &mut (dyn FnMut(StreamChunk) + Send),
-    ) -> Result<()> {
-        let Some(thread_id) = thread_id else {
-            return Ok(());
-        };
-        if !self.has_checkpointer() {
-            return Ok(());
-        }
-        let id = new_checkpoint_id(thread_id, step);
-        let persisted_values = self.schema.persisted_values(values);
-        let previous = match parent.as_deref() {
-            Some(parent_id) => self.saver_get(thread_id, parent_id).await?,
-            None => None,
-        };
-        let checkpoint = crate::kernel::executor::checkpointing::build_checkpoint(
-            crate::kernel::executor::checkpointing::CheckpointDraft {
-                thread_id,
-                namespace,
-                id: id.clone(),
-                parent: parent.clone(),
-                values: persisted_values,
-                next,
-                step,
-                interrupted,
-                paused_before,
-                interrupts,
-                pending_writes,
-                executed,
-                previous: previous.as_ref(),
-                task_results: crate::kernel::context::snapshot_task_results(),
-            },
-        );
-        if let Some(writer) = writer {
-            let _ = writer.send(checkpoint);
-        } else if let Some(async_saver) = &self.async_checkpointer {
-            async_saver.put(checkpoint).await?;
-        } else if let Some(saver) = &self.checkpointer {
-            crate::kernel::executor::checkpointing::persist_checkpoint(
-                saver.as_ref(),
-                checkpoint,
-                None,
-            )?;
-        } else {
-            return Err(Error::MissingCheckpointer("save_checkpoint"));
-        }
-        crate::kernel::executor::checkpointing::checkpoint_committed(parent, &id, &mut |chunk| {
-            sink(chunk)
-        });
-        Ok(())
-    }
-
-    fn edges_of(&self, node: &str) -> Option<&[String]> {
-        self.edges.get(node).map(Vec::as_slice)
-    }
-
-    fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
-        self.conditional.get(node).map(Vec::as_slice)
-    }
-}
-
-/// Await a node future, resetting the idle timer whenever the node reports progress.
-async fn run_with_idle_timeout(
-    mut future: BoxNodeFuture,
-    idle: Duration,
-    progress: Arc<std::sync::atomic::AtomicU64>,
-    node: String,
-) -> Result<crate::kernel::node::NodeOutput> {
-    loop {
-        let seen = progress.load(std::sync::atomic::Ordering::Relaxed);
-        tokio::select! {
-            result = &mut future => return result,
-            _ = tokio::time::sleep(idle) => {
-                if progress.load(std::sync::atomic::Ordering::Relaxed) == seen {
-                    return Err(Error::Timeout {
-                        node,
-                        millis: idle.as_millis() as u64,
-                    });
-                }
-            }
-        }
-    }
 }
 
 /// Async backend: future joins and awaitable checkpoint I/O.
@@ -1779,13 +1285,17 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
         self.graph.schema.clear_ephemeral(values);
     }
 
+    fn collector(&self) -> Option<std::sync::Arc<std::sync::Mutex<Vec<StreamChunk>>>> {
+        self.run.collector.clone()
+    }
+
     async fn run_superstep(
         &self,
         state: &S,
         tasks: &[Task],
         step: usize,
         control: Option<&crate::RunControl>,
-    ) -> Vec<TaskOutcome> {
+    ) -> Result<Vec<TaskOutcome>> {
         let run = join_all(
             tasks
                 .iter()
@@ -1793,10 +1303,12 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
         );
         match control {
             Some(control) => tokio::select! {
-                outcomes = run => outcomes,
-                _ = control.wait_aborted() => Vec::new(),
+                outcomes = run => Ok(outcomes),
+                _ = control.wait_aborted() => {
+                    Err(Error::other("run aborted by RunControl"))
+                }
             },
-            None => run.await,
+            None => Ok(run.await),
         }
     }
 

@@ -31,11 +31,11 @@ use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::RunOutcome;
 
 /// Execute a graph through the shared Pregel loop.
-pub(crate) async fn run_loop<S: State, B: PregelBackend<S>>(
+pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
     backend: &B,
     start: StartInput,
     config: &RunConfig,
-    sink: &mut dyn FnMut(StreamChunk),
+    sink: &mut F,
 ) -> Result<RunOutcome<S>> {
     let started = Instant::now();
     let mut report = crate::kernel::usage::RunReport::new();
@@ -53,6 +53,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>>(
         config.context.clone(),
         backend.context_schema(),
         config.stream_subgraphs,
+        backend.collector(),
     )?;
 
     if thread_id.is_some() && !backend.has_checkpointer() {
@@ -187,8 +188,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>>(
 
         let outcomes = backend
             .run_superstep(&state, &tasks, step, config.control.as_ref())
-            .await;
-        if let Some(collector) = setup.collector() {
+            .await?;
+        if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
             let chunks: Vec<StreamChunk> = collector
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())

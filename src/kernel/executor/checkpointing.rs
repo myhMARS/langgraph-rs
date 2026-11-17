@@ -168,6 +168,7 @@ pub(crate) fn persist_checkpoint(
 pub(crate) async fn save_checkpoint_via<
     S: State,
     B: crate::kernel::executor::backend::PregelBackend<S>,
+    F: FnMut(StreamChunk),
 >(
     backend: &B,
     thread_id: Option<&str>,
@@ -181,7 +182,7 @@ pub(crate) async fn save_checkpoint_via<
     interrupts: Vec<Interrupt>,
     pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
     executed: &[String],
-    sink: &mut dyn FnMut(StreamChunk),
+    sink: &mut F,
 ) -> Result<()> {
     let Some(thread_id) = thread_id else {
         return Ok(());

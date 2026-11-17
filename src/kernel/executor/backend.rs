@@ -31,13 +31,16 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>>;
     fn has_checkpointer(&self) -> bool;
     fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>);
+    fn collector(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>;
     fn run_superstep(
         &self,
         state: &S,
         tasks: &[Task],
         step: usize,
         control: Option<&crate::RunControl>,
-    ) -> impl std::future::Future<Output = Vec<TaskOutcome>>;
+    ) -> impl std::future::Future<Output = Result<Vec<TaskOutcome>>>;
     fn load_checkpoint(
         &self,
         thread_id: &str,
@@ -115,14 +118,20 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         self.graph.schema().clear_ephemeral(values);
     }
 
+    fn collector(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>> {
+        None
+    }
+
     async fn run_superstep(
         &self,
         state: &S,
         tasks: &[Task],
         _step: usize,
         _control: Option<&crate::RunControl>,
-    ) -> Vec<TaskOutcome> {
-        super::superstep::run_superstep(self.graph, state, tasks)
+    ) -> Result<Vec<TaskOutcome>> {
+        Ok(super::superstep::run_superstep(self.graph, state, tasks))
     }
 
     async fn load_checkpoint(
