@@ -612,8 +612,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        let all =
-            futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
+        let all = futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
         let total = all.len() as i64;
         let mut checkpoints = all.clone();
         if let Some(before) = before {
