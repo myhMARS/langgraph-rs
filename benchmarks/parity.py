@@ -1847,6 +1847,103 @@ def run_subgraph_interrupt_scenario() -> list[dict]:
     ]
 
 
+def run_remote_store_scenario() -> list[dict]:
+    """Redis/Postgres store parity, enabled through the same PARITY_* env vars."""
+    results = []
+    postgres_url = os.environ.get("PARITY_POSTGRES_URL")
+    if postgres_url:
+        try:
+            from langgraph.store.postgres import PostgresStore
+
+            with PostgresStore.from_conn_string(postgres_url) as lg_store:
+                lg_store.setup()
+                lg_value = lg_store_invoke(lg_store, True)
+                lg_bench = measure(lambda: lg_store_invoke(lg_store, True))
+            rs_store = rs.PostgresStore(postgres_url)
+            rs_value = lg_store_invoke(rs_store, False)
+            results.append(
+                {
+                    "scenario": "store_postgres",
+                    "rs": rs_value,
+                    "lg": lg_value,
+                    "equivalent": rs_value == lg_value,
+                    "bench": {
+                        "rs": measure(lambda: lg_store_invoke(rs_store, False)),
+                        "lg": lg_bench,
+                    },
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            results.append(
+                {
+                    "scenario": "store_postgres",
+                    "rs": None,
+                    "lg": None,
+                    "equivalent": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    redis_url = os.environ.get("PARITY_REDIS_URL")
+    if redis_url:
+        try:
+            from langgraph.store.redis import RedisStore
+
+            with RedisStore.from_conn_string(redis_url) as lg_store:
+                lg_store.setup()
+                lg_value = lg_store_invoke(lg_store, True)
+            rs_store = rs.RedisStore(redis_url)
+            rs_value = lg_store_invoke(rs_store, False)
+            results.append(
+                {
+                    "scenario": "store_redis",
+                    "rs": rs_value,
+                    "lg": lg_value,
+                    "equivalent": rs_value == lg_value,
+                    "bench": {
+                        "rs": measure(lambda: lg_store_invoke(rs_store, False)),
+                        "lg": measure(lambda: lg_store_invoke(lg_store, True)),
+                    },
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            results.append(
+                {
+                    "scenario": "store_redis",
+                    "rs": None,
+                    "lg": None,
+                    "equivalent": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return results
+
+
+def lg_store_invoke(store, use_lg):
+    if use_lg:
+        def write(state):
+            current = lg_get_store()
+            current.put(("parity",), "key", {"value": 9})
+            return {"value": current.get(("parity",), "key").value["value"]}
+
+        graph = LgStateGraph(dict)
+    else:
+        def write(state):
+            current = rs.get_store()
+            current.put(("parity",), "key", {"value": 9})
+            return {"value": current.get(("parity",), "key")["value"]}
+
+        graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("write", write)
+    if use_lg:
+        graph.add_edge(START, "write")
+        graph.add_edge("write", END)
+    else:
+        graph.set_entry_point("write")
+        graph.set_finish_point("write")
+    return graph.compile(store=store).invoke({})
+
+
 def run_remote_persistence_scenario() -> list[dict]:
     """Redis/Postgres parity, enabled through PARITY_POSTGRES_URL / PARITY_REDIS_URL."""
     results = []
@@ -1997,6 +2094,7 @@ def main() -> None:
         run_subgraph_interrupt_scenario,
         run_command_parent_scenario,
         run_remote_persistence_scenario,
+        run_remote_store_scenario,
     ):
         try:
             results.extend(runner())
