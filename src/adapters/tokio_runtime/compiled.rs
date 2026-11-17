@@ -426,6 +426,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 checkpoint_id: None,
                 resume: Some(value),
                 updates: None,
+                goto: Vec::new(),
             },
             &config,
             sink,

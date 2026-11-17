@@ -45,6 +45,7 @@ pub(crate) enum StartInput {
         checkpoint_id: Option<String>,
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
+        goto: Vec<String>,
     },
 }
 

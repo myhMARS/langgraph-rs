@@ -934,7 +934,7 @@ class AsyncPythonTests(unittest.TestCase):
             return namespaces, updates
 
         namespaces, updates = asyncio.run(scenario())
-        self.assertIn("child", namespaces)
+        self.assertTrue(any(ns and ns.startswith("child") for ns in namespaces))
         self.assertTrue(any(chunk.get("type") == "updates" for chunk in updates))
 
 

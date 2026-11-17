@@ -39,6 +39,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 checkpoint_id: checkpoint_id.map(str::to_string),
                 resume,
                 updates,
+                goto: Vec::new(),
             },
             &config,
             &mut sink,

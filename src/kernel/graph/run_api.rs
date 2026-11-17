@@ -269,6 +269,7 @@ impl<S: State> CompiledGraph<S> {
                 checkpoint_id: None,
                 resume: Some(value),
                 updates: None,
+                goto: Vec::new(),
             },
             &config,
             sink,
@@ -400,11 +401,59 @@ impl<S: State> CompiledGraph<S> {
             .map(|outcome| outcome.state)
     }
 
+    /// Resume a thread and additionally schedule explicit `goto` targets.
+    pub fn resume_with_updates_and_goto<I, K>(
+        &self,
+        thread_id: &str,
+        value: Value,
+        updates: I,
+        goto: Vec<String>,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        for node in &goto {
+            if node != crate::END && !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "Command(goto=...): `{node}` is not a registered node"
+                )));
+            }
+        }
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        let config = RunConfig::new().with_thread(thread_id);
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute_quiet(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: None,
+                resume: Some(value),
+                updates: Some(updates),
+                goto,
+            },
+            &config,
+            &mut sink,
+        )
+        .map(|outcome| outcome.state)
+    }
+
     pub fn resume_command(&self, thread_id: &str, command: Command) -> Result<S> {
         let updates = command
             .update
             .map(|updates| updates.into_iter().collect::<Map<String, Value>>());
-        self.resume_inner(thread_id, None, command.resume, updates, None, None)
+        match (command.resume, command.goto.is_empty()) {
+            (Some(value), false) => self.resume_with_updates_and_goto(
+                thread_id,
+                value,
+                updates.unwrap_or_default(),
+                command.goto,
+            ),
+            (resume, _) => self.resume_inner(thread_id, None, resume, updates, None, None),
+        }
     }
 
     fn resume_inner(
@@ -432,6 +481,7 @@ impl<S: State> CompiledGraph<S> {
                 checkpoint_id: checkpoint_id.map(str::to_string),
                 resume,
                 updates,
+                goto: Vec::new(),
             },
             &config,
             &mut sink,

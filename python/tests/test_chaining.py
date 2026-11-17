@@ -74,6 +74,30 @@ class MessagesStateTests(unittest.TestCase):
         compiled.update_state(config, {"value": 7})
         self.assertEqual(compiled.get_state(config)["values"]["value"], 7)
 
+    def test_command_resume_with_goto(self):
+        graph = lg.StateGraph({"value": "last_value", "log": "append"})
+
+        def ask(state):
+            value = lg.interrupt({"q": 1})
+            return {"value": value, "log": ["ask"]}
+
+        def other(state):
+            return {"log": ["other"]}
+
+        graph.add_node("ask", ask)
+        graph.add_node("other", other)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        graph.set_finish_point("other")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0, "log": []}, thread_id="resume-goto")
+        output = compiled.invoke(
+            lg.Command(resume=5, goto="other"), thread_id="resume-goto"
+        )
+        self.assertEqual(output["value"], 5)
+        self.assertIn("other", output["log"])
+
 
 if __name__ == "__main__":
     unittest.main()

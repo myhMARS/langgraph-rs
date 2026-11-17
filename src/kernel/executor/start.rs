@@ -82,6 +82,7 @@ pub(crate) fn resolve_resume_start<S: State>(
     checkpoint: &crate::kernel::checkpoint::Checkpoint,
     resume: &Option<Value>,
     updates: Option<Map<String, Value>>,
+    goto: &[String],
     schema: &StateSchema,
 ) -> Result<ResumeStart<S>> {
     crate::kernel::context::load_task_results(&checkpoint.task_results);
@@ -111,6 +112,15 @@ pub(crate) fn resolve_resume_start<S: State>(
         )?;
     }
     let state = values_to_state::<S>(&values)?;
-    let tasks = crate::kernel::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
+    let mut tasks =
+        crate::kernel::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
+    for node in goto {
+        if node == crate::END {
+            continue;
+        }
+        if !tasks.iter().any(|task| &task.node == node) {
+            tasks.push(crate::kernel::node::Task::new(node.clone()));
+        }
+    }
     Ok((values, state, tasks, finish_writes))
 }

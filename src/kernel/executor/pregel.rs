@@ -82,6 +82,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 checkpoint_id,
                 resume,
                 updates,
+                goto: resume_goto,
             } = start
             else {
                 unreachable!("fresh start inputs were resolved above");
@@ -95,8 +96,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             parent = Some(checkpoint.id.clone());
             previous_checkpoint = Some(checkpoint.clone());
             skip_interrupt_before = checkpoint.paused_before;
-            let (values, state, tasks, finish_writes) =
-                start::resolve_resume_start(&checkpoint, &resume, updates, backend.schema())?;
+            let (values, state, tasks, finish_writes) = start::resolve_resume_start(
+                &checkpoint,
+                &resume,
+                updates,
+                &resume_goto,
+                backend.schema(),
+            )?;
             let deferred = checkpoint.deferred.clone();
             (
                 values,
