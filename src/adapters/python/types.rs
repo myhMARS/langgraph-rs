@@ -590,9 +590,7 @@ fn redis_url_from_py(object: &Bound<'_, PyAny>) -> PyResult<String> {
             )
         })?;
     let kwargs = kwargs.cast::<PyDict>()?;
-    let get = |key: &str| -> PyResult<Option<Bound<'_, PyAny>>> {
-        Ok(kwargs.get_item(key)?.map(|value| value))
-    };
+    let get = |key: &str| -> PyResult<Option<Bound<'_, PyAny>>> { kwargs.get_item(key) };
     let host = get("host")?
         .and_then(|value| value.extract::<String>().ok())
         .unwrap_or_else(|| "127.0.0.1".to_string());
