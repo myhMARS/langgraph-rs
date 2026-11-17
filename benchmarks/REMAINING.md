@@ -30,7 +30,9 @@ This covers a single pending task, multiple sequential interrupts, and parallel
 pending interrupts resumed by interrupt id (the binding writes LangGraph-style
 `xxh3` interrupt ids and derived task ids).
 
-Not yet verified: distinct subgraph checkpoint namespaces (the binding executes nested graphs inline; LangGraph can still resume the parent interrupt).
+Not yet verified: LangGraph reading distinct child checkpoint namespaces. The sync kernel
+now writes `child:<task_id>` namespaces, but task ids are the crate's own rather than
+LangGraph-derived, and the async adapter still uses the plain `child` namespace.
 
 ## Non-blocking differences
 
