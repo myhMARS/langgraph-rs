@@ -317,9 +317,14 @@ impl PyAsyncCompiledGraph {
         let thread_id =
             thread_id.ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
-        let snapshot = match checkpoint_ns.as_deref() {
-            Some(namespace) => self.graph.get_state_in(&thread_id, namespace),
-            None => self.graph.get_state(&thread_id),
+        let snapshot = match (
+            checkpoint_ns.as_deref(),
+            parsed_config.checkpoint_id.as_deref(),
+        ) {
+            (Some(namespace), Some(id)) => self.graph.get_state_in_at(&thread_id, namespace, id),
+            (None, Some(id)) => self.graph.get_state_at(&thread_id, id),
+            (Some(namespace), None) => self.graph.get_state_in(&thread_id, namespace),
+            (None, None) => self.graph.get_state(&thread_id),
         }
         .map_err(|error| to_pyerr(py, error))?;
         match snapshot {
@@ -351,12 +356,15 @@ impl PyAsyncCompiledGraph {
         let thread_id =
             thread_id.ok_or_else(|| PyTypeError::new_err("aget_state requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
+        let checkpoint_id = parsed_config.checkpoint_id.clone();
         let graph = self.graph.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             Python::attach(|py| {
-                let snapshot = match checkpoint_ns.as_deref() {
-                    Some(namespace) => graph.get_state_in(&thread_id, namespace),
-                    None => graph.get_state(&thread_id),
+                let snapshot = match (checkpoint_ns.as_deref(), checkpoint_id.as_deref()) {
+                    (Some(namespace), Some(id)) => graph.get_state_in_at(&thread_id, namespace, id),
+                    (None, Some(id)) => graph.get_state_at(&thread_id, id),
+                    (Some(namespace), None) => graph.get_state_in(&thread_id, namespace),
+                    (None, None) => graph.get_state(&thread_id),
                 }
                 .map_err(|error| to_pyerr(py, error))?;
                 let Some(snapshot) = snapshot else {
@@ -372,12 +380,14 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable `get_state_history` for async callers.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None))]
     fn aget_state_history<'py>(
         &self,
         py: Python<'py>,
         thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
+        before: Option<String>,
+        limit: Option<usize>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id = thread_id
@@ -387,8 +397,13 @@ impl PyAsyncCompiledGraph {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             Python::attach(|py| {
                 let snapshots = match checkpoint_ns.as_deref() {
-                    Some(namespace) => graph.get_state_history_in(&thread_id, namespace),
-                    None => graph.get_state_history(&thread_id),
+                    Some(namespace) => graph.get_state_history_filtered_in(
+                        &thread_id,
+                        namespace,
+                        before.as_deref(),
+                        limit,
+                    ),
+                    None => graph.get_state_history_filtered(&thread_id, before.as_deref(), limit),
                 }
                 .map_err(|error| to_pyerr(py, error))?;
                 let full = graph
@@ -499,12 +514,14 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Read the full checkpoint history of a thread, newest first.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None))]
     fn get_state_history(
         &self,
         py: Python<'_>,
         thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
+        before: Option<String>,
+        limit: Option<usize>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id = thread_id
@@ -513,11 +530,11 @@ impl PyAsyncCompiledGraph {
         let snapshots = match checkpoint_ns.as_deref() {
             Some(namespace) => self
                 .graph
-                .get_state_history_in(&thread_id, namespace)
+                .get_state_history_filtered_in(&thread_id, namespace, before.as_deref(), limit)
                 .map_err(|error| to_pyerr(py, error))?,
             None => self
                 .graph
-                .get_state_history(&thread_id)
+                .get_state_history_filtered(&thread_id, before.as_deref(), limit)
                 .map_err(|error| to_pyerr(py, error))?,
         };
         let full_history = self

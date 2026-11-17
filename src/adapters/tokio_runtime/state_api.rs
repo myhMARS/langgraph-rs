@@ -40,6 +40,39 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
     }
 
+    /// Read a specific checkpoint of a thread.
+    pub fn get_state_at(
+        &self,
+        thread_id: &str,
+        checkpoint_id: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
+        self.get_state_in_at(thread_id, "", checkpoint_id)
+    }
+
+    /// Read a specific checkpoint of a thread inside a checkpoint namespace.
+    pub fn get_state_in_at(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        checkpoint_id: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
+        let Some(checkpoint) =
+            futures::executor::block_on(self.saver_get(thread_id, checkpoint_id))?
+        else {
+            return Ok(None);
+        };
+        let history = self.saver_history_in_sync(thread_id, namespace)?;
+        let total = history.len() as i64;
+        let step = history
+            .iter()
+            .position(|item| item.id == checkpoint.id)
+            .map(|index| total - 2 - index as i64)
+            .unwrap_or(checkpoint.step as i64);
+        let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+        snapshot.step = step;
+        Ok(Some(snapshot))
+    }
+
     /// Resume a thread from a specific checkpoint id.
     pub async fn resume_from(
         &self,
