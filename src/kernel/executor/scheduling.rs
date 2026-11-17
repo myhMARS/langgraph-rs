@@ -135,3 +135,61 @@ fn check_target<'a>(
     }
     Ok(())
 }
+
+/// Turn resolved edge targets and router Sends into the next superstep's tasks.
+///
+/// `next_tasks` already contains error-handler tasks from the completed superstep;
+/// those nodes are not scheduled again through a regular edge. Deferred targets are
+/// held until a superstep has no regular work left.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn schedule_next_tasks<'a>(
+    next_nodes: Vec<String>,
+    router_sends: Vec<(String, Send)>,
+    mut next_tasks: Vec<Task>,
+    node_exists: impl Fn(&str) -> bool,
+    destinations_of: impl Fn(&str) -> Option<&'a [String]>,
+    is_deferred: impl Fn(&str) -> bool,
+    pending_deferred: &mut Vec<Task>,
+) -> Result<Vec<Task>> {
+    let handler_nodes: HashSet<String> = next_tasks
+        .iter()
+        .filter(|task| task.error.is_some())
+        .map(|task| task.node.clone())
+        .collect();
+    for node in dedupe(next_nodes) {
+        if handler_nodes.contains(&node) {
+            continue;
+        }
+        next_tasks.push(Task::new(node));
+    }
+    for (source, send) in router_sends {
+        let task = send_task(&source, send)?;
+        if !node_exists(&task.node) {
+            return Err(Error::routing(
+                &source,
+                format!("unknown destination node `{}`", task.node),
+            ));
+        }
+        if let Some(allowed) = destinations_of(&source) {
+            if !allowed.iter().any(|node| node == &task.node) {
+                return Err(Error::routing(
+                    &source,
+                    format!("`{}` is not a declared destination", task.node),
+                ));
+            }
+        }
+        next_tasks.push(task);
+    }
+
+    let (deferred_tasks, regular_tasks): (Vec<Task>, Vec<Task>) = next_tasks
+        .into_iter()
+        .partition(|task| is_deferred(&task.node));
+    pending_deferred.extend(deferred_tasks);
+    Ok(
+        if regular_tasks.is_empty() && !pending_deferred.is_empty() {
+            std::mem::take(pending_deferred)
+        } else {
+            regular_tasks
+        },
+    )
+}

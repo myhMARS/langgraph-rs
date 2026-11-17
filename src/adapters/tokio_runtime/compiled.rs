@@ -1341,46 +1341,15 @@ impl<S: State> AsyncCompiledGraph<S> {
                 |node| self.nodes.contains_key(node),
                 |node| self.destinations_of(node),
             )?;
-            let mut next_tasks = next_tasks;
-            let handler_nodes: HashSet<String> = next_tasks
-                .iter()
-                .filter(|task| task.error.is_some())
-                .map(|task| task.node.clone())
-                .collect();
-            for node in dedupe(next_nodes) {
-                if handler_nodes.contains(&node) {
-                    continue;
-                }
-                next_tasks.push(Task::new(node));
-            }
-            for (source, send) in router_sends {
-                let task = send_task(&source, send)?;
-                if !self.nodes.contains_key(&task.node) {
-                    return Err(Error::routing(
-                        &source,
-                        format!("unknown destination node `{}`", task.node),
-                    ));
-                }
-                if let Some(allowed) = self.destinations_of(&source) {
-                    if !allowed.iter().any(|node| node == &task.node) {
-                        return Err(Error::routing(
-                            &source,
-                            format!("`{}` is not a declared destination", task.node),
-                        ));
-                    }
-                }
-                next_tasks.push(task);
-            }
-
-            let (deferred_tasks, regular_tasks): (Vec<Task>, Vec<Task>) = next_tasks
-                .into_iter()
-                .partition(|task| self.is_deferred(&task.node));
-            pending_deferred.extend(deferred_tasks);
-            let next_tasks = if regular_tasks.is_empty() && !pending_deferred.is_empty() {
-                std::mem::take(&mut pending_deferred)
-            } else {
-                regular_tasks
-            };
+            let next_tasks = crate::kernel::executor::scheduling::schedule_next_tasks(
+                next_nodes,
+                router_sends,
+                next_tasks,
+                |node| self.nodes.contains_key(node),
+                |node| self.destinations_of(node),
+                |node| self.is_deferred(node),
+                &mut pending_deferred,
+            )?;
 
             step += 1;
             let interrupt_after = executed

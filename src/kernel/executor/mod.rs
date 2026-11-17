@@ -21,7 +21,7 @@ use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{TaskOutcome, collect_pending_writes, process_outcomes};
-use self::scheduling::{collect_next_nodes, dedupe, send_task};
+use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
@@ -496,48 +496,15 @@ pub(crate) fn execute<S: State>(
             |node| graph.node(node).is_some(),
             |node| graph.destinations_of(node),
         )?;
-        let mut next_tasks = next_tasks;
-        // A node that already has an error-handler task in this superstep must not run
-        // a second time through a regular edge.
-        let handler_nodes: HashSet<String> = next_tasks
-            .iter()
-            .filter(|task| task.error.is_some())
-            .map(|task| task.node.clone())
-            .collect();
-        for node in dedupe(next_nodes) {
-            if handler_nodes.contains(&node) {
-                continue;
-            }
-            next_tasks.push(Task::new(node));
-        }
-        for (source, send) in router_sends {
-            let task = send_task(&source, send)?;
-            if graph.node(&task.node).is_none() {
-                return Err(Error::routing(
-                    &source,
-                    format!("unknown destination node `{}`", task.node),
-                ));
-            }
-            if let Some(allowed) = graph.destinations_of(&source) {
-                if !allowed.iter().any(|node| node == &task.node) {
-                    return Err(Error::routing(
-                        &source,
-                        format!("`{}` is not a declared destination", task.node),
-                    ));
-                }
-            }
-            next_tasks.push(task);
-        }
-
-        let (deferred_tasks, regular_tasks): (Vec<Task>, Vec<Task>) = next_tasks
-            .into_iter()
-            .partition(|task| graph.is_deferred(&task.node));
-        pending_deferred.extend(deferred_tasks);
-        let next_tasks = if regular_tasks.is_empty() && !pending_deferred.is_empty() {
-            std::mem::take(&mut pending_deferred)
-        } else {
-            regular_tasks
-        };
+        let next_tasks = schedule_next_tasks(
+            next_nodes,
+            router_sends,
+            next_tasks,
+            |node| graph.node(node).is_some(),
+            |node| graph.destinations_of(node),
+            |node| graph.is_deferred(node),
+            &mut pending_deferred,
+        )?;
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
         sink(StreamChunk::Debug {
