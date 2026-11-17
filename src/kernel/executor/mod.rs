@@ -20,9 +20,9 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
-use self::outcome::{ProcessedResults, merge_usage};
+use self::outcome::{ProcessedResults, TaskFailure, TaskOutcome, TaskResult, merge_usage};
 use self::scheduling::{collect_next_nodes, dedupe, send_task};
-use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
+use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
 use crate::kernel::node::Task;

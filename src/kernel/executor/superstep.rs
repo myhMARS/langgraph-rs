@@ -13,33 +13,7 @@ use crate::kernel::node::{NodeFn, NodeOutput, Task};
 use crate::kernel::state::{State, state_to_values, values_to_state};
 use crate::kernel::usage::Usage;
 
-/// Successful result of one node execution, before the superstep is merged.
-pub(super) struct TaskResult {
-    pub(super) node: String,
-    pub(super) output: NodeOutput,
-    pub(super) custom: Vec<Value>,
-    pub(super) messages: Vec<Value>,
-    pub(super) usage: Vec<Usage>,
-    pub(super) duration_millis: u64,
-    pub(super) attempts: u32,
-    pub(super) cached: bool,
-    pub(super) input: Option<Value>,
-}
-
-/// Permanent failure of one node execution.
-pub(super) struct TaskFailure {
-    pub(super) failure: NodeFailure,
-    pub(super) usage: Vec<Usage>,
-    pub(super) duration_millis: u64,
-    pub(super) input: Option<Value>,
-}
-
-/// Outcome of one scheduled task.
-pub(super) enum TaskOutcome {
-    Ok(Box<TaskResult>),
-    Interrupted(Interrupt),
-    Failed(Box<TaskFailure>),
-}
+use super::outcome::{TaskFailure, TaskOutcome, TaskResult};
 
 /// Execute every task of a superstep.
 ///

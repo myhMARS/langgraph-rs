@@ -13,7 +13,9 @@ use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::executor::outcome::{ProcessedResults, merge_usage};
+use crate::kernel::executor::outcome::{
+    ProcessedResults, TaskFailure, TaskOutcome, TaskResult, merge_usage,
+};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -50,31 +52,6 @@ struct AsyncRunInfo {
     store: Option<Arc<dyn BaseStore>>,
     context: Option<Value>,
     collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
-}
-
-struct AsyncTaskResult {
-    node: String,
-    output: crate::kernel::node::NodeOutput,
-    custom: Vec<Value>,
-    messages: Vec<Value>,
-    usage: Vec<Usage>,
-    duration_millis: u64,
-    attempts: u32,
-    cached: bool,
-    input: Option<Value>,
-}
-
-struct AsyncTaskFailure {
-    failure: NodeFailure,
-    usage: Vec<Usage>,
-    duration_millis: u64,
-    input: Option<Value>,
-}
-
-enum TaskOutcome {
-    Ok(Box<AsyncTaskResult>),
-    Interrupted(Interrupt),
-    Failed(Box<AsyncTaskFailure>),
 }
 
 /// A compiled async graph.
@@ -1479,7 +1456,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         run: &AsyncRunInfo,
     ) -> TaskOutcome {
         let Some(node) = self.nodes.get(&task.node) else {
-            return TaskOutcome::Failed(Box::new(AsyncTaskFailure {
+            return TaskOutcome::Failed(Box::new(TaskFailure {
                 failure: NodeFailure::new(
                     &task.node,
                     format!("node `{}` is not registered in this graph", task.node),
@@ -1495,7 +1472,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             Some(input) => match values_to_state::<S>(input) {
                 Ok(state) => state,
                 Err(error) => {
-                    return TaskOutcome::Failed(Box::new(AsyncTaskFailure {
+                    return TaskOutcome::Failed(Box::new(TaskFailure {
                         failure: NodeFailure::new(&task.node, error.to_string(), 1),
                         usage: Vec::new(),
                         duration_millis: 0,
@@ -1521,7 +1498,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .clone()
                     .map(|usage| vec![usage])
                     .unwrap_or_default();
-                return TaskOutcome::Ok(Box::new(AsyncTaskResult {
+                return TaskOutcome::Ok(Box::new(TaskResult {
                     node: task.node.clone(),
                     output: crate::kernel::node::NodeOutput::from_cached(cached),
                     custom: Vec::new(),
@@ -1597,7 +1574,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                             usage: combined,
                         };
                         if let Err(error) = cache.put(key, cached_output, cache_policy.ttl()) {
-                            return TaskOutcome::Failed(Box::new(AsyncTaskFailure {
+                            return TaskOutcome::Failed(Box::new(TaskFailure {
                                 failure: NodeFailure::new(
                                     &task.node,
                                     format!("node cache store failed: {error}"),
@@ -1609,7 +1586,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                             }));
                         }
                     }
-                    return TaskOutcome::Ok(Box::new(AsyncTaskResult {
+                    return TaskOutcome::Ok(Box::new(TaskResult {
                         node: task.node.clone(),
                         output,
                         custom,
@@ -1641,7 +1618,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
         }
 
-        TaskOutcome::Failed(Box::new(AsyncTaskFailure {
+        TaskOutcome::Failed(Box::new(TaskFailure {
             failure: NodeFailure::new(
                 &task.node,
                 last_error.unwrap_or_else(|| "node failed without an error message".to_string()),

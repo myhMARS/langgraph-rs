@@ -8,7 +8,8 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use crate::kernel::node::Task;
+use crate::kernel::error::{Interrupt, NodeFailure};
+use crate::kernel::node::{NodeOutput, Task};
 use crate::kernel::state::ChannelUpdate;
 use crate::kernel::usage::Usage;
 
@@ -30,4 +31,34 @@ pub(crate) fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
         combined.get_or_insert_with(Usage::new).merge(&item);
     }
     combined
+}
+
+/// Successful result of one node execution.
+#[derive(Debug)]
+pub(crate) struct TaskResult {
+    pub(crate) node: String,
+    pub(crate) output: NodeOutput,
+    pub(crate) custom: Vec<Value>,
+    pub(crate) messages: Vec<Value>,
+    pub(crate) usage: Vec<Usage>,
+    pub(crate) duration_millis: u64,
+    pub(crate) attempts: u32,
+    pub(crate) cached: bool,
+    pub(crate) input: Option<Value>,
+}
+
+/// Permanent failure of one node execution.
+#[derive(Debug)]
+pub(crate) struct TaskFailure {
+    pub(crate) failure: NodeFailure,
+    pub(crate) usage: Vec<Usage>,
+    pub(crate) duration_millis: u64,
+    pub(crate) input: Option<Value>,
+}
+
+/// Outcome of one scheduled task.
+pub(crate) enum TaskOutcome {
+    Ok(Box<TaskResult>),
+    Interrupted(Interrupt),
+    Failed(Box<TaskFailure>),
 }
