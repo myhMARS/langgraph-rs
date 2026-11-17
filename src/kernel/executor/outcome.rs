@@ -389,8 +389,10 @@ pub(crate) fn merge_interrupted_tasks(
     scheduled: Vec<Task>,
 ) -> Vec<Task> {
     let mut merged: Vec<Task> = tasks.iter().filter(|task| keep(task)).cloned().collect();
+    let mut seen: std::collections::HashSet<String> =
+        merged.iter().map(|task| task.id.clone()).collect();
     for task in scheduled {
-        if !merged.iter().any(|existing| existing.id == task.id) {
+        if seen.insert(task.id.clone()) {
             merged.push(task);
         }
     }

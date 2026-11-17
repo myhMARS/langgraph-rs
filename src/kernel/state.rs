@@ -369,16 +369,35 @@ pub(crate) fn state_to_values<S: Serialize>(state: &S) -> Result<Map<String, Val
     }
 }
 
+std::thread_local! {
+    static DEFAULT_STATE_VALUES: std::cell::RefCell<
+        std::collections::HashMap<std::any::TypeId, Map<String, Value>>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn default_state_values<S: DeserializeOwned + Default + Serialize + 'static>()
+-> Result<Map<String, Value>> {
+    let type_id = std::any::TypeId::of::<S>();
+    if let Some(cached) = DEFAULT_STATE_VALUES.with(|cache| cache.borrow().get(&type_id).cloned()) {
+        return Ok(cached);
+    }
+    let defaults = match serde_json::to_value(S::default())? {
+        Value::Object(defaults) => defaults,
+        _ => Map::new(),
+    };
+    DEFAULT_STATE_VALUES.with(|cache| {
+        cache.borrow_mut().insert(type_id, defaults.clone());
+    });
+    Ok(defaults)
+}
+
 /// Deserialize channel values back into the typed state.
-pub(crate) fn values_to_state<S: DeserializeOwned + Default + Serialize>(
+pub(crate) fn values_to_state<S: DeserializeOwned + Default + Serialize + 'static>(
     values: &Map<String, Value>,
 ) -> Result<S> {
     // Fill channels missing from the checkpoint (untracked/ephemeral values) with the
     // defaults from `S::default()` so state types keep strict field requirements.
-    let mut merged = match serde_json::to_value(S::default())? {
-        Value::Object(defaults) => defaults,
-        _ => Map::new(),
-    };
+    let mut merged = default_state_values::<S>()?;
     merged.extend(values.clone());
     Ok(serde_json::from_value(Value::Object(merged))?)
 }
