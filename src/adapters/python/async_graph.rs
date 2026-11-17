@@ -34,6 +34,27 @@ wrapper = _timeout_wrapper",
         .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("timeout wrapper missing"))
 }
 
+fn run_timed_awaitable<'py>(
+    py: Python<'py>,
+    value: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    // Timed nodes reuse a per-thread asyncio loop so the wait_for overhead is not
+    // paid on every attempt; ordinary nodes keep the cheaper asyncio.run path.
+    let asyncio = py.import("asyncio")?;
+    let loop_object = match asyncio
+        .getattr("get_event_loop")
+        .and_then(|get| get.call0())
+    {
+        Ok(loop_object) => loop_object,
+        Err(_) => {
+            let loop_object = asyncio.getattr("new_event_loop")?.call0()?;
+            asyncio.getattr("set_event_loop")?.call1((&loop_object,))?;
+            loop_object
+        }
+    };
+    loop_object.call_method1("run_until_complete", (value,))
+}
+
 fn async_node_from_python(
     name: String,
     function: Py<PyAny>,
@@ -82,10 +103,15 @@ fn async_node_from_python(
                                     .map_err(|error| pyerr_to_error(py, error))?,
                                 None => value,
                             };
-                            py.import("asyncio")
-                                .and_then(|asyncio| asyncio.getattr("run"))
-                                .and_then(|run| run.call1((&value,)))
-                                .map_err(|error| pyerr_to_error(py, error))?
+                            if run_timeout.is_some() {
+                                run_timed_awaitable(py, &value)
+                                    .map_err(|error| pyerr_to_error(py, error))?
+                            } else {
+                                py.import("asyncio")
+                                    .and_then(|asyncio| asyncio.getattr("run"))
+                                    .and_then(|run| run.call1((&value,)))
+                                    .map_err(|error| pyerr_to_error(py, error))?
+                            }
                         } else {
                             value
                         };
