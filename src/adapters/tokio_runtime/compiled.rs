@@ -1220,14 +1220,12 @@ impl<S: State> AsyncCompiledGraph<S> {
 }
 
 /// Async backend: future joins and awaitable checkpoint I/O.
-#[allow(dead_code)]
 pub(crate) struct AsyncBackend<'a, S: State> {
     graph: &'a AsyncCompiledGraph<S>,
     writer: Option<&'a tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
     run: &'a AsyncRunInfo,
 }
 
-#[allow(dead_code)]
 impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncBackend<'a, S> {
     fn schema(&self) -> &crate::kernel::state::StateSchema {
         &self.graph.schema

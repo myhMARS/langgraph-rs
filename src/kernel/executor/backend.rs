@@ -9,13 +9,11 @@ use serde_json::Value;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::Result;
 use crate::kernel::executor::outcome::TaskOutcome;
-use crate::kernel::executor::scheduling;
 use crate::kernel::graph::CompiledGraph;
 use crate::kernel::node::{ConditionalEdge, Task};
 use crate::kernel::state::{State, StateSchema};
 
 /// Runtime-specific half of the shared Pregel loop.
-#[allow(dead_code)]
 pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     fn schema(&self) -> &StateSchema;
     fn recursion_limit(&self) -> usize;
@@ -54,13 +52,11 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 }
 
 /// Sync backend: scoped OS threads and a blocking checkpointer.
-#[allow(dead_code)]
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
     pub(crate) writer: Option<&'a crate::kernel::executor::checkpointing::CheckpointWriter>,
 }
 
-#[allow(dead_code)]
 impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
     fn schema(&self) -> &StateSchema {
         self.graph.schema()
@@ -157,27 +153,6 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
             checkpointer.as_ref(),
             checkpoint,
             self.writer,
-        )
-    }
-}
-
-impl<'a, S: State> SyncBackend<'a, S> {
-    #[allow(dead_code)]
-    pub(crate) fn schedule(
-        &self,
-        next_nodes: Vec<String>,
-        router_sends: Vec<(String, crate::kernel::node::Send)>,
-        next_tasks: Vec<Task>,
-        pending_deferred: &mut Vec<Task>,
-    ) -> Result<Vec<Task>> {
-        scheduling::schedule_next_tasks(
-            next_nodes,
-            router_sends,
-            next_tasks,
-            |node| self.node_exists(node),
-            |node| self.destinations_of(node),
-            |node| self.is_deferred(node),
-            pending_deferred,
         )
     }
 }
