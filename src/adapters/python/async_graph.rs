@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::*;
-use super::types::{checkpointer_from_py, store_from_py};
+use super::types::{PyTimeoutPolicy, checkpointer_from_py, store_from_py};
 use crate::BlockingSaver;
 use crate::JsonState;
 use crate::kernel::context::TaskContext;
@@ -100,12 +100,23 @@ impl PyAsyncStateGraph {
     }
 
     /// Register a Python callable as an async node.
-    fn add_node(&mut self, name: String, function: Py<PyAny>) -> PyResult<()> {
+    #[pyo3(signature = (name, function, timeout=None))]
+    fn add_node(
+        &mut self,
+        name: String,
+        function: Py<PyAny>,
+        timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
+    ) -> PyResult<()> {
         let builder = std::mem::replace(
             &mut self.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
-        self.inner = builder.add_node(name.clone(), async_node_from_python(name, function));
+        let mut builder =
+            builder.add_node(name.clone(), async_node_from_python(name.clone(), function));
+        if let Some(policy) = timeout {
+            builder = builder.set_timeout(name, policy.to_policy());
+        }
+        self.inner = builder;
         Ok(())
     }
 

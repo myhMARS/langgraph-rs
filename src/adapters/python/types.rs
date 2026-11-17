@@ -325,6 +325,41 @@ impl PyCachePolicy {
     }
 }
 
+/// Node timeout policy usable as `StateGraph.add_node(..., timeout=TimeoutPolicy(...))`.
+#[pyclass(name = "TimeoutPolicy", from_py_object)]
+#[derive(Clone, Default)]
+pub struct PyTimeoutPolicy {
+    #[pyo3(get)]
+    pub run_timeout: Option<f64>,
+    #[pyo3(get)]
+    pub idle_timeout: Option<f64>,
+}
+
+#[pymethods]
+impl PyTimeoutPolicy {
+    #[new]
+    #[pyo3(signature = (run_timeout=None, idle_timeout=None))]
+    fn new(run_timeout: Option<f64>, idle_timeout: Option<f64>) -> Self {
+        Self {
+            run_timeout,
+            idle_timeout,
+        }
+    }
+}
+
+impl PyTimeoutPolicy {
+    pub(super) fn to_policy(&self) -> crate::kernel::timeout::TimeoutPolicy {
+        let mut policy = crate::kernel::timeout::TimeoutPolicy::new();
+        if let Some(seconds) = self.run_timeout {
+            policy = policy.with_run_timeout(Duration::from_secs_f64(seconds.max(0.0)));
+        }
+        if let Some(seconds) = self.idle_timeout {
+            policy = policy.with_idle_timeout(Duration::from_secs_f64(seconds.max(0.0)));
+        }
+        policy
+    }
+}
+
 /// In-memory checkpointer object for `StateGraph.compile(checkpointer=...)`.
 #[pyclass(name = "InMemorySaver")]
 pub struct PyInMemorySaver {

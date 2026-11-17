@@ -13,6 +13,7 @@ or with a plain cargo build::
 """
 
 import os
+import time
 import unittest
 
 import langgraph_rs as lg
@@ -594,6 +595,21 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(output["value"], expected_remaining)
         self.assertEqual(output["last"], 1)
 
+
+    def test_node_timeout(self):
+        def slow(state):
+            time.sleep(0.2)
+            return {"value": 1}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "slow", slow, timeout=lg.TimeoutPolicy(run_timeout=0.02)
+        )
+        graph.set_entry_point("slow")
+        graph.set_finish_point("slow")
+        with self.assertRaises(Exception) as raised:
+            graph.compile().invoke({"value": 0})
+        self.assertIn("timed out", str(raised.exception))
 
     def test_deferred_node_runs_after_regular_nodes(self):
         graph = lg.StateGraph({"value": "last_value", "log": "append"})

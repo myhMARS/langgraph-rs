@@ -26,7 +26,7 @@ from langgraph.cache.memory import InMemoryCache as LgCache
 from langgraph.config import get_store as lg_get_store
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
-from langgraph.types import CachePolicy as LgCachePolicy
+from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy
 from langgraph.types import interrupt as lg_interrupt
 
@@ -456,6 +456,26 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Node timeout: LangGraph async cancellation vs the binding's sync worker timeout.
+    lg_failed, lg_message = run_lg_timeout()
+    rs_failed, rs_message = run_rs_timeout()
+    results.append(
+        {
+            "scenario": "node_timeout",
+            "rs": {"failed": rs_failed, "contains_timeout": timeout_marker(rs_message)},
+            "lg": {"failed": lg_failed, "contains_timeout": timeout_marker(lg_message)},
+            "equivalent": (
+                lg_failed == rs_failed
+                and timeout_marker(lg_message) == timeout_marker(rs_message)
+            ),
+            "note": "LangGraph timeout is async cancellation; the binding enforces it on its sync worker",
+            "bench": {
+                "rs": measure(run_rs_timeout),
+                "lg": measure_async(run_lg_timeout_async),
+            },
+        }
+    )
+
     # Node cache: second identical invocation reuses the cached output.
     lg_graph, lg_cache_calls = lg_cache_graph()
     rs_graph, rs_cache_calls = rs_cache_graph()
@@ -755,6 +775,54 @@ def raise_check(graph, is_lg):
             graph.invoke({"value": 0})
         else:
             graph.invoke({"value": 0})
+        return False, ""
+    except Exception as exc:  # noqa: BLE001
+        return True, str(exc)
+
+
+def timeout_marker(message):
+    lowered = message.lower()
+    return "timeout" in lowered or "timed out" in lowered
+
+
+def run_lg_timeout():
+    return asyncio.run(run_lg_timeout_async())
+
+
+async def run_lg_timeout_async():
+    async def slow(state):
+        await asyncio.sleep(0.2)
+        return {"value": 1}
+
+    graph = LgStateGraph(dict)
+    graph.add_node(
+        "slow", slow, timeout=LgTimeoutPolicy(run_timeout=0.02)
+    )
+    graph.add_edge(START, "slow")
+    graph.add_edge("slow", END)
+    compiled = graph.compile()
+    try:
+        await compiled.ainvoke({"value": 0})
+        return False, ""
+    except Exception as exc:  # noqa: BLE001
+        return True, str(exc)
+
+
+def run_rs_timeout():
+    import time as _time
+
+    def slow(state):
+        _time.sleep(0.2)
+        return {"value": 1}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node(
+        "slow", slow, timeout=rs.TimeoutPolicy(run_timeout=0.02)
+    )
+    graph.set_entry_point("slow")
+    graph.set_finish_point("slow")
+    try:
+        graph.compile().invoke({"value": 0})
         return False, ""
     except Exception as exc:  # noqa: BLE001
         return True, str(exc)

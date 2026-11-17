@@ -9,7 +9,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
 
 use super::convert::*;
-use super::types::{PyCachePolicy, PyCommand, PyRetryPolicy, checkpointer_from_py, store_from_py};
+use super::types::{
+    PyCachePolicy, PyCommand, PyRetryPolicy, PyTimeoutPolicy, checkpointer_from_py, store_from_py,
+};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ impl PyStateGraph {
     /// Optional LangGraph-style keywords: ``retry_policy``, ``cache_policy`` and
     /// ``error_handler`` (node name).
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, input_schema=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, input_schema=None, timeout=None))]
     fn add_node(
         &mut self,
         name: String,
@@ -75,6 +77,7 @@ impl PyStateGraph {
         deferred: bool,
         destinations: Option<Vec<String>>,
         input_schema: Option<&Bound<'_, PyAny>>,
+        timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
     ) -> PyResult<()> {
         let mut graph = std::mem::take(&mut self.inner);
         if deferred {
@@ -94,7 +97,10 @@ impl PyStateGraph {
             graph = graph.set_cache(name.clone(), policy.to_policy());
         }
         if let Some(handler) = error_handler {
-            graph = graph.add_error_edge(name, normalize_node(&handler));
+            graph = graph.add_error_edge(name.clone(), normalize_node(&handler));
+        }
+        if let Some(policy) = timeout {
+            graph = graph.set_timeout(name, policy.to_policy());
         }
         self.inner = graph;
         Ok(())
