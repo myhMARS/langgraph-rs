@@ -45,6 +45,8 @@ pub enum StreamChunk {
     Interrupt {
         /// Interrupted node.
         node: String,
+        /// Interrupt id.
+        id: String,
         /// Interrupt payload.
         value: Value,
     },

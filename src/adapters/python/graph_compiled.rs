@@ -251,7 +251,7 @@ impl PyCompiledGraph {
                 let (resume, updates) = command.to_resume_command(py)?;
                 let goto = command.goto_targets(py)?;
                 let updates = Some(updates.into_iter().collect());
-                py.detach(|| {
+                match py.detach(|| {
                     self.graph.stream_thread_with(
                         thread,
                         resume,
@@ -261,14 +261,16 @@ impl PyCompiledGraph {
                         &requested,
                         |chunk| streamed.push(chunk),
                     )
-                })
-                .map_err(|error| to_pyerr(py, error))?;
+                }) {
+                    Ok(_) | Err(crate::Error::Interrupt(_)) => {}
+                    Err(error) => return Err(to_pyerr(py, error)),
+                }
                 handled = true;
             }
         }
         if !handled && input.is_none_or(|value| value.is_none()) {
             if let Some(thread) = thread.as_deref() {
-                py.detach(|| {
+                match py.detach(|| {
                     self.graph.stream_thread_with(
                         thread,
                         None,
@@ -278,8 +280,10 @@ impl PyCompiledGraph {
                         &requested,
                         |chunk| streamed.push(chunk),
                     )
-                })
-                .map_err(|error| to_pyerr(py, error))?;
+                }) {
+                    Ok(_) | Err(crate::Error::Interrupt(_)) => {}
+                    Err(error) => return Err(to_pyerr(py, error)),
+                }
                 handled = true;
             }
         }
@@ -287,8 +291,14 @@ impl PyCompiledGraph {
             streamed
         } else {
             let state = state_from_py(input)?;
-            py.detach(|| self.graph.stream_modes(&state, &config, &requested))
-                .map_err(|error| to_pyerr(py, error))?
+            match py.detach(|| {
+                self.graph
+                    .stream_modes_with(&state, &config, &requested, |chunk| streamed.push(chunk))
+            }) {
+                Ok(_) | Err(crate::Error::Interrupt(_)) => {}
+                Err(error) => return Err(to_pyerr(py, error)),
+            }
+            streamed
                 .into_iter()
                 .filter(|chunk| {
                     matches!(chunk, crate::StreamChunk::Interrupt { .. })

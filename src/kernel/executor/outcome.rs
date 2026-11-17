@@ -482,6 +482,7 @@ pub(crate) fn interrupt_before_pause(task: &Task) -> (Interrupt, StreamChunk) {
     let interrupt = Interrupt::new(task.node.clone(), Value::Null);
     let chunk = StreamChunk::Interrupt {
         node: task.node.clone(),
+        id: interrupt.id.clone(),
         value: Value::Null,
     };
     (interrupt, chunk)

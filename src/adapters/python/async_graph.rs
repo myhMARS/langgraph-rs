@@ -274,7 +274,9 @@ impl PyAsyncCompiledGraph {
                     .await
             };
             if let Err(error) = result {
-                return Python::attach(|py| Err(to_pyerr(py, error)));
+                if !matches!(error, crate::Error::Interrupt(_)) {
+                    return Python::attach(|py| Err(to_pyerr(py, error)));
+                }
             }
             collected.retain(|chunk| {
                 matches!(chunk, StreamChunk::Interrupt { .. })

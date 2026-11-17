@@ -186,11 +186,14 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("type", "checkpoints")?;
             dict.set_item("data", value_to_py(py, payload)?)?;
         }
-        StreamChunk::Interrupt { node, value } => {
-            dict.set_item("type", "interrupt")?;
+        StreamChunk::Interrupt { node, id, value } => {
+            dict.set_item("type", "updates")?;
             let data = PyDict::new(py);
-            data.set_item("node", node)?;
-            data.set_item("value", value_to_py(py, value)?)?;
+            let interrupt = PyDict::new(py);
+            interrupt.set_item("id", id)?;
+            interrupt.set_item("node", node)?;
+            interrupt.set_item("value", value_to_py(py, value)?)?;
+            data.set_item("__interrupt__", vec![interrupt])?;
             dict.set_item("data", data)?;
         }
         StreamChunk::Usage { execution } => {
@@ -234,8 +237,9 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             Ok(data.into_any().unbind())
         }
         StreamChunk::Custom { value, .. } => value_to_py(py, value),
-        StreamChunk::Interrupt { node, value } => {
+        StreamChunk::Interrupt { node, id, value } => {
             let interrupt = PyDict::new(py);
+            interrupt.set_item("id", id)?;
             interrupt.set_item("node", node)?;
             interrupt.set_item("value", value_to_py(py, value)?)?;
             let data = PyDict::new(py);

@@ -205,5 +205,37 @@ class ReactAgentModelTests(unittest.TestCase):
         )
 
 
+    def test_stream_interrupt_does_not_raise(self):
+        graph = lg.StateGraph({"value": "last_value"})
+
+        def ask(state):
+            lg.interrupt({"q": 1})
+            return {"value": 1}
+
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        chunks = compiled.stream(
+            {"value": 0}, thread_id="stream-interrupt", stream_mode=["updates"]
+        )
+        self.assertTrue(chunks)
+        self.assertTrue(
+            any(
+                isinstance(chunk, dict) and "__interrupt__" in chunk
+                for chunk in chunks
+            )
+        )
+        v2 = compiled.stream(
+            {"value": 0},
+            thread_id="stream-interrupt-v2",
+            stream_mode=["updates"],
+            version="v2",
+        )
+        updates = [chunk for chunk in v2 if chunk["type"] == "updates"]
+        self.assertTrue(updates)
+        self.assertIn("__interrupt__", updates[0]["data"])
+
+
 if __name__ == "__main__":
     unittest.main()
