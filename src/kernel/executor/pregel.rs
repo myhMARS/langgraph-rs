@@ -67,7 +67,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut parent: Option<String> = None;
     let mut previous_checkpoint: Option<crate::kernel::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
-    let (mut values, mut state, mut tasks, mut step, resume_deferred, resume_finish) =
+    let (mut values, mut state, mut tasks, mut step, mut resume_deferred, resume_finish) =
         if let Some((values, state, tasks)) = start::resolve_fresh_start(
             &start,
             backend.schema(),
@@ -107,6 +107,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             )
         };
 
+    if tasks.is_empty() && !resume_deferred.is_empty() {
+        tasks = std::mem::take(&mut resume_deferred);
+    }
     if tasks.is_empty() {
         let mut state = state;
         if !resume_finish.is_empty() {
@@ -219,7 +222,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 true,
                 true,
                 vec![interrupted_interrupt.clone()],
-                finish_pending(&finish_updates),
+                finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &[],
                 sink,
@@ -260,8 +263,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
                     .map(|(task, _)| task.id.clone())
                     .collect();
-                let mut pending_writes = collect_pending_writes(&tasks, &outcomes);
-                pending_writes.extend(finish_pending(&finish_updates));
+                let mut pending_writes = finish_pending(&finish_updates, backend.schema());
+                pending_writes.extend(collect_pending_writes(&tasks, &outcomes));
                 let successful: Vec<TaskOutcome> = outcomes
                     .into_iter()
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -337,12 +340,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
                 .map(|(task, _)| task.id.clone())
                 .collect();
-            let mut finish_writes: Vec<crate::kernel::checkpoint::PendingWrite> =
-                collect_pending_writes(&tasks, &outcomes)
-                    .into_iter()
-                    .filter(|write| backend.schema().is_finish_value(&write.channel))
-                    .collect();
-            finish_writes.extend(finish_pending(&finish_updates));
             let successful: Vec<TaskOutcome> = outcomes
                 .into_iter()
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -357,6 +354,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             )?;
             sink(values_chunk(step, &values));
             state = values_to_state::<S>(&values)?;
+            let finish_writes = finish_pending(&finish_updates, backend.schema());
             let (next_nodes, router_sends) = collect_next_nodes(
                 &state,
                 &processed.executed,
@@ -478,7 +476,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 interrupt_after.is_some(),
                 false,
                 interrupt_after.clone().into_iter().collect(),
-                finish_pending(&finish_updates),
+                finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &executed,
                 sink,
@@ -571,9 +569,11 @@ fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
 
 fn finish_pending(
     finish_updates: &HashMap<String, Value>,
+    schema: &crate::kernel::state::StateSchema,
 ) -> Vec<crate::kernel::checkpoint::PendingWrite> {
     finish_updates
         .iter()
+        .filter(|(channel, _)| schema.persists(channel))
         .map(|(channel, value)| crate::kernel::checkpoint::PendingWrite {
             task_id: "__finish__".to_string(),
             node: "__finish__".to_string(),

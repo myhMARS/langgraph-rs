@@ -22,27 +22,35 @@ use crate::kernel::node::ConditionalEdge;
 pub(crate) fn parent_command_output<S: crate::kernel::state::State>(
     command: crate::kernel::context::ParentCommand,
     state: &S,
+    schema: &crate::kernel::state::StateSchema,
 ) -> crate::Result<crate::kernel::node::NodeOutput> {
-    let mut parent_values = crate::kernel::state::state_to_values(state)?;
-    let updates: Vec<crate::kernel::state::ChannelUpdate> = command
-        .updates
-        .iter()
-        .map(|(channel, value)| crate::kernel::state::ChannelUpdate {
-            channel: channel.clone(),
-            value: value.clone(),
-            node: "<parent>".to_string(),
-        })
-        .collect();
-    crate::kernel::state::apply_updates(&S::schema(), &mut parent_values, updates)?;
-
+    let _ = state;
+    // Preserve ordered command writes. A channel written by several child nodes is
+    // folded through a reducer against an empty map, producing a delta that still
+    // folds with sibling writes when the parent applies the output.
+    let mut grouped: indexmap::IndexMap<&String, Vec<serde_json::Value>> =
+        indexmap::IndexMap::new();
+    for (channel, value) in &command.updates {
+        grouped.entry(channel).or_default().push(value.clone());
+    }
     let mut result = crate::kernel::node::NodeOutput::new();
-    let mut channels: Vec<&String> = Vec::new();
-    for (channel, _) in &command.updates {
-        if !channels.contains(&channel) {
-            channels.push(channel);
-            if let Some(value) = parent_values.get(channel) {
-                result = result.replace(channel.clone(), value.clone());
-            }
+    for (channel, values) in grouped {
+        if values.len() == 1 {
+            result = result.update(channel.clone(), values.into_iter().next().unwrap());
+            continue;
+        }
+        let updates: Vec<crate::kernel::state::ChannelUpdate> = values
+            .into_iter()
+            .map(|value| crate::kernel::state::ChannelUpdate {
+                channel: channel.clone(),
+                value,
+                node: "<parent>".to_string(),
+            })
+            .collect();
+        let mut folded = serde_json::Map::new();
+        crate::kernel::state::apply_updates(schema, &mut folded, updates)?;
+        if let Some(value) = folded.get(channel) {
+            result = result.update(channel.clone(), value.clone());
         }
     }
     for (channel, value) in command.replaces {

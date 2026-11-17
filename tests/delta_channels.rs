@@ -273,3 +273,38 @@ fn finish_writes_survive_interrupt_after() {
     let output = graph.continue_thread("finish-after").unwrap();
     assert_eq!(output.final_answer, "draft");
 }
+
+#[test]
+fn newer_finish_write_wins_across_a_second_pause() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<DeltaState>::new()
+        .add_node("draft", |_state: &DeltaState| {
+            Ok(NodeOutput::new().set("final_answer", "draft"))
+        })
+        .add_node("newer", |_state: &DeltaState| {
+            Ok(NodeOutput::new().set("final_answer", "new"))
+        })
+        .add_node("ask", |_state: &DeltaState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new())
+        })
+        .add_edge(langgraph_rs::START, "draft")
+        .add_edge("draft", "newer")
+        .add_edge("draft", "ask")
+        .set_finish_point("newer")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &DeltaState::default(),
+            &RunConfig::new().with_thread("finish-second-pause"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+    let snapshot = graph.get_state("finish-second-pause").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "answer" });
+    let output = graph.resume("finish-second-pause", resume).unwrap();
+    assert_eq!(output.final_answer, "new");
+}

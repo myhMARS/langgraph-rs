@@ -208,10 +208,12 @@ impl<S: State> AsyncStateGraph<S> {
         let name = name.into();
         let node_name = name.clone();
         let child = subgraph;
+        let schema = self.schema.clone();
         self.add_node(name, move |state: S, context: AsyncContext| {
             let child = child.clone();
             let node_name = node_name.clone();
-            async move { run_async_subgraph(child, state, node_name, context).await }
+            let schema = schema.clone();
+            async move { run_async_subgraph(child, state, node_name, context, &schema).await }
         })
     }
 
@@ -558,6 +560,7 @@ async fn run_async_subgraph<S: State>(
     state: S,
     name: String,
     context: AsyncContext,
+    schema: &crate::kernel::state::StateSchema,
 ) -> Result<NodeOutput> {
     let before = state_to_values(&state)?;
     let thread = context.thread_id().map(str::to_string);
@@ -631,7 +634,7 @@ async fn run_async_subgraph<S: State>(
     // Propagate a child failure even if another task recorded a parent command.
     let output = output?;
     if let Some(command) = parent_command {
-        return crate::kernel::graph::parent_command_output(command, &state);
+        return crate::kernel::graph::parent_command_output(command, &state, schema);
     }
     let after = state_to_values(&output)?;
     let mut result = NodeOutput::new();

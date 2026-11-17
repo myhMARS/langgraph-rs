@@ -258,3 +258,43 @@ fn parallel_parent_commands_fold_through_reducers() {
     log.sort();
     assert_eq!(log, vec!["a", "b"]);
 }
+
+#[test]
+fn parent_command_writes_fold_with_sibling_writes() {
+    let schema = StateSchema::dynamic().with_reducer("log", langgraph_rs::reducers::append());
+    let child = StateGraph::<JsonState>::with_schema(schema.clone())
+        .add_node("jump", |_state: &JsonState| {
+            Ok(NodeOutput::new()
+                .update("log", json!(["sub"]))
+                .goto_parent("parent_after"))
+        })
+        .set_entry_point("jump")
+        .compile()
+        .unwrap();
+
+    let parent = StateGraph::<JsonState>::with_schema(schema)
+        .add_subgraph("child", Arc::new(child))
+        .add_node("plain", |_state: &JsonState| {
+            Ok(NodeOutput::new().update("log", json!(["plain"])))
+        })
+        .add_node("parent_after", |_state: &JsonState| Ok(NodeOutput::new()))
+        .add_edge(langgraph_rs::START, "child")
+        .add_edge(langgraph_rs::START, "plain")
+        .set_finish_point("parent_after")
+        .compile()
+        .unwrap();
+
+    let output = parent.invoke(&JsonState::new(), &RunConfig::new()).unwrap();
+    let mut log: Vec<String> = output
+        .get("log")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    log.sort();
+    assert_eq!(log, vec!["plain", "sub"]);
+}
