@@ -1452,7 +1452,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("b")
         compiled = graph.compile()
         output = compiled.invoke(lg.Command(goto="b"))
-        self.assertEqual(output["seeded"], 1)
+        self.assertNotIn("seeded", output)
         self.assertEqual(output["value"], 2)
         with self.assertRaises(Exception):
             compiled.invoke(lg.Command(goto="missing"))
