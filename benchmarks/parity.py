@@ -535,6 +535,24 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # LangChain message/token stream. LangGraph captures callbacks automatically;
+    # the binding requires the explicit langchain_callback_handler.
+    lg_tokens = lg_message_tokens()
+    rs_tokens = rs_message_tokens()
+    results.append(
+        {
+            "scenario": "messages_stream",
+            "rs": rs_tokens,
+            "lg": lg_tokens,
+            "equivalent": rs_tokens == lg_tokens,
+            "note": "binding requires an explicit LangChain callback handler",
+            "bench": {
+                "rs": measure(rs_message_tokens),
+                "lg": measure(lg_message_tokens),
+            },
+        }
+    )
+
     # In-memory store round trip
     lg_value = lg_store_graph().invoke({})
     rs_value = rs_store_graph().invoke({})
@@ -588,6 +606,46 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
     return results
+
+
+def lg_message_tokens():
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    model = FakeListChatModel(responses=["hello world"])
+
+    def node(state):
+        model.invoke("hi")
+        return {"text": "done"}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("model", node)
+    graph.add_edge(START, "model")
+    graph.add_edge("model", END)
+    chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
+    return "".join(chunk[0].content for chunk in chunks if chunk[0].content)
+
+
+def rs_message_tokens():
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    model = FakeListChatModel(responses=["hello world"])
+    handler = rs.langchain_callback_handler(model="fake")
+
+    def node(state):
+        for _ in model.stream("hi", config={"callbacks": [handler]}):
+            pass
+        return {"text": "done"}
+
+    graph = rs.StateGraph({"text": "last_value"})
+    graph.add_node("model", node)
+    graph.set_entry_point("model")
+    graph.set_finish_point("model")
+    chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
+    return "".join(
+        chunk.get("message", {}).get("content", "")
+        for chunk in chunks
+        if chunk.get("type") == "messages"
+    )
 
 
 def lg_store_graph():
