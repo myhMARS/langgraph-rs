@@ -223,6 +223,8 @@ fn message(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
 }
 
 /// Create a LangChain callback handler that forwards LLM tokens and usage into the graph stream.
+static CALLBACK_HANDLER_CLASS: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
+
 #[pyfunction]
 #[pyo3(signature = (model=None, tags=None))]
 pub(super) fn langchain_callback_handler(
@@ -347,14 +349,16 @@ class LangChainCallbackHandler:
 "#;
     let source = std::ffi::CString::new(source)
         .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-    let module = pyo3::types::PyModule::from_code(
-        py,
-        &source,
-        c"langgraph_rs_callbacks.py",
-        c"langgraph_rs_callbacks",
-    )?;
-    let class = module.getattr("LangChainCallbackHandler")?;
-    let handler = class.call1((model, tags))?;
+    let class = CALLBACK_HANDLER_CLASS.get_or_try_init(py, || {
+        let module = pyo3::types::PyModule::from_code(
+            py,
+            &source,
+            c"langgraph_rs_callbacks.py",
+            c"langgraph_rs_callbacks",
+        )?;
+        Ok::<_, pyo3::PyErr>(module.getattr("LangChainCallbackHandler")?.unbind())
+    })?;
+    let handler = class.bind(py).call1((model, tags))?;
     Ok(handler.unbind())
 }
 

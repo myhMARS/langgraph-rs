@@ -115,6 +115,11 @@ impl<S: State> CompiledGraph<S> {
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
         let all = checkpointer.history_in(thread_id, namespace)?;
         let total = all.len() as i64;
+        let step_by_id: std::collections::HashMap<&str, usize> = all
+            .iter()
+            .enumerate()
+            .map(|(index, checkpoint)| (checkpoint.id.as_str(), index))
+            .collect();
         let mut checkpoints = all.clone();
         if let Some(before) = before {
             match checkpoints.iter().position(|cp| cp.id == before) {
@@ -130,10 +135,9 @@ impl<S: State> CompiledGraph<S> {
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let step = all
-                    .iter()
-                    .position(|item| item.id == checkpoint.id)
-                    .map(|index| total - 2 - index as i64)
+                let step = step_by_id
+                    .get(checkpoint.id.as_str())
+                    .map(|index| total - 2 - *index as i64)
                     .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
                 snapshot.step = step;
