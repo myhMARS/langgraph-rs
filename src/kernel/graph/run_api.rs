@@ -94,7 +94,7 @@ impl<S: State> CompiledGraph<S> {
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
-                checkpoint_id: None,
+                checkpoint_id: config.checkpoint_id.clone(),
                 resume: None,
                 updates: Some(updates),
                 goto,
@@ -557,7 +557,7 @@ impl<S: State> CompiledGraph<S> {
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
-                checkpoint_id: None,
+                checkpoint_id: config.checkpoint_id.clone(),
                 resume: Some(value),
                 updates: Some(updates),
                 goto,
@@ -715,11 +715,14 @@ impl<S: State> CompiledGraph<S> {
             config = config.with_checkpoint_ns(namespace);
         }
         let mut sink = |_chunk: StreamChunk| {};
+        let checkpoint_id = checkpoint_id
+            .map(str::to_string)
+            .or_else(|| config.checkpoint_id.clone());
         executor::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
-                checkpoint_id: checkpoint_id.map(str::to_string),
+                checkpoint_id,
                 resume,
                 updates,
                 goto: Vec::new(),

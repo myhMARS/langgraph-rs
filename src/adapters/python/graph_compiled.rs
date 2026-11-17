@@ -332,7 +332,11 @@ impl PyCompiledGraph {
         };
         let multi_mode = requested.len() > 1;
         let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
+        let mut values_indices = Vec::new();
         for chunk in &chunks {
+            if matches!(chunk, crate::StreamChunk::Values { .. }) {
+                values_indices.push(converted.len());
+            }
             if v2 {
                 converted.extend(chunk_to_py_v2_parts(py, chunk)?);
             } else {
@@ -356,13 +360,12 @@ impl PyCompiledGraph {
             }
         });
         if let Some(interrupts) = interrupts {
-            for (chunk, item) in chunks.iter().zip(converted.iter_mut()) {
-                if !matches!(chunk, crate::StreamChunk::Values { .. }) {
-                    continue;
-                }
-                if let Ok(dict) = item.bind(py).cast::<PyDict>() {
-                    let key = if v2 { "interrupts" } else { "__interrupt__" };
-                    dict.set_item(key, interrupts.bind(py))?;
+            if let Some(index) = values_indices.last().copied() {
+                if let Some(item) = converted.get_mut(index) {
+                    if let Ok(dict) = item.bind(py).cast::<PyDict>() {
+                        let key = if v2 { "interrupts" } else { "__interrupt__" };
+                        dict.set_item(key, interrupts.bind(py))?;
+                    }
                 }
             }
         }
