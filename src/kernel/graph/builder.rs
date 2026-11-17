@@ -293,7 +293,7 @@ impl<S: State> StateGraph<S> {
             crate::kernel::context::clear_parent_command();
             let output = run_subgraph(&subgraph, state, &name)?;
             if let Some(command) = crate::kernel::context::take_parent_command() {
-                return super::parent_command_output(command, state, &schema);
+                return super::parent_command_output(command, &schema);
             }
             let after = state_to_values(&output)?;
             let mut result = NodeOutput::new();
@@ -331,7 +331,7 @@ impl<S: State> StateGraph<S> {
             crate::kernel::context::clear_parent_command();
             let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
             if let Some(command) = crate::kernel::context::take_parent_command() {
-                return super::parent_command_output(command, state, &schema);
+                return super::parent_command_output(command, &schema);
             }
             output(&sub_output, state)
         })

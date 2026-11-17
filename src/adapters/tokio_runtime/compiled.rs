@@ -727,7 +727,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             channel_versions: checkpoint.channel_versions.clone(),
             versions_seen: checkpoint.versions_seen.clone(),
             updated_channels,
-            pending_writes: Vec::new(),
+            pending_writes: checkpoint.pending_writes.clone(),
             deferred: checkpoint.deferred.clone(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;

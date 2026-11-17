@@ -264,7 +264,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .map(|(task, _)| task.id.clone())
                     .collect();
                 let mut pending_writes = finish_pending(&finish_updates, backend.schema());
-                pending_writes.extend(collect_pending_writes(&tasks, &outcomes));
+                pending_writes.extend(
+                    collect_pending_writes(&tasks, &outcomes)
+                        .into_iter()
+                        .filter(|write| backend.schema().persists(&write.channel)),
+                );
                 let successful: Vec<TaskOutcome> = outcomes
                     .into_iter()
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))

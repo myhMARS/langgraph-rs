@@ -19,12 +19,10 @@ use crate::kernel::node::ConditionalEdge;
 
 /// Convert a recorded parent command into a node output, folding repeated reducer
 /// writes through the parent schema instead of collapsing them in an `IndexMap`.
-pub(crate) fn parent_command_output<S: crate::kernel::state::State>(
+pub(crate) fn parent_command_output(
     command: crate::kernel::context::ParentCommand,
-    state: &S,
     schema: &crate::kernel::state::StateSchema,
 ) -> crate::Result<crate::kernel::node::NodeOutput> {
-    let _ = state;
     // Preserve ordered command writes. A channel written by several child nodes is
     // folded through a reducer against an empty map, producing a delta that still
     // folds with sibling writes when the parent applies the output.
