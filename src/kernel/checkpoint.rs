@@ -1,5 +1,7 @@
 //! Checkpointing: durable snapshots of graph state between supersteps.
 
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -133,8 +135,19 @@ pub(crate) fn now_millis() -> u64 {
 }
 
 /// LangGraph-compatible channel version string.
-pub(crate) fn version_string(step: usize) -> String {
-    format!("{:032}.0.1", step + 1)
+static VERSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a LangGraph-style version: 32-digit decimal counter, `.0.`, random suffix.
+pub(crate) fn version_string(_step: usize) -> String {
+    let sequence = VERSION_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+    let mut hasher = RandomState::new().build_hasher();
+    sequence.hash(&mut hasher);
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    format!("{:032}.0.{}", sequence, hasher.finish())
 }
 
 /// Compute LangGraph-style version metadata for a new checkpoint.

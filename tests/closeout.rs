@@ -241,7 +241,15 @@ fn checkpoints_carry_channel_versions() {
         .as_str()
         .expect("string version");
     assert_eq!(version.split('.').next().unwrap().len(), 32);
-    assert!(version.ends_with(".0.1"));
+    assert_eq!(version.split(".").count(), 3);
+    assert!(
+        version
+            .rsplit(".")
+            .next()
+            .unwrap()
+            .chars()
+            .all(|c| c.is_ascii_digit())
+    );
     let seen = checkpoint["versions_seen"]["inc"]
         .as_object()
         .expect("per-node versions_seen");

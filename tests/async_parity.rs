@@ -85,7 +85,15 @@ async fn checkpoint_export_and_import_roundtrip() {
         .as_str()
         .expect("string version");
     assert_eq!(version.split('.').next().unwrap().len(), 32);
-    assert!(version.ends_with(".0.1"));
+    assert_eq!(version.split(".").count(), 3);
+    assert!(
+        version
+            .rsplit(".")
+            .next()
+            .unwrap()
+            .chars()
+            .all(|c| c.is_ascii_digit())
+    );
 
     graph
         .import_checkpoint("async-imported", &document)

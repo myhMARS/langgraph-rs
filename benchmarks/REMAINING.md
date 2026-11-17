@@ -18,7 +18,7 @@ The following areas have dedicated behavior + benchmark scenarios in
 - memory/SQLite node cache, memory/SQLite/Redis/Postgres store
 - SQLite/Postgres/Redis checkpoint persistence
 - async execution, interrupt/resume, multi-interrupt, nested subgraph interrupt
-- update_state (including `task_id`), checkpoint history, snapshot metadata, time travel
+- update_state (including `task_id`), checkpoint history, snapshot metadata (source/next/step), time travel
 - pending writes in parallel branches
 
 ## Non-blocking differences
@@ -26,8 +26,6 @@ The following areas have dedicated behavior + benchmark scenarios in
 | Area | Difference | Impact |
 | --- | --- | --- |
 | Pending writes storage | Successful writes are stored inside the checkpoint JSON, not a separate `writes` table | Observable resume behavior matches; database layout differs from LangGraph |
-| `versions_seen` values | Version suffix is deterministic rather than random | Shape matches LangGraph; scheduler uses pending tasks rather than versions |
-| Checkpoint `step` | Snapshot `step` resets per run; LangGraph counts input checkpoints across the thread | Snapshot `source`/`next` match; numeric `step` differs |
 | Messages callbacks | The binding needs an explicit `langchain_callback_handler`; LangGraph injects callbacks globally | Token stream content matches; callback metadata is narrower |
 | Interrupt response schema | `pattern` and `$ref` are not supported | Supported JSON-schema subset covers the documented cases |
 | Timed async loop | Timed Python nodes reuse a per-thread asyncio loop | With a 50ms deadline both engines are ~0.99x; short deadlines expose timer-resolution differences |

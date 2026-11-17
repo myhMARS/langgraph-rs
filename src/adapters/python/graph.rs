@@ -14,6 +14,36 @@ use super::types::{
 };
 use crate::*;
 
+fn global_step_for(
+    history: &[crate::StateSnapshot<crate::JsonState>],
+    checkpoint_id: &str,
+) -> Option<i64> {
+    let total = history.len() as i64;
+    let index = history
+        .iter()
+        .position(|snapshot| snapshot.checkpoint_id == checkpoint_id)? as i64;
+    Some(total - 2 - index)
+}
+
+fn snapshot_to_py_with_step(
+    py: Python<'_>,
+    snapshot: &crate::StateSnapshot<crate::JsonState>,
+    step: Option<i64>,
+) -> PyResult<Py<PyAny>> {
+    let value = snapshot_to_py(py, snapshot)?;
+    let Some(step) = step else {
+        return Ok(value);
+    };
+    let dict = value.bind(py).cast::<PyDict>()?;
+    dict.set_item("step", step)?;
+    if let Some(metadata) = dict.get_item("metadata")? {
+        if let Ok(metadata) = metadata.cast::<PyDict>() {
+            metadata.set_item("step", step)?;
+        }
+    }
+    Ok(value)
+}
+
 // ---------------------------------------------------------------------------
 // Python classes
 // ---------------------------------------------------------------------------
@@ -572,7 +602,14 @@ impl PyCompiledGraph {
         }
         .map_err(|error| to_pyerr(py, error))?;
         match snapshot {
-            Some(snapshot) => snapshot_to_py(py, &snapshot),
+            Some(snapshot) => {
+                let history = self
+                    .graph
+                    .get_state_history(&thread_id)
+                    .map_err(|error| to_pyerr(py, error))?;
+                let global_step = global_step_for(&history, &snapshot.checkpoint_id);
+                snapshot_to_py_with_step(py, &snapshot, global_step)
+            }
             None => Ok(py.None()),
         }
     }
@@ -634,9 +671,16 @@ impl PyCompiledGraph {
                 .get_state_history_filtered(&thread_id, before.as_deref(), limit),
         }
         .map_err(|error| to_pyerr(py, error))?;
+        let full_history = self
+            .graph
+            .get_state_history(&thread_id)
+            .map_err(|error| to_pyerr(py, error))?;
         history
             .iter()
-            .map(|snapshot| snapshot_to_py(py, snapshot))
+            .map(|snapshot| {
+                let global_step = global_step_for(&full_history, &snapshot.checkpoint_id);
+                snapshot_to_py_with_step(py, snapshot, global_step)
+            })
             .collect()
     }
 

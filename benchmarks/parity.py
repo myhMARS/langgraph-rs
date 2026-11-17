@@ -660,7 +660,7 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_meta,
             "lg": lg_meta,
             "equivalent": rs_meta == lg_meta,
-            "note": "compared source/next; step numbering differs by design",
+            "note": "source/next/step aligned",
             "bench": {
                 "rs": measure(rs_snapshot_metadata),
                 "lg": measure(lg_snapshot_metadata),
@@ -1023,6 +1023,7 @@ def lg_snapshot_metadata():
     return {
         "source": snapshot.metadata["source"],
         "next": list(snapshot.next),
+        "step": snapshot.metadata["step"],
     }
 
 
@@ -1038,6 +1039,7 @@ def rs_snapshot_metadata():
     return {
         "source": snapshot["metadata"]["source"],
         "next": list(snapshot["next"]),
+        "step": snapshot["metadata"]["step"],
     }
 
 

@@ -14,6 +14,17 @@ use crate::kernel::checkpoint::{Checkpoint, now_millis};
 pub mod msgpack;
 use crate::kernel::error::{Error, Result};
 
+fn generated_version(checkpoint: &Checkpoint, channel: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    checkpoint.id.hash(&mut hasher);
+    checkpoint.thread_id.hash(&mut hasher);
+    checkpoint.step.hash(&mut hasher);
+    channel.hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("{:032}.0.{}", hash, hash.rotate_left(17))
+}
+
 /// Export a checkpoint as a LangGraph-shaped checkpoint tuple document.
 pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
     let channel_versions = if checkpoint.channel_versions.is_empty() {
@@ -23,7 +34,7 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
             .map(|channel| {
                 (
                     channel.clone(),
-                    Value::String(crate::kernel::checkpoint::version_string(checkpoint.step)),
+                    Value::String(generated_version(checkpoint, channel)),
                 )
             })
             .collect::<Map<String, Value>>()
