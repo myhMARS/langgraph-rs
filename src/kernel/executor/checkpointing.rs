@@ -96,32 +96,22 @@ pub(super) fn save_checkpoint<S: State>(
             .as_deref()
             .and_then(|parent_id| checkpointer.get(thread_id, parent_id).ok().flatten())
     };
-    let (channel_versions, versions_seen, updated_channels) =
-        crate::kernel::checkpoint::versions_for(
-            previous.as_ref(),
-            &persisted_values,
-            step,
-            executed,
-        );
-    let checkpoint = Checkpoint {
+    let checkpoint = build_checkpoint(CheckpointDraft {
+        thread_id,
+        namespace,
         id: id.clone(),
-        thread_id: thread_id.to_string(),
-        step,
+        parent: parent.clone(),
         values: persisted_values,
-        next: next.to_vec(),
+        next,
+        step,
         interrupted,
         paused_before,
-        parent_id: parent.clone(),
-        created_at_millis: now_millis(),
         interrupts,
-        metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
-        namespace: namespace.to_string(),
-        task_results: crate::kernel::context::snapshot_task_results(),
-        channel_versions,
-        versions_seen,
-        updated_channels,
         pending_writes,
-    };
+        executed,
+        previous: previous.as_ref(),
+        task_results: crate::kernel::context::snapshot_task_results(),
+    });
     match writer {
         Some(writer) => writer.submit(checkpoint)?,
         None => checkpointer.put(checkpoint)?,
@@ -129,4 +119,52 @@ pub(super) fn save_checkpoint<S: State>(
     *parent = Some(id.clone());
     sink(StreamChunk::Checkpoint { checkpoint_id: id });
     Ok(())
+}
+
+/// Inputs shared by the sync and async checkpoint writers.
+pub(crate) struct CheckpointDraft<'a> {
+    pub(crate) thread_id: &'a str,
+    pub(crate) namespace: &'a str,
+    pub(crate) id: String,
+    pub(crate) parent: Option<String>,
+    pub(crate) values: Map<String, Value>,
+    pub(crate) next: &'a [Task],
+    pub(crate) step: usize,
+    pub(crate) interrupted: bool,
+    pub(crate) paused_before: bool,
+    pub(crate) interrupts: Vec<Interrupt>,
+    pub(crate) pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    pub(crate) executed: &'a [String],
+    pub(crate) previous: Option<&'a Checkpoint>,
+    pub(crate) task_results: Map<String, Value>,
+}
+
+/// Build a checkpoint with the version metadata used by both runtimes.
+pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
+    let (channel_versions, versions_seen, updated_channels) =
+        crate::kernel::checkpoint::versions_for(
+            draft.previous,
+            &draft.values,
+            draft.step,
+            draft.executed,
+        );
+    Checkpoint {
+        id: draft.id,
+        thread_id: draft.thread_id.to_string(),
+        step: draft.step,
+        values: draft.values,
+        next: draft.next.to_vec(),
+        interrupted: draft.interrupted,
+        paused_before: draft.paused_before,
+        parent_id: draft.parent,
+        created_at_millis: now_millis(),
+        interrupts: draft.interrupts,
+        metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
+        namespace: draft.namespace.to_string(),
+        task_results: draft.task_results,
+        channel_versions,
+        versions_seen,
+        updated_channels,
+        pending_writes: draft.pending_writes,
+    }
 }

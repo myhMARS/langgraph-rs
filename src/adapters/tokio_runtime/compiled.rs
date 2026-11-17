@@ -1841,32 +1841,24 @@ impl<S: State> AsyncCompiledGraph<S> {
             Some(parent_id) => self.saver_get(thread_id, parent_id).await?,
             None => None,
         };
-        let (channel_versions, versions_seen, updated_channels) =
-            crate::kernel::checkpoint::versions_for(
-                previous.as_ref(),
-                &persisted_values,
+        let checkpoint = crate::kernel::executor::checkpointing::build_checkpoint(
+            crate::kernel::executor::checkpointing::CheckpointDraft {
+                thread_id,
+                namespace,
+                id: id.clone(),
+                parent: parent.clone(),
+                values: persisted_values,
+                next,
                 step,
+                interrupted,
+                paused_before,
+                interrupts,
+                pending_writes,
                 executed,
-            );
-        let checkpoint = Checkpoint {
-            id: id.clone(),
-            thread_id: thread_id.to_string(),
-            step,
-            values: persisted_values,
-            next: next.to_vec(),
-            interrupted,
-            paused_before,
-            parent_id: parent.clone(),
-            created_at_millis: now_millis(),
-            interrupts,
-            metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
-            namespace: namespace.to_string(),
-            task_results: crate::kernel::context::snapshot_task_results(),
-            channel_versions,
-            versions_seen,
-            updated_channels,
-            pending_writes,
-        };
+                previous: previous.as_ref(),
+                task_results: crate::kernel::context::snapshot_task_results(),
+            },
+        );
         if let Some(writer) = writer {
             let _ = writer.send(checkpoint);
         } else {
