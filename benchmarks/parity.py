@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import tempfile
 import time
@@ -897,6 +898,129 @@ def run_subgraph_interrupt_scenario() -> list[dict]:
     ]
 
 
+def run_remote_persistence_scenario() -> list[dict]:
+    """Redis/Postgres parity, enabled through PARITY_POSTGRES_URL / PARITY_REDIS_URL."""
+    results = []
+    postgres_url = os.environ.get("PARITY_POSTGRES_URL")
+    if postgres_url:
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+
+            with PostgresSaver.from_conn_string(postgres_url) as lg_saver:
+                lg_saver.setup()
+                lg_compiled = lg_linear_graph_small().compile(
+                    checkpointer=lg_saver
+                )
+                lg_compiled.invoke(
+                    {"value": 0},
+                    {"configurable": {"thread_id": "parity-lg-pg"}},
+                )
+                lg_value = lg_compiled.get_state(
+                    {"configurable": {"thread_id": "parity-lg-pg"}}
+                ).values
+                lg_bench = measure(
+                    lambda: lg_compiled.invoke(
+                        {"value": 0},
+                        {"configurable": {"thread_id": "parity-lg-pg-bench"}},
+                    )
+                )
+            rs_saver = rs.PostgresSaver(postgres_url)
+            rs_compiled = rs_linear_graph_small().compile(checkpointer=rs_saver)
+            rs_compiled.invoke({"value": 0}, thread_id="parity-rs-pg")
+            rs_value = rs_compiled.get_state("parity-rs-pg")["values"]
+            rs_bench = measure(
+                lambda: rs_compiled.invoke(
+                    {"value": 0}, thread_id="parity-rs-pg-bench"
+                )
+            )
+            results.append(
+                {
+                    "scenario": "postgres_persistence",
+                    "rs": rs_value,
+                    "lg": dict(lg_value),
+                    "equivalent": rs_value == dict(lg_value),
+                    "bench": {"rs": rs_bench, "lg": lg_bench},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            results.append(
+                {
+                    "scenario": "postgres_persistence",
+                    "rs": None,
+                    "lg": None,
+                    "equivalent": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    redis_url = os.environ.get("PARITY_REDIS_URL")
+    if redis_url:
+        try:
+            from langgraph.checkpoint.redis import RedisSaver
+
+            lg_saver = RedisSaver(redis_url=redis_url)
+            lg_saver.setup()
+            lg_compiled = lg_linear_graph_small().compile(checkpointer=lg_saver)
+            lg_compiled.invoke(
+                {"value": 0},
+                {"configurable": {"thread_id": "parity-lg-redis"}},
+            )
+            lg_value = lg_compiled.get_state(
+                {"configurable": {"thread_id": "parity-lg-redis"}}
+            ).values
+            lg_bench = measure(
+                lambda: lg_compiled.invoke(
+                    {"value": 0},
+                    {"configurable": {"thread_id": "parity-lg-redis-bench"}},
+                )
+            )
+            rs_saver = rs.RedisSaver(redis_url)
+            rs_compiled = rs_linear_graph_small().compile(checkpointer=rs_saver)
+            rs_compiled.invoke({"value": 0}, thread_id="parity-rs-redis")
+            rs_value = rs_compiled.get_state("parity-rs-redis")["values"]
+            rs_bench = measure(
+                lambda: rs_compiled.invoke(
+                    {"value": 0}, thread_id="parity-rs-redis-bench"
+                )
+            )
+            results.append(
+                {
+                    "scenario": "redis_persistence",
+                    "rs": rs_value,
+                    "lg": dict(lg_value),
+                    "equivalent": rs_value == dict(lg_value),
+                    "bench": {"rs": rs_bench, "lg": lg_bench},
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            results.append(
+                {
+                    "scenario": "redis_persistence",
+                    "rs": None,
+                    "lg": None,
+                    "equivalent": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return results
+
+
+def lg_linear_graph_small():
+    graph = LgStateGraph(dict)
+    graph.add_node("inc", lambda state: {"value": state.get("value", 0) + 1})
+    graph.add_edge(START, "inc")
+    graph.add_edge("inc", END)
+    return graph
+
+
+def rs_linear_graph_small():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.set_entry_point("inc")
+    graph.set_finish_point("inc")
+    return graph
+
+
 def run_subgraph_scenario() -> list[dict]:
     lg_graph, rs_graph = lg_subgraph(), rs_subgraph()
     lg_value = lg_graph.invoke({"value": 1})
@@ -922,6 +1046,7 @@ def main() -> None:
         run_checkpoint_scenarios,
         run_subgraph_scenario,
         run_subgraph_interrupt_scenario,
+        run_remote_persistence_scenario,
     ):
         try:
             results.extend(runner())

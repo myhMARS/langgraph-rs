@@ -97,10 +97,19 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers 18 scenarios: linear execution, conditional branches, loops, batch,
+The latest run covers 20 scenarios: linear execution, conditional branches, loops, batch,
 managed values, v1/v2 streaming, Command(update), retry policies, node cache, store round
-trips, SQLite persistence, async execution, interrupt/resume, nested subgraph
+trips, SQLite/Postgres/Redis persistence, async execution, interrupt/resume, nested subgraph
 interrupt/resume, `update_state`, checkpoint history, and subgraphs. Every scenario records
 behavior equivalence plus per-scenario latency for both engines. The SQLite saver runs in
-WAL/NORMAL mode, which brought its parity benchmark from ~0.5x to ~29x versus LangGraph in
-the latest run.
+WAL/NORMAL mode, which brought its parity benchmark from ~0.5x to ~20-29x versus LangGraph.
+
+Postgres/Redis scenarios are opt-in because they need live databases:
+
+```bash
+export PARITY_POSTGRES_URL="postgresql://postgres:postgres@127.0.0.1:55001/langgraph_rs"
+export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
+python python/benchmarks/parity.py
+```
+
+Latest remote results: Postgres ~0.9x, Redis ~2.5x versus LangGraph.
