@@ -34,6 +34,19 @@ fn snapshot_to_py_with_step(
     let Some(step) = step else {
         return Ok(value);
     };
+    if let Ok(snapshot) = value
+        .bind(py)
+        .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
+    {
+        let dict = snapshot.dict(py);
+        dict.set_item("step", step)?;
+        if let Some(metadata) = dict.get_item("metadata")? {
+            if let Ok(metadata) = metadata.cast::<PyDict>() {
+                metadata.set_item("step", step)?;
+            }
+        }
+        return Ok(value);
+    }
     let dict = value.bind(py).cast::<PyDict>()?;
     dict.set_item("step", step)?;
     if let Some(metadata) = dict.get_item("metadata")? {

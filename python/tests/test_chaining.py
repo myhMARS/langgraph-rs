@@ -27,6 +27,22 @@ class ChainingTests(unittest.TestCase):
         )
         self.assertEqual(output["value"], 1)
 
+    def test_state_snapshot_supports_attributes_and_mapping(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, {"configurable": {"thread_id": "snapshot"}})
+        snapshot = compiled.get_state("snapshot")
+        self.assertEqual(snapshot["values"]["value"], 1)
+        self.assertEqual(snapshot.values["value"], 1)
+        self.assertEqual(list(snapshot.next), [])
+        self.assertEqual(
+            snapshot.config["configurable"]["thread_id"], "snapshot"
+        )
+        self.assertIn("values", snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()

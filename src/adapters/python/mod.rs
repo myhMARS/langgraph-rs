@@ -382,6 +382,7 @@ fn version() -> &'static str {
 fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyStateGraph>()?;
     module.add_class::<PyCompiledGraph>()?;
+    module.add_class::<super::python::types::PyStateSnapshot>()?;
     module.add(
         "CompiledStateGraph",
         module.py().get_type::<PyCompiledGraph>(),

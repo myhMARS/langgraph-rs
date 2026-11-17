@@ -512,7 +512,13 @@ pub(super) fn snapshot_to_py(
         })
         .collect::<PyResult<Vec<_>>>()?;
     dict.set_item("tasks", tasks)?;
-    Ok(dict.into_any().unbind())
+    Ok(Py::new(
+        py,
+        crate::adapters::python::types::PyStateSnapshot {
+            data: dict.unbind(),
+        },
+    )?
+    .into_any())
 }
 
 /// LangGraph v2 stream-part shape: `{type, ns, data}`.

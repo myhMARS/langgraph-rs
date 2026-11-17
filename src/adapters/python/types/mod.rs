@@ -353,4 +353,6 @@ impl PyTimeoutPolicy {
 
 /// In-memory checkpointer object for `StateGraph.compile(checkpointer=...)`.
 mod objects;
+mod snapshot;
 pub(crate) use objects::*;
+pub(crate) use snapshot::PyStateSnapshot;
