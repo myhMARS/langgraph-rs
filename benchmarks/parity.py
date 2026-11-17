@@ -418,6 +418,44 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Error handler routes a failed node to a fallback.
+    lg_graph = lg_error_handler_graph()
+    rs_graph = rs_error_handler_graph()
+    lg_value = lg_graph.invoke({"value": 0})
+    rs_value = rs_graph.invoke({"value": 0})
+    results.append(
+        {
+            "scenario": "error_handler",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"value": 0})),
+                "lg": measure(lambda: lg_graph.invoke({"value": 0})),
+            },
+        }
+    )
+
+    # Unhandled node errors surface as failures on both engines.
+    lg_failed, lg_message = raise_check(lg_failing_graph(), is_lg=True)
+    rs_failed, rs_message = raise_check(rs_failing_graph(), is_lg=False)
+    results.append(
+        {
+            "scenario": "error_propagation",
+            "rs": {"failed": rs_failed, "contains_boom": "boom" in rs_message},
+            "lg": {"failed": lg_failed, "contains_boom": "boom" in lg_message},
+            "equivalent": (
+                lg_failed
+                == rs_failed
+                and ("boom" in lg_message) == ("boom" in rs_message)
+            ),
+            "bench": {
+                "rs": measure(lambda: raise_check(rs_failing_graph(), False)),
+                "lg": measure(lambda: raise_check(lg_failing_graph(), True)),
+            },
+        }
+    )
+
     # Node cache: second identical invocation reuses the cached output.
     lg_graph, lg_cache_calls = lg_cache_graph()
     rs_graph, rs_cache_calls = rs_cache_graph()
@@ -664,6 +702,62 @@ def rs_command_graph():
     graph.set_entry_point("inc")
     graph.set_finish_point("inc")
     return graph.compile()
+
+
+def lg_error_handler_graph():
+    graph = LgStateGraph(dict)
+    graph.add_node(
+        "work",
+        lambda state: (_ for _ in ()).throw(RuntimeError("boom")),
+        error_handler=lambda state: {"value": -1},
+    )
+    graph.add_edge(START, "work")
+    graph.add_edge("work", END)
+    return graph.compile()
+
+
+def rs_error_handler_graph():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node(
+        "work",
+        lambda state: (_ for _ in ()).throw(RuntimeError("boom")),
+        error_handler="fallback",
+    )
+    graph.add_node("fallback", lambda state: {"value": -1})
+    graph.set_entry_point("work")
+    graph.set_finish_point("fallback")
+    return graph.compile()
+
+
+def lg_failing_graph():
+    graph = LgStateGraph(dict)
+    graph.add_node(
+        "boom", lambda state: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    graph.add_edge(START, "boom")
+    graph.add_edge("boom", END)
+    return graph.compile()
+
+
+def rs_failing_graph():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node(
+        "boom", lambda state: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    graph.set_entry_point("boom")
+    graph.set_finish_point("boom")
+    return graph.compile()
+
+
+def raise_check(graph, is_lg):
+    try:
+        if is_lg:
+            graph.invoke({"value": 0})
+        else:
+            graph.invoke({"value": 0})
+        return False, ""
+    except Exception as exc:  # noqa: BLE001
+        return True, str(exc)
 
 
 def lg_cache_graph():
