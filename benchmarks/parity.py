@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import operator
 import os
 import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 import langgraph_rs as rs
 from langgraph.checkpoint.memory import InMemorySaver as LgInMemorySaver
@@ -28,10 +29,19 @@ from langgraph.func import entrypoint as lg_entrypoint, task as lg_task
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
 from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
-from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy
+from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
 from langgraph.types import interrupt as lg_interrupt
 
 HERE = Path(__file__).resolve().parent
+
+
+class LgDeferredState(TypedDict):
+    log: Annotated[list, operator.add]
+
+
+class LgSendState(TypedDict):
+    log: Annotated[list, operator.add]
+    value: int
 
 
 class LgCommandState(TypedDict, total=False):
@@ -554,6 +564,58 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Graph export shape (nodes and static edges, excluding START/END sentinels).
+    lg_value = lg_graph_export()
+    rs_value = rs_graph_export()
+    results.append(
+        {
+            "scenario": "graph_export",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_graph_export),
+                "lg": measure(lg_graph_export),
+            },
+        }
+    )
+
+    # Send fan-out.
+    lg_graph = lg_send_graph()
+    rs_graph = rs_send_graph()
+    lg_value = lg_graph.invoke({"log": [], "value": 0})
+    rs_value = rs_graph.invoke({"log": [], "value": 0})
+    results.append(
+        {
+            "scenario": "send_fanout",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"log": [], "value": 0})),
+                "lg": measure(lambda: lg_graph.invoke({"log": [], "value": 0})),
+            },
+        }
+    )
+
+    # Deferred node runs after regular nodes.
+    lg_graph = lg_deferred_graph()
+    rs_graph = rs_deferred_graph()
+    lg_value = lg_graph.invoke({"log": []})
+    rs_value = rs_graph.invoke({"log": []})
+    results.append(
+        {
+            "scenario": "deferred_node",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"log": []})),
+                "lg": measure(lambda: lg_graph.invoke({"log": []})),
+            },
+        }
+    )
+
     # Functional API (@entrypoint / @task).
     lg_graph = lg_functional_graph()
     rs_graph = rs_functional_graph()
@@ -665,6 +727,99 @@ def rs_message_tokens():
         for chunk in chunks
         if chunk.get("type") == "messages"
     )
+
+
+def _normalize_export(nodes, edges):
+    ignored = {"__start__", "__end__"}
+    return {
+        "nodes": sorted(node for node in nodes if node not in ignored),
+        "edges": sorted(
+            (source, target)
+            for source, target in edges
+            if source not in ignored and target not in ignored
+        ),
+    }
+
+
+def lg_graph_export():
+    graph = LgStateGraph(dict)
+    graph.add_node("a", lambda state: {})
+    graph.add_node("b", lambda state: {})
+    graph.add_edge(START, "a")
+    graph.add_edge("a", "b")
+    graph.add_edge("b", END)
+    view = graph.compile().get_graph()
+    return _normalize_export(
+        view.nodes.keys(), [(edge.source, edge.target) for edge in view.edges]
+    )
+
+
+def rs_graph_export():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("a", lambda state: {})
+    graph.add_node("b", lambda state: {})
+    graph.set_entry_point("a")
+    graph.add_edge("a", "b")
+    graph.set_finish_point("b")
+    view = graph.compile().get_graph().to_dict()
+    return _normalize_export(
+        [node["id"] for node in view["nodes"]],
+        [(edge["source"], edge["target"]) for edge in view["edges"]],
+    )
+
+
+def lg_send_graph():
+    graph = LgStateGraph(LgSendState)
+    graph.add_node("dispatch", lambda state: {})
+    graph.add_node("worker", lambda state: {"log": [state["value"]]})
+    graph.add_conditional_edges(
+        "dispatch",
+        lambda state: [
+            LgSend("worker", {"value": value}) for value in (1, 2, 3)
+        ],
+    )
+    graph.add_edge(START, "dispatch")
+    graph.set_finish_point("worker")
+    return graph.compile()
+
+
+def rs_send_graph():
+    graph = rs.StateGraph({"log": "append", "value": "last_value"})
+    graph.add_node("dispatch", lambda state: {})
+    graph.add_node("worker", lambda state: {"log": [state["value"]]})
+    graph.add_conditional_edges(
+        "dispatch",
+        lambda state: [
+            rs.Send("worker", {"value": value}) for value in (1, 2, 3)
+        ],
+    )
+    graph.set_entry_point("dispatch")
+    graph.set_finish_point("worker")
+    return graph.compile()
+
+
+def lg_deferred_graph():
+    graph = LgStateGraph(LgDeferredState)
+    graph.add_node("regular", lambda state: {"log": ["regular"]})
+    graph.add_node(
+        "deferred", lambda state: {"log": ["deferred"]}, defer=True
+    )
+    graph.add_edge(START, "regular")
+    graph.add_edge(START, "deferred")
+    graph.add_edge("regular", END)
+    graph.add_edge("deferred", END)
+    return graph.compile()
+
+
+def rs_deferred_graph():
+    graph = rs.StateGraph({"log": "append"})
+    graph.add_node("regular", lambda state: {"log": ["regular"]})
+    graph.add_node(
+        "deferred", lambda state: {"log": ["deferred"]}, deferred=True
+    )
+    graph.set_entry_point("regular")
+    graph.add_edge("regular", "deferred")
+    return graph.compile()
 
 
 def lg_functional_graph():

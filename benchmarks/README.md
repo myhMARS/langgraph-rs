@@ -97,8 +97,8 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers 27 scenarios: linear execution, conditional branches, loops, batch,
-managed values, v1/v2 streaming, messages/token streaming, functional API, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache, store round trips, SQLite/Postgres/Redis persistence, async
+The latest run covers 30 scenarios: linear execution, conditional branches, loops, batch,
+managed values, v1/v2 streaming, messages/token streaming, functional API, Send fan-out, deferred nodes, graph export, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache, store round trips, SQLite/Postgres/Redis persistence, async
 execution, interrupt/resume, nested subgraph interrupt/resume, `update_state`, checkpoint
 history, and subgraphs. Every scenario records behavior equivalence plus per-scenario latency
 for both engines. The SQLite saver runs in WAL/NORMAL mode, which brought its parity benchmark
@@ -112,4 +112,4 @@ export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
 python python/benchmarks/parity.py
 ```
 
-Latest remote results: Postgres ~1.05x, Redis ~2.7x versus LangGraph. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
+Latest remote results: Postgres ~0.88x, Redis ~2.2x versus LangGraph. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
