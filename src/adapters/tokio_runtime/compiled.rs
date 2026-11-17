@@ -13,7 +13,9 @@ use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::executor::outcome::{ProcessedResults, TaskFailure, TaskOutcome, TaskResult};
+use crate::kernel::executor::outcome::{
+    ProcessedResults, TaskFailure, TaskOutcome, TaskResult, finish,
+};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -1837,20 +1839,4 @@ async fn run_with_idle_timeout(
             }
         }
     }
-}
-
-fn finish<S: State>(
-    state: S,
-    schema: &crate::kernel::state::StateSchema,
-    mut report: RunReport,
-    started: Instant,
-) -> Result<RunOutcome<S>> {
-    report.total_duration_millis = started.elapsed().as_millis() as u64;
-    let state = if schema.has_output_filter() {
-        let values = crate::kernel::state::state_to_values(&state)?;
-        values_to_state::<S>(&schema.output_values(&values))?
-    } else {
-        state
-    };
-    Ok(RunOutcome { state, report })
 }

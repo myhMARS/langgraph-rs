@@ -20,7 +20,7 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
-use self::outcome::{TaskOutcome, collect_pending_writes, process_outcomes};
+use self::outcome::{TaskOutcome, collect_pending_writes, finish, process_outcomes};
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
@@ -600,22 +600,6 @@ pub(crate) fn apply_managed_values<S: State>(
     values.insert("is_last_step".to_string(), json!(remaining <= 1));
     *state = values_to_state::<S>(values)?;
     Ok(())
-}
-
-fn finish<S: State>(
-    state: S,
-    schema: &crate::kernel::state::StateSchema,
-    mut report: RunReport,
-    started: Instant,
-) -> Result<RunOutcome<S>> {
-    report.total_duration_millis = started.elapsed().as_millis() as u64;
-    let state = if schema.has_output_filter() {
-        let values = crate::kernel::state::state_to_values(&state)?;
-        values_to_state::<S>(&schema.output_values(&values))?
-    } else {
-        state
-    };
-    Ok(RunOutcome { state, report })
 }
 
 pub(crate) fn apply_pending_writes(

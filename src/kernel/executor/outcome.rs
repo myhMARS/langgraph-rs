@@ -14,7 +14,7 @@ use crate::kernel::node::{NodeOutput, Task};
 use crate::kernel::ports::TraceSink;
 use crate::kernel::state::ChannelUpdate;
 use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::{NodeExecution, RunReport, Usage};
+use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 /// Everything one superstep's node outcomes contribute to the run.
 #[derive(Debug, Default)]
@@ -353,4 +353,22 @@ pub(crate) fn collect_pending_writes(
         }
     }
     writes
+}
+
+/// Convert the working state into the run outcome, applying the output filter and
+/// stamping the total duration.
+pub(crate) fn finish<S: crate::kernel::state::State>(
+    state: S,
+    schema: &crate::kernel::state::StateSchema,
+    mut report: RunReport,
+    started: std::time::Instant,
+) -> Result<RunOutcome<S>> {
+    report.total_duration_millis = started.elapsed().as_millis() as u64;
+    let state = if schema.has_output_filter() {
+        let values = crate::kernel::state::state_to_values(&state)?;
+        crate::kernel::state::values_to_state::<S>(&schema.output_values(&values))?
+    } else {
+        state
+    };
+    Ok(RunOutcome { state, report })
 }
