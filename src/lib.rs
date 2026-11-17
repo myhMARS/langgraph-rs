@@ -169,7 +169,7 @@ pub use kernel::checkpoint::Checkpoint;
 pub use kernel::command::Command;
 pub use kernel::context::{
     current_context, current_namespace, current_node, current_resume, current_runtime,
-    current_thread_id, custom, get_config, get_store, get_stream_writer, interrupt,
+    current_step, current_thread_id, custom, get_config, get_store, get_stream_writer, interrupt,
     interrupt_with_schema, is_last_step, last_error, message, push_custom, push_message,
     record_tokens, record_usage, remaining_steps,
 };

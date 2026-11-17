@@ -23,11 +23,10 @@ The following areas have dedicated behavior + benchmark scenarios in
 
 ## Non-blocking differences
 
-| Area | Difference | Impact |
-| --- | --- | --- |
-| Timed async loop | Timed Python nodes reuse a per-thread asyncio loop | With a 50ms deadline both engines are ~0.99x; short deadlines expose timer-resolution differences |
-| Messages metadata | Injected callbacks expose model/tags but not LangGraph's full callback record | Token content matches; metadata is narrower |
-| SQLite/Postgres cache/store APIs | Binding constructors take a path/URL rather than a live connection/client | Behavior matches; Python object shape differs |
+No known non-blocking behavioral differences remain in the parity matrix.
+
+Timed async nodes reuse a per-thread asyncio loop; with a 50ms deadline both engines are
+~0.99x. SQLite/Postgres savers and stores accept live connections as well as paths/URLs.
 
 ## Performance snapshot
 

@@ -656,6 +656,11 @@ pub fn record_tokens(input_tokens: u64, output_tokens: u64) -> Result<()> {
 }
 
 /// Name of the node that is currently executing, if any.
+/// Superstep currently being executed, when called from a node.
+pub fn current_step() -> Option<usize> {
+    CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step))
+}
+
 pub fn current_node() -> Option<String> {
     CURRENT_TASK.with(|slot| slot.borrow().as_ref().map(|context| context.node.clone()))
 }

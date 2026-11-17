@@ -380,6 +380,21 @@ impl PyInMemorySaver {
     }
 }
 
+#[cfg(feature = "sqlite")]
+fn sqlite_path_from_py(object: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(path) = object.extract::<String>() {
+        return Ok(path);
+    }
+    let cursor = object.call_method1("execute", ("PRAGMA database_list",))?;
+    let row = cursor.call_method0("fetchone")?;
+    let path: Option<String> = row.get_item(2)?.extract()?;
+    path.filter(|path| !path.is_empty()).ok_or_else(|| {
+        PyTypeError::new_err(
+            "SqliteSaver expects a file path or a sqlite3.Connection backed by a file",
+        )
+    })
+}
+
 /// SQLite checkpointer object (available with the `sqlite` feature).
 #[cfg(feature = "sqlite")]
 #[pyclass(name = "SqliteSaver")]
@@ -391,7 +406,8 @@ pub struct PySqliteSaver {
 #[pymethods]
 impl PySqliteSaver {
     #[new]
-    fn new(path: String) -> PyResult<Self> {
+    fn new(path: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let path = sqlite_path_from_py(path)?;
         Ok(Self {
             inner: Arc::new(
                 crate::SqliteSaver::open(path)
@@ -544,8 +560,23 @@ impl PyTask {
     }
 }
 
+#[cfg(feature = "postgres")]
+fn postgres_url_from_py(object: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(url) = object.extract::<String>() {
+        return Ok(url);
+    }
+    object
+        .getattr("info")
+        .and_then(|info| info.getattr("dsn"))
+        .and_then(|dsn| dsn.extract::<String>())
+        .map_err(|_| {
+            PyTypeError::new_err(
+                "PostgresSaver expects a connection URL or a psycopg connection with info.dsn",
+            )
+        })
+}
+
 #[cfg(feature = "redis")]
-/// Python wrapper around `RedisSaver`.
 #[pyclass(name = "RedisSaver")]
 pub struct PyRedisSaver {
     pub(crate) inner: Arc<RedisSaver>,
@@ -579,7 +610,8 @@ pub struct PyPostgresSaver {
 #[pymethods]
 impl PyPostgresSaver {
     #[new]
-    fn new(url: String) -> PyResult<Self> {
+    fn new(url: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let url = postgres_url_from_py(url)?;
         let saver = PostgresSaver::connect(&url)
             .map_err(|error| PyTypeError::new_err(error.to_string()))?;
         Ok(Self {
@@ -755,8 +787,12 @@ pub struct PySqliteStore {
 #[pymethods]
 impl PySqliteStore {
     #[new]
-    #[pyo3(signature = (path=":memory:"))]
-    fn new(path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path=None))]
+    fn new(path: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let path = match path {
+            Some(path) => sqlite_path_from_py(path)?,
+            None => ":memory:".to_string(),
+        };
         let store = crate::SqliteStore::open(path)
             .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
         Ok(Self {
@@ -969,8 +1005,9 @@ pub struct PyPostgresStore {
 #[pymethods]
 impl PyPostgresStore {
     #[new]
-    fn new(url: &str) -> PyResult<Self> {
-        let store = crate::PostgresStore::connect(url)
+    fn new(url: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let url = postgres_url_from_py(url)?;
+        let store = crate::PostgresStore::connect(&url)
             .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
         Ok(Self {
             store: Arc::new(store),
@@ -1117,7 +1154,8 @@ pub struct PyLangGraphSqliteSaver {
 #[pymethods]
 impl PyLangGraphSqliteSaver {
     #[new]
-    fn new(path: &str) -> PyResult<Self> {
+    fn new(path: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let path = sqlite_path_from_py(path)?;
         let saver = crate::LangGraphSqliteSaver::open(path)
             .map_err(|error| PyTypeError::new_err(error.to_string()))?;
         Ok(Self {

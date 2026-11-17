@@ -77,6 +77,18 @@ fn current_thread_id() -> Option<String> {
     crate::current_thread_id()
 }
 
+/// Node currently executing, when called from a node or callback.
+#[pyfunction]
+fn current_node() -> Option<String> {
+    crate::current_node()
+}
+
+/// Superstep currently executing, when called from a node or callback.
+#[pyfunction]
+fn current_step() -> Option<usize> {
+    crate::current_step()
+}
+
 /// Checkpoint namespace of the current run.
 #[pyfunction]
 fn current_namespace() -> String {
@@ -233,11 +245,21 @@ class LangChainCallbackHandler:
         self.model = model
         self.tags = list(tags or [])
 
-    def _emit(self, token):
+    def _emit(self, token, kwargs=None):
         import langgraph_rs
         metadata = {}
         if self.model:
             metadata["model"] = self.model
+        for key in ("ls_provider", "ls_model_name", "ls_model_type", "ls_integration"):
+            value = (kwargs or {}).get(key)
+            if value is not None:
+                metadata[key] = value
+        node = langgraph_rs.current_node()
+        if node:
+            metadata["langgraph_node"] = node
+        step = langgraph_rs.current_step()
+        if step is not None:
+            metadata["langgraph_step"] = step
         langgraph_rs.message({"content": token, "tags": self.tags, "metadata": metadata})
 
     def _pick_model(self, kwargs):
@@ -256,7 +278,7 @@ class LangChainCallbackHandler:
 
     def on_llm_new_token(self, token, **kwargs):
         if isinstance(token, str):
-            self._emit(token)
+            self._emit(token, kwargs)
 
     def on_llm_end(self, response, **kwargs):
         usage = None
@@ -418,6 +440,8 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_context, module)?)?;
     module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;
     module.add_function(wrap_pyfunction!(current_namespace, module)?)?;
+    module.add_function(wrap_pyfunction!(current_node, module)?)?;
+    module.add_function(wrap_pyfunction!(current_step, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
