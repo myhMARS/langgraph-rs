@@ -468,9 +468,9 @@ def run_linear_scenarios() -> list[dict]:
                 lg_failed == rs_failed
                 and timeout_marker(lg_message) == timeout_marker(rs_message)
             ),
-            "note": "LangGraph timeout is async cancellation; the binding enforces it on its sync worker",
+            "note": "both engines cancel the async node with a timeout error",
             "bench": {
-                "rs": measure(run_rs_timeout),
+                "rs": measure_async(run_rs_timeout_async),
                 "lg": measure_async(run_lg_timeout_async),
             },
         }
@@ -809,20 +809,22 @@ async def run_lg_timeout_async():
 
 
 def run_rs_timeout():
-    import time as _time
+    return asyncio.run(run_rs_timeout_async())
 
-    def slow(state):
-        _time.sleep(0.2)
+
+async def run_rs_timeout_async():
+    async def slow(state):
+        await asyncio.sleep(0.2)
         return {"value": 1}
 
-    graph = rs.StateGraph({"value": "last_value"})
+    graph = rs.AsyncStateGraph({"value": "last_value"})
     graph.add_node(
         "slow", slow, timeout=rs.TimeoutPolicy(run_timeout=0.02)
     )
     graph.set_entry_point("slow")
     graph.set_finish_point("slow")
     try:
-        graph.compile().invoke({"value": 0})
+        await graph.compile().ainvoke({"value": 0})
         return False, ""
     except Exception as exc:  # noqa: BLE001
         return True, str(exc)

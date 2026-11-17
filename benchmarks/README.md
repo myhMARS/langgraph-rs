@@ -112,4 +112,4 @@ export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
 python python/benchmarks/parity.py
 ```
 
-Latest remote results: Postgres ~0.85x, Redis ~2.4x versus LangGraph. `node_timeout` compares LangGraph async cancellation with the binding sync-worker timeout (both fail with a timeout error).
+Latest remote results: Postgres ~1.2x, Redis ~2.25x versus LangGraph. `node_timeout` compares async cancellation on both engines (both fail with a timeout error).

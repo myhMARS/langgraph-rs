@@ -16,6 +16,24 @@ use crate::kernel::stream::StreamChunk;
 use crate::tokio_runtime::{AsyncCompiledGraph, AsyncContext, AsyncStateGraph};
 use crate::*;
 
+fn wrap_async_timeout(py: Python<'_>, function: Py<PyAny>, seconds: f64) -> PyResult<Py<PyAny>> {
+    let locals = pyo3::types::PyDict::new(py);
+    locals.set_item("fn", function.bind(py))?;
+    locals.set_item("seconds", seconds.max(0.0))?;
+    py.run(
+        c"async def _timeout_wrapper(state, fn=fn, seconds=seconds):
+    import asyncio
+    return await asyncio.wait_for(fn(state), seconds)
+wrapper = _timeout_wrapper",
+        None,
+        Some(&locals),
+    )?;
+    locals
+        .get_item("wrapper")?
+        .map(|value| value.unbind())
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("timeout wrapper missing"))
+}
+
 fn async_node_from_python(
     name: String,
     function: Py<PyAny>,
@@ -103,6 +121,7 @@ impl PyAsyncStateGraph {
     #[pyo3(signature = (name, function, timeout=None))]
     fn add_node(
         &mut self,
+        py: Python<'_>,
         name: String,
         function: Py<PyAny>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
@@ -111,6 +130,13 @@ impl PyAsyncStateGraph {
             &mut self.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
+        // Python coroutines are driven by a private asyncio loop, so a Tokio
+        // timeout cannot interrupt them; enforce the run timeout with
+        // asyncio.wait_for inside the node itself instead.
+        let function = match timeout.as_ref().and_then(|policy| policy.run_timeout) {
+            Some(seconds) => wrap_async_timeout(py, function, seconds)?,
+            None => function,
+        };
         let mut builder =
             builder.add_node(name.clone(), async_node_from_python(name.clone(), function));
         if let Some(policy) = timeout {

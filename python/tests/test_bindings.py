@@ -816,6 +816,28 @@ class PythonParityRound2Tests(unittest.TestCase):
 
 
 class AsyncPythonTests(unittest.TestCase):
+    def test_async_node_timeout(self):
+        import asyncio
+
+        async def scenario():
+            async def slow(state):
+                import asyncio
+
+                await asyncio.sleep(0.2)
+                return {"value": 1}
+
+            graph = lg.AsyncStateGraph({"value": "last_value"})
+            graph.add_node(
+                "slow", slow, timeout=lg.TimeoutPolicy(run_timeout=0.02)
+            )
+            graph.set_entry_point("slow")
+            graph.set_finish_point("slow")
+            with self.assertRaises(Exception) as raised:
+                await graph.compile().ainvoke({"value": 0})
+            self.assertIn("TimeoutError", str(raised.exception))
+
+        asyncio.run(scenario())
+
     def test_async_invoke(self):
         import asyncio
 
