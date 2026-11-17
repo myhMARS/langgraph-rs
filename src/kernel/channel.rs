@@ -173,7 +173,8 @@ impl Channel {
                 let mut seen: Vec<String> = match current {
                     None | Some(Value::Null) | Some(Value::Bool(false)) => Vec::new(),
                     Some(Value::Bool(true)) => {
-                        return Ok(Some(Value::Bool(true)));
+                        // Re-arm when a new round of writes arrives after the barrier opened.
+                        Vec::new()
                     }
                     Some(Value::Array(values)) => values
                         .iter()
@@ -504,5 +505,15 @@ mod tests {
                 { "id": "b", "content": "hi" }
             ])
         );
+    }
+    #[test]
+    fn named_barrier_rearms_on_new_writes() {
+        let channel = Channel::named_barrier(["a", "b"]);
+        let opened = channel.apply(None, &[json!("a"), json!("b")]).unwrap();
+        assert_eq!(opened, Some(json!(true)));
+        let pending = channel.apply(Some(&json!(true)), &[json!("a")]).unwrap();
+        assert_eq!(pending, Some(json!(["a"])));
+        let reopened = channel.apply(Some(&json!(["a"])), &[json!("b")]).unwrap();
+        assert_eq!(reopened, Some(json!(true)));
     }
 }
