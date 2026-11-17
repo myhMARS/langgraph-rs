@@ -1200,7 +1200,8 @@ impl<S: State> AsyncCompiledGraph<S> {
                         .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
                         .map(|(task, _)| task.id.clone())
                         .collect();
-                    let pending_writes = self.collect_pending_writes(&tasks, &outcomes);
+                    let pending_writes =
+                        crate::kernel::executor::outcome::collect_pending_writes(&tasks, &outcomes);
                     let successful: Vec<TaskOutcome> = outcomes
                         .into_iter()
                         .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -1746,39 +1747,6 @@ impl<S: State> AsyncCompiledGraph<S> {
         futures::executor::block_on(self.saver_history(thread_id))
     }
 
-    fn collect_pending_writes(
-        &self,
-        tasks: &[Task],
-        outcomes: &[TaskOutcome],
-    ) -> Vec<crate::kernel::checkpoint::PendingWrite> {
-        let mut writes = Vec::new();
-        for (task, outcome) in tasks.iter().zip(outcomes) {
-            let TaskOutcome::Ok(result) = outcome else {
-                continue;
-            };
-            for (channel, value) in result.output.updates_map() {
-                writes.push(crate::kernel::checkpoint::PendingWrite {
-                    task_id: task.id.clone(),
-                    node: task.node.clone(),
-                    channel: channel.clone(),
-                    value: value.clone(),
-                    replace: false,
-                });
-            }
-            for (channel, value) in result.output.replaces_map() {
-                writes.push(crate::kernel::checkpoint::PendingWrite {
-                    task_id: task.id.clone(),
-                    node: task.node.clone(),
-                    channel: channel.clone(),
-                    value: value.clone(),
-                    replace: true,
-                });
-            }
-        }
-        writes
-    }
-
-    #[allow(clippy::too_many_arguments)]
     async fn save_checkpoint(
         &self,
         thread_id: Option<&str>,

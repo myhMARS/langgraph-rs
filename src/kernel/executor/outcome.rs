@@ -322,3 +322,35 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
         goto_nodes,
     })
 }
+
+/// Pending channel writes of the successful tasks in a superstep.
+pub(crate) fn collect_pending_writes(
+    tasks: &[Task],
+    outcomes: &[TaskOutcome],
+) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+    let mut writes = Vec::new();
+    for (task, outcome) in tasks.iter().zip(outcomes) {
+        let TaskOutcome::Ok(result) = outcome else {
+            continue;
+        };
+        for (channel, value) in result.output.updates_map() {
+            writes.push(crate::kernel::checkpoint::PendingWrite {
+                task_id: task.id.clone(),
+                node: task.node.clone(),
+                channel: channel.clone(),
+                value: value.clone(),
+                replace: false,
+            });
+        }
+        for (channel, value) in result.output.replaces_map() {
+            writes.push(crate::kernel::checkpoint::PendingWrite {
+                task_id: task.id.clone(),
+                node: task.node.clone(),
+                channel: channel.clone(),
+                value: value.clone(),
+                replace: true,
+            });
+        }
+    }
+    writes
+}

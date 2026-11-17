@@ -20,7 +20,7 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
-use self::outcome::{TaskOutcome, process_outcomes};
+use self::outcome::{TaskOutcome, collect_pending_writes, process_outcomes};
 use self::scheduling::{collect_next_nodes, dedupe, send_task};
 use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
@@ -649,37 +649,6 @@ fn finish<S: State>(
         state
     };
     Ok(RunOutcome { state, report })
-}
-
-fn collect_pending_writes(
-    tasks: &[Task],
-    outcomes: &[TaskOutcome],
-) -> Vec<crate::kernel::checkpoint::PendingWrite> {
-    let mut writes = Vec::new();
-    for (task, outcome) in tasks.iter().zip(outcomes) {
-        let TaskOutcome::Ok(result) = outcome else {
-            continue;
-        };
-        for (channel, value) in result.output.updates_map() {
-            writes.push(crate::kernel::checkpoint::PendingWrite {
-                task_id: task.id.clone(),
-                node: task.node.clone(),
-                channel: channel.clone(),
-                value: value.clone(),
-                replace: false,
-            });
-        }
-        for (channel, value) in result.output.replaces_map() {
-            writes.push(crate::kernel::checkpoint::PendingWrite {
-                task_id: task.id.clone(),
-                node: task.node.clone(),
-                channel: channel.clone(),
-                value: value.clone(),
-                replace: true,
-            });
-        }
-    }
-    writes
 }
 
 pub(crate) fn apply_pending_writes(
