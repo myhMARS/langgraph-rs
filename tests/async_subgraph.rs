@@ -66,9 +66,13 @@ async fn async_subgraph_nested_interrupt_and_resume() {
     );
 
     let child_state = parent
-        .get_state_in("async-subgraph", "child")
+        .get_state_subgraphs("async-subgraph")
         .unwrap()
-        .unwrap();
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|snapshot| snapshot.checkpoint_ns.starts_with("child"))
+        .expect("child namespace");
     assert!(child_state.interrupted);
     assert_eq!(child_state.values.value, 10);
 
@@ -76,10 +80,12 @@ async fn async_subgraph_nested_interrupt_and_resume() {
     assert_eq!(output.value, 15);
     assert!(
         !parent
-            .get_state_in("async-subgraph", "child")
+            .get_state_subgraphs("async-subgraph")
             .unwrap()
             .unwrap()
-            .interrupted
+            .1
+            .iter()
+            .any(|snapshot| snapshot.checkpoint_ns.starts_with("child") && snapshot.interrupted)
     );
 }
 

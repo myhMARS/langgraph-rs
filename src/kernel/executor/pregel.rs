@@ -443,6 +443,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             sink(values_chunk(step, &values));
         }
         if backend.has_parent_command() {
+            if namespace.is_empty() {
+                return Err(Error::validation(
+                    "Command(graph=PARENT) can only be returned from inside a subgraph",
+                ));
+            }
             return finish(state, backend.schema(), report, started);
         }
 
