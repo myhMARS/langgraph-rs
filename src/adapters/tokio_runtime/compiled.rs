@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures::future::join_all;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
@@ -53,12 +52,19 @@ pub struct AsyncCompiledGraph<S: State> {
 }
 
 /// Where a run starts from.
-struct AsyncRunInfo {
-    thread_id: Option<String>,
-    namespace: String,
-    store: Option<Arc<dyn BaseStore>>,
-    context: Option<Value>,
-    collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
+pub(crate) struct AsyncRunInfo {
+    pub(crate) thread_id: Option<String>,
+    pub(crate) namespace: String,
+    pub(crate) store: Option<Arc<dyn BaseStore>>,
+    pub(crate) context: Option<Value>,
+    pub(crate) collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
+}
+
+/// Async backend: future joins and awaitable checkpoint I/O.
+pub(crate) struct AsyncBackend<'a, S: State> {
+    pub(crate) graph: &'a AsyncCompiledGraph<S>,
+    pub(crate) writer: Option<&'a tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+    pub(crate) run: &'a AsyncRunInfo,
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
@@ -921,11 +927,11 @@ impl<S: State> AsyncCompiledGraph<S> {
         crate::kernel::context::with_async_run(run_context, future).await
     }
 
-    fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
+    pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
         crate::kernel::executor::scheduling::entry_tasks(&self.entry, state)
     }
 
-    async fn run_task(
+    pub(crate) async fn run_task(
         &self,
         task: &Task,
         state: &S,
@@ -1137,11 +1143,11 @@ impl<S: State> AsyncCompiledGraph<S> {
         }))
     }
 
-    fn edges_of(&self, node: &str) -> Option<&[String]> {
+    pub(crate) fn edges_of(&self, node: &str) -> Option<&[String]> {
         self.edges.get(node).map(Vec::as_slice)
     }
 
-    fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
+    pub(crate) fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
         self.conditional.get(node).map(Vec::as_slice)
     }
 }
@@ -1166,249 +1172,5 @@ async fn run_with_idle_timeout(
                 }
             }
         }
-    }
-}
-
-impl<S: State> AsyncCompiledGraph<S> {
-    async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.put(checkpoint).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.put(checkpoint)
-        } else {
-            Err(Error::MissingCheckpointer("save_checkpoint"))
-        }
-    }
-
-    async fn saver_get(&self, thread_id: &str, checkpoint_id: &str) -> Result<Option<Checkpoint>> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.get(thread_id, checkpoint_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.get(thread_id, checkpoint_id)
-        } else {
-            Err(Error::MissingCheckpointer("get"))
-        }
-    }
-
-    async fn saver_latest(&self, thread_id: &str) -> Result<Option<Checkpoint>> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.latest(thread_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.latest(thread_id)
-        } else {
-            Err(Error::MissingCheckpointer("latest"))
-        }
-    }
-
-    async fn saver_latest_in(
-        &self,
-        thread_id: &str,
-        namespace: &str,
-    ) -> Result<Option<Checkpoint>> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.latest_in(thread_id, namespace).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.latest_in(thread_id, namespace)
-        } else {
-            Err(Error::MissingCheckpointer("latest_in"))
-        }
-    }
-
-    async fn saver_history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.history(thread_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.history(thread_id)
-        } else {
-            Err(Error::MissingCheckpointer("history"))
-        }
-    }
-
-    async fn saver_history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
-        if let Some(saver) = &self.async_checkpointer {
-            saver.history_in(thread_id, namespace).await
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.history_in(thread_id, namespace)
-        } else {
-            Err(Error::MissingCheckpointer("history_in"))
-        }
-    }
-
-    fn saver_history_in_sync(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
-        futures::executor::block_on(self.saver_history_in(thread_id, namespace))
-    }
-
-    fn saver_threads_sync(&self) -> Result<Vec<String>> {
-        if let Some(saver) = &self.async_checkpointer {
-            futures::executor::block_on(saver.threads())
-        } else if let Some(checkpointer) = &self.checkpointer {
-            checkpointer.threads()
-        } else {
-            Err(Error::MissingCheckpointer("threads"))
-        }
-    }
-
-    fn saver_latest_in_sync(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
-        futures::executor::block_on(self.saver_latest_in(thread_id, namespace))
-    }
-
-    fn saver_history_sync(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
-        futures::executor::block_on(self.saver_history(thread_id))
-    }
-}
-
-/// Async backend: future joins and awaitable checkpoint I/O.
-pub(crate) struct AsyncBackend<'a, S: State> {
-    graph: &'a AsyncCompiledGraph<S>,
-    writer: Option<&'a tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
-    run: &'a AsyncRunInfo,
-}
-
-impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncBackend<'a, S> {
-    fn schema(&self) -> &crate::kernel::state::StateSchema {
-        &self.graph.schema
-    }
-
-    fn recursion_limit(&self) -> usize {
-        self.graph.recursion_limit
-    }
-
-    fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        self.graph.entry_tasks(state)
-    }
-
-    fn node_exists(&self, node: &str) -> bool {
-        self.graph.nodes.contains_key(node)
-    }
-
-    fn edges_of(&self, node: &str) -> Option<&[String]> {
-        self.graph.edges.get(node).map(Vec::as_slice)
-    }
-
-    fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
-        self.graph.conditional.get(node).map(Vec::as_slice)
-    }
-
-    fn destinations_of(&self, node: &str) -> Option<&[String]> {
-        self.graph.destinations_of(node)
-    }
-
-    fn interrupts_before(&self, node: &str) -> bool {
-        self.graph.interrupt_before.contains(node)
-    }
-
-    fn interrupts_after(&self, node: &str) -> bool {
-        self.graph.interrupt_after.contains(node)
-    }
-
-    fn is_deferred(&self, node: &str) -> bool {
-        self.graph.deferred.contains(node)
-    }
-
-    fn context_schema(&self) -> Option<&Value> {
-        self.graph.context_schema()
-    }
-
-    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>> {
-        self.graph.store.clone()
-    }
-
-    fn has_checkpointer(&self) -> bool {
-        self.graph.has_checkpointer()
-    }
-
-    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) -> bool {
-        self.graph.schema.clear_ephemeral(values)
-    }
-
-    fn collector(&self) -> Option<std::sync::Arc<std::sync::Mutex<Vec<StreamChunk>>>> {
-        self.run.collector.clone()
-    }
-
-    async fn run_superstep(
-        &self,
-        state: &S,
-        tasks: &[Task],
-        step: usize,
-        control: Option<&crate::RunControl>,
-    ) -> Result<Vec<TaskOutcome>> {
-        let run = join_all(
-            tasks
-                .iter()
-                .map(|task| self.graph.run_task(task, state, step, self.run)),
-        );
-        match control {
-            Some(control) => tokio::select! {
-                outcomes = run => Ok(outcomes),
-                _ = control.wait_aborted() => {
-                    Err(Error::other("run aborted by RunControl"))
-                }
-            },
-            None => Ok(run.await),
-        }
-    }
-
-    async fn load_checkpoint(
-        &self,
-        thread_id: &str,
-        checkpoint_id: Option<&str>,
-        namespace: &str,
-    ) -> Result<Option<Checkpoint>> {
-        match checkpoint_id {
-            Some(id) => self.graph.saver_get(thread_id, id).await,
-            None => self.graph.saver_latest_in(thread_id, namespace).await,
-        }
-    }
-
-    async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
-        if let Some(writer) = self.writer {
-            writer
-                .send(checkpoint)
-                .map_err(|_| Error::Checkpoint("checkpoint writer stopped".to_string()))?;
-            return Ok(());
-        }
-        if let Some(async_saver) = &self.graph.async_checkpointer {
-            async_saver.put(checkpoint).await?;
-        } else if let Some(saver) = &self.graph.checkpointer {
-            crate::kernel::executor::checkpointing::persist_checkpoint(
-                saver.as_ref(),
-                checkpoint,
-                None,
-            )?;
-        } else {
-            return Err(Error::MissingCheckpointer("persist_checkpoint"));
-        }
-        Ok(())
-    }
-}
-
-impl<'a, S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncBackend<'a, S> {
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
-        &self.graph.trace_sinks
-    }
-
-    fn error_handler(&self, node: &str) -> Option<&str> {
-        self.graph.error_edges.get(node).map(String::as_str)
-    }
-
-    fn has_node(&self, node: &str) -> bool {
-        self.graph.nodes.contains_key(node)
-    }
-
-    fn destinations_of(&self, node: &str) -> Option<&[String]> {
-        self.graph.destinations_of(node)
-    }
-
-    fn record_parent_command(
-        &self,
-        updates: Vec<(String, Value)>,
-        replaces: Vec<(String, Value)>,
-        goto: Vec<String>,
-    ) {
-        super::context::record_parent_command(updates, replaces, goto);
-    }
-
-    fn has_parent_command(&self) -> bool {
-        super::context::has_parent_command()
     }
 }
