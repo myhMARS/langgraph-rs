@@ -31,6 +31,7 @@ impl PyStateSnapshot {
         }
     }
 
+    #[pyo3(signature = (key, default=None))]
     fn get(
         &self,
         py: Python<'_>,

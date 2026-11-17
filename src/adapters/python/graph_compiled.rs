@@ -16,10 +16,13 @@ pub struct PyCompiledGraph {
 }
 
 impl PyCompiledGraph {
-    pub(crate) fn from_inner(graph: CompiledGraph<JsonState>) -> Self {
+    pub(crate) fn from_inner_with_saver(
+        graph: CompiledGraph<JsonState>,
+        saver: Option<Arc<dyn Checkpointer>>,
+    ) -> Self {
         Self {
             graph: Arc::new(graph),
-            saver: None,
+            saver,
         }
     }
 }

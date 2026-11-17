@@ -7,7 +7,10 @@ use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
 use crate::kernel::state::{JsonState, StateSchema};
-use crate::prebuilt::{TOOLS, ToolDefinition, ToolNode, tools_condition as rust_tools_condition};
+use crate::prebuilt::{
+    TOOLS, ToolDefinition, ToolNode, tools_condition as rust_tools_condition,
+    tools_condition_with as rust_tools_condition_with,
+};
 use crate::{END, Result, Route, StateGraph, reducers};
 
 fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
@@ -139,23 +142,28 @@ pub(super) fn create_react_agent(
         tool_node = tool_node.messages_key(key);
     }
     let messages_key = messages_key.unwrap_or_else(|| "messages".to_string());
+    let condition_key = messages_key.clone();
     let schema = StateSchema::dynamic().with_reducer(&messages_key, reducers::messages());
     let inner = StateGraph::<JsonState>::with_schema(schema)
         .add_node("agent", node_from_python("agent".to_string(), model))
         .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
         .set_entry_point("agent")
         .add_conditional_edges("agent", move |state: &JsonState| {
-            Ok::<Route, crate::Error>(rust_tools_condition(state))
+            Ok::<Route, crate::Error>(rust_tools_condition_with(state, &condition_key))
         })
         .add_edge(TOOLS, "agent");
     let mut options = crate::CompileOptions::new();
+    let mut saver = None;
     if let Some(checkpointer) = checkpointer {
-        if let Some(saver) = super::types::checkpointer_from_py(Some(checkpointer))? {
-            options = options.with_checkpointer(saver);
+        if let Some(created) = super::types::checkpointer_from_py(Some(checkpointer))? {
+            options = options.with_checkpointer(created.clone());
+            saver = Some(created);
         }
     }
     let compiled = inner
         .compile_with(options)
         .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-    Ok(super::graph::PyCompiledGraph::from_inner(compiled))
+    Ok(super::graph::PyCompiledGraph::from_inner_with_saver(
+        compiled, saver,
+    ))
 }

@@ -42,6 +42,7 @@ class ChainingTests(unittest.TestCase):
             snapshot.config["configurable"]["thread_id"], "snapshot"
         )
         self.assertIn("values", snapshot)
+        self.assertEqual(snapshot.get("missing", "fallback"), "fallback")
 
 
 class MessagesStateTests(unittest.TestCase):
