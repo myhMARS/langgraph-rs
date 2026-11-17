@@ -20,6 +20,7 @@ pub(crate) fn snapshot_to_py(
     dict.set_item("step", snapshot.step)?;
     dict.set_item("interrupted", snapshot.interrupted)?;
     dict.set_item("created_at_millis", snapshot.created_at_millis)?;
+    dict.set_item("created_at", snapshot.created_at.clone())?;
     dict.set_item(
         "parent_checkpoint_id",
         snapshot.parent_checkpoint_id.clone(),
@@ -45,6 +46,11 @@ pub(crate) fn snapshot_to_py(
         .collect::<PyResult<Vec<_>>>()?;
     dict.set_item("interrupts", interrupts)?;
     dict.set_item("config", value_to_py(py, &snapshot.config)?)?;
+    let parent_config: Py<PyAny> = match &snapshot.parent_config {
+        Some(config) => value_to_py(py, config)?,
+        None => py.None(),
+    };
+    dict.set_item("parent_config", parent_config)?;
     let tasks = snapshot
         .tasks
         .iter()
@@ -52,6 +58,9 @@ pub(crate) fn snapshot_to_py(
             let item = PyDict::new(py);
             item.set_item("id", task.id.clone())?;
             item.set_item("node", task.node.clone())?;
+            item.set_item("name", task.node.clone())?;
+            item.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+            item.set_item("state", py.None())?;
             if let Some(error) = &task.error {
                 let failure = PyDict::new(py);
                 failure.set_item("node", error.node.clone())?;
@@ -73,34 +82,6 @@ pub(crate) fn snapshot_to_py(
         },
     )?
     .into_any())
-}
-
-fn iso_timestamp(millis: i64) -> String {
-    let seconds = millis.div_euclid(1000);
-    let millis_part = millis.rem_euclid(1000);
-    let days = seconds.div_euclid(86_400);
-    let day_seconds = seconds.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    let hour = day_seconds / 3_600;
-    let minute = (day_seconds % 3_600) / 60;
-    let second = day_seconds % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}Z")
-}
-
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let mut year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = mp + if mp < 10 { 3 } else { -9 };
-    if month <= 2 {
-        year += 1;
-    }
-    (year, month, day)
 }
 
 /// LangGraph v2 stream-part shape: `{type, ns, data}`.
@@ -168,7 +149,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             data.set_item("type", "checkpoint")?;
             data.set_item(
                 "timestamp",
-                iso_timestamp(crate::kernel::checkpoint::now_millis() as i64),
+                crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis()),
             )?;
             data.set_item("step", step)?;
             data.set_item("payload", value_to_py(py, payload)?)?;

@@ -36,6 +36,8 @@ pub struct StateSnapshot<S: State> {
     pub interrupted: bool,
     /// Creation time in milliseconds since the Unix epoch.
     pub created_at_millis: u64,
+    /// ISO-8601 creation timestamp.
+    pub created_at: String,
     /// Pending tasks scheduled after this snapshot.
     pub tasks: Vec<StateTask>,
     /// Interrupts captured when this checkpoint was written.
@@ -48,6 +50,8 @@ pub struct StateSnapshot<S: State> {
     pub checkpoint_ns: String,
     /// LangGraph-style config for this snapshot (`configurable` thread/ns/checkpoint id).
     pub config: Value,
+    /// LangGraph-style config for the parent checkpoint, when present.
+    pub parent_config: Option<Value>,
 }
 
 impl<S: State> StateSnapshot<S> {
@@ -69,6 +73,16 @@ impl<S: State> StateSnapshot<S> {
                 "checkpoint_id": checkpoint.id,
             }
         });
+        let parent_config = checkpoint.parent_id.as_ref().map(|parent_id| {
+            serde_json::json!({
+                "configurable": {
+                    "thread_id": checkpoint.thread_id,
+                    "checkpoint_ns": checkpoint.namespace,
+                    "checkpoint_id": parent_id,
+                }
+            })
+        });
+        let created_at = crate::kernel::checkpoint::iso_timestamp(checkpoint.created_at_millis);
         Ok(Self {
             values: values_to_state::<S>(&checkpoint.values)?,
             next: checkpoint.next_nodes(),
@@ -77,12 +91,14 @@ impl<S: State> StateSnapshot<S> {
             step: checkpoint.step as i64,
             interrupted: checkpoint.interrupted,
             created_at_millis: checkpoint.created_at_millis,
+            created_at,
             tasks,
             interrupts: checkpoint.interrupts,
             parent_checkpoint_id: checkpoint.parent_id,
             metadata: checkpoint.metadata,
             checkpoint_ns: checkpoint.namespace,
             config,
+            parent_config,
         })
     }
 
