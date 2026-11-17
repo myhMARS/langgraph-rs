@@ -600,6 +600,24 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Snapshot metadata: source and next tasks (step numbering differs: LangGraph
+    # counts input checkpoints across the thread, the binding resets per run).
+    lg_meta = lg_snapshot_metadata()
+    rs_meta = rs_snapshot_metadata()
+    results.append(
+        {
+            "scenario": "snapshot_metadata",
+            "rs": rs_meta,
+            "lg": lg_meta,
+            "equivalent": rs_meta == lg_meta,
+            "note": "compared source/next; step numbering differs by design",
+            "bench": {
+                "rs": measure(rs_snapshot_metadata),
+                "lg": measure(lg_snapshot_metadata),
+            },
+        }
+    )
+
     # Pending writes: a successful parallel branch survives an interrupt in another.
     lg_value = lg_pending_writes()
     rs_value = rs_pending_writes()
@@ -802,6 +820,37 @@ def rs_graph_export():
         [node["id"] for node in view["nodes"]],
         [(edge["source"], edge["target"]) for edge in view["edges"]],
     )
+
+
+def lg_snapshot_metadata():
+    graph = LgStateGraph(dict)
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.add_edge(START, "inc")
+    graph.add_edge("inc", END)
+    compiled = graph.compile(checkpointer=LgInMemorySaver())
+    config = {"configurable": {"thread_id": "parity-lg-meta"}}
+    compiled.invoke({"value": 0}, config)
+    compiled.invoke({"value": 10}, config)
+    snapshot = compiled.get_state(config)
+    return {
+        "source": snapshot.metadata["source"],
+        "next": list(snapshot.next),
+    }
+
+
+def rs_snapshot_metadata():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.set_entry_point("inc")
+    graph.set_finish_point("inc")
+    compiled = graph.compile(checkpointer=rs.InMemorySaver())
+    compiled.invoke({"value": 0}, thread_id="parity-rs-meta")
+    compiled.invoke({"value": 10}, thread_id="parity-rs-meta")
+    snapshot = compiled.get_state("parity-rs-meta")
+    return {
+        "source": snapshot["metadata"]["source"],
+        "next": list(snapshot["next"]),
+    }
 
 
 def lg_pending_writes():

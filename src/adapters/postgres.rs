@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS langgraph_rs_checkpoints_thread
 /// Checkpointer backed by Postgres.
 pub struct PostgresSaver {
     client: Mutex<postgres::Client>,
+    put_statement: Mutex<Option<postgres::Statement>>,
 }
 
 impl std::fmt::Debug for PostgresSaver {
@@ -53,6 +54,7 @@ impl PostgresSaver {
         );
         Ok(Self {
             client: Mutex::new(client),
+            put_statement: Mutex::new(None),
         })
     }
 
@@ -80,16 +82,32 @@ impl Checkpointer for PostgresSaver {
         let payload = serde_json::to_string(&checkpoint).map_err(|error| {
             Error::Checkpoint(format!("postgres: serialize checkpoint: {error}"))
         })?;
-        self.lock()
+        let mut client = self.lock();
+        let mut statement = self
+            .put_statement
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if statement.is_none() {
+            *statement = Some(
+                client
+                    .prepare(
+                        "INSERT INTO langgraph_rs_checkpoints
+                             (thread_id, id, namespace, step, created_at, payload)
+                         VALUES ($1, $2, $3, $4, $5, $6)
+                         ON CONFLICT (thread_id, id) DO UPDATE SET
+                             namespace = EXCLUDED.namespace,
+                             step = EXCLUDED.step,
+                             created_at = EXCLUDED.created_at,
+                             payload = EXCLUDED.payload",
+                    )
+                    .map_err(|error| {
+                        Error::Checkpoint(format!("postgres: prepare checkpoint write: {error}"))
+                    })?,
+            );
+        }
+        client
             .execute(
-                "INSERT INTO langgraph_rs_checkpoints
-                     (thread_id, id, namespace, step, created_at, payload)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (thread_id, id) DO UPDATE SET
-                     namespace = EXCLUDED.namespace,
-                     step = EXCLUDED.step,
-                     created_at = EXCLUDED.created_at,
-                     payload = EXCLUDED.payload",
+                statement.as_ref().expect("prepared statement"),
                 &[
                     &checkpoint.thread_id,
                     &checkpoint.id,
