@@ -1234,7 +1234,7 @@ class AsyncPythonTests(unittest.TestCase):
         )
 
         graph = lg.create_react_agent(model, {"add": add})
-        output = graph.compile().invoke({"messages": []})
+        output = graph.invoke({"messages": []})
         messages = output["messages"]
         self.assertEqual(len(messages), 3)
         self.assertEqual(messages[1]["content"], "3")

@@ -79,3 +79,13 @@ differences**.
 - `LastValueAfterFinish` after-step checkpoint holds the pre-publish value under `Sync`.
 - CI does not run `benchmarks/parity.py`; some sync persistence tests read different env
   names than CI sets.
+
+## Follow-up fixes (rounds 5-6)
+
+- Python `invoke`/`stream` accept a LangGraph `RunnableConfig`-shaped dict (`configurable.thread_id`) as well as a plain thread id.
+- `CompiledStateGraph` alias exported.
+- `create_react_agent` now returns a compiled graph (invoke works directly).
+- Native async nodes can use the free helpers via a task-local `AsyncTaskOps`.
+- Python `stream()` defaults to `updates`, strict mode filtering, version validated before running.
+- History ordering is creation-time based for SQLite/Postgres; msgpack bin8/16/32 decoded; named barrier validates writer names; `before` unknown id returns empty history.
+

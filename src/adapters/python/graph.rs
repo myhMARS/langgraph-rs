@@ -260,6 +260,15 @@ pub struct PyCompiledGraph {
     saver: Option<Arc<dyn Checkpointer>>,
 }
 
+impl PyCompiledGraph {
+    pub(super) fn from_inner(graph: CompiledGraph<JsonState>) -> Self {
+        Self {
+            graph: Arc::new(graph),
+            saver: None,
+        }
+    }
+}
+
 /// Graph description object returned by `CompiledGraph.get_graph()`.
 #[pyclass(name = "Graph")]
 pub struct PyGraph {
@@ -298,11 +307,12 @@ impl PyCompiledGraph {
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<String>,
+        thread_id: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
         control: Option<PyRef<'_, super::types::PyRunControl>>,
         checkpoint_ns: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        let thread_id = thread_id_from_py(py, thread_id)?;
         let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
@@ -578,10 +588,12 @@ impl PyCompiledGraph {
     fn get_state(
         &self,
         py: Python<'_>,
-        thread_id: String,
+        thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
         subgraphs: bool,
     ) -> PyResult<Py<PyAny>> {
+        let thread_id = thread_id_from_py(py, Some(thread_id))?
+            .ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
         if subgraphs {
             let states = self
                 .graph

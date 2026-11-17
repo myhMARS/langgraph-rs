@@ -704,3 +704,33 @@ pub(super) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
     }
     Ok(dict.into_any().unbind())
 }
+
+/// Accept either a plain thread id or a LangGraph `RunnableConfig`-shaped dict.
+pub(crate) fn thread_id_from_py(
+    _py: Python<'_>,
+    value: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_none() {
+        return Ok(None);
+    }
+    if let Ok(thread) = value.extract::<String>() {
+        return Ok(Some(thread));
+    }
+    if let Ok(config) = value.cast::<PyDict>() {
+        if let Ok(Some(configurable)) = config.get_item("configurable") {
+            if let Ok(configurable) = configurable.cast::<PyDict>() {
+                if let Ok(Some(thread)) = configurable.get_item("thread_id") {
+                    if let Ok(thread) = thread.extract::<String>() {
+                        return Ok(Some(thread));
+                    }
+                }
+            }
+        }
+    }
+    Err(PyTypeError::new_err(
+        "expected a thread id string or a config dict with configurable.thread_id",
+    ))
+}

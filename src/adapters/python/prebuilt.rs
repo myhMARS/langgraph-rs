@@ -6,7 +6,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
-use super::graph::PyStateGraph;
 use crate::kernel::state::{JsonState, StateSchema};
 use crate::prebuilt::{TOOLS, ToolDefinition, ToolNode, tools_condition as rust_tools_condition};
 use crate::{END, Result, Route, StateGraph, reducers};
@@ -113,7 +112,7 @@ pub(super) fn create_react_agent(
     model: Py<PyAny>,
     tools: &Bound<'_, PyAny>,
     messages_key: Option<String>,
-) -> PyResult<PyStateGraph> {
+) -> PyResult<super::graph::PyCompiledGraph> {
     let mut tool_node = ToolNode::new(tool_definitions(tools)?);
     if let Some(key) = messages_key.clone() {
         tool_node = tool_node.messages_key(key);
@@ -128,5 +127,8 @@ pub(super) fn create_react_agent(
             Ok::<Route, crate::Error>(rust_tools_condition(state))
         })
         .add_edge(TOOLS, "agent");
-    Ok(PyStateGraph::from_inner(inner))
+    let compiled = inner
+        .compile()
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+    Ok(super::graph::PyCompiledGraph::from_inner(compiled))
 }
