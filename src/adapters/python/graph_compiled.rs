@@ -384,9 +384,14 @@ impl PyCompiledGraph {
             let result = (snapshot_to_py(py, &root)?, children);
             return Ok(result.into_pyobject(py)?.into_any().unbind());
         }
-        let snapshot = match checkpoint_ns.as_deref() {
-            Some(namespace) => self.graph.get_state_in(&thread_id, namespace),
-            None => self.graph.get_state(&thread_id),
+        let snapshot = match (
+            checkpoint_ns.as_deref(),
+            parsed_config.checkpoint_id.as_deref(),
+        ) {
+            (Some(namespace), Some(id)) => self.graph.get_state_in_at(&thread_id, namespace, id),
+            (None, Some(id)) => self.graph.get_state_at(&thread_id, id),
+            (Some(namespace), None) => self.graph.get_state_in(&thread_id, namespace),
+            (None, None) => self.graph.get_state(&thread_id),
         }
         .map_err(|error| to_pyerr(py, error))?;
         match snapshot {

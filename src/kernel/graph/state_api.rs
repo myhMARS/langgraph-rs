@@ -44,6 +44,40 @@ impl<S: State> CompiledGraph<S> {
         }
     }
 
+    /// Read a specific checkpoint of a thread.
+    pub fn get_state_at(
+        &self,
+        thread_id: &str,
+        checkpoint_id: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
+        self.get_state_in_at(thread_id, "", checkpoint_id)
+    }
+
+    /// Read a specific checkpoint of a thread inside a checkpoint namespace.
+    pub fn get_state_in_at(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        checkpoint_id: &str,
+    ) -> Result<Option<StateSnapshot<S>>> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("get_state_at"))?;
+        let Some(checkpoint) = checkpointer.get(thread_id, checkpoint_id)? else {
+            return Ok(None);
+        };
+        let history = checkpointer.history_in(thread_id, namespace)?;
+        let total = history.len() as i64;
+        let step = history
+            .iter()
+            .position(|item| item.id == checkpoint.id)
+            .map(|index| total - 2 - index as i64)
+            .unwrap_or(checkpoint.step as i64);
+        let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+        snapshot.step = step;
+        Ok(Some(snapshot))
+    }
+
     /// Latest state of every subgraph namespace of a thread (LangGraph `subgraphs=True`).
     pub fn subgraph_states(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
         let checkpointer = self

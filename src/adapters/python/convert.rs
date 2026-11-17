@@ -497,6 +497,11 @@ pub(crate) fn config_from_py(
             if let Some(item) = configurable.get_item("thread_id")? {
                 thread = item.extract::<String>().ok();
             }
+            if let Some(item) = configurable.get_item("checkpoint_id")? {
+                if let Ok(id) = item.extract::<String>() {
+                    config.checkpoint_id = Some(id);
+                }
+            }
             if let Some(item) = configurable.get_item("checkpoint_ns")? {
                 if let Ok(namespace) = item.extract::<String>() {
                     config = config.with_checkpoint_ns(namespace);

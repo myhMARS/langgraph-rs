@@ -220,6 +220,8 @@ impl Durability {
 pub struct RunConfig {
     /// Thread id used for checkpointing. Required when the graph has a checkpointer.
     pub thread_id: Option<String>,
+    /// Target checkpoint id (LangGraph `configurable.checkpoint_id`).
+    pub checkpoint_id: Option<String>,
     /// Overrides the compiled recursion limit for this run.
     pub recursion_limit: Option<usize>,
     /// Checkpoint namespace (`""` for the root graph). LangGraph's `checkpoint_ns`.
@@ -242,6 +244,7 @@ impl std::fmt::Debug for RunConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RunConfig")
             .field("thread_id", &self.thread_id)
+            .field("checkpoint_id", &self.checkpoint_id)
             .field("recursion_limit", &self.recursion_limit)
             .field("checkpoint_ns", &self.checkpoint_ns)
             .field("store", &self.store.is_some())
