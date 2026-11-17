@@ -433,3 +433,21 @@ pub(crate) fn apply_processed_updates(
     }
     Ok(())
 }
+
+/// First executed node that requests an `interrupt_after` pause.
+pub(crate) fn interrupt_after_node(
+    executed: &[String],
+    is_after: impl Fn(&str) -> bool,
+) -> Option<String> {
+    executed.iter().find(|node| is_after(node)).cloned()
+}
+
+/// Move finish-value writes into the working values before the terminal checkpoint.
+pub(crate) fn apply_finish_updates(
+    values: &mut serde_json::Map<String, Value>,
+    finish_updates: &mut std::collections::HashMap<String, Value>,
+) {
+    for (channel, value) in finish_updates.drain() {
+        values.insert(channel, value);
+    }
+}

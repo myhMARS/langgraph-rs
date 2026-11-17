@@ -21,8 +21,8 @@ use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{
-    TaskOutcome, apply_processed_updates, collect_pending_writes, finish, interrupts_from,
-    merge_interrupted_tasks, process_outcomes,
+    TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes, finish,
+    interrupt_after_node, interrupts_from, merge_interrupted_tasks, process_outcomes,
 };
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
@@ -474,10 +474,7 @@ pub(crate) fn execute<S: State>(
         });
 
         step += 1;
-        let interrupt_after = executed
-            .iter()
-            .find(|node| graph.interrupts_after(node))
-            .cloned();
+        let interrupt_after = interrupt_after_node(&executed, |node| graph.interrupts_after(node));
         if durability != Durability::Exit || interrupt_after.is_some() {
             save_checkpoint(
                 graph,
@@ -509,9 +506,7 @@ pub(crate) fn execute<S: State>(
 
         if next_tasks.is_empty() {
             if !finish_updates.is_empty() {
-                for (channel, value) in finish_updates.drain() {
-                    values.insert(channel, value);
-                }
+                apply_finish_updates(&mut values, &mut finish_updates);
                 state = values_to_state::<S>(&values)?;
             }
             if durability == Durability::Exit && thread_id.is_some() {

@@ -1317,10 +1317,10 @@ impl<S: State> AsyncCompiledGraph<S> {
             )?;
 
             step += 1;
-            let interrupt_after = executed
-                .iter()
-                .find(|node| self.interrupt_after.contains(*node))
-                .cloned();
+            let interrupt_after =
+                crate::kernel::executor::outcome::interrupt_after_node(&executed, |node| {
+                    self.interrupt_after.contains(node)
+                });
             if config.durability != crate::Durability::Exit || interrupt_after.is_some() {
                 self.save_checkpoint(
                     thread_id.as_deref(),
@@ -1351,9 +1351,10 @@ impl<S: State> AsyncCompiledGraph<S> {
 
             if next_tasks.is_empty() {
                 if !finish_updates.is_empty() {
-                    for (channel, value) in finish_updates.drain() {
-                        values.insert(channel, value);
-                    }
+                    crate::kernel::executor::outcome::apply_finish_updates(
+                        &mut values,
+                        &mut finish_updates,
+                    );
                     state = values_to_state::<S>(&values)?;
                 }
                 if config.durability == crate::Durability::Exit && thread_id.is_some() {
