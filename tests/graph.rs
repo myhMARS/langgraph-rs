@@ -501,8 +501,10 @@ fn conditional_edges_from_start_work() {
         .compile()
         .unwrap();
 
-    let mut positive = WorkState::default();
-    positive.value = 1;
+    let positive = WorkState {
+        value: 1,
+        ..Default::default()
+    };
     let output = graph.invoke(&positive, &RunConfig::new()).unwrap();
     assert_eq!(output.log, vec!["a"]);
 
