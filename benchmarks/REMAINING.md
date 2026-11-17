@@ -30,7 +30,7 @@ This covers a single pending task, multiple sequential interrupts, and parallel
 pending interrupts resumed by interrupt id (the binding writes LangGraph-style
 `xxh3` interrupt ids and derived task ids).
 
-Not yet verified: Send fan-out and subgraph namespaces against LangGraph readers.
+Not yet verified: subgraph namespaces against LangGraph readers.
 
 ## Non-blocking differences
 

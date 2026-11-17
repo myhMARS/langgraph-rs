@@ -267,7 +267,22 @@ fn send_task_id(checkpoint_id: &str, node: &str, step: usize, index: usize) -> S
     bytes.extend_from_slice(node.as_bytes());
     bytes.extend_from_slice(b"__pregel_push");
     bytes.extend_from_slice(index.to_string().as_bytes());
-    format!("{:032x}", xxhash_rust::xxh3::xxh3_128(&bytes))
+    use sha1::{Digest, Sha1};
+    let mut hasher = Sha1::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
 }
 
 fn langgraph_interrupt_entries(

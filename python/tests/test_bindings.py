@@ -1814,6 +1814,79 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(state.values["value"], 42)
 
 
+    def test_langgraph_resumes_send_fanout(self):
+        try:
+            import sqlite3
+            import tempfile
+            from pathlib import Path
+            from typing import Annotated, TypedDict
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langgraph.graph import END, START, StateGraph
+            from langgraph.types import Command, interrupt
+
+            def add(left, right):
+                return left + right
+
+            class SendState(TypedDict, total=False):
+                seen: Annotated[list, add]
+                item: int
+        except ImportError:
+            self.skipTest("langgraph sqlite saver is not installed")
+
+        path = Path(tempfile.mkdtemp()) / "send.sqlite"
+
+        def worker(state):
+            return {"seen": [state["item"], lg.interrupt("item")]}
+
+        graph = lg.StateGraph({"seen": "append", "item": "last_value"})
+        graph.add_node("dispatch", lambda state: {})
+        graph.add_node("worker", worker)
+        graph.add_edge(lg.START, "dispatch")
+        graph.add_conditional_edges(
+            "dispatch",
+            lambda state: [
+                lg.Send("worker", {"item": 1}),
+                lg.Send("worker", {"item": 2}),
+            ],
+        )
+        graph.set_finish_point("worker")
+        compiled = graph.compile(
+            checkpointer=lg.LangGraphSqliteSaver(str(path))
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"seen": []}, thread_id="send")
+
+        def worker_langgraph(state):
+            return {"seen": [state["item"], interrupt("item")]}
+
+        graph_langgraph = StateGraph(SendState)
+        graph_langgraph.add_node("dispatch", lambda state: {})
+        graph_langgraph.add_node("worker", worker_langgraph)
+        graph_langgraph.add_edge(START, "dispatch")
+        graph_langgraph.add_conditional_edges(
+            "dispatch",
+            lambda state: [
+                lg.Send("worker", {"item": 1}),
+                lg.Send("worker", {"item": 2}),
+            ],
+        )
+        graph_langgraph.set_finish_point("worker")
+        compiled_langgraph = graph_langgraph.compile(
+            checkpointer=SqliteSaver(
+                sqlite3.connect(path, check_same_thread=False)
+            )
+        )
+        config = {"configurable": {"thread_id": "send"}}
+        snapshot = compiled_langgraph.get_state(config)
+        self.assertEqual(len(snapshot.tasks), 2)
+        resume = {
+            task.interrupts[0].id: 10 + index
+            for index, task in enumerate(snapshot.tasks)
+        }
+        result = compiled_langgraph.invoke(Command(resume=resume), config)
+        self.assertEqual(sorted(result["seen"]), [1, 2, 10, 11])
+
     def test_langgraph_resumes_parallel_interrupts(self):
         try:
             import sqlite3
