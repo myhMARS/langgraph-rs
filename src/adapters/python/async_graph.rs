@@ -452,7 +452,7 @@ impl PyAsyncCompiledGraph {
         }
         let modes = super::graph::stream_modes_from_py(stream_mode)?;
         let graph = self.graph.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut collected: Vec<StreamChunk> = Vec::new();
             let result = match &modes {
                 Some(modes) => {
@@ -481,7 +481,10 @@ impl PyAsyncCompiledGraph {
                 }
                 Ok(list.into_any().unbind())
             })
-        })
+        })?;
+        let module = py.import("langgraph_rs")?;
+        let stream = module.getattr("AsyncStream")?.call1((future,))?;
+        Ok(stream)
     }
 
     #[pyo3(signature = (thread_id, checkpoint_ns=None))]
