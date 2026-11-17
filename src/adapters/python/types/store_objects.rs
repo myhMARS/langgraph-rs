@@ -6,14 +6,8 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::types::{PyAny, PyDict};
 
 use super::*;
-#[cfg(feature = "sqlite")]
-#[cfg(feature = "sqlite")]
 use crate::InMemoryStore;
 use crate::adapters::python::convert::{py_to_value, value_to_py};
-#[cfg(feature = "postgres")]
-#[cfg(feature = "postgres")]
-#[cfg(feature = "redis")]
-#[cfg(feature = "redis")]
 use crate::kernel::cache::NodeCache;
 use crate::kernel::store::BaseStore;
 

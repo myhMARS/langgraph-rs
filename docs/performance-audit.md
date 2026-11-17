@@ -53,3 +53,16 @@ report: `benchmarks/RESULTS.md`.
    extraction order.
 8. **Benchmark harness**: move to criterion/percentiles and add message-heavy, async,
    streaming, subgraph and history scenarios to guard these areas.
+
+## Re-benchmark after kernel caching (same machine)
+
+| Scenario | Round 3 | Latest |
+| --- | ---: | ---: |
+| linear_10 | 30.01 µs | 28.80 µs |
+| loop_50 | 150.13 µs | 137.30 µs |
+| fanout_4 | 251.03 µs | 220.36 µs |
+| checkpoint_5 | 54.08 µs | 45.39 µs |
+| scale_100 | 282.40 µs | 239.82 µs |
+| mt_8x_linear_10 | 7.18 µs | 7.35 µs |
+
+Rust native is now ~78-108x faster than Python LangGraph on these scenarios.
