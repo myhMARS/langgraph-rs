@@ -223,6 +223,49 @@ impl PyCommand {
         Ok(updates)
     }
 
+    pub(super) fn goto_parts(&self, py: Python<'_>) -> PyResult<(Vec<String>, Vec<crate::Send>)> {
+        if self.graph.is_some() {
+            return Err(PyTypeError::new_err(
+                "Command(graph=...) is only supported for subgraphs",
+            ));
+        }
+        let Some(goto) = &self.goto else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        let goto = goto.bind(py);
+        if goto.is_none() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let mut names = Vec::new();
+        let mut sends = Vec::new();
+        let mut push_item = |item: &Bound<'_, PyAny>| -> PyResult<()> {
+            if let Ok(send) = item.extract::<PyRef<PySend>>() {
+                sends.push(send.to_send(py)?);
+            } else if let Ok(name) = item.extract::<String>() {
+                names.push(normalize_node(&name));
+            } else {
+                return Err(PyTypeError::new_err(
+                    "Command(goto=...) expects node names or Send objects",
+                ));
+            }
+            Ok(())
+        };
+        if goto.extract::<String>().is_err() {
+            if let Ok(send) = goto.extract::<PyRef<PySend>>() {
+                sends.push(send.to_send(py)?);
+                return Ok((names, sends));
+            }
+            if let Ok(items) = goto.try_iter() {
+                for item in items {
+                    push_item(&item?)?;
+                }
+                return Ok((names, sends));
+            }
+        }
+        push_item(&goto)?;
+        Ok((names, sends))
+    }
+
     pub(super) fn goto_targets(&self, py: Python<'_>) -> PyResult<Vec<String>> {
         if self.graph.is_some() {
             return Err(PyTypeError::new_err(

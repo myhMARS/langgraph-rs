@@ -17,6 +17,8 @@ pub struct Command {
     pub update: Option<IndexMap<String, Value>>,
     /// Nodes to schedule after the command (LangGraph `Command(goto=...)`).
     pub goto: Vec<String>,
+    /// Dynamic `Send` tasks scheduled by `Command(goto=Send(...))`.
+    pub sends: Vec<crate::kernel::node::Send>,
     /// Route to the parent graph instead of this one (`Command(graph=PARENT)`).
     pub parent: bool,
 }
@@ -28,6 +30,7 @@ impl Command {
             resume: Some(value),
             update: None,
             goto: Vec::new(),
+            sends: Vec::new(),
             parent: false,
         }
     }
@@ -47,6 +50,12 @@ impl Command {
     pub fn goto_parent(mut self, node: impl Into<String>) -> Self {
         self.parent = true;
         self.goto.push(node.into());
+        self
+    }
+
+    /// Schedule a dynamic `Send` task.
+    pub fn send(mut self, send: crate::kernel::node::Send) -> Self {
+        self.sends.push(send);
         self
     }
 
@@ -78,6 +87,9 @@ impl From<Command> for crate::kernel::node::NodeOutput {
             } else {
                 output.goto(target)
             };
+        }
+        for send in command.sends {
+            output = output.send(send);
         }
         output
     }

@@ -56,8 +56,8 @@ impl PyCompiledGraph {
         }
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
-                let targets = command.goto_targets(py)?;
-                if !targets.is_empty() && command.resume.is_none() {
+                let (targets, sends) = command.goto_parts(py)?;
+                if (!targets.is_empty() || !sends.is_empty()) && command.resume.is_none() {
                     let updates = command.to_update_map(py)?;
                     let config = invoke_config.clone();
                     let thread = thread_id.clone();
@@ -65,6 +65,7 @@ impl PyCompiledGraph {
                         resume: None,
                         update: Some(updates.clone()),
                         goto: targets.clone(),
+                        sends: sends.clone(),
                         parent: false,
                     };
                     let exists = thread
@@ -80,7 +81,9 @@ impl PyCompiledGraph {
                         })
                         .unwrap_or(false);
                     let result = py.detach(|| {
-                        if let (true, Some(thread)) = (exists, thread.as_deref()) {
+                        if let (true, Some(thread)) =
+                            (exists && sends.is_empty(), thread.as_deref())
+                        {
                             self.graph.resume_continue_with_goto_config(
                                 thread,
                                 updates.clone(),
@@ -110,6 +113,7 @@ impl PyCompiledGraph {
                         resume: None,
                         update: Some(updates),
                         goto: Vec::new(),
+                        sends: Vec::new(),
                         parent: false,
                     };
                     let config = invoke_config.clone();

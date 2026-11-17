@@ -50,9 +50,14 @@ pub(crate) fn resolve_fresh_start<S: State>(
             let tasks = entry_tasks(&state)?;
             Ok(Some((values, state, tasks)))
         }
-        StartInput::Gateways { values, nodes } => {
+        StartInput::Gateways {
+            values,
+            nodes,
+            sends,
+        } => {
             let values = values.clone();
             let nodes = nodes.clone();
+            let sends = sends.clone();
             // `Command(goto=...)` values are state updates, not run input.
             for node in &nodes {
                 if node != crate::END && !node_exists(node) {
@@ -72,6 +77,12 @@ pub(crate) fn resolve_fresh_start<S: State>(
                 if !tasks.iter().any(|task| task.node == node) {
                     tasks.push(crate::kernel::node::Task::new(node));
                 }
+            }
+            for send in sends {
+                tasks.push(crate::kernel::executor::scheduling::send_task(
+                    "<command>",
+                    send,
+                )?);
             }
             Ok(Some((values, state, tasks)))
         }

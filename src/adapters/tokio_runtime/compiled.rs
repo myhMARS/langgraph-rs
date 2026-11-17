@@ -293,6 +293,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             StartInput::Gateways {
                 values,
                 nodes: command.goto,
+                sends: command.sends,
             },
             config,
             &mut sink,

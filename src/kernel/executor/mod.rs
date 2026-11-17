@@ -36,6 +36,7 @@ pub(crate) enum StartInput {
     Gateways {
         values: Map<String, Value>,
         nodes: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
     },
     /// Partial writes applied over the default state.
     Updates(Map<String, Value>),

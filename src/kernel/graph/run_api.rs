@@ -515,6 +515,7 @@ impl<S: State> CompiledGraph<S> {
             executor::StartInput::Gateways {
                 values,
                 nodes: command.goto,
+                sends: command.sends,
             },
             config,
             &mut sink,
