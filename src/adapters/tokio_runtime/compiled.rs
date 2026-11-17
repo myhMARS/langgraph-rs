@@ -13,6 +13,7 @@ use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
+use crate::kernel::executor::StartInput;
 use crate::kernel::executor::outcome::{
     ProcessedResults, TaskFailure, TaskOutcome, TaskResult, finish,
 };
@@ -30,21 +31,6 @@ use crate::kernel::timeout::TimeoutPolicy;
 use crate::kernel::usage::{RunOutcome, RunReport, Usage};
 
 /// Where a run starts from.
-enum StartInput {
-    Values(Map<String, Value>),
-    Gateways {
-        values: Map<String, Value>,
-        nodes: Vec<String>,
-    },
-    Updates(Map<String, Value>),
-    Resume {
-        thread_id: String,
-        checkpoint_id: Option<String>,
-        resume: Option<Value>,
-        updates: Option<Map<String, Value>>,
-    },
-}
-
 struct AsyncRunInfo {
     thread_id: Option<String>,
     namespace: String,
