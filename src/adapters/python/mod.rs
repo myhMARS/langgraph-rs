@@ -39,8 +39,9 @@ use types::PyRedisSaver;
 #[cfg(feature = "sqlite")]
 use types::PySqliteSaver;
 use types::{
-    PyCachePolicy, PyCommand, PyInMemoryCache, PyInMemorySaver, PyInMemoryStore, PyRemoveMessage,
-    PyRetryPolicy, PyRunControl, PySend, PyStore, PyStreamWriter, PyTask, PyTimeoutPolicy,
+    PyCachePolicy, PyCommand, PyInMemoryCache, PyInMemorySaver, PyInMemoryStore, PyInterrupt,
+    PyRemoveMessage, PyRetryPolicy, PyRunControl, PySend, PyStore, PyStreamWriter, PyTask,
+    PyTimeoutPolicy,
 };
 #[cfg(feature = "sqlite")]
 use types::{PyLangGraphSqliteReader, PyLangGraphSqliteSaver, PySqliteCache, PySqliteStore};
@@ -466,6 +467,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(get_store, module)?)?;
     module.add_function(wrap_pyfunction!(get_config, module)?)?;
     module.add_function(wrap_pyfunction!(get_stream_writer, module)?)?;
+    module.add_class::<PyInterrupt>()?;
     module.add_class::<PyStreamWriter>()?;
     module.add_class::<PyRunControl>()?;
     module.add_function(wrap_pyfunction!(current_context, module)?)?;

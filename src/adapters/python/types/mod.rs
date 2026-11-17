@@ -51,6 +51,45 @@ impl PySend {
 }
 
 /// A `Command` returned from a node or passed to `invoke`/`stream`.
+/// Python `Interrupt` value surfaced by `__interrupt__` stream entries.
+#[pyclass(name = "Interrupt", module = "langgraph_rs")]
+pub struct PyInterrupt {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub value: Py<PyAny>,
+    #[pyo3(get)]
+    pub node: Option<String>,
+    #[pyo3(get)]
+    pub resumable: bool,
+}
+
+#[pymethods]
+impl PyInterrupt {
+    #[new]
+    #[pyo3(signature = (value, id=None, node=None))]
+    fn new(value: Py<PyAny>, id: Option<String>, node: Option<String>) -> Self {
+        Self {
+            id: id.unwrap_or_default(),
+            value,
+            node,
+            resumable: true,
+        }
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        format!(
+            "Interrupt(id={:?}, value={})",
+            self.id,
+            self.value
+                .bind(py)
+                .repr()
+                .map(|repr| repr.to_string())
+                .unwrap_or_else(|_| "<value>".to_string())
+        )
+    }
+}
+
 #[pyclass(name = "Command")]
 #[derive(Default)]
 pub struct PyCommand {

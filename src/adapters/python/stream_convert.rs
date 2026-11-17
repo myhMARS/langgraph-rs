@@ -189,11 +189,16 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
         StreamChunk::Interrupt { node, id, value } => {
             dict.set_item("type", "updates")?;
             let data = PyDict::new(py);
-            let interrupt = PyDict::new(py);
-            interrupt.set_item("id", id)?;
-            interrupt.set_item("node", node)?;
-            interrupt.set_item("value", value_to_py(py, value)?)?;
-            data.set_item("__interrupt__", vec![interrupt])?;
+            let interrupt = Py::new(
+                py,
+                crate::adapters::python::types::PyInterrupt {
+                    id: id.clone(),
+                    value: value_to_py(py, value)?,
+                    node: Some(node.clone()),
+                    resumable: true,
+                },
+            )?;
+            data.set_item("__interrupt__", PyTuple::new(py, [interrupt])?)?;
             dict.set_item("data", data)?;
         }
         StreamChunk::Usage { execution } => {
@@ -276,12 +281,17 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
         }
         StreamChunk::Custom { value, .. } => value_to_py(py, value),
         StreamChunk::Interrupt { node, id, value } => {
-            let interrupt = PyDict::new(py);
-            interrupt.set_item("id", id)?;
-            interrupt.set_item("node", node)?;
-            interrupt.set_item("value", value_to_py(py, value)?)?;
+            let interrupt = Py::new(
+                py,
+                crate::adapters::python::types::PyInterrupt {
+                    id: id.clone(),
+                    value: value_to_py(py, value)?,
+                    node: Some(node.clone()),
+                    resumable: true,
+                },
+            )?;
             let data = PyDict::new(py);
-            data.set_item("__interrupt__", vec![interrupt])?;
+            data.set_item("__interrupt__", PyTuple::new(py, [interrupt])?)?;
             Ok(data.into_any().unbind())
         }
         StreamChunk::Checkpoint { payload, .. } => value_to_py(py, payload),

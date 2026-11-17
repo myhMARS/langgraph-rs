@@ -340,6 +340,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     sink,
                 )
                 .await?;
+                sink(StreamChunk::Values {
+                    step,
+                    values: Value::Object(values.clone()),
+                });
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
                     id: interrupted.id.clone(),
@@ -419,6 +423,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             )
             .await?;
             for interrupt in &interrupts {
+                sink(StreamChunk::Values {
+                    step,
+                    values: Value::Object(values.clone()),
+                });
                 sink(StreamChunk::Interrupt {
                     node: interrupt.node.clone(),
                     id: interrupt.id.clone(),
@@ -515,6 +523,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .await?;
         }
         if let Some(interrupt) = interrupt_after {
+            sink(StreamChunk::Values {
+                step,
+                values: Value::Object(values.clone()),
+            });
             sink(StreamChunk::Interrupt {
                 node: interrupt.node.clone(),
                 id: interrupt.id.clone(),
