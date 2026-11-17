@@ -2,7 +2,7 @@
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::types::{PyAny, PyDict, PyInt, PyList};
 
 use super::types::{PyCommand, PySend};
 use serde_json::Map;
@@ -31,8 +31,12 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     if let Ok(value) = obj.extract::<bool>() {
         return Ok(Value::Bool(value));
     }
-    if let Ok(value) = obj.extract::<i64>() {
-        return Ok(Value::from(value));
+    if obj.is_instance_of::<PyInt>() {
+        return obj.extract::<i64>().map(Value::from).map_err(|_| {
+            pyo3::exceptions::PyOverflowError::new_err(
+                "Python integer is outside the i64 range supported by JSON state",
+            )
+        });
     }
     if let Ok(value) = obj.extract::<f64>() {
         return Ok(Value::from(value));

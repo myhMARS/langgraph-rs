@@ -122,10 +122,10 @@ fn async_node_from_python(
                 let resume = context.take_resume();
                 let run_timeout = context.run_timeout();
                 let node_name = name.as_ref().clone();
+                let callback_guard = install_langchain_callbacks(py);
                 let (result, custom, messages, usage) = crate::kernel::context::with_task(
                     TaskContext::new(node_name, resume),
                     || -> crate::Result<NodeOutput> {
-                        let callback_guard = install_langchain_callbacks(py);
                         let value = function
                             .as_ref()
                             .bind(py)
@@ -160,12 +160,12 @@ fn async_node_from_python(
                         } else {
                             value
                         };
-                        if let Some((variable, token)) = callback_guard {
-                            let _ = variable.call_method1("reset", (token,));
-                        }
                         node_output_from_py(&value).map_err(|error| pyerr_to_error(py, error))
                     },
                 );
+                if let Some((variable, token)) = callback_guard {
+                    let _ = variable.call_method1("reset", (token,));
+                }
                 for item in usage {
                     context.record_usage(item);
                 }
