@@ -1381,15 +1381,14 @@ class AsyncPythonTests(unittest.TestCase):
 
 
     def test_invoke_command_goto(self):
-        graph = lg.StateGraph({"value": "last_value"})
-        graph.add_node("a", lambda state: {"value": 100})
-        graph.add_node("b", lambda state: {"value": state["value"] + 1})
+        graph = lg.StateGraph({"value": "last_value", "seeded": "last_value"})
+        graph.add_node("a", lambda state: {"seeded": 1})
+        graph.add_node("b", lambda state: {"value": 2})
         graph.set_entry_point("a")
         graph.set_finish_point("b")
         compiled = graph.compile()
-        output = compiled.invoke(
-            lg.Command(goto="b", update={"value": 1})
-        )
+        output = compiled.invoke(lg.Command(goto="b"))
+        self.assertEqual(output["seeded"], 1)
         self.assertEqual(output["value"], 2)
         with self.assertRaises(Exception):
             compiled.invoke(lg.Command(goto="missing"))

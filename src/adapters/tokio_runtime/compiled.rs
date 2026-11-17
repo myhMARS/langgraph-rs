@@ -959,7 +959,13 @@ impl<S: State> AsyncCompiledGraph<S> {
                     }
                 }
                 let state = values_to_state::<S>(&values)?;
-                let tasks = dedupe(nodes).into_iter().map(Task::new).collect();
+                // LangGraph runs the normal entry points as well as the explicit goto nodes.
+                let mut tasks = self.entry_tasks(&state)?;
+                for node in dedupe(nodes) {
+                    if !tasks.iter().any(|task| task.node == node) {
+                        tasks.push(Task::new(node));
+                    }
+                }
                 (values, state, tasks, 0usize)
             }
             StartInput::Resume {

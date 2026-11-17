@@ -33,8 +33,9 @@ from langgraph.types import interrupt as lg_interrupt
 HERE = Path(__file__).resolve().parent
 
 
-class LgCommandState(TypedDict):
+class LgCommandState(TypedDict, total=False):
     value: int
+    seeded: int
 
 
 class LgManagedState(TypedDict, total=False):
@@ -370,6 +371,35 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Command(goto=...) starts at the target and applies its update.
+    lg_graph, rs_graph = lg_command_goto_graph(), rs_command_goto_graph()
+    lg_value = lg_graph.invoke(
+        LgCommand(goto="target")
+    )
+    rs_value = rs_graph.invoke(
+        rs.Command(goto="target")
+    )
+    results.append(
+        {
+            "scenario": "command_goto",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_graph.invoke(
+                        rs.Command(goto="target")
+                    )
+                ),
+                "lg": measure(
+                    lambda: lg_graph.invoke(
+                        LgCommand(goto="target")
+                    )
+                ),
+            },
+        }
+    )
+
     # Retry policy
     lg_graph, lg_calls = lg_retry_graph()
     rs_graph, rs_calls = rs_retry_graph()
@@ -605,6 +635,26 @@ def lg_command_graph():
     graph.add_node("inc", lambda state: {"value": state["value"] + 1})
     graph.add_edge(START, "inc")
     graph.add_edge("inc", END)
+    return graph.compile()
+
+
+def lg_command_goto_graph():
+    graph = LgStateGraph(LgCommandState)
+    graph.add_node("seed", lambda state: {"seeded": 1})
+    graph.add_node("target", lambda state: {"value": 99})
+    graph.add_edge(START, "seed")
+    graph.add_edge("seed", "target")
+    graph.add_edge("target", END)
+    return graph.compile()
+
+
+def rs_command_goto_graph():
+    graph = rs.StateGraph({"value": "last_value", "seeded": "last_value"})
+    graph.add_node("seed", lambda state: {"seeded": 1})
+    graph.add_node("target", lambda state: {"value": 99})
+    graph.set_entry_point("seed")
+    graph.add_edge("seed", "target")
+    graph.set_finish_point("target")
     return graph.compile()
 
 
@@ -864,6 +914,63 @@ def rs_subgraph_interrupt_graph():
     return parent.compile(checkpointer=saver)
 
 
+def run_command_parent_scenario() -> list[dict]:
+    lg_child = LgStateGraph(LgCommandState)
+    lg_child.add_node(
+        "jump",
+        lambda state: LgCommand(
+            update={"value": 100},
+            goto="parent_after",
+            graph=LgCommand.PARENT,
+        ),
+    )
+    lg_child.add_edge(START, "jump")
+    lg_parent = LgStateGraph(LgCommandState)
+    lg_parent.add_node("child", lg_child.compile())
+    lg_parent.add_node(
+        "parent_after", lambda state: {"value": state["value"] + 1}
+    )
+    lg_parent.add_edge(START, "child")
+    lg_parent.add_edge("child", "parent_after")
+    lg_parent.add_edge("parent_after", END)
+    lg_compiled = lg_parent.compile()
+
+    rs_child = rs.StateGraph({"value": "last_value"})
+    rs_child.add_node(
+        "jump",
+        lambda state: rs.Command(
+            update={"value": 100},
+            goto="parent_after",
+            graph=rs.Command.PARENT,
+        ),
+    )
+    rs_child.set_entry_point("jump")
+    rs_parent = rs.StateGraph({"value": "last_value"})
+    rs_parent.add_subgraph("child", rs_child.compile())
+    rs_parent.add_node(
+        "parent_after", lambda state: {"value": state["value"] + 1}
+    )
+    rs_parent.set_entry_point("child")
+    rs_parent.add_edge("child", "parent_after")
+    rs_parent.set_finish_point("parent_after")
+    rs_compiled = rs_parent.compile()
+
+    lg_value = lg_compiled.invoke({"value": 0})
+    rs_value = rs_compiled.invoke({"value": 0})
+    return [
+        {
+            "scenario": "command_parent",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_compiled.invoke({"value": 0})),
+                "lg": measure(lambda: lg_compiled.invoke({"value": 0})),
+            },
+        }
+    ]
+
+
 def run_subgraph_interrupt_scenario() -> list[dict]:
     lg_graph = lg_subgraph_interrupt_graph()
     rs_graph = rs_subgraph_interrupt_graph()
@@ -1046,6 +1153,7 @@ def main() -> None:
         run_checkpoint_scenarios,
         run_subgraph_scenario,
         run_subgraph_interrupt_scenario,
+        run_command_parent_scenario,
         run_remote_persistence_scenario,
     ):
         try:
