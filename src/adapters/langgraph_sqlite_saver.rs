@@ -179,14 +179,17 @@ impl LangGraphSqliteSaver {
         // and interrupts must be visible for its scheduler and resume logic.
         let mut root = checkpoint.values.clone();
         if !checkpoint.interrupts.is_empty() {
+            let interrupt_ids =
+                langgraph_interrupt_ids(&Self::langgraph_id(checkpoint), checkpoint);
             let interrupts = checkpoint
                 .interrupts
                 .iter()
-                .map(|interrupt| {
+                .zip(interrupt_ids)
+                .map(|(interrupt, id)| {
                     json!({
                         "__langgraph_type__": "Interrupt",
                         "value": interrupt.value,
-                        "id": interrupt.id,
+                        "id": id,
                         "response_schema": interrupt.response_schema,
                     })
                 })
@@ -236,10 +239,33 @@ impl LangGraphSqliteSaver {
     }
 }
 
-fn encode_interrupt_ext(interrupt: &crate::kernel::error::Interrupt) -> Vec<u8> {
+fn langgraph_interrupt_ids(
+    checkpoint_id: &str,
+    checkpoint: &crate::kernel::checkpoint::Checkpoint,
+) -> Vec<String> {
+    let mut counters: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    checkpoint
+        .interrupts
+        .iter()
+        .map(|interrupt| {
+            let answered = *counters.entry(interrupt.node.clone()).or_insert(0);
+            *counters.get_mut(&interrupt.node).expect("counter") += 1;
+            let task_id = langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
+            let namespace = format!("{}:{}", interrupt.node, task_id);
+            let key = if answered == 0 {
+                namespace
+            } else {
+                format!("{namespace}:{answered}")
+            };
+            format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()))
+        })
+        .collect()
+}
+
+fn encode_interrupt_ext(interrupt: &crate::kernel::error::Interrupt, id: &str) -> Vec<u8> {
     let mut payload = Map::new();
     payload.insert("value".to_string(), interrupt.value.clone());
-    payload.insert("id".to_string(), Value::String(interrupt.id.clone()));
+    payload.insert("id".to_string(), Value::String(id.to_string()));
     if let Some(schema) = &interrupt.response_schema {
         payload.insert("response_schema".to_string(), schema.clone());
     }
@@ -376,9 +402,10 @@ impl Checkpointer for LangGraphSqliteSaver {
                     Error::Checkpoint(format!("langgraph sqlite saver: branch write: {error}"))
                 })?;
         }
-        for interrupt in &checkpoint.interrupts {
+        let interrupt_ids = langgraph_interrupt_ids(&checkpoint_id, &checkpoint);
+        for (interrupt, interrupt_id) in checkpoint.interrupts.iter().zip(interrupt_ids) {
             let task_id = langgraph_task_id(&checkpoint_id, &interrupt.node, checkpoint.step);
-            let value = encode_interrupt_ext(interrupt);
+            let value = encode_interrupt_ext(interrupt, &interrupt_id);
             statement
                 .execute(params![
                     checkpoint.thread_id,

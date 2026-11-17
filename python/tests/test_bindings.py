@@ -1814,6 +1814,130 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(state.values["value"], 42)
 
 
+    def test_langgraph_resumes_parallel_interrupts(self):
+        try:
+            import sqlite3
+            import tempfile
+            from pathlib import Path
+            from typing import TypedDict
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langgraph.graph import END, START, StateGraph
+            from langgraph.types import Command, interrupt
+        except ImportError:
+            self.skipTest("langgraph sqlite saver is not installed")
+
+        path = Path(tempfile.mkdtemp()) / "parallel.sqlite"
+
+        def left(state):
+            return {"left": lg.interrupt("left-question")}
+
+        def right(state):
+            return {"right": lg.interrupt("right-question")}
+
+        graph = lg.StateGraph(
+            {"left": "last_value", "right": "last_value"}
+        )
+        graph.add_node("left", left)
+        graph.add_node("right", right)
+        graph.add_edge(lg.START, "left")
+        graph.add_edge(lg.START, "right")
+        graph.add_edge("left", lg.END)
+        graph.add_edge("right", lg.END)
+        compiled = graph.compile(
+            checkpointer=lg.LangGraphSqliteSaver(str(path))
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({}, thread_id="parallel")
+
+        class ParallelState(TypedDict, total=False):
+            left: int
+            right: int
+
+        def left_langgraph(state):
+            return {"left": interrupt("left-question")}
+
+        def right_langgraph(state):
+            return {"right": interrupt("right-question")}
+
+        graph_langgraph = StateGraph(ParallelState)
+        graph_langgraph.add_node("left", left_langgraph)
+        graph_langgraph.add_node("right", right_langgraph)
+        graph_langgraph.add_edge(START, "left")
+        graph_langgraph.add_edge(START, "right")
+        graph_langgraph.add_edge("left", END)
+        graph_langgraph.add_edge("right", END)
+        compiled_langgraph = graph_langgraph.compile(
+            checkpointer=SqliteSaver(
+                sqlite3.connect(path, check_same_thread=False)
+            )
+        )
+        config = {"configurable": {"thread_id": "parallel"}}
+        snapshot = compiled_langgraph.get_state(config)
+        self.assertEqual(set(snapshot.next), {"left", "right"})
+        resume_map = {
+            item.id: (10 if "left" in item.value else 20)
+            for item in snapshot.interrupts
+        }
+        self.assertEqual(
+            compiled_langgraph.invoke(
+                Command(resume=resume_map), config
+            ),
+            {"left": 10, "right": 20},
+        )
+
+    def test_langgraph_resumes_sequential_interrupts(self):
+        try:
+            import sqlite3
+            import tempfile
+            from pathlib import Path
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langgraph.graph import END, START, StateGraph
+            from langgraph.types import Command, interrupt
+        except ImportError:
+            self.skipTest("langgraph sqlite saver is not installed")
+
+        path = Path(tempfile.mkdtemp()) / "sequential.sqlite"
+
+        def ask(state):
+            first = lg.interrupt("first")
+            second = lg.interrupt("second")
+            return {"value": first + second}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(
+            checkpointer=lg.LangGraphSqliteSaver(str(path))
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="sequential")
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.resume("sequential", 5)
+
+        def ask_langgraph(state):
+            first = interrupt("first")
+            second = interrupt("second")
+            return {"value": first + second}
+
+        graph_langgraph = StateGraph(dict)
+        graph_langgraph.add_node("ask", ask_langgraph)
+        graph_langgraph.add_edge(START, "ask")
+        graph_langgraph.add_edge("ask", END)
+        compiled_langgraph = graph_langgraph.compile(
+            checkpointer=SqliteSaver(
+                sqlite3.connect(path, check_same_thread=False)
+            )
+        )
+        config = {"configurable": {"thread_id": "sequential"}}
+        compiled_langgraph.invoke(Command(resume=5), config)
+        self.assertEqual(
+            compiled_langgraph.invoke(Command(resume=7), config)["value"],
+            12,
+        )
+
     def test_langgraph_typed_schema_reads_binding_database(self):
         try:
             import sqlite3
