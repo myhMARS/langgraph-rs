@@ -24,8 +24,9 @@ use serde_json::{Map, Value, json};
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{
     TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
-    debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
-    process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
+    debug_chunk, finish, interrupt_after_node, interrupt_before_pause, interrupts_from,
+    merge_interrupted_tasks, process_outcomes, should_save_after_step, should_save_terminal,
+    values_chunk,
 };
 use self::scheduling::{collect_next_nodes, schedule_next_tasks};
 use self::superstep::run_superstep;
@@ -213,7 +214,7 @@ pub(crate) fn execute<S: State>(
         let paused = prepared.paused;
         skip_interrupt_before = false;
         if let Some(interrupted) = paused {
-            let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);
+            let (interrupted_interrupt, chunk) = interrupt_before_pause(&interrupted);
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
@@ -230,10 +231,7 @@ pub(crate) fn execute<S: State>(
                 sink,
                 checkpoint_writer.as_ref(),
             )?;
-            sink(StreamChunk::Interrupt {
-                node: interrupted.node.clone(),
-                value: Value::Null,
-            });
+            sink(chunk);
             return Err(Error::Interrupt(interrupted_interrupt));
         }
 

@@ -1038,7 +1038,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             let paused = prepared.paused;
             skip_interrupt_before = false;
             if let Some(interrupted) = paused {
-                let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);
+                let (interrupted_interrupt, chunk) =
+                    crate::kernel::executor::outcome::interrupt_before_pause(&interrupted);
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &namespace,
@@ -1054,10 +1055,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     sink,
                 )
                 .await?;
-                sink(StreamChunk::Interrupt {
-                    node: interrupted.node.clone(),
-                    value: Value::Null,
-                });
+                sink(chunk);
                 return Err(Error::Interrupt(interrupted_interrupt));
             }
 

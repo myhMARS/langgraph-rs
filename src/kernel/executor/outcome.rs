@@ -487,3 +487,13 @@ pub(crate) fn should_save_terminal(
 ) -> bool {
     durability == crate::kernel::graph::Durability::Exit && has_thread
 }
+
+/// Interrupt raised by an `interrupt_before` hook and its stream event.
+pub(crate) fn interrupt_before_pause(task: &Task) -> (Interrupt, StreamChunk) {
+    let interrupt = Interrupt::new(task.node.clone(), Value::Null);
+    let chunk = StreamChunk::Interrupt {
+        node: task.node.clone(),
+        value: Value::Null,
+    };
+    (interrupt, chunk)
+}
