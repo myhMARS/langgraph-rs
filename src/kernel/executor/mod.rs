@@ -82,23 +82,14 @@ pub(crate) fn execute<S: State>(
         None
     };
     let store = config.store.clone().or_else(|| graph.store().cloned());
-    if let (Some(schema), Some(context)) = (graph.context_schema(), config.context.as_ref()) {
-        crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
-            Error::validation(format!("context does not match context_schema: {error}"))
-        })?;
-    }
-    let _run_guard = crate::kernel::context::install_run(
+    let setup = step::begin_run(
         thread_id.clone(),
         namespace.clone(),
         store,
         config.context.clone(),
-    );
-    let subgraph_collector: Option<std::sync::Arc<std::sync::Mutex<Vec<StreamChunk>>>> = config
-        .stream_subgraphs
-        .then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
-    let _collector_guard = subgraph_collector
-        .as_ref()
-        .map(|collector| crate::kernel::context::install_subgraph_collector(collector.clone()));
+        graph.context_schema(),
+        config.stream_subgraphs,
+    )?;
 
     if thread_id.is_some() && graph.checkpointer().is_none() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
@@ -236,7 +227,7 @@ pub(crate) fn execute<S: State>(
         }
 
         let outcomes = run_superstep(graph, &state, &tasks);
-        if let Some(collector) = &subgraph_collector {
+        if let Some(collector) = setup.collector() {
             let chunks: Vec<StreamChunk> = collector
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())

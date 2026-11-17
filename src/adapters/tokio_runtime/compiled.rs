@@ -900,9 +900,15 @@ impl<S: State> AsyncCompiledGraph<S> {
         let thread_id = config.thread_id.clone();
         let namespace = config.checkpoint_ns.clone().unwrap_or_default();
         let store = config.store.clone().or_else(|| self.store.clone());
-        let collector = config
-            .stream_subgraphs
-            .then(|| Arc::new(std::sync::Mutex::new(Vec::new())));
+        let setup = crate::kernel::executor::step::begin_run(
+            thread_id.clone(),
+            namespace.clone(),
+            store.clone(),
+            config.context.clone(),
+            self.context_schema(),
+            config.stream_subgraphs,
+        )?;
+        let collector = setup.collector().cloned();
         let run_info = AsyncRunInfo {
             thread_id: thread_id.clone(),
             namespace: namespace.clone(),
@@ -910,17 +916,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             context: config.context.clone(),
             collector: collector.clone(),
         };
-        if let (Some(schema), Some(context)) = (self.context_schema(), config.context.as_ref()) {
-            crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
-                Error::validation(format!("context does not match context_schema: {error}"))
-            })?;
-        }
-        let _run_guard = crate::kernel::context::install_run(
-            thread_id.clone(),
-            namespace.clone(),
-            store,
-            config.context.clone(),
-        );
+        let _setup = setup;
 
         if thread_id.is_some() && !self.has_checkpointer() {
             return Err(Error::MissingCheckpointer("a run bound to a thread_id"));

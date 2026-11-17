@@ -48,3 +48,45 @@ pub(crate) fn begin_step<S: State>(
         guard,
     })
 }
+
+/// Guards and shared buffers that scope one run.
+pub(crate) struct RunSetup {
+    _run: crate::kernel::context::RunGuard,
+    collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>,
+    _collector: Option<crate::kernel::context::CollectorGuard>,
+}
+
+impl RunSetup {
+    pub(crate) fn collector(
+        &self,
+    ) -> Option<&std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>> {
+        self.collector.as_ref()
+    }
+}
+
+/// Validate context, install the run scope and optional subgraph chunk collector.
+pub(crate) fn begin_run(
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>>,
+    context: Option<Value>,
+    context_schema: Option<&Value>,
+    stream_subgraphs: bool,
+) -> Result<RunSetup> {
+    if let (Some(schema), Some(context)) = (context_schema, context.as_ref()) {
+        crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
+            Error::validation(format!("context does not match context_schema: {error}"))
+        })?;
+    }
+    let run = crate::kernel::context::install_run(thread_id, namespace, store, context);
+    let collector =
+        stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+    let collector_guard = collector
+        .as_ref()
+        .map(|collector| crate::kernel::context::install_subgraph_collector(collector.clone()));
+    Ok(RunSetup {
+        _run: run,
+        collector,
+        _collector: collector_guard,
+    })
+}
