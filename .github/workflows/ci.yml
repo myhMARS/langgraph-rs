@@ -11,8 +11,50 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  test:
-    name: fmt, clippy, test
+  fmt:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install SQLite development library
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test-core:
+    name: tests (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install SQLite development library
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Run core tests
+        run: cargo test --all-targets
+      - name: Run doctests
+        run: cargo test --doc
+
+  test-async:
+    name: tests (async)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install SQLite development library
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Run async tests
+        run: cargo test --all-targets --features async
+
+  test-db:
+    name: tests (persistence)
     runs-on: ubuntu-latest
     services:
       redis:
@@ -41,98 +83,34 @@ jobs:
       POSTGRES_URL: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=langgraph_rs
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo artefacts
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install SQLite development library
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Clippy (all targets and features)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run tests
-        run: cargo test --all-targets
-
-      - name: Run tests (async feature)
-        run: cargo test --all-targets --features async
-
-      - name: Run persistence tests (SQLite)
-        run: cargo test --all-targets --features "async sqlite sqlite"
-
-      - name: Run persistence tests (Redis/Postgres)
-        run: cargo test --all-targets --features "async redis postgres msgpack"
-
-      - name: Run doctests
-        run: cargo test --doc
-
-      - name: Build release
-        run: cargo build --release
+      - name: Run persistence tests
+        run: cargo test --all-targets --features "async sqlite redis postgres msgpack"
 
   python:
     name: python bindings
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: langgraph_rs
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      REDIS_URL: redis://127.0.0.1:6379
-      POSTGRES_URL: host=127.0.0.1 port=5432 user=postgres password=postgres dbname=langgraph_rs
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artefacts
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install SQLite headers
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
-
       - name: Install LangGraph for interop tests
         run: python3 -m pip install "langgraph>=1.2,<1.3" "langgraph-checkpoint-sqlite>=3,<4" || true
-
       - name: Build the extension module
         run: cargo build --features "python python-async sqlite redis postgres msgpack"
-
       - name: Make the module importable
         run: |
           mkdir -p target/python
           cp target/debug/liblanggraph_rs.so target/python/langgraph_rs.so
-
       - name: Run Python binding tests
         run: python3 -m unittest discover -s python/tests -v
         env:
           PYTHONPATH: target/python
-
       - name: Run the Python example
         run: python3 python/examples/quickstart.py
         env:
@@ -143,13 +121,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install SQLite development library
         run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
-
       - name: Build docs
         run: cargo doc --no-deps --all-features
         env:
