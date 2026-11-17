@@ -226,6 +226,13 @@ impl<'a> Reader<'a> {
         Ok(Value::String(value.to_string()))
     }
 
+    fn read_bin(&mut self, len: usize) -> Result<Value> {
+        let bytes = self.read_bytes(len)?;
+        Ok(Value::Array(
+            bytes.iter().map(|byte| Value::from(*byte)).collect(),
+        ))
+    }
+
     fn read_value(&mut self) -> Result<Value> {
         let marker = self.read_u8()?;
         match marker {
@@ -254,6 +261,18 @@ impl<'a> Reader<'a> {
             0xd1 => Ok(Value::from(self.read_u16()? as i16)),
             0xd2 => Ok(Value::from(self.read_u32()? as i32)),
             0xd3 => Ok(Value::from(self.read_u64()? as i64)),
+            0xc4 => {
+                let len = self.read_u8()? as usize;
+                self.read_bin(len)
+            }
+            0xc5 => {
+                let len = self.read_u16()? as usize;
+                self.read_bin(len)
+            }
+            0xc6 => {
+                let len = self.read_u32()? as usize;
+                self.read_bin(len)
+            }
             0xd9 => {
                 let len = self.read_u8()? as usize;
                 self.read_str(len)

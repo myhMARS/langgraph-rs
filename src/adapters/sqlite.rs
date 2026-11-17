@@ -140,7 +140,7 @@ impl Checkpointer for SqliteSaver {
             .query_row(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = ?1
-                 ORDER BY step DESC, created_at DESC, id DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT 1",
                 params![thread_id],
                 SqliteSaver::decode,
@@ -155,7 +155,7 @@ impl Checkpointer for SqliteSaver {
             .prepare(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = ?1
-                 ORDER BY step DESC, created_at DESC, id DESC",
+                 ORDER BY created_at DESC, id DESC",
             )
             .map_err(|error| Error::Checkpoint(format!("sqlite: prepare history: {error}")))?;
         let rows = statement
@@ -175,7 +175,7 @@ impl Checkpointer for SqliteSaver {
             .query_row(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = ?1 AND namespace = ?2
-                 ORDER BY step DESC, created_at DESC, id DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT 1",
                 params![thread_id, namespace],
                 SqliteSaver::decode,
@@ -190,7 +190,7 @@ impl Checkpointer for SqliteSaver {
             .prepare(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = ?1 AND namespace = ?2
-                 ORDER BY step DESC, created_at DESC, id DESC",
+                 ORDER BY created_at DESC, id DESC",
             )
             .map_err(|error| Error::Checkpoint(format!("sqlite: prepare history: {error}")))?;
         let rows = statement
@@ -216,7 +216,7 @@ impl Checkpointer for SqliteSaver {
                    AND id NOT IN (
                        SELECT id FROM langgraph_rs_checkpoints
                        WHERE thread_id = ?1
-                       ORDER BY step DESC, created_at DESC, id DESC
+                       ORDER BY created_at DESC, id DESC
                        LIMIT ?2
                    )",
                 params![thread_id, keep_last as i64],

@@ -191,6 +191,11 @@ impl Channel {
                             "named barrier writes must be channel values containing the writer name",
                         )
                     })?;
+                    if !names.iter().any(|candidate| candidate == name) {
+                        return Err(Error::other(format!(
+                            "named barrier received unknown writer `{name}`"
+                        )));
+                    }
                     if !seen.iter().any(|existing| existing == name) {
                         seen.push(name.to_string());
                     }

@@ -138,7 +138,7 @@ impl Checkpointer for PostgresSaver {
             .query_opt(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = $1
-                 ORDER BY step DESC, created_at DESC, id DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT 1",
                 &[&thread_id],
             )
@@ -154,7 +154,7 @@ impl Checkpointer for PostgresSaver {
             .query(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = $1
-                 ORDER BY step DESC, created_at DESC, id DESC",
+                 ORDER BY created_at DESC, id DESC",
                 &[&thread_id],
             )
             .map_err(|error| Error::Checkpoint(format!("postgres: read history: {error}")))?;
@@ -167,7 +167,7 @@ impl Checkpointer for PostgresSaver {
             .query_opt(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = $1 AND namespace = $2
-                 ORDER BY step DESC, created_at DESC, id DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT 1",
                 &[&thread_id, &namespace],
             )
@@ -183,7 +183,7 @@ impl Checkpointer for PostgresSaver {
             .query(
                 "SELECT payload FROM langgraph_rs_checkpoints
                  WHERE thread_id = $1 AND namespace = $2
-                 ORDER BY step DESC, created_at DESC, id DESC",
+                 ORDER BY created_at DESC, id DESC",
                 &[&thread_id, &namespace],
             )
             .map_err(|error| Error::Checkpoint(format!("postgres: read history: {error}")))?;
@@ -198,7 +198,7 @@ impl Checkpointer for PostgresSaver {
                    AND id NOT IN (
                        SELECT id FROM langgraph_rs_checkpoints
                        WHERE thread_id = $1
-                       ORDER BY step DESC, created_at DESC, id DESC
+                       ORDER BY created_at DESC, id DESC
                        LIMIT $2
                    )",
                 &[&thread_id, &(keep_last as i64)],

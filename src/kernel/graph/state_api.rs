@@ -117,8 +117,11 @@ impl<S: State> CompiledGraph<S> {
         let total = all.len() as i64;
         let mut checkpoints = all.clone();
         if let Some(before) = before {
-            if let Some(index) = checkpoints.iter().position(|cp| cp.id == before) {
-                checkpoints.drain(0..=index);
+            match checkpoints.iter().position(|cp| cp.id == before) {
+                Some(index) => {
+                    checkpoints.drain(0..=index);
+                }
+                None => checkpoints.clear(),
             }
         }
         if let Some(limit) = limit {
