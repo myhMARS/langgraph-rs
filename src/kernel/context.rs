@@ -32,6 +32,27 @@ tokio::task_local! {
     pub(crate) static ASYNC_RUN: RunContext;
     static ASYNC_TASK_RESULTS: RefCell<Map<String, Value>>;
     static ASYNC_NODE: (String, Option<String>);
+    static ASYNC_TASK: std::sync::Arc<dyn AsyncTaskOps>;
+}
+
+/// Operations of the async node currently executing, exposed to the free helper
+/// functions (`interrupt`, `custom`, `message`, `record_usage`, `last_error`).
+#[cfg(feature = "async")]
+pub(crate) trait AsyncTaskOps: Send + Sync {
+    fn interrupt_value(&self, value: Value, schema: Option<Value>) -> Result<Value>;
+    fn push_custom(&self, value: Value) -> Result<()>;
+    fn push_message(&self, value: Value) -> Result<()>;
+    fn record_usage(&self, usage: crate::kernel::usage::Usage) -> Result<()>;
+    fn last_error(&self) -> Option<crate::kernel::error::NodeFailure>;
+}
+
+/// Scope a node future with the async task operations used by the free helpers.
+#[cfg(feature = "async")]
+pub(crate) async fn with_async_task<F: std::future::Future>(
+    ops: std::sync::Arc<dyn AsyncTaskOps>,
+    future: F,
+) -> F::Output {
+    ASYNC_TASK.scope(ops, future).await
 }
 
 /// `Command(graph=PARENT)` collected from a subgraph node.
@@ -187,6 +208,10 @@ pub fn current_runtime() -> Option<Runtime> {
         store: run.store.clone(),
         context: run.context.clone(),
     })
+}
+
+fn has_sync_task() -> bool {
+    CURRENT_TASK.with(|slot| slot.borrow().is_some())
 }
 
 /// Capture the current run context for a scoped worker thread.
@@ -387,6 +412,12 @@ pub(crate) fn with_task<R>(
 /// ([`StateGraph::add_error_edge`](crate::StateGraph::add_error_edge)), the handler node
 /// runs and can inspect the failure with this function.
 pub fn last_error() -> Option<NodeFailure> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(ops) = ASYNC_TASK.try_with(|ops| ops.last_error())
+    {
+        return ops;
+    }
     CURRENT_TASK.with(|slot| {
         slot.borrow()
             .as_ref()
@@ -420,6 +451,13 @@ pub fn interrupt(value: Value) -> Result<Value> {
 /// The schema is stored on the interrupt (visible in snapshots) and the resume value is
 /// validated when the node re-runs; a mismatch fails the node with a descriptive error.
 pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Result<Value> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(result) =
+            ASYNC_TASK.try_with(|ops| ops.interrupt_value(value.clone(), response_schema.clone()))
+    {
+        return result;
+    }
     CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         let Some(context) = slot.as_mut() else {
@@ -742,6 +780,12 @@ pub fn custom(value: impl Serialize) -> Result<()> {
 
 /// Emit an already serialized custom value into the graph stream.
 pub fn push_custom(value: Value) -> Result<()> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_custom(value.clone()))
+    {
+        return result;
+    }
     CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
         Some(context) => {
             context.custom.push(value);
@@ -763,6 +807,12 @@ pub fn message(value: impl Serialize) -> Result<()> {
 
 /// Emit an already serialized message into the graph stream.
 pub fn push_message(value: Value) -> Result<()> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_message(value.clone()))
+    {
+        return result;
+    }
     CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
         Some(context) => {
             context.messages.push(value);
@@ -780,6 +830,12 @@ pub fn push_message(value: Value) -> Result<()> {
 /// aggregated into the run's [`RunReport`](crate::RunReport). Multiple calls from one
 /// node are summed.
 pub fn record_usage(usage: Usage) -> Result<()> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.record_usage(usage.clone()))
+    {
+        return result;
+    }
     CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
         Some(context) => {
             context.usage.push(usage);

@@ -13,6 +13,29 @@ use crate::kernel::store::BaseStore;
 use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::Usage;
 
+impl crate::kernel::context::AsyncTaskOps for AsyncContext {
+    fn interrupt_value(&self, value: Value, schema: Option<Value>) -> Result<Value> {
+        self.interrupt_with_schema(value, schema)
+    }
+
+    fn push_custom(&self, value: Value) -> Result<()> {
+        self.custom(value)
+    }
+
+    fn push_message(&self, value: Value) -> Result<()> {
+        self.message(value)
+    }
+
+    fn record_usage(&self, usage: Usage) -> Result<()> {
+        self.record_usage(usage);
+        Ok(())
+    }
+
+    fn last_error(&self) -> Option<NodeFailure> {
+        self.last_error().cloned()
+    }
+}
+
 /// Per-node execution context for async nodes.
 ///
 /// The context is cheap to clone; clones share the same capture buffer. Nodes use it to

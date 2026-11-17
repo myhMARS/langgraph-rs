@@ -1032,10 +1032,15 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.context.clone(),
                 run.collector.clone(),
             );
-            let future: BoxNodeFuture = Box::pin(crate::kernel::context::with_async_node(
-                task.node.clone(),
-                Some(task.id.clone()),
-                (node.as_ref())(input.clone(), context.clone()),
+            let task_ops: std::sync::Arc<dyn crate::kernel::context::AsyncTaskOps> =
+                std::sync::Arc::new(context.clone());
+            let future: BoxNodeFuture = Box::pin(crate::kernel::context::with_async_task(
+                task_ops,
+                crate::kernel::context::with_async_node(
+                    task.node.clone(),
+                    Some(task.id.clone()),
+                    (node.as_ref())(input.clone(), context.clone()),
+                ),
             ));
             let idle_timeout = timeout_policy.idle_timeout();
             let result = if let Some(timeout) = run_timeout {

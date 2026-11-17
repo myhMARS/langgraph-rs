@@ -205,6 +205,11 @@ impl StreamChunk {
         }
     }
 
+    /// Like [StreamChunk::matches_modes] but drops engine-only chunks (usage).
+    pub fn matches_modes_strict(&self, modes: &[StreamMode]) -> bool {
+        self.mode().is_some_and(|_| self.matches_modes(modes))
+    }
+
     /// Check whether this chunk is forwarded for the selected stream modes.
     ///
     /// Usage and interrupt chunks are always forwarded; the `debug` mode also includes

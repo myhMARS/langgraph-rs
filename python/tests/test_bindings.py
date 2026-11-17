@@ -295,10 +295,15 @@ class StreamingTests(unittest.TestCase):
         compiled = graph.compile()
         chunks = compiled.stream({"value": 0})
         kinds = {chunk["type"] for chunk in chunks}
-        self.assertIn("values", kinds)
-        self.assertIn("updates", kinds)
-        self.assertIn("custom", kinds)
-        self.assertIn("usage", kinds)
+        # LangGraph's default stream mode is "updates".
+        self.assertEqual(kinds, {"updates"})
+        all_chunks = compiled.stream(
+            {"value": 0}, stream_mode=["values", "updates", "custom"]
+        )
+        all_kinds = {chunk["type"] for chunk in all_chunks}
+        self.assertIn("values", all_kinds)
+        self.assertIn("updates", all_kinds)
+        self.assertIn("custom", all_kinds)
 
     def test_stream_modes(self):
         graph = lg.StateGraph({"value": "last_value"})

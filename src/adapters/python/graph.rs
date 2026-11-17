@@ -442,6 +442,15 @@ impl PyCompiledGraph {
         version: Option<String>,
         control: Option<PyRef<'_, super::types::PyRunControl>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let v2 = match version.as_deref() {
+            None | Some("v1") => false,
+            Some("v2") => true,
+            Some(other) => {
+                return Err(PyTypeError::new_err(format!(
+                    "stream version must be 'v1' or 'v2', got {other:?}"
+                )));
+            }
+        };
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
         if let Some(control) = control {
@@ -453,22 +462,17 @@ impl PyCompiledGraph {
         if subgraphs {
             config = config.with_stream_subgraphs(true);
         }
-        let modes = stream_modes_from_py(stream_mode)?;
+        let requested =
+            stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         let chunks = py
-            .detach(|| match &modes {
-                Some(modes) => self.graph.stream_modes(&state, &config, modes),
-                None => self.graph.stream(&state, &config),
+            .detach(|| self.graph.stream_modes(&state, &config, &requested))
+            .map_err(|error| to_pyerr(py, error))?
+            .into_iter()
+            .filter(|chunk| {
+                matches!(chunk, crate::StreamChunk::Interrupt { .. })
+                    || chunk.matches_modes_strict(&requested)
             })
-            .map_err(|error| to_pyerr(py, error))?;
-        let v2 = match version.as_deref() {
-            None | Some("v1") => false,
-            Some("v2") => true,
-            Some(other) => {
-                return Err(PyTypeError::new_err(format!(
-                    "stream version must be 'v1' or 'v2', got {other:?}"
-                )));
-            }
-        };
+            .collect::<Vec<_>>();
         chunks
             .iter()
             .map(|chunk| {
