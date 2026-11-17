@@ -112,10 +112,7 @@ pub(super) fn save_checkpoint<S: State>(
         previous: previous.as_ref(),
         task_results: crate::kernel::context::snapshot_task_results(),
     });
-    match writer {
-        Some(writer) => writer.submit(checkpoint)?,
-        None => checkpointer.put(checkpoint)?,
-    }
+    persist_checkpoint(checkpointer.as_ref(), checkpoint, writer)?;
     checkpoint_committed(parent, &id, sink);
     Ok(())
 }
@@ -208,4 +205,16 @@ pub(crate) fn checkpoint_committed(
     sink(StreamChunk::Checkpoint {
         checkpoint_id: id.to_string(),
     });
+}
+
+/// Persist one checkpoint through a sync checkpointer or the background writer.
+pub(crate) fn persist_checkpoint(
+    checkpointer: &dyn Checkpointer,
+    checkpoint: Checkpoint,
+    writer: Option<&CheckpointWriter>,
+) -> Result<()> {
+    match writer {
+        Some(writer) => writer.submit(checkpoint),
+        None => checkpointer.put(checkpoint),
+    }
 }

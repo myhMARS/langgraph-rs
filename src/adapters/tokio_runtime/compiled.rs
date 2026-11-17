@@ -1664,8 +1664,16 @@ impl<S: State> AsyncCompiledGraph<S> {
         );
         if let Some(writer) = writer {
             let _ = writer.send(checkpoint);
+        } else if let Some(async_saver) = &self.async_checkpointer {
+            async_saver.put(checkpoint).await?;
+        } else if let Some(saver) = &self.checkpointer {
+            crate::kernel::executor::checkpointing::persist_checkpoint(
+                saver.as_ref(),
+                checkpoint,
+                None,
+            )?;
         } else {
-            self.saver_put(checkpoint).await?;
+            return Err(Error::MissingCheckpointer("save_checkpoint"));
         }
         crate::kernel::executor::checkpointing::checkpoint_committed(parent, &id, &mut |chunk| {
             sink(chunk)
