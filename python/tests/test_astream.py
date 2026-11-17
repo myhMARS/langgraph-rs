@@ -70,5 +70,34 @@ class AsyncStreamTests(unittest.TestCase):
         self.assertIn("timestamp", debug[0]["data"])
 
 
+    def test_astream_can_resume_thread(self):
+        import asyncio
+
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value", "log": "append"})
+            graph.add_node("a", lambda state: {"value": 1, "log": ["a"]})
+            graph.add_node("b", lambda state: {"value": 2, "log": ["b"]})
+            graph.set_entry_point("a")
+            graph.add_edge("a", "b")
+            graph.set_finish_point("b")
+            compiled = graph.compile(
+                checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
+            )
+            try:
+                await compiled.ainvoke(
+                    {"value": 0, "log": []}, thread_id="async-stream-resume"
+                )
+            except lg.GraphInterrupt:
+                pass
+            chunks = await compiled.astream(
+                None, thread_id="async-stream-resume"
+            )
+            self.assertTrue(chunks)
+            snapshot = await compiled.aget_state("async-stream-resume")
+            self.assertEqual(snapshot["values"]["log"], ["a", "b"])
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()

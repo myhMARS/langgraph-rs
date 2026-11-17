@@ -8,7 +8,7 @@ use pyo3::types::{PyAny, PyDict, PyList};
 
 use super::convert::install_langchain_callbacks;
 use super::convert::*;
-use super::types::{PyTimeoutPolicy, checkpointer_from_py, store_from_py};
+use super::types::{PyCommand, PyTimeoutPolicy, checkpointer_from_py, store_from_py};
 use crate::BlockingSaver;
 use crate::JsonState;
 use crate::kernel::node::NodeOutput;
@@ -189,7 +189,7 @@ impl PyAsyncCompiledGraph {
 
     /// Awaitable stream collection returning a list of chunk dicts.
     #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn astream<'py>(
         &self,
         py: Python<'py>,
@@ -209,8 +209,7 @@ impl PyAsyncCompiledGraph {
                 )));
             }
         };
-        let state = state_from_py(input)?;
-        let (_, mut config) = super::convert::config_from_py(py, thread_id)?;
+        let (thread, mut config) = super::convert::config_from_py(py, thread_id)?;
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
@@ -219,12 +218,61 @@ impl PyAsyncCompiledGraph {
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
+        let mut resume_start: Option<(
+            Option<crate::Value>,
+            Option<serde_json::Map<String, crate::Value>>,
+            Vec<String>,
+        )> = None;
+        if let Some(obj) = input {
+            if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+                let (resume, updates) = command.to_resume_command(py)?;
+                let goto = command.goto_targets(py)?;
+                resume_start = Some((resume, Some(updates.into_iter().collect()), goto));
+            }
+        }
+        let continue_thread =
+            resume_start.is_none() && input.is_none_or(|value| value.is_none()) && thread.is_some();
+        let state = if resume_start.is_none() && !continue_thread {
+            Some(state_from_py(input)?)
+        } else {
+            None
+        };
+        let stream_thread = thread.clone();
         let graph = self.graph.clone();
         let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut collected: Vec<StreamChunk> = Vec::new();
-            let result = graph
-                .stream_modes_with(&state, &config, &requested, |chunk| collected.push(chunk))
-                .await;
+            let result = if let Some((resume, updates, goto)) = resume_start {
+                let thread = stream_thread.as_deref().expect("command thread checked");
+                graph
+                    .stream_thread_with(
+                        thread,
+                        resume,
+                        updates,
+                        goto,
+                        &config,
+                        &requested,
+                        |chunk| collected.push(chunk),
+                    )
+                    .await
+            } else if continue_thread {
+                let thread = stream_thread.as_deref().expect("continue thread checked");
+                graph
+                    .stream_thread_with(
+                        thread,
+                        None,
+                        None,
+                        Vec::new(),
+                        &config,
+                        &requested,
+                        |chunk| collected.push(chunk),
+                    )
+                    .await
+            } else {
+                let state = state.expect("input state checked");
+                graph
+                    .stream_modes_with(&state, &config, &requested, |chunk| collected.push(chunk))
+                    .await
+            };
             if let Err(error) = result {
                 return Python::attach(|py| Err(to_pyerr(py, error)));
             }

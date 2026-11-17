@@ -392,6 +392,42 @@ impl<S: State> AsyncCompiledGraph<S> {
             .map(|outcome| outcome.state)
     }
 
+    /// Stream a resume/continue run for an existing thread.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn stream_thread_with<F>(
+        &self,
+        thread_id: &str,
+        resume: Option<Value>,
+        updates: Option<serde_json::Map<String, Value>>,
+        goto: Vec<String>,
+        config: &RunConfig,
+        modes: &[StreamMode],
+        mut sink: F,
+    ) -> Result<S>
+    where
+        F: FnMut(StreamChunk) + Send,
+    {
+        let requested = modes.to_vec();
+        let mut filtered = |chunk: StreamChunk| {
+            if chunk.matches_modes(&requested) {
+                sink(chunk);
+            }
+        };
+        self.execute(
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: config.checkpoint_id.clone(),
+                resume,
+                updates,
+                goto,
+            },
+            config,
+            &mut filtered,
+        )
+        .await
+        .map(|outcome| outcome.state)
+    }
+
     /// Resume an interrupted thread.
     pub async fn resume(&self, thread_id: &str, value: Value) -> Result<S> {
         self.resume_inner(thread_id, None, Some(value), None, None)

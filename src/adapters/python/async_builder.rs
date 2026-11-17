@@ -218,7 +218,8 @@ impl PyAsyncStateGraph {
         Ok(slf.into())
     }
 
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None, interrupt_before=None, interrupt_after=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn compile(
         &self,
         py: Python<'_>,
@@ -226,6 +227,9 @@ impl PyAsyncStateGraph {
         recursion_limit: Option<usize>,
         cache: Option<bool>,
         store: Option<&Bound<'_, PyAny>>,
+        interrupt_before: Option<Vec<String>>,
+        interrupt_after: Option<Vec<String>>,
+        name: Option<String>,
     ) -> PyResult<PyAsyncCompiledGraph> {
         let mut builder = self.inner.clone();
         let mut saver = None;
@@ -243,6 +247,15 @@ impl PyAsyncStateGraph {
         }
         if let Some(store) = store_from_py(store)? {
             builder = builder.with_store(store);
+        }
+        if let Some(nodes) = interrupt_before {
+            builder = builder.interrupt_before(nodes);
+        }
+        if let Some(nodes) = interrupt_after {
+            builder = builder.interrupt_after(nodes);
+        }
+        if let Some(name) = name {
+            builder = builder.with_name(name);
         }
         let compiled = builder.compile().map_err(|error| to_pyerr(py, error))?;
         Ok(PyAsyncCompiledGraph {
