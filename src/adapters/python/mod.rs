@@ -451,7 +451,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     let schema_module = pyo3::types::PyModule::from_code(
         module.py(),
-        c"import typing\n\nclass MessagesState(dict):\n    __annotations__ = {'messages': typing.Annotated[list, 'add_messages']}\n\ndef _schema_from_class(cls):\n    out = {}\n    for name, annotation in getattr(cls, '__annotations__', {}).items():\n        reducer = 'last_value'\n        if typing.get_origin(annotation) is typing.Annotated:\n            args = typing.get_args(annotation)\n            reducer = args[1]\n        out[name] = reducer\n    return out\n",
+        c"import typing\n\nclass MessagesState(dict):\n    __annotations__ = {'messages': typing.Annotated[list, 'add_messages']}\n\ndef _schema_from_class(cls):\n    out = {}\n    annotations = {}\n    for base in reversed(getattr(cls, '__mro__', [cls])):\n        annotations.update(getattr(base, '__annotations__', {}))\n    for name, annotation in annotations.items():\n        reducer = 'last_value'\n        if typing.get_origin(annotation) is typing.Annotated:\n            args = typing.get_args(annotation)\n            reducer = args[1]\n        out[name] = reducer\n    return out\n",
         c"langgraph_rs_schema.py",
         c"langgraph_rs_schema",
     )?;

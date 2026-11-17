@@ -58,6 +58,26 @@ class MessagesStateTests(unittest.TestCase):
         output = graph.compile().invoke({"messages": []})
         self.assertEqual(output["messages"][0]["content"], "x")
 
+    def test_messages_state_subclass_inherits_messages_channel(self):
+        from typing import Annotated
+
+        class MyState(lg.MessagesState):
+            extra: Annotated[str, "last_value"]
+
+        graph = lg.StateGraph(MyState)
+        graph.add_node(
+            "a",
+            lambda state: {
+                "messages": [{"id": "1", "content": "x"}],
+                "extra": "e",
+            },
+        )
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        output = graph.compile().invoke({"messages": [], "extra": ""})
+        self.assertEqual(output["messages"][0]["content"], "x")
+        self.assertEqual(output["extra"], "e")
+
     def test_config_dict_covers_stream_history_and_update(self):
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("inc", lambda state: {"value": state["value"] + 1})
