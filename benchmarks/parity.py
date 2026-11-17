@@ -10,6 +10,7 @@ The script writes ``benchmarks/parity_results.json`` and ``benchmarks/PARITY.md`
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import tempfile
@@ -53,6 +54,46 @@ def measure(operation) -> dict:
         "ns_per_op": round(seconds * 1e9 / ITERATIONS, 1),
         "ops_per_sec": round(ITERATIONS / seconds, 1),
     }
+
+
+def measure_async(operation) -> dict:
+    async def run() -> float:
+        for _ in range(WARMUP):
+            await operation()
+        started = time.perf_counter()
+        for _ in range(ITERATIONS):
+            await operation()
+        return time.perf_counter() - started
+
+    seconds = asyncio.run(run())
+    return {
+        "iterations": ITERATIONS,
+        "ns_per_op": round(seconds * 1e9 / ITERATIONS, 1),
+        "ops_per_sec": round(ITERATIONS / seconds, 1),
+    }
+
+
+def lg_async_linear():
+    graph = LgStateGraph(dict)
+    for index in range(5):
+        name = f"n{index}"
+        graph.add_node(name, lambda state: {"value": state.get("value", 0) + 1})
+        graph.add_edge(START if index == 0 else f"n{index - 1}", name)
+    graph.add_edge("n4", END)
+    return graph.compile()
+
+
+def rs_async_linear():
+    graph = rs.AsyncStateGraph({"value": "last_value"})
+    for index in range(5):
+        graph.add_node(
+            f"n{index}", lambda state: {"value": state["value"] + 1}
+        )
+    graph.set_entry_point("n0")
+    graph.add_edge("n4", rs.END)
+    for index in range(4):
+        graph.add_edge(f"n{index}", f"n{index + 1}")
+    return graph.compile()
 
 
 def lg_linear():
@@ -404,6 +445,31 @@ def run_linear_scenarios() -> list[dict]:
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
             "bench": persistence_bench,
+        }
+    )
+
+    # Async execution
+    lg_async = lg_async_linear()
+    rs_async = rs_async_linear()
+    lg_value = asyncio.run(lg_async.ainvoke({"value": 0}))
+    async def run_rs_async():
+        return await rs_async.ainvoke({"value": 0})
+
+    rs_value = asyncio.run(run_rs_async())
+    results.append(
+        {
+            "scenario": "async_linear_5",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure_async(
+                    lambda: rs_async.ainvoke({"value": 0})
+                ),
+                "lg": measure_async(
+                    lambda: lg_async.ainvoke({"value": 0})
+                ),
+            },
         }
     )
     return results

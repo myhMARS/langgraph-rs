@@ -97,7 +97,9 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers 15 scenarios: linear execution, conditional branches, loops, batch,
+The latest run covers 16 scenarios: linear execution, conditional branches, loops, batch,
 managed values, v1/v2 streaming, Command(update), retry policies, store round trips, SQLite
-persistence, interrupt/resume, `update_state`, checkpoint history, and subgraphs. Every
-scenario records behavior equivalence plus per-scenario latency for both engines.
+persistence, async execution, interrupt/resume, `update_state`, checkpoint history, and
+subgraphs. Every scenario records behavior equivalence plus per-scenario latency for both
+engines. The SQLite saver runs in WAL/NORMAL mode, which brought its parity benchmark from
+~0.5x to ~28x versus LangGraph in the latest run.

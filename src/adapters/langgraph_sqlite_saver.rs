@@ -43,6 +43,9 @@ impl LangGraphSqliteSaver {
     }
 
     fn from_connection(connection: Connection) -> Result<Self> {
+        let _ = connection.execute_batch(
+            "PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+        );
         connection
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS checkpoints (
@@ -151,7 +154,12 @@ impl LangGraphSqliteSaver {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
-        format!("{:016x}{hash:016x}", checkpoint.created_at_millis)
+        format!(
+            "{:016x}{:08x}{:08x}",
+            checkpoint.created_at_millis,
+            checkpoint.step,
+            (hash & 0xffff_ffff)
+        )
     }
 
     fn langgraph_payload(checkpoint: &Checkpoint) -> Result<(Vec<u8>, Vec<u8>)> {

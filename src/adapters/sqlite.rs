@@ -53,6 +53,10 @@ impl SqliteSaver {
     }
 
     fn from_connection(connection: Connection) -> Result<Self> {
+        // WAL + NORMAL keeps checkpoint writes durable without an fsync per commit.
+        let _ = connection.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+        );
         connection
             .execute_batch(SCHEMA)
             .map_err(|error| Error::Checkpoint(format!("sqlite: create schema: {error}")))?;
