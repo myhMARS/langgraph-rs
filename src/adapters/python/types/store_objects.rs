@@ -311,8 +311,6 @@ impl PySqliteCache {
     }
 }
 
-/// Redis-backed long-term memory store (feature `redis`).
-#[cfg(feature = "redis")]
 #[path = "store_backends.rs"]
 mod store_backends;
 pub(crate) use store_backends::*;

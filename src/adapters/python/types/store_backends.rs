@@ -9,6 +9,7 @@ use super::*;
 use crate::kernel::cache::NodeCache;
 use crate::kernel::store::BaseStore;
 
+#[cfg(feature = "redis")]
 #[pyclass(name = "RedisStore")]
 pub struct PyRedisStore {
     pub(crate) store: Arc<dyn BaseStore>,
