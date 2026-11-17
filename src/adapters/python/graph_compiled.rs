@@ -31,6 +31,7 @@ impl PyCompiledGraph {
 impl PyCompiledGraph {
     /// Run the graph and return the final state dict.
     #[pyo3(signature = (input=None, thread_id=None, context=None, control=None, checkpoint_ns=None, config=None))]
+    #[allow(clippy::too_many_arguments)]
     fn invoke(
         &self,
         py: Python<'_>,
