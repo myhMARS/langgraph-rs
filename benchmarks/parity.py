@@ -35,6 +35,10 @@ from langgraph.types import interrupt as lg_interrupt
 HERE = Path(__file__).resolve().parent
 
 
+class LgPendingState(TypedDict):
+    log: Annotated[list, operator.add]
+
+
 class LgDeferredState(TypedDict):
     log: Annotated[list, operator.add]
 
@@ -596,6 +600,22 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Pending writes: a successful parallel branch survives an interrupt in another.
+    lg_value = lg_pending_writes()
+    rs_value = rs_pending_writes()
+    results.append(
+        {
+            "scenario": "pending_writes",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_pending_writes),
+                "lg": measure(lg_pending_writes),
+            },
+        }
+    )
+
     # Send fan-out.
     lg_graph = lg_send_graph()
     rs_graph = rs_send_graph()
@@ -782,6 +802,53 @@ def rs_graph_export():
         [node["id"] for node in view["nodes"]],
         [(edge["source"], edge["target"]) for edge in view["edges"]],
     )
+
+
+def lg_pending_writes():
+    saver = LgInMemorySaver()
+
+    def branch_a(state):
+        return {"log": ["a"]}
+
+    def branch_b(state):
+        return {"log": ["b", lg_interrupt("value")]}
+
+    graph = LgStateGraph(LgPendingState)
+    graph.add_node("a", branch_a)
+    graph.add_node("b", branch_b)
+    graph.add_edge(START, "a")
+    graph.add_edge(START, "b")
+    graph.add_edge("a", END)
+    graph.add_edge("b", END)
+    compiled = graph.compile(checkpointer=saver)
+    config = {"configurable": {"thread_id": "parity-lg-pending"}}
+    try:
+        compiled.invoke({"log": []}, config)
+    except Exception:  # noqa: BLE001
+        pass
+    return compiled.invoke(LgCommand(resume=5), config)
+
+
+def rs_pending_writes():
+    def branch_a(state):
+        return {"log": ["a"]}
+
+    def branch_b(state):
+        return {"log": ["b", rs.interrupt("value")]}
+
+    graph = rs.StateGraph({"log": "append"})
+    graph.add_node("a", branch_a)
+    graph.add_node("b", branch_b)
+    graph.add_edge(rs.START, "a")
+    graph.add_edge(rs.START, "b")
+    graph.add_edge("a", rs.END)
+    graph.add_edge("b", rs.END)
+    compiled = graph.compile(checkpointer=rs.InMemorySaver())
+    try:
+        compiled.invoke({"log": []}, thread_id="parity-rs-pending")
+    except Exception:  # noqa: BLE001
+        pass
+    return compiled.resume("parity-rs-pending", 5)
 
 
 def lg_time_travel():
