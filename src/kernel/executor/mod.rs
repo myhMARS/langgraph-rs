@@ -20,7 +20,10 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
-use self::outcome::{TaskOutcome, collect_pending_writes, finish, process_outcomes};
+use self::outcome::{
+    TaskOutcome, collect_pending_writes, finish, interrupts_from, merge_interrupted_tasks,
+    process_outcomes,
+};
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
@@ -335,13 +338,7 @@ pub(crate) fn execute<S: State>(
         // values and the whole task list (a resume replays the superstep); several
         // pending interrupts commit the successful writes and keep only the interrupted
         // tasks, resumable through an `{interrupt id: value}` map.
-        let interrupts: Vec<Interrupt> = outcomes
-            .iter()
-            .filter_map(|outcome| match outcome {
-                TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
-                _ => None,
-            })
-            .collect();
+        let interrupts = interrupts_from(&outcomes);
         if !interrupts.is_empty() {
             if interrupts.len() == 1 {
                 let interrupted = interrupts.first().expect("one interrupt").clone();
@@ -357,16 +354,12 @@ pub(crate) fn execute<S: State>(
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                     .collect();
                 let processed = process_outcomes(graph, successful, step, &mut report, sink)?;
-                let mut next_tasks: Vec<Task> = tasks
-                    .iter()
-                    .filter(|task| interrupted_ids.contains(&task.id))
-                    .cloned()
-                    .collect();
-                for task in processed.next_tasks {
-                    if !next_tasks.iter().any(|existing| existing.id == task.id) {
-                        next_tasks.push(task);
-                    }
-                }
+                let next_tasks = merge_interrupted_tasks(
+                    &tasks,
+                    |task| interrupted_ids.contains(&task.id),
+                    processed.next_tasks,
+                    true,
+                );
                 save_checkpoint(
                     graph,
                     thread_id.as_deref(),
@@ -415,16 +408,12 @@ pub(crate) fn execute<S: State>(
                 step,
                 values: Value::Object(values.clone()),
             });
-            let mut next_tasks: Vec<Task> = tasks
-                .iter()
-                .filter(|task| interrupted_nodes.contains(&task.node))
-                .cloned()
-                .collect();
-            for task in processed.next_tasks {
-                if !next_tasks.iter().any(|existing| existing.node == task.node) {
-                    next_tasks.push(task);
-                }
-            }
+            let next_tasks = merge_interrupted_tasks(
+                &tasks,
+                |task| interrupted_nodes.contains(&task.node),
+                processed.next_tasks,
+                false,
+            );
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),

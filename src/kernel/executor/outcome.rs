@@ -372,3 +372,40 @@ pub(crate) fn finish<S: crate::kernel::state::State>(
     };
     Ok(RunOutcome { state, report })
 }
+
+/// Interrupts raised by a superstep, in task order.
+pub(crate) fn interrupts_from(outcomes: &[TaskOutcome]) -> Vec<Interrupt> {
+    outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            TaskOutcome::Interrupted(interrupt) => Some(interrupt.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Combine replayed interrupted tasks with newly scheduled tasks.
+///
+/// `match_by_id` keeps a task when its id is already present (single-interrupt replay);
+/// otherwise tasks are matched by node name (multiple pending interrupts).
+pub(crate) fn merge_interrupted_tasks(
+    tasks: &[Task],
+    keep: impl Fn(&Task) -> bool,
+    scheduled: Vec<Task>,
+    match_by_id: bool,
+) -> Vec<Task> {
+    let mut merged: Vec<Task> = tasks.iter().filter(|task| keep(task)).cloned().collect();
+    for task in scheduled {
+        let exists = merged.iter().any(|existing| {
+            if match_by_id {
+                existing.id == task.id
+            } else {
+                existing.node == task.node
+            }
+        });
+        if !exists {
+            merged.push(task);
+        }
+    }
+    merged
+}

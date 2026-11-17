@@ -1209,16 +1209,12 @@ impl<S: State> AsyncCompiledGraph<S> {
                         .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                         .collect();
                     let processed = self.process_outcomes(successful, step, &mut report, sink)?;
-                    let mut next_tasks: Vec<Task> = tasks
-                        .iter()
-                        .filter(|task| interrupted_ids.contains(&task.id))
-                        .cloned()
-                        .collect();
-                    for task in processed.next_tasks {
-                        if !next_tasks.iter().any(|existing| existing.id == task.id) {
-                            next_tasks.push(task);
-                        }
-                    }
+                    let next_tasks = crate::kernel::executor::outcome::merge_interrupted_tasks(
+                        &tasks,
+                        |task| interrupted_ids.contains(&task.id),
+                        processed.next_tasks,
+                        true,
+                    );
                     self.save_checkpoint_inner(
                         thread_id.as_deref(),
                         &namespace,
@@ -1267,16 +1263,12 @@ impl<S: State> AsyncCompiledGraph<S> {
                     step,
                     values: Value::Object(values.clone()),
                 });
-                let mut next_tasks: Vec<Task> = tasks
-                    .iter()
-                    .filter(|task| interrupted_nodes.contains(&task.node))
-                    .cloned()
-                    .collect();
-                for task in processed.next_tasks {
-                    if !next_tasks.iter().any(|existing| existing.node == task.node) {
-                        next_tasks.push(task);
-                    }
-                }
+                let next_tasks = crate::kernel::executor::outcome::merge_interrupted_tasks(
+                    &tasks,
+                    |task| interrupted_nodes.contains(&task.node),
+                    processed.next_tasks,
+                    false,
+                );
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &namespace,
