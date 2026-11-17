@@ -207,6 +207,43 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
     Ok(dict.into_any().unbind())
 }
 
+/// LangGraph v1 chunk conversion that also applies multi-mode tuple wrapping.
+pub(crate) fn chunk_to_py_v1(
+    py: Python<'_>,
+    chunk: &StreamChunk,
+    multi_mode: bool,
+) -> PyResult<Py<PyAny>> {
+    if let StreamChunk::Subgraph {
+        namespace,
+        chunk: inner,
+    } = chunk
+    {
+        let namespace: Vec<String> = if namespace.is_empty() {
+            Vec::new()
+        } else {
+            namespace.split('|').map(str::to_owned).collect()
+        };
+        let namespace = PyTuple::new(py, namespace)?;
+        let payload = chunk_to_py_v1(py, inner, multi_mode)?;
+        let result = if multi_mode {
+            let mode = inner.mode().map(|mode| mode.as_str()).unwrap_or("updates");
+            (namespace, mode, payload)
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()
+        } else {
+            (namespace, payload).into_pyobject(py)?.into_any().unbind()
+        };
+        return Ok(result);
+    }
+    let payload = chunk_to_py(py, chunk)?;
+    if multi_mode {
+        let mode = chunk.mode().map(|mode| mode.as_str()).unwrap_or("updates");
+        return Ok((mode, payload).into_pyobject(py)?.into_any().unbind());
+    }
+    Ok(payload)
+}
+
 pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
     match chunk {
         StreamChunk::Subgraph { namespace, chunk } => {
@@ -216,6 +253,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                 namespace.split('|').map(str::to_owned).collect()
             };
             let inner = chunk_to_py(py, chunk)?;
+            let namespace = PyTuple::new(py, namespace)?;
             Ok((namespace, inner).into_pyobject(py)?.into_any().unbind())
         }
         StreamChunk::Usage { execution } => {

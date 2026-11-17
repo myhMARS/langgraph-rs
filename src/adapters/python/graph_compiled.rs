@@ -326,13 +326,14 @@ impl PyCompiledGraph {
                 })
                 .collect::<Vec<_>>()
         };
+        let multi_mode = requested.len() > 1;
         chunks
             .iter()
             .map(|chunk| {
                 if v2 {
                     chunk_to_py_v2(py, chunk)
                 } else {
-                    chunk_to_py(py, chunk)
+                    chunk_to_py_v1(py, chunk, multi_mode)
                 }
             })
             .collect()

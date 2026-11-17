@@ -237,6 +237,11 @@ impl PyAsyncCompiledGraph {
         } else {
             None
         };
+        if resume_start.is_some() && thread.is_none() {
+            return Err(PyTypeError::new_err(
+                "astream(Command(...)) requires thread_id",
+            ));
+        }
         let stream_thread = thread.clone();
         let graph = self.graph.clone();
         let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {

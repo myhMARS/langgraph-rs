@@ -181,6 +181,8 @@ impl<S: State> CompiledGraph<S> {
         F: FnMut(StreamChunk),
     {
         let requested = modes.to_vec();
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
         let mut filtered = |chunk: StreamChunk| {
             if matches!(chunk, StreamChunk::Interrupt { .. })
                 || chunk.matches_modes_strict(&requested)
@@ -197,7 +199,7 @@ impl<S: State> CompiledGraph<S> {
                 updates,
                 goto,
             },
-            config,
+            &config,
             &mut filtered,
         )
         .map(|outcome| outcome.state)
@@ -620,6 +622,8 @@ impl<S: State> CompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute_quiet(
             self,
@@ -630,7 +634,7 @@ impl<S: State> CompiledGraph<S> {
                 updates: Some(updates),
                 goto,
             },
-            config,
+            &config,
             &mut sink,
         )
         .map(|outcome| outcome.state)
@@ -659,6 +663,8 @@ impl<S: State> CompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute_quiet(
             self,
@@ -669,7 +675,7 @@ impl<S: State> CompiledGraph<S> {
                 updates: Some(updates),
                 goto,
             },
-            config,
+            &config,
             &mut sink,
         )
         .map(|outcome| outcome.state)

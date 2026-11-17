@@ -408,6 +408,8 @@ impl<S: State> AsyncCompiledGraph<S> {
         F: FnMut(StreamChunk) + Send,
     {
         let requested = modes.to_vec();
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
         let mut filtered = |chunk: StreamChunk| {
             if chunk.matches_modes(&requested) {
                 sink(chunk);
@@ -421,7 +423,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 updates,
                 goto,
             },
-            config,
+            &config,
             &mut filtered,
         )
         .await

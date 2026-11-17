@@ -300,9 +300,13 @@ class StreamingTests(unittest.TestCase):
         all_chunks = compiled.stream(
             {"value": 0}, stream_mode=["values", "updates", "custom"]
         )
-        self.assertTrue(any(chunk == {"progress": 0.5} for chunk in all_chunks))
-        self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in all_chunks))
-        self.assertTrue(any(isinstance(chunk, dict) and "emit" in chunk for chunk in all_chunks))
+        self.assertTrue(
+            all(isinstance(chunk, tuple) and len(chunk) == 2 for chunk in all_chunks)
+        )
+        payloads = {mode: payload for mode, payload in all_chunks}
+        self.assertEqual(payloads["custom"], {"progress": 0.5})
+        self.assertIn("value", payloads["values"])
+        self.assertIn("emit", payloads["updates"])
 
     def test_stream_modes(self):
         graph = lg.StateGraph({"value": "last_value"})
@@ -319,8 +323,12 @@ class StreamingTests(unittest.TestCase):
         self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in values))
 
         custom_modes = compiled.stream({"value": 0}, stream_mode=["values", "custom"])
-        self.assertTrue(any(chunk == {"progress": 1} for chunk in custom_modes))
-        self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in custom_modes))
+        self.assertTrue(
+            all(isinstance(chunk, tuple) and len(chunk) == 2 for chunk in custom_modes)
+        )
+        payloads = {mode: payload for mode, payload in custom_modes}
+        self.assertEqual(payloads["custom"], {"progress": 1})
+        self.assertIn("value", payloads["values"])
 
         messages = compiled.stream({"value": 0}, stream_mode="messages")
         self.assertTrue(any(isinstance(chunk, tuple) for chunk in messages))
