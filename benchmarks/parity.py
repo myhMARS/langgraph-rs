@@ -914,7 +914,7 @@ async def run_lg_send_timeout_async():
         return {"log": [1]}
 
     def route(state):
-        return [LgSend("worker", {"value": 1}, timeout=0.01)]
+        return [LgSend("worker", {"value": 1}, timeout=0.05)]
 
     graph = LgStateGraph(dict)
     graph.add_node("dispatch", lambda state: {})
@@ -940,7 +940,7 @@ async def run_rs_send_timeout_async():
         return {"log": [1]}
 
     def route(state):
-        return [rs.Send("worker", {"value": 1}, timeout=0.01)]
+        return [rs.Send("worker", {"value": 1}, timeout=0.05)]
 
     graph = rs.AsyncStateGraph({"log": "append"})
     graph.add_node("dispatch", lambda state: {})

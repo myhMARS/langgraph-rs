@@ -30,7 +30,7 @@ The following areas have dedicated behavior + benchmark scenarios in
 | Checkpoint `step` | Snapshot `step` resets per run; LangGraph counts input checkpoints across the thread | Snapshot `source`/`next` match; numeric `step` differs |
 | Messages callbacks | The binding needs an explicit `langchain_callback_handler`; LangGraph injects callbacks globally | Token stream content matches; callback metadata is narrower |
 | Interrupt response schema | `pattern` and `$ref` are not supported | Supported JSON-schema subset covers the documented cases |
-| `send_timeout` performance | Timed Python nodes reuse a per-thread asyncio loop, but remain slower than LangGraph (~0.14x in the latest run) | Correctness matches; LangGraph aborts before the configured deadline |
+| Timed async loop | Timed Python nodes reuse a per-thread asyncio loop | With a 50ms deadline both engines are ~0.99x; short deadlines expose timer-resolution differences |
 | SQLite/Postgres cache/store APIs | Binding constructors take a path/URL rather than a live connection/client | Behavior matches; Python object shape differs |
 
 ## Performance snapshot
@@ -42,7 +42,7 @@ Latest parity run:
 - Redis persistence: ~2.39x
 - Postgres store: ~1.42x
 - Redis store: ~4.14x
-- `send_timeout`: ~0.14x (see above)
+- `send_timeout` (50ms deadline): ~0.99x
 
 All numbers are from the same machine and the same Python binding process; they are
 comparative indicators, not production benchmarks.

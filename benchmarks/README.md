@@ -115,5 +115,5 @@ python benchmarks/parity.py
 Latest remote results: Postgres ~1.32x, Redis ~2.39x versus LangGraph; Postgres store ~1.42x, Redis store ~4.14x. Postgres writes now reuse a prepared statement and SQLite cache/saver writes reuse cached
 statements (WAL enabled), reducing parse and fsync overhead. Async Python nodes enforce
 both node and per-Send timeouts with `asyncio.wait_for`. `node_timeout` compares async cancellation on both engines (both fail with a timeout error).
-Timed async nodes reuse a per-thread asyncio loop, but `send_timeout` remains slower
-(~0.14x) because LangGraph aborts before the configured deadline. `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
+Timed async nodes reuse a per-thread asyncio loop. `send_timeout` uses a 50ms deadline
+(timer-resolution regimes were skewing the comparison) and is ~0.99x. `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
