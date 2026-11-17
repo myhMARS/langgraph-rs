@@ -32,14 +32,20 @@ impl<S: State> CompiledGraph<S> {
         K: Into<String>,
     {
         let mut values = match self.checkpointer() {
-            Some(checkpointer) => checkpointer
-                .latest_in(thread_id, config.checkpoint_ns.as_deref().unwrap_or(""))
-                .map(|checkpoint| {
-                    checkpoint
-                        .map(|checkpoint| checkpoint.values)
-                        .unwrap_or_default()
-                })
-                .unwrap_or_default(),
+            Some(checkpointer) => {
+                let checkpoint = match &config.checkpoint_id {
+                    Some(id) => checkpointer.get(thread_id, id),
+                    None => checkpointer
+                        .latest_in(thread_id, config.checkpoint_ns.as_deref().unwrap_or("")),
+                };
+                checkpoint
+                    .map(|checkpoint| {
+                        checkpoint
+                            .map(|checkpoint| checkpoint.values)
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            }
             None => Default::default(),
         };
         apply_updates(

@@ -67,18 +67,31 @@ impl PyCompiledGraph {
                         goto: targets.clone(),
                         parent: false,
                     };
-                    let result = py.detach(|| match thread.as_deref() {
-                        Some(thread) if self.graph.get_state(thread).ok().flatten().is_some() => {
-                            self.graph.resume_continue_with_goto(
+                    let exists = thread
+                        .as_deref()
+                        .map(|thread| {
+                            match config.checkpoint_ns.as_deref() {
+                                Some(namespace) => self.graph.get_state_in(thread, namespace),
+                                None => self.graph.get_state(thread),
+                            }
+                            .ok()
+                            .flatten()
+                            .is_some()
+                        })
+                        .unwrap_or(false);
+                    let result = py.detach(|| {
+                        if let (true, Some(thread)) = (exists, thread.as_deref()) {
+                            self.graph.resume_continue_with_goto_config(
                                 thread,
                                 updates.clone(),
                                 targets.clone(),
+                                &config,
                             )
+                        } else {
+                            self.graph
+                                .run_command(command, &config)
+                                .map(|outcome| outcome.state)
                         }
-                        _ => self
-                            .graph
-                            .run_command(command, &config)
-                            .map(|outcome| outcome.state),
                     });
                     return match result {
                         Ok(state) => json_state_to_py(py, &state),
@@ -151,7 +164,14 @@ impl PyCompiledGraph {
             }
         }
         if let (Some(obj), Some(thread)) = (input, thread_id.as_deref()) {
-            if self.graph.get_state(thread).ok().flatten().is_some() {
+            let exists = match config.checkpoint_ns.as_deref() {
+                Some(namespace) => self.graph.get_state_in(thread, namespace),
+                None => self.graph.get_state(thread),
+            }
+            .ok()
+            .flatten()
+            .is_some();
+            if exists {
                 let updates = py_to_value(obj)?;
                 if let Some(map) = updates.as_object() {
                     let updates: Vec<(String, crate::Value)> = map
