@@ -1021,34 +1021,21 @@ impl<S: State> AsyncCompiledGraph<S> {
             std::collections::HashMap::new();
         let mut iteration = 0usize;
         loop {
-            if config
-                .control
-                .as_ref()
-                .is_some_and(crate::RunControl::is_aborted)
-            {
-                return Err(Error::other("run aborted by RunControl"));
-            }
-            if iteration >= recursion_limit {
-                return Err(Error::RecursionLimit(recursion_limit));
-            }
-            iteration += 1;
-            let _step_guard = crate::kernel::context::install_step(step, recursion_limit);
-            crate::kernel::executor::apply_managed_values(
+            let prepared = crate::kernel::executor::step::begin_step(
+                config.control.as_ref(),
                 &self.schema,
                 &mut values,
                 &mut state,
                 step,
                 recursion_limit,
+                iteration,
+                &tasks,
+                skip_interrupt_before,
+                |node| self.interrupt_before.contains(node),
             )?;
-
-            let paused = if skip_interrupt_before {
-                None
-            } else {
-                tasks
-                    .iter()
-                    .find(|task| self.interrupt_before.contains(&task.node))
-                    .cloned()
-            };
+            iteration = prepared.iteration;
+            let _step_guard = prepared.guard;
+            let paused = prepared.paused;
             skip_interrupt_before = false;
             if let Some(interrupted) = paused {
                 let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);

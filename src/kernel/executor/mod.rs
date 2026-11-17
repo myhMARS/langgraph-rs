@@ -13,6 +13,7 @@ pub(crate) mod checkpointing;
 pub(crate) mod outcome;
 pub(crate) mod scheduling;
 pub(crate) mod start;
+pub(crate) mod step;
 mod superstep;
 
 use std::collections::HashSet;
@@ -195,37 +196,21 @@ pub(crate) fn execute<S: State>(
         std::collections::HashMap::new();
     let mut iteration = 0usize;
     loop {
-        if config
-            .control
-            .as_ref()
-            .is_some_and(crate::RunControl::is_aborted)
-        {
-            return Err(Error::other("run aborted by RunControl"));
-        }
-        apply_managed_values(
+        let prepared = step::begin_step(
+            config.control.as_ref(),
             graph.schema(),
             &mut values,
             &mut state,
             step,
             recursion_limit,
+            iteration,
+            &tasks,
+            skip_interrupt_before,
+            |node| graph.interrupts_before(node),
         )?;
-        if iteration >= recursion_limit {
-            return Err(Error::RecursionLimit(recursion_limit));
-        }
-        iteration += 1;
-        let _step_guard = crate::kernel::context::install_step(step, recursion_limit);
-
-        // `interrupt_before` hooks stop the graph before the node runs. Resuming a
-        // checkpoint that was written by such a hook must let the node run instead of
-        // pausing on the same hook forever.
-        let paused = if skip_interrupt_before {
-            None
-        } else {
-            tasks
-                .iter()
-                .find(|task| graph.interrupts_before(&task.node))
-                .cloned()
-        };
+        iteration = prepared.iteration;
+        let _step_guard = prepared.guard;
+        let paused = prepared.paused;
         skip_interrupt_before = false;
         if let Some(interrupted) = paused {
             let interrupted_interrupt = Interrupt::new(interrupted.node.clone(), Value::Null);
