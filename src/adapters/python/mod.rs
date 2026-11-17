@@ -445,9 +445,17 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.add_class::<PyAsyncStateGraph>()?;
         module.add_class::<PyAsyncCompiledGraph>()?;
     }
-    let messages_state = PyDict::new(module.py());
-    messages_state.set_item("messages", "add_messages")?;
-    module.add("MessagesState", messages_state)?;
+    let schema_module = pyo3::types::PyModule::from_code(
+        module.py(),
+        c"import typing\n\nclass MessagesState(dict):\n    __annotations__ = {'messages': typing.Annotated[list, 'add_messages']}\n\ndef _schema_from_class(cls):\n    out = {}\n    for name, annotation in getattr(cls, '__annotations__', {}).items():\n        reducer = 'last_value'\n        if typing.get_origin(annotation) is typing.Annotated:\n            args = typing.get_args(annotation)\n            reducer = args[1]\n        out[name] = reducer\n    return out\n",
+        c"langgraph_rs_schema.py",
+        c"langgraph_rs_schema",
+    )?;
+    module.add("MessagesState", schema_module.getattr("MessagesState")?)?;
+    module.add(
+        "_schema_from_class",
+        schema_module.getattr("_schema_from_class")?,
+    )?;
     module.add_function(wrap_pyfunction!(message_graph, module)?)?;
     module.add_function(wrap_pyfunction!(task, module)?)?;
     module.add_function(wrap_pyfunction!(entrypoint, module)?)?;

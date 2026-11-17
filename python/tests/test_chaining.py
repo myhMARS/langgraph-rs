@@ -44,5 +44,20 @@ class ChainingTests(unittest.TestCase):
         self.assertIn("values", snapshot)
 
 
+class MessagesStateTests(unittest.TestCase):
+    def test_messages_state_can_be_subclassed_as_schema(self):
+        class MyState(lg.MessagesState):
+            pass
+
+        graph = lg.StateGraph(MyState)
+        graph.add_node(
+            "a", lambda state: {"messages": [{"id": "1", "content": "x"}]}
+        )
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        output = graph.compile().invoke({"messages": []})
+        self.assertEqual(output["messages"][0]["content"], "x")
+
+
 if __name__ == "__main__":
     unittest.main()

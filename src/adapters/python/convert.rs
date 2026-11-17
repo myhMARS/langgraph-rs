@@ -306,9 +306,18 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
     if schema.is_none() {
         return Ok(StateSchema::dynamic());
     }
-    let dict = schema
-        .cast::<PyDict>()
-        .map_err(|_| PyTypeError::new_err("schema must be a dict of channel -> spec"))?;
+    let dict = match schema.cast::<PyDict>() {
+        Ok(dict) => dict.clone(),
+        Err(_) => {
+            let module = schema.py().import("langgraph_rs")?;
+            let parsed = module
+                .getattr("_schema_from_class")?
+                .call1((schema,))?
+                .cast_into::<PyDict>()
+                .map_err(|_| PyTypeError::new_err("schema must be a dict of channel -> spec"))?;
+            parsed
+        }
+    };
 
     let kernel = Kernel::builtin();
     let mut out = StateSchema::dynamic();
