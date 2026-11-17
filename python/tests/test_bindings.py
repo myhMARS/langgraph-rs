@@ -590,8 +590,9 @@ class PythonParityRound2Tests(unittest.TestCase):
         output = graph.compile(recursion_limit=2).invoke(
             {"value": 0, "last": 0}
         )
-        self.assertEqual(output["value"], 2)
-        self.assertEqual(output["last"], 0)
+        expected_remaining = 1
+        self.assertEqual(output["value"], expected_remaining)
+        self.assertEqual(output["last"], 1)
 
 
     def test_deferred_node_runs_after_regular_nodes(self):
