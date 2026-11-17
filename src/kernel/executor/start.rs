@@ -6,6 +6,9 @@ use crate::kernel::error::Result;
 use crate::kernel::executor::{StartInput, apply_pending_writes};
 use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
 
+/// Resolved channel values, state and tasks for a run start.
+pub(crate) type FreshStart<S> = Option<(Map<String, Value>, S, Vec<crate::kernel::node::Task>)>;
+
 /// Resolve the three non-resume start inputs into initial channel values, state and
 /// entry tasks. Returns `None` for [`StartInput::Resume`].
 pub(crate) fn resolve_fresh_start<S: State>(
@@ -13,7 +16,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
     schema: &StateSchema,
     node_exists: impl Fn(&str) -> bool,
     entry_tasks: impl Fn(&S) -> Result<Vec<crate::kernel::node::Task>>,
-) -> Result<Option<(Map<String, Value>, S, Vec<crate::kernel::node::Task>)>> {
+) -> Result<FreshStart<S>> {
     match input {
         StartInput::Values(values) => {
             let values = schema.filter_input(values.clone());
