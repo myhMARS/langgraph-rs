@@ -452,13 +452,51 @@ pub(crate) fn values_chunk(step: usize, values: &serde_json::Map<String, Value>)
 }
 
 /// Stream chunk reporting which nodes ran and which are scheduled next.
-pub(crate) fn debug_chunk(step: usize, executed: &[String], scheduled: &[String]) -> StreamChunk {
+pub(crate) fn debug_chunk(
+    step: usize,
+    executed: &[String],
+    scheduled: &[String],
+    values: &Value,
+    thread_id: Option<&str>,
+    namespace: &str,
+    parent_checkpoint_id: Option<&str>,
+) -> StreamChunk {
+    let config = serde_json::json!({
+        "configurable": {
+            "thread_id": thread_id,
+            "checkpoint_ns": namespace,
+            "checkpoint_id": null,
+        }
+    });
+    let parent_config = parent_checkpoint_id.map(|parent| {
+        serde_json::json!({
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": namespace,
+                "checkpoint_id": parent,
+            }
+        })
+    });
+    let tasks: Vec<serde_json::Value> = scheduled
+        .iter()
+        .map(|node| {
+            serde_json::json!({
+                "id": format!("{step}:{node}"),
+                "name": node,
+                "interrupts": [],
+            })
+        })
+        .collect();
     StreamChunk::Debug {
         step,
         payload: serde_json::json!({
-            "step": step,
-            "executed": executed,
+            "config": config,
+            "metadata": {"step": step, "source": "loop", "parents": {}},
+            "values": values,
             "next": scheduled,
+            "parent_config": parent_config,
+            "tasks": tasks,
+            "executed": executed,
         }),
     }
 }

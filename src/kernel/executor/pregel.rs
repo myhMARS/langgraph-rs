@@ -489,7 +489,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
         if emit {
-            sink(debug_chunk(step, &executed, &scheduled));
+            sink(debug_chunk(
+                step,
+                &executed,
+                &scheduled,
+                &Value::Object(values.clone()),
+                thread_id.as_deref(),
+                &namespace,
+                parent.as_deref(),
+            ));
         }
 
         step += 1;
