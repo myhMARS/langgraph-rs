@@ -112,6 +112,6 @@ export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
 python benchmarks/parity.py
 ```
 
-Latest remote results: Postgres ~1.14x, Redis ~2.38x versus LangGraph. Postgres writes now reuse a prepared statement and SQLite cache/saver writes reuse cached
+Latest remote results: Postgres ~1.32x, Redis ~2.39x versus LangGraph; Postgres store ~1.42x, Redis store ~4.14x. Postgres writes now reuse a prepared statement and SQLite cache/saver writes reuse cached
 statements (WAL enabled), reducing parse and fsync overhead. Async Python nodes enforce
 both node and per-Send timeouts with `asyncio.wait_for`. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
