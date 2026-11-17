@@ -201,13 +201,15 @@ impl StateSchema {
             .unwrap_or(true)
     }
 
-    /// Drop every ephemeral channel from `values`.
-    pub(crate) fn clear_ephemeral(&self, values: &mut Map<String, Value>) {
+    /// Drop every ephemeral channel from `values`; returns whether anything changed.
+    pub(crate) fn clear_ephemeral(&self, values: &mut Map<String, Value>) -> bool {
+        let mut changed = false;
         for (name, channel) in &self.channels {
-            if channel.is_ephemeral() {
-                values.remove(name);
+            if channel.is_ephemeral() && values.remove(name).is_some() {
+                changed = true;
             }
         }
+        changed
     }
 
     /// Clone of `values` without untracked/ephemeral channels (for checkpoints).
@@ -415,8 +417,8 @@ pub(crate) fn apply_updates(
                         nodes: nodes.join(", "),
                     });
                 }
-                let current = values.get(&channel).cloned();
-                if let Some(merged) = definition.apply(current.as_ref(), &incoming)? {
+                let current = values.get(&channel);
+                if let Some(merged) = definition.apply(current, &incoming)? {
                     values.insert(channel, merged);
                 }
             }

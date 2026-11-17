@@ -287,7 +287,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .collect(),
             )?;
         }
-        self.execute(
+        self.execute_quiet(
             StartInput::Gateways {
                 values,
                 nodes: command.goto,
@@ -316,7 +316,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub async fn run(&self, input: &S, config: &RunConfig) -> Result<RunOutcome<S>> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
-        self.execute(StartInput::Values(values), config, &mut sink)
+        self.execute_quiet(StartInput::Values(values), config, &mut sink)
             .await
     }
 
@@ -331,7 +331,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .map(|(channel, value)| (channel.into(), value))
             .collect();
         let mut sink = |_chunk: StreamChunk| {};
-        self.execute(StartInput::Updates(values), config, &mut sink)
+        self.execute_quiet(StartInput::Updates(values), config, &mut sink)
             .await
     }
 
@@ -415,7 +415,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             config.context = overrides.context.clone();
             config.stream_subgraphs = true;
         }
-        self.execute(
+        self.execute_quiet(
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
                 checkpoint_id: None,
@@ -679,6 +679,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .map(|update| update.channel.clone())
             .collect();
         apply_updates(&self.schema, &mut values, updates)?;
+        let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
         let next = match as_node {
             Some(node) => {
@@ -713,8 +714,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             step: checkpoint.step,
             values,
             next,
-            interrupted: false,
-            paused_before: false,
+            interrupted: checkpoint.interrupted,
+            paused_before: checkpoint.paused_before,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
             interrupts: Vec::new(),
@@ -818,7 +819,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             config = config.with_checkpoint_ns(namespace);
         }
         let mut sink = |_chunk: StreamChunk| {};
-        self.execute(
+        self.execute_quiet(
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
                 checkpoint_id: checkpoint_id.map(str::to_string),
@@ -837,11 +838,30 @@ impl<S: State> AsyncCompiledGraph<S> {
         config: &RunConfig,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<RunOutcome<S>> {
+        self.execute_with_emit(start, config, sink, true).await
+    }
+
+    async fn execute_quiet(
+        &self,
+        start: StartInput,
+        config: &RunConfig,
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
+    ) -> Result<RunOutcome<S>> {
+        self.execute_with_emit(start, config, sink, false).await
+    }
+
+    async fn execute_with_emit(
+        &self,
+        start: StartInput,
+        config: &RunConfig,
+        sink: &mut (dyn FnMut(StreamChunk) + Send),
+        emit: bool,
+    ) -> Result<RunOutcome<S>> {
         if config.durability != crate::Durability::Async
             || !self.has_checkpointer()
             || config.thread_id.is_none()
         {
-            return self.execute_inner(start, config, sink, None).await;
+            return self.execute_inner(start, config, sink, None, emit).await;
         }
         let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Checkpoint>();
         let checkpointer = self.checkpointer.clone();
@@ -855,7 +875,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }
             }
         });
-        let result = self.execute_inner(start, config, sink, Some(&writer)).await;
+        let result = self
+            .execute_inner(start, config, sink, Some(&writer), emit)
+            .await;
         drop(writer);
         let _ = handle.await;
         result
@@ -868,6 +890,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         config: &RunConfig,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
         writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+        emit: bool,
     ) -> Result<RunOutcome<S>> {
         let thread_id = config.thread_id.clone();
         let namespace = config.checkpoint_ns.clone().unwrap_or_default();
@@ -893,7 +916,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             run.context.clone(),
         );
         let mut adapt = |chunk| sink(chunk);
-        let future = crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt);
+        let future =
+            crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt, emit);
         crate::kernel::context::with_async_run(run_context, future).await
     }
 
@@ -1288,8 +1312,8 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
         self.graph.has_checkpointer()
     }
 
-    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) {
-        self.graph.schema.clear_ephemeral(values);
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) -> bool {
+        self.graph.schema.clear_ephemeral(values)
     }
 
     fn collector(&self) -> Option<std::sync::Arc<std::sync::Mutex<Vec<StreamChunk>>>> {

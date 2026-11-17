@@ -1,6 +1,6 @@
 # Benchmark results
 
-- Generated: 2026-11-16 14:41 UTC
+- Generated: 2026-11-17 17:03 UTC
 - Machine: Windows-11-10.0.26300-SP0 / Intel64 Family 6 Model 154 Stepping 3, GenuineIntel
 - Rust: rustc 1.99.1 (58cf8f9c3 2026-10-13)
 - Python: 3.12.10
@@ -13,17 +13,17 @@
 
 | Scenario | Rust native | Rust via Python binding | Python LangGraph | Rust native vs LangGraph |
 | --- | --- | --- | --- | --- |
-| linear_10 | 69.03 µs/op | 82.57 µs/op | 2,173.93 µs/op | **31.5× faster** |
-| loop_50 | 326.52 µs/op | 455.50 µs/op | 10,888.65 µs/op | **33.3× faster** |
-| fanout_4 | 499.27 µs/op | 614.23 µs/op | 2,621.89 µs/op | **5.3× faster** |
-| checkpoint_5 | 60.89 µs/op | 40.07 µs/op | 3,672.57 µs/op | **60.3× faster** |
-| build_compile | 19.03 µs/op | 25.49 µs/op | 860.28 µs/op | **45.2× faster** |
-| scale_005 | 29.92 µs/op | 29.09 µs/op | 1,487.91 µs/op | **49.7× faster** |
-| scale_010 | 52.78 µs/op | 59.93 µs/op | 2,345.78 µs/op | **44.4× faster** |
-| scale_025 | 120.30 µs/op | 153.02 µs/op | 4,887.93 µs/op | **40.6× faster** |
-| scale_050 | 284.37 µs/op | 264.99 µs/op | 9,584.17 µs/op | **33.7× faster** |
-| scale_100 | 525.13 µs/op | 540.64 µs/op | 19,496.49 µs/op | **37.1× faster** |
-| mt_8x_linear_10 | 13.95 µs/op | 82.01 µs/op | 2,118.06 µs/op | **151.8× faster** |
+| linear_10 | 30.01 µs/op | 6,855.95 µs/op | 2,420.26 µs/op | **80.7× faster** |
+| loop_50 | 150.13 µs/op | 35,172.41 µs/op | 11,869.95 µs/op | **79.1× faster** |
+| fanout_4 | 251.03 µs/op | 4,986.36 µs/op | 2,345.72 µs/op | **9.3× faster** |
+| checkpoint_5 | 54.08 µs/op | 3,564.10 µs/op | 3,585.46 µs/op | **66.3× faster** |
+| build_compile | 10.77 µs/op | 22.72 µs/op | 728.67 µs/op | **67.6× faster** |
+| scale_005 | 20.57 µs/op | 3,468.41 µs/op | 1,319.05 µs/op | **64.1× faster** |
+| scale_010 | 30.22 µs/op | 7,058.29 µs/op | 2,257.05 µs/op | **74.7× faster** |
+| scale_025 | 76.57 µs/op | 17,621.88 µs/op | 5,141.58 µs/op | **67.1× faster** |
+| scale_050 | 143.66 µs/op | 35,295.71 µs/op | 10,021.07 µs/op | **69.8× faster** |
+| scale_100 | 282.40 µs/op | 68,236.98 µs/op | 19,079.99 µs/op | **67.6× faster** |
+| mt_8x_linear_10 | 7.18 µs/op | 7,335.86 µs/op | 2,251.81 µs/op | **313.7× faster** |
 
 ## Peak allocated memory
 
@@ -34,8 +34,8 @@ lower bound on its real footprint.
 
 | Scenario | Rust native | Rust via Python binding | Python LangGraph |
 | --- | --- | --- | --- |
-| mem_linear_10 | 6.5 KiB peak | 0.3 KiB peak | 62.5 KiB peak |
-| mem_loop_50 | 15.1 KiB peak | 0.3 KiB peak | 53.3 KiB peak |
+| mem_linear_10 | 6.8 KiB peak | 1,228.3 KiB peak | 61.4 KiB peak |
+| mem_loop_50 | 15.5 KiB peak | 1,611.3 KiB peak | 58.6 KiB peak |
 
 ## Raw data
 

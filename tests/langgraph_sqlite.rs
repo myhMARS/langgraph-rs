@@ -154,3 +154,51 @@ fn write_python_interop_fixture() {
         )
         .unwrap();
 }
+
+#[test]
+fn saver_snapshot_ids_can_be_loaded_back() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-tmp");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!(
+        "langgraph-rs-saver-{}-{}.sqlite",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let saver = Arc::new(LangGraphSqliteSaver::open(&path).unwrap());
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("inc", |state: &JsonState| {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("inc")
+        .set_finish_point("inc")
+        .compile_with(CompileOptions::new().with_checkpointer(saver.clone()))
+        .unwrap();
+
+    let outcome = graph
+        .run(&JsonState::new(), &RunConfig::new().with_thread("saver-id"))
+        .unwrap();
+    assert_eq!(outcome.state.get("value"), Some(&json!(1)));
+    let snapshot = graph.get_state("saver-id").unwrap().unwrap();
+
+    let loaded =
+        langgraph_rs::Checkpointer::get(saver.as_ref(), "saver-id", &snapshot.checkpoint_id)
+            .unwrap()
+            .expect("snapshot id must address the stored row");
+    assert_eq!(loaded.id, snapshot.checkpoint_id);
+
+    let resumed = graph
+        .resume_from("saver-id", &snapshot.checkpoint_id, json!(null))
+        .unwrap();
+    assert_eq!(resumed.get("value"), Some(&json!(1)));
+
+    drop(graph);
+    drop(saver);
+    let _ = std::fs::remove_file(path);
+}

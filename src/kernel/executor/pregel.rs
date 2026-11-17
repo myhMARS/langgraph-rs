@@ -36,6 +36,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     start: StartInput,
     config: &RunConfig,
     sink: &mut F,
+    emit: bool,
 ) -> Result<RunOutcome<S>> {
     let started = Instant::now();
     let mut report = crate::kernel::usage::RunReport::new();
@@ -242,7 +243,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 return Err(error);
             }
         };
-        if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
+        if emit && let Some(collector) = backend.collector().or_else(|| setup.collector().cloned())
+        {
             let chunks: Vec<StreamChunk> = collector
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -273,7 +275,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .into_iter()
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                     .collect();
-                let processed = process_outcomes(backend, successful, step, &mut report, sink)?;
+                let processed =
+                    process_outcomes(backend, successful, step, &mut report, sink, emit)?;
                 // Successful siblings still contribute their outgoing routes even though
                 // their values stay pending until resume.
                 let mut routing_values = values.clone();
@@ -348,7 +351,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .into_iter()
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                 .collect();
-            let processed = process_outcomes(backend, successful, step, &mut report, sink)?;
+            let processed = process_outcomes(backend, successful, step, &mut report, sink, emit)?;
             apply_processed_updates(
                 backend.schema(),
                 &mut values,
@@ -356,7 +359,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 processed.replacements,
                 &mut finish_updates,
             )?;
-            sink(values_chunk(step, &values));
+            if emit {
+                sink(values_chunk(step, &values));
+            }
             state = values_to_state::<S>(&values)?;
             let finish_writes = finish_pending(&finish_updates, backend.schema());
             let (next_nodes, router_sends) = collect_next_nodes(
@@ -418,7 +423,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             ));
         }
 
-        let processed = process_outcomes(backend, outcomes, step, &mut report, sink)?;
+        let processed = process_outcomes(backend, outcomes, step, &mut report, sink, emit)?;
         let channel_updates = processed.channel_updates;
         let replacements = processed.replacements;
         let next_tasks = processed.next_tasks;
@@ -434,7 +439,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut finish_updates,
         )?;
         state = values_to_state::<S>(&values)?;
-        sink(values_chunk(step, &values));
+        if emit {
+            sink(values_chunk(step, &values));
+        }
         if backend.has_parent_command() {
             return finish(state, backend.schema(), report, started);
         }
@@ -461,7 +468,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         )?;
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
-        sink(debug_chunk(step, &executed, &scheduled));
+        if emit {
+            sink(debug_chunk(step, &executed, &scheduled));
+        }
 
         step += 1;
         let interrupt_after =
@@ -523,8 +532,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return finish(state, backend.schema(), report, started);
         }
         // Ephemeral channels are visible for exactly one superstep.
-        backend.clear_ephemeral(&mut values);
-        state = values_to_state::<S>(&values)?;
+        if backend.clear_ephemeral(&mut values) {
+            state = values_to_state::<S>(&values)?;
+        }
         tasks = next_tasks;
     }
 }

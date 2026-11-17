@@ -239,9 +239,11 @@ impl LangGraphSqliteSaver {
         metadata
             .entry("parents".to_string())
             .or_insert_with(|| json!({}));
+        let mut sidecar = checkpoint.clone();
+        sidecar.id = Self::langgraph_id(checkpoint);
         metadata.insert(
             "langgraph_rs".to_string(),
-            serde_json::to_value(checkpoint).map_err(|error| {
+            serde_json::to_value(sidecar).map_err(|error| {
                 Error::Checkpoint(format!("langgraph sqlite saver: metadata: {error}"))
             })?,
         );

@@ -373,13 +373,24 @@ pub mod reducers {
                 }
             };
             let incoming = match incoming {
-                Value::Array(values) => values.clone(),
+                Value::Array(values) => values,
                 other => {
                     return Err(Error::other(format!(
                         "reducer `messages` expected an array write, found `{other}`"
                     )));
                 }
             };
+            let mut index: std::collections::HashMap<String, usize> = accumulated
+                .iter()
+                .enumerate()
+                .filter_map(|(index, message)| {
+                    message
+                        .as_object()
+                        .and_then(|object| object.get("id"))
+                        .and_then(Value::as_str)
+                        .map(|id| (id.to_string(), index))
+                })
+                .collect();
             for message in incoming {
                 let removal = message.as_object().and_then(|object| {
                     let remove = object.get("type").and_then(Value::as_str) == Some("remove")
@@ -397,28 +408,34 @@ pub mod reducers {
                             .and_then(Value::as_str)
                             != Some(remove_id.as_str())
                     });
-                    continue;
-                }
-                let id = message
-                    .as_object()
-                    .and_then(|object| object.get("id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                match id {
-                    Some(id) => {
-                        let existing = accumulated.iter().position(|candidate| {
-                            candidate
+                    index = accumulated
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, message)| {
+                            message
                                 .as_object()
                                 .and_then(|object| object.get("id"))
                                 .and_then(Value::as_str)
-                                == Some(id.as_str())
-                        });
-                        match existing {
-                            Some(index) => accumulated[index] = message,
-                            None => accumulated.push(message),
+                                .map(|id| (id.to_string(), index))
+                        })
+                        .collect();
+                    continue;
+                }
+                match message
+                    .as_object()
+                    .and_then(|object| object.get("id"))
+                    .and_then(Value::as_str)
+                {
+                    Some(id) => match index.get(id).copied() {
+                        Some(position) => {
+                            accumulated[position] = message.clone();
                         }
-                    }
-                    None => accumulated.push(message),
+                        None => {
+                            index.insert(id.to_string(), accumulated.len());
+                            accumulated.push(message.clone());
+                        }
+                    },
+                    None => accumulated.push(message.clone()),
                 }
             }
             Ok(Value::Array(accumulated))

@@ -88,6 +88,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
     step: usize,
     report: &mut RunReport,
     sink: &mut dyn FnMut(StreamChunk),
+    emit: bool,
 ) -> Result<ProcessedResults> {
     let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
     let mut replacements: Vec<(String, Value)> = Vec::new();
@@ -118,9 +119,11 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     error: Some(failure.message.clone()),
                     usage: merge_usage(usage),
                 };
-                sink(StreamChunk::Usage {
-                    execution: execution.clone(),
-                });
+                if emit {
+                    sink(StreamChunk::Usage {
+                        execution: execution.clone(),
+                    });
+                }
                 for trace_sink in graph.trace_sinks() {
                     trace_sink.record(&execution);
                 }
@@ -172,17 +175,19 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     input,
                 } = *result;
                 executed.push(node.clone());
-                for value in custom {
-                    sink(StreamChunk::Custom {
-                        node: node.clone(),
-                        value,
-                    });
-                }
-                for message in messages {
-                    sink(StreamChunk::Message {
-                        node: node.clone(),
-                        message,
-                    });
+                if emit {
+                    for value in custom {
+                        sink(StreamChunk::Custom {
+                            node: node.clone(),
+                            value,
+                        });
+                    }
+                    for message in messages {
+                        sink(StreamChunk::Message {
+                            node: node.clone(),
+                            message,
+                        });
+                    }
                 }
 
                 let execution = NodeExecution {
@@ -202,26 +207,28 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 }
                 report.record(execution);
 
-                let task_result = {
-                    let updates = output.updates_map();
-                    if updates.is_empty() {
-                        None
-                    } else {
-                        Some(Value::Object(
-                            updates
-                                .iter()
-                                .map(|(channel, value)| (channel.clone(), value.clone()))
-                                .collect(),
-                        ))
-                    }
-                };
-                sink(StreamChunk::Task {
-                    step,
-                    node: node.clone(),
-                    input: input.clone(),
-                    result: task_result,
-                    error: None,
-                });
+                if emit {
+                    let task_result = {
+                        let updates = output.updates_map();
+                        if updates.is_empty() {
+                            None
+                        } else {
+                            Some(Value::Object(
+                                updates
+                                    .iter()
+                                    .map(|(channel, value)| (channel.clone(), value.clone()))
+                                    .collect(),
+                            ))
+                        }
+                    };
+                    sink(StreamChunk::Task {
+                        step,
+                        node: node.clone(),
+                        input: input.clone(),
+                        result: task_result,
+                        error: None,
+                    });
+                }
                 if output.is_parent() {
                     let (updates, replaces, goto, _sends) = output.into_parts();
                     graph.record_parent_command(
@@ -233,17 +240,19 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 }
                 let (updates, replaces, goto, sends) = output.into_parts();
                 if !updates.is_empty() {
-                    let update = Value::Object(
-                        updates
-                            .iter()
-                            .map(|(channel, value)| (channel.clone(), value.clone()))
-                            .collect(),
-                    );
-                    sink(StreamChunk::Updates {
-                        step,
-                        node: node.clone(),
-                        update,
-                    });
+                    if emit {
+                        let update = Value::Object(
+                            updates
+                                .iter()
+                                .map(|(channel, value)| (channel.clone(), value.clone()))
+                                .collect(),
+                        );
+                        sink(StreamChunk::Updates {
+                            step,
+                            node: node.clone(),
+                            update,
+                        });
+                    }
                     for (channel, value) in updates {
                         channel_updates.push(ChannelUpdate {
                             channel,

@@ -289,9 +289,9 @@ impl LangGraphSqliteReader {
             if let Ok(mut checkpoint) = serde_json::from_value::<Checkpoint>(extension.clone()) {
                 checkpoint.thread_id = thread_id;
                 checkpoint.namespace = namespace;
-                if checkpoint.id.is_empty() {
-                    checkpoint.id = checkpoint_id;
-                }
+                // The row's hex id is the public checkpoint id; the sidecar may carry an
+                // older internal id, so the database column always wins.
+                checkpoint.id = checkpoint_id;
                 return Ok(checkpoint);
             }
         }

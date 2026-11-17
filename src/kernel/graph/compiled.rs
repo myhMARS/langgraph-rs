@@ -273,7 +273,7 @@ impl<S: State> CompiledGraph<S> {
     pub fn invoke(&self, input: &S, config: &RunConfig) -> Result<S> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute(self, StartInput::Values(values), config, &mut sink)
+        executor::execute_quiet(self, StartInput::Values(values), config, &mut sink)
             .map(|outcome| outcome.state)
     }
 
@@ -290,7 +290,7 @@ impl<S: State> CompiledGraph<S> {
             .map(|(channel, value)| (channel.into(), value))
             .collect();
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute(self, StartInput::Updates(values), config, &mut sink)
+        executor::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
             .map(|outcome| outcome.state)
     }
 
@@ -303,7 +303,7 @@ impl<S: State> CompiledGraph<S> {
     pub fn run(&self, input: &S, config: &RunConfig) -> Result<RunOutcome<S>> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute(self, StartInput::Values(values), config, &mut sink)
+        executor::execute_quiet(self, StartInput::Values(values), config, &mut sink)
     }
 
     /// Run the graph from a partial state patch and return state plus report.
@@ -317,7 +317,7 @@ impl<S: State> CompiledGraph<S> {
             .map(|(channel, value)| (channel.into(), value))
             .collect();
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute(self, StartInput::Updates(values), config, &mut sink)
+        executor::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
     }
 
     /// Run the graph and return its final state while streaming every chunk.
@@ -520,7 +520,7 @@ impl<S: State> CompiledGraph<S> {
             config.context = overrides.context.clone();
             config.stream_subgraphs = true;
         }
-        executor::execute(
+        executor::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -619,7 +619,7 @@ impl<S: State> CompiledGraph<S> {
                     "Command requires either `goto` or `update`",
                 ));
             };
-            return executor::execute(
+            return executor::execute_quiet(
                 self,
                 executor::StartInput::Updates(updates.into_iter().collect()),
                 config,
@@ -641,7 +641,7 @@ impl<S: State> CompiledGraph<S> {
                     .collect(),
             )?;
         }
-        executor::execute(
+        executor::execute_quiet(
             self,
             executor::StartInput::Gateways {
                 values,
@@ -683,7 +683,7 @@ impl<S: State> CompiledGraph<S> {
             config.context = overrides.context.clone();
         }
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute(
+        executor::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -947,6 +947,7 @@ impl<S: State> CompiledGraph<S> {
             .map(|update| update.channel.clone())
             .collect();
         apply_updates(&self.schema, &mut values, updates)?;
+        let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
 
         let next = if preserve_next {
@@ -987,11 +988,11 @@ impl<S: State> CompiledGraph<S> {
             step: checkpoint.step,
             values,
             next,
-            interrupted: false,
-            paused_before: false,
+            interrupted: checkpoint.interrupted,
+            paused_before: checkpoint.paused_before,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
-            interrupts: Vec::new(),
+            interrupts: checkpoint.interrupts.clone(),
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),

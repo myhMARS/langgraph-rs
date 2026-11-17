@@ -55,6 +55,26 @@ pub(crate) fn execute<S: State>(
     config: &RunConfig,
     sink: &mut dyn FnMut(StreamChunk),
 ) -> Result<RunOutcome<S>> {
+    execute_with_emit(graph, start, config, sink, true)
+}
+
+/// Execute without building stream chunks (invoke/run paths).
+pub(crate) fn execute_quiet<S: State>(
+    graph: &CompiledGraph<S>,
+    start: StartInput,
+    config: &RunConfig,
+    sink: &mut dyn FnMut(StreamChunk),
+) -> Result<RunOutcome<S>> {
+    execute_with_emit(graph, start, config, sink, false)
+}
+
+fn execute_with_emit<S: State>(
+    graph: &CompiledGraph<S>,
+    start: StartInput,
+    config: &RunConfig,
+    sink: &mut dyn FnMut(StreamChunk),
+    emit: bool,
+) -> Result<RunOutcome<S>> {
     let checkpoint_writer = if config.durability == Durability::Async {
         graph
             .checkpointer()
@@ -67,7 +87,7 @@ pub(crate) fn execute<S: State>(
         writer: checkpoint_writer.as_ref(),
     };
     let mut adapt = |chunk| sink(chunk);
-    pregel::block_on(pregel::run_loop(&backend, start, config, &mut adapt))
+    pregel::block_on(pregel::run_loop(&backend, start, config, &mut adapt, emit))
 }
 
 /// Inject managed values (`remaining_steps`, `is_last_step`) before a superstep.

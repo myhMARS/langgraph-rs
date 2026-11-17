@@ -28,7 +28,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     fn context_schema(&self) -> Option<&Value>;
     fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>>;
     fn has_checkpointer(&self) -> bool;
-    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>);
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) -> bool;
     fn collector(
         &self,
     ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>;
@@ -110,8 +110,8 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         self.graph.checkpointer().is_some()
     }
 
-    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) {
-        self.graph.schema().clear_ephemeral(values);
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) -> bool {
+        self.graph.schema().clear_ephemeral(values)
     }
 
     fn collector(
