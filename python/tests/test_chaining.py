@@ -147,5 +147,42 @@ class MessagesStateTests(unittest.TestCase):
         self.assertEqual(output["log"], ["a", "b", "a"])
 
 
+class ReactAgentModelTests(unittest.TestCase):
+    def test_create_react_agent_accepts_bind_tools_model(self):
+        class Message:
+            def __init__(self, value):
+                self.value = value
+
+            def model_dump(self):
+                return self.value
+
+        class Model:
+            def bind_tools(self, tools):
+                return self
+
+            def invoke(self, messages):
+                if any(message.get("role") == "tool" for message in messages):
+                    return Message({"role": "assistant", "content": "done"})
+                return Message(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "name": "add",
+                                "args": {"a": 1, "b": 2},
+                                "id": "1",
+                            }
+                        ],
+                    }
+                )
+
+        graph = lg.create_react_agent(
+            Model(), {"add": lambda args: args["a"] + args["b"]}
+        )
+        output = graph.invoke({"messages": []})
+        self.assertEqual(len(output["messages"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
