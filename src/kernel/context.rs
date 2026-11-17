@@ -26,6 +26,13 @@ thread_local! {
     static TASK_RESULTS: RefCell<Map<String, Value>> = RefCell::new(Map::new());
 }
 
+#[cfg(feature = "async")]
+tokio::task_local! {
+    /// Run context mirrored into the async task so tokio can migrate the future.
+    pub(crate) static ASYNC_RUN: RunContext;
+    static ASYNC_TASK_RESULTS: RefCell<Map<String, Value>>;
+}
+
 /// `Command(graph=PARENT)` collected from a subgraph node.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ParentCommand {
@@ -65,6 +72,9 @@ pub(crate) struct RunContext {
     pub(crate) namespace: String,
     pub(crate) store: Option<std::sync::Arc<dyn BaseStore>>,
     pub(crate) context: Option<Value>,
+    step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    recursion_limit: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    step_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -94,36 +104,86 @@ pub(crate) fn install_run(
             namespace,
             store,
             context,
+            step: Default::default(),
+            recursion_limit: Default::default(),
+            step_active: Default::default(),
         })
     });
     RunGuard { previous }
 }
 
+/// Build a run context value for task-local scoping.
+#[cfg(feature = "async")]
+pub(crate) fn run_context(
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<std::sync::Arc<dyn BaseStore>>,
+    context: Option<Value>,
+) -> RunContext {
+    RunContext {
+        thread_id,
+        namespace,
+        store,
+        context,
+        step: Default::default(),
+        recursion_limit: Default::default(),
+        step_active: Default::default(),
+    }
+}
+
+/// Scope an async run with a task-local copy of its run context.
+#[cfg(feature = "async")]
+pub(crate) async fn with_async_run<F: std::future::Future>(
+    run: RunContext,
+    future: F,
+) -> F::Output {
+    let results = RefCell::new(Map::new());
+    ASYNC_TASK_RESULTS
+        .scope(results, ASYNC_RUN.scope(run, future))
+        .await
+}
+
+fn current_run() -> Option<RunContext> {
+    #[cfg(feature = "async")]
+    if let Ok(run) = ASYNC_RUN.try_with(|run| run.clone()) {
+        return Some(run);
+    }
+    CURRENT_RUN.with(|slot| slot.borrow().clone())
+}
+
 /// Long-term memory store of the current run, when the graph was compiled with one.
 pub fn get_store() -> Option<std::sync::Arc<dyn BaseStore>> {
-    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.store.clone()))
+    current_run().and_then(|run| run.store.clone())
 }
 
 /// User context passed to the current run via `RunConfig::with_context`.
 pub fn current_context() -> Option<Value> {
-    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.context.clone()))
+    current_run().and_then(|run| run.context.clone())
 }
 
 /// Runtime information (thread, namespace, store, context) of the current run.
 pub fn current_runtime() -> Option<Runtime> {
-    CURRENT_RUN.with(|slot| {
-        slot.borrow().as_ref().map(|run| Runtime {
-            thread_id: run.thread_id.clone(),
-            namespace: run.namespace.clone(),
-            store: run.store.clone(),
-            context: run.context.clone(),
-        })
+    current_run().map(|run| Runtime {
+        thread_id: run.thread_id.clone(),
+        namespace: run.namespace.clone(),
+        store: run.store.clone(),
+        context: run.context.clone(),
     })
 }
 
 /// RAII guard restoring the previous step context.
+type AsyncStepPrevious = (
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    usize,
+    usize,
+    bool,
+);
+
 pub(crate) struct StepGuard {
     previous: Option<(usize, usize)>,
+    async_previous: Option<AsyncStepPrevious>,
 }
 
 impl Drop for StepGuard {
@@ -132,13 +192,44 @@ impl Drop for StepGuard {
         CURRENT_STEP.with(|slot| {
             *slot.borrow_mut() = previous;
         });
+        if let Some((step, limit, active, old_step, old_limit, old_active)) =
+            self.async_previous.take()
+        {
+            step.store(old_step, std::sync::atomic::Ordering::Relaxed);
+            limit.store(old_limit, std::sync::atomic::Ordering::Relaxed);
+            active.store(old_active, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 }
 
 /// Install the current superstep number and recursion limit for managed values.
 pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
     let previous = CURRENT_STEP.with(|slot| slot.borrow_mut().replace((step, recursion_limit)));
-    StepGuard { previous }
+    let async_previous = current_run().map(|run| {
+        let old = (
+            run.step.load(std::sync::atomic::Ordering::Relaxed),
+            run.recursion_limit
+                .load(std::sync::atomic::Ordering::Relaxed),
+            run.step_active.load(std::sync::atomic::Ordering::Relaxed),
+        );
+        run.step.store(step, std::sync::atomic::Ordering::Relaxed);
+        run.recursion_limit
+            .store(recursion_limit, std::sync::atomic::Ordering::Relaxed);
+        run.step_active
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        (
+            run.step,
+            run.recursion_limit,
+            run.step_active,
+            old.0,
+            old.1,
+            old.2,
+        )
+    });
+    StepGuard {
+        previous,
+        async_previous,
+    }
 }
 
 /// Remaining supersteps before the recursion limit (LangGraph `RemainingSteps`).
@@ -146,6 +237,15 @@ pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
 /// Returns `None` outside a run. The value is `recursion_limit - step`, so the first
 /// superstep of a graph compiled with a limit of 25 reports 25.
 pub fn remaining_steps() -> Option<usize> {
+    if let Some(run) = current_run()
+        && run.step_active.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        let step = run.step.load(std::sync::atomic::Ordering::Relaxed);
+        let limit = run
+            .recursion_limit
+            .load(std::sync::atomic::Ordering::Relaxed);
+        return Some(limit.saturating_sub(step + 1));
+    }
     CURRENT_STEP.with(|slot| {
         slot.borrow()
             .map(|(step, recursion_limit)| recursion_limit.saturating_sub(step + 1))
@@ -164,17 +264,12 @@ pub fn is_last_step() -> bool {
 
 /// Thread id of the current run, when it is bound to a checkpoint thread.
 pub fn current_thread_id() -> Option<String> {
-    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.thread_id.clone()))
+    current_run().and_then(|run| run.thread_id.clone())
 }
 
 /// Checkpoint namespace of the current run (`""` for the root graph).
 pub fn current_namespace() -> String {
-    CURRENT_RUN.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|run| run.namespace.clone())
-            .unwrap_or_default()
-    })
+    current_run().map(|run| run.namespace).unwrap_or_default()
 }
 
 /// Resume value stamped onto the current task, when replaying an interrupt.
@@ -711,11 +806,24 @@ pub(crate) fn current_subgraph_collector() -> Option<Arc<Mutex<Vec<StreamChunk>>
 
 /// Read a memoized functional-API task result for `key`.
 pub(crate) fn task_result_get(key: &str) -> Option<Value> {
+    #[cfg(feature = "async")]
+    if let Ok(value) = ASYNC_TASK_RESULTS.try_with(|slot| slot.borrow().get(key).cloned()) {
+        return value;
+    }
     TASK_RESULTS.with(|slot| slot.borrow().get(key).cloned())
 }
 
 /// Store a functional-API task result under `key`.
 pub(crate) fn task_result_put(key: String, value: Value) {
+    #[cfg(feature = "async")]
+    if ASYNC_TASK_RESULTS
+        .try_with(|slot| {
+            slot.borrow_mut().insert(key.clone(), value.clone());
+        })
+        .is_ok()
+    {
+        return;
+    }
     TASK_RESULTS.with(|slot| {
         slot.borrow_mut().insert(key, value);
     });
@@ -723,11 +831,29 @@ pub(crate) fn task_result_put(key: String, value: Value) {
 
 /// Reset the task-result cache at the start of a fresh run.
 pub(crate) fn clear_task_results() {
+    #[cfg(feature = "async")]
+    if ASYNC_TASK_RESULTS
+        .try_with(|slot| slot.borrow_mut().clear())
+        .is_ok()
+    {
+        return;
+    }
     TASK_RESULTS.with(|slot| slot.borrow_mut().clear());
 }
 
 /// Restore memoized task results from a resumed checkpoint.
 pub(crate) fn load_task_results(results: &Map<String, Value>) {
+    #[cfg(feature = "async")]
+    if ASYNC_TASK_RESULTS
+        .try_with(|slot| {
+            let mut slot = slot.borrow_mut();
+            slot.clear();
+            slot.extend(results.clone());
+        })
+        .is_ok()
+    {
+        return;
+    }
     TASK_RESULTS.with(|slot| {
         let mut slot = slot.borrow_mut();
         slot.clear();
@@ -737,6 +863,10 @@ pub(crate) fn load_task_results(results: &Map<String, Value>) {
 
 /// Snapshot of the memoized task results for checkpoint persistence.
 pub(crate) fn snapshot_task_results() -> Map<String, Value> {
+    #[cfg(feature = "async")]
+    if let Ok(results) = ASYNC_TASK_RESULTS.try_with(|slot| slot.borrow().clone()) {
+        return results;
+    }
     TASK_RESULTS.with(|slot| slot.borrow().clone())
 }
 

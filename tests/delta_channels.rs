@@ -136,3 +136,69 @@ async fn async_last_value_after_finish_holds_writes() {
     assert_eq!(output.final_answer, "done");
     assert_eq!(output.observed, vec!["b:".to_string()]);
 }
+
+#[test]
+fn multi_interrupt_preserves_held_finish_writes() {
+    use serde_json::Map;
+
+    #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+    struct FinishState {
+        final_answer: String,
+        a: i64,
+        b: i64,
+    }
+
+    impl State for FinishState {
+        fn schema() -> StateSchema {
+            StateSchema::new()
+                .last_value_after_finish("final_answer")
+                .last_value("a")
+                .last_value("b")
+        }
+    }
+
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<FinishState>::new()
+        .add_node("draft", |_state: &FinishState| {
+            Ok(NodeOutput::new().set("final_answer", "draft"))
+        })
+        .add_node("a", |_state: &FinishState| {
+            let value = interrupt(json!({ "q": "a" }))?;
+            Ok(NodeOutput::new().set("a", value.as_i64().unwrap_or_default()))
+        })
+        .add_node("b", |_state: &FinishState| {
+            let value = interrupt(json!({ "q": "b" }))?;
+            Ok(NodeOutput::new().set("b", value.as_i64().unwrap_or_default()))
+        })
+        .add_edge(langgraph_rs::START, "draft")
+        .add_edge(langgraph_rs::START, "a")
+        .add_edge(langgraph_rs::START, "b")
+        .set_finish_point("draft")
+        .set_finish_point("a")
+        .set_finish_point("b")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &FinishState::default(),
+            &RunConfig::new().with_thread("finish-multi"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+    let snapshot = graph.get_state("finish-multi").unwrap().unwrap();
+    assert_eq!(snapshot.interrupts.len(), 2);
+    assert_eq!(
+        snapshot.values.final_answer, "",
+        "held writes must stay hidden"
+    );
+
+    let mut resume = Map::new();
+    for (index, interrupt) in snapshot.interrupts.iter().enumerate() {
+        resume.insert(interrupt.id.clone(), json!(index as i64 + 1));
+    }
+    let output = graph
+        .resume("finish-multi", serde_json::Value::Object(resume))
+        .unwrap();
+    assert_eq!(output.final_answer, "draft");
+}

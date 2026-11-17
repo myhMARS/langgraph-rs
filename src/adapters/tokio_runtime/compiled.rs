@@ -885,8 +885,15 @@ impl<S: State> AsyncCompiledGraph<S> {
             writer,
             run: &run,
         };
+        let run_context = crate::kernel::context::run_context(
+            run.thread_id.clone(),
+            run.namespace.clone(),
+            run.store.clone(),
+            run.context.clone(),
+        );
         let mut adapt = |chunk| sink(chunk);
-        crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt).await
+        let future = crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt);
+        crate::kernel::context::with_async_run(run_context, future).await
     }
 
     fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {

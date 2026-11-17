@@ -270,7 +270,7 @@ allowed). The async adapter exposes `batch` / `batch_run` as well.
 `CompiledGraph::batch` runs one graph over many inputs and returns results in input order;
 `RunConfig::with_max_concurrency(n)` bounds the number of concurrent invocations (scoped
 threads). `batch_run` additionally returns `RunOutcome` reports. `RunConfig::with_durability`
-selects `Durability::Sync` (checkpoint every superstep), `Async` (currently behaves like
+selects `Durability::Sync` (checkpoint every superstep), `Async` (queues checkpoint writes to
 `Sync`) or `Exit` (only the initial, interrupt and final checkpoints). `add_sequence` registers
 a chain of nodes in one call and `add_edges_from` fans several sources into one target.
 

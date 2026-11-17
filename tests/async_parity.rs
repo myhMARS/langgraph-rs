@@ -295,3 +295,33 @@ async fn durability_async_writes_in_the_background() {
     assert!(!history.is_empty());
     assert_eq!(history[0].values.get("value"), Some(&json!(2)));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn async_run_context_survives_task_migration() {
+    use std::time::Duration;
+
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("check", |_state: JsonState, _ctx| async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            assert_eq!(
+                langgraph_rs::current_thread_id().as_deref(),
+                Some("async-migrate")
+            );
+            assert!(langgraph_rs::current_runtime().is_some());
+            assert_eq!(langgraph_rs::remaining_steps(), Some(24));
+            Ok(NodeOutput::new().update("value", json!(1)))
+        })
+        .set_entry_point("check")
+        .set_finish_point("check")
+        .with_checkpointer(std::sync::Arc::new(InMemorySaver::new()))
+        .compile()
+        .unwrap();
+    let output = graph
+        .run(
+            &JsonState::new(),
+            &RunConfig::new().with_thread("async-migrate"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output.state.get("value"), Some(&json!(1)));
+}

@@ -117,7 +117,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 previous_checkpoint = Some(latest);
             }
         }
-        // LangGraph records an input checkpoint before the first superstep.
+        // LangGraph records the input checkpoint(s) before the first superstep. The
+        // two records and the `total - 2` history step math are covered by checkpoint
+        // and namespace tests; keep them in sync if the initial layout changes.
         save_checkpoint_via(
             backend,
             thread_id.as_deref(),

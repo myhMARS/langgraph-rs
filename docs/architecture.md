@@ -25,10 +25,10 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::cache` | `NodeCache` port, `CachedOutput`, `CachePolicy` (TTL + custom key) for node-level caching. |
 | `kernel::store` | `BaseStore` port, `StoreItem` / `Namespace`, `Runtime` and the thread-local run context (`get_store`, `current_context`, `current_runtime`). |
 | `kernel::timeout` | `TimeoutPolicy` (`run_timeout`, `idle_timeout`) attached per node; managed values (`remaining_steps`, `is_last_step`) live in the run context. |
-| `kernel::executor::mod` | `execute` and `StartInput`: the only loop in the crate; owns seeding, merge and control flow. |
+| `kernel::executor::pregel` | `run_loop`: the only Pregel loop; owns seeding, supersteps, interrupts, merge and control flow. `kernel::executor::backend` supplies `PregelBackend`, `SyncBackend` and `AsyncBackend`. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
 | `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
-| `kernel::executor::checkpointing` | `save_checkpoint`: the only checkpoint writer. |
+| `kernel::executor::checkpointing` | `save_checkpoint_via` / `build_checkpoint`: the only checkpoint writer, driven by a backend. |
 | `kernel::usage` | `Usage`, `NodeExecution`, `RunReport` and `RunOutcome`: per-node consumption/timing aggregation. |
 | `kernel::stream` | `StreamChunk` and accessors, produced by the executor. |
 | `adapters::python` | PyO3 bindings (feature `python`): `StateGraph` / `CompiledGraph` over `JsonState`, `interrupt`, usage reporting. |
@@ -65,7 +65,7 @@ facade: it re-exports the public surface and defines `START` (`"__start__"`) and
 
 ## The superstep algorithm
 
-As implemented in `executor::execute`:
+As implemented in `executor::pregel::run_loop`:
 
 1. **Validate and compile.** `StateGraph::validate` rejects an empty graph, duplicate node
    registrations, reserved names, a missing or duplicated entry point, edges or path-map
@@ -313,26 +313,25 @@ translation layer over the Rust engine:
 
 ## Async runtime adapter (Tokio)
 
-`src/adapters/tokio_runtime/` implements the `async` feature without touching the kernel:
+`src/adapters/tokio_runtime/` is the API surface for the `async` feature over the same kernel loop:
 
 - **Builder.** `AsyncStateGraph` mirrors the sync builder for async node closures
   `Fn(S, AsyncContext) -> impl Future<Output = Result<NodeOutput>>`; it validates the same
   structural rules (entry point, targets, reserved names, conditional path maps).
-- **Supersteps.** All tasks of a superstep are awaited together with
-  `futures::future::join_all`, so pending I/O overlaps; results are folded in task order and
-  merged through the same `state::apply_updates` used by the sync engine. Scheduling reuses
-  `executor::scheduling::collect_next_nodes` through closures, keeping one implementation of
-  edge evaluation and de-duplication.
+- **Supersteps.** `AsyncBackend` awaits all tasks of a superstep with
+  `futures::future::join_all`; the shared `pregel::run_loop` then processes outcomes,
+  schedules, checkpoints and handles interrupts exactly like the sync `SyncBackend`. Pending
+  I/O overlaps, but edge evaluation, de-duplication and the checkpoint lifecycle have one
+  implementation.
 - **Context.** Futures interleave, so the sync thread-local context cannot be used.
   `AsyncContext` is an `Arc<Mutex<..>>` handle that nodes use to report usage
   (`record_usage` / `record_tokens`), emit `custom` values, and read `last_error()`.
-- **Checkpoints and HITL.** The adapter owns the same checkpoint lifecycle as the sync
-  executor: a step-0 checkpoint for fresh thread-bound runs, a checkpoint after every
-  superstep, and an interrupted checkpoint (pre-superstep values + pending tasks) when a node
-  calls `ctx.interrupt(..)`, when a node is paused by `interrupt_before`, or after
-  `interrupt_after`. `resume(thread, value)` / `resume_with_updates` / `continue_thread`
-  reload the latest checkpoint, re-stamp the pending tasks with the resume value and continue;
-  `paused_before` suppresses the same hook exactly once.
+- **Checkpoints and HITL.** The shared loop owns the checkpoint lifecycle: initial
+  thread-bound checkpoints, one after each superstep, and interrupted checkpoints
+  (pre-superstep values + pending tasks) for node interrupts and `interrupt_before` /
+  `interrupt_after`. `AsyncBackend` only persists the built checkpoint through the async
+  saver, the sync saver, or the durability writer. Resume semantics (`paused_before` replay,
+  multi-interrupt maps, resume history) live in the shared loop.
 - **Retries.** `add_node_with_retry` / `set_retry` reuse the kernel `RetryPolicy`; the async
   runner sleeps with `tokio::time::sleep` between attempts and never retries interrupts.
   Duration, attempt counts and usage of all attempts land in the report and trace sinks.
@@ -340,8 +339,8 @@ translation layer over the Rust engine:
   `ctx.last_error()` works; handler tasks are de-duplicated per superstep and take precedence
   over a regular edge to the same node.
 - **Scope.** Nodes, static/conditional edges, goto, `Send`, streaming, usage/trace,
-  checkpointing, interrupts, retries and error routing are supported. Nested subgraphs and
-  Python bindings are not exposed for async graphs yet.
+  checkpointing, interrupts, retries, error routing, node caching, nested subgraphs and the
+  Python async bindings are supported through the shared loop.
 
 ## Node-level caching
 
