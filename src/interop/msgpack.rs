@@ -70,14 +70,8 @@ fn write_value(output: &mut Vec<u8>, value: &Value) {
                     Value::String("langgraph.types".to_string()),
                     Value::String("Send".to_string()),
                     Value::Array(vec![
-                        payload
-                            .get("node")
-                            .cloned()
-                            .unwrap_or(Value::Null),
-                        payload
-                            .get("input")
-                            .cloned()
-                            .unwrap_or(Value::Null),
+                        payload.get("node").cloned().unwrap_or(Value::Null),
+                        payload.get("input").cloned().unwrap_or(Value::Null),
                     ]),
                 ]),
             )

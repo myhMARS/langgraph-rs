@@ -252,12 +252,7 @@ impl LangGraphSqliteSaver {
     }
 }
 
-fn send_task_id(
-    checkpoint_id: &str,
-    node: &str,
-    step: usize,
-    index: usize,
-) -> String {
+fn send_task_id(checkpoint_id: &str, node: &str, step: usize, index: usize) -> String {
     let mut bytes: Vec<u8> = checkpoint_id
         .as_bytes()
         .chunks(2)
@@ -295,8 +290,7 @@ fn langgraph_interrupt_entries(
             .or_default()
             .push_back((index, task_id));
     }
-    let mut answered: std::collections::BTreeMap<String, usize> =
-        std::collections::BTreeMap::new();
+    let mut answered: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     checkpoint
         .interrupts
         .iter()
@@ -311,8 +305,7 @@ fn langgraph_interrupt_entries(
             }
             let count = *answered.entry(interrupt.node.clone()).or_insert(0);
             *answered.get_mut(&interrupt.node).expect("counter") += 1;
-            let task_id =
-                langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
+            let task_id = langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
             let namespace = format!("{}:{}", interrupt.node, task_id);
             let key = if count == 0 {
                 namespace
