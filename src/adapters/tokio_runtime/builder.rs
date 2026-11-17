@@ -419,6 +419,53 @@ impl<S: State> AsyncStateGraph<S> {
     pub fn compile(self) -> Result<AsyncCompiledGraph<S>> {
         self.validate()?;
 
+        for node in self.cache_policies.keys() {
+            self.require_node("cache policy", node)?;
+        }
+        for node in self.timeouts.keys() {
+            self.require_node("timeout policy", node)?;
+        }
+        for (node, destinations) in &self.destinations {
+            self.require_node("destination list", node)?;
+            for target in destinations {
+                if target == END {
+                    continue;
+                }
+                if target == START {
+                    return Err(Error::validation(format!(
+                        "`{START}` is not a valid destination of `{node}`"
+                    )));
+                }
+                self.require_node("destination", target)?;
+            }
+        }
+        for node in &self.deferred {
+            self.require_node("deferred node", node)?;
+            if self.entry.contains(node) {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot be an entry point"
+                )));
+            }
+            if self
+                .edges
+                .get(node)
+                .is_some_and(|targets| !targets.is_empty())
+            {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot have outgoing edges"
+                )));
+            }
+            if self
+                .conditional
+                .get(node)
+                .is_some_and(|edges| !edges.is_empty())
+            {
+                return Err(Error::validation(format!(
+                    "deferred node `{node}` cannot have conditional edges"
+                )));
+            }
+        }
+
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
             None => Entry::Static(self.entry.clone()),

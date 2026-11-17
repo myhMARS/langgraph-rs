@@ -182,7 +182,7 @@ fn conditional_entry_point_selects_the_first_node() {
 
 #[test]
 fn topic_channels_append_one_element_per_write() {
-    let schema = StateSchema::dynamic().topic("events");
+    let schema = StateSchema::dynamic().topic_accumulate("events");
     let graph = StateGraph::<JsonState>::with_schema(schema)
         .add_node("a", |_state: &JsonState| {
             Ok(NodeOutput::new().set("events", "a"))

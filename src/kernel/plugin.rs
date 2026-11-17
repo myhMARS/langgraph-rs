@@ -219,7 +219,8 @@ impl Plugin for BuiltinChannels {
 
     fn install(&self, kernel: &mut Kernel) -> Result<()> {
         kernel.register_channel("last_value", || Channel::LastValue);
-        kernel.register_channel("topic", || Channel::topic(true));
+        kernel.register_channel("topic", || Channel::topic(false));
+        kernel.register_channel("topic_accumulate", || Channel::topic(true));
         kernel.register_channel("topic_current", || Channel::topic(false));
         kernel.register_channel("topic_no_accumulate", || Channel::topic(false));
         kernel.register_channel("append", || Channel::with_reducer(reducers::append()));

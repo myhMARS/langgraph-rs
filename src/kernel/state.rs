@@ -139,8 +139,13 @@ impl StateSchema {
         self.with_channel(name, Channel::LastValue)
     }
 
-    /// Declare an appending channel.
+    /// Declare a topic channel (current-superstep values, LangGraph default).
     pub fn topic(self, name: impl Into<String>) -> Self {
+        self.with_channel(name, Channel::topic(false))
+    }
+
+    /// Declare an appending topic channel that keeps values across supersteps.
+    pub fn topic_accumulate(self, name: impl Into<String>) -> Self {
         self.with_channel(name, Channel::topic(true))
     }
 
