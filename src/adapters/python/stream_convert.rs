@@ -146,6 +146,9 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("type", "tasks")?;
             let data = PyDict::new(py);
             data.set_item("node", node)?;
+            data.set_item("name", node)?;
+            data.set_item("path", Vec::<String>::new())?;
+            data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
             if let Some(input) = input {
                 data.set_item("input", value_to_py(py, input)?)?;
             }

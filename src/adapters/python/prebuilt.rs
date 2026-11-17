@@ -107,11 +107,12 @@ pub(super) fn tools_condition(state: &Bound<'_, PyAny>) -> PyResult<String> {
 
 /// Build a minimal ReAct agent from a Python model callable and tools.
 #[pyfunction]
-#[pyo3(signature = (model, tools, messages_key=None))]
+#[pyo3(signature = (model, tools, messages_key=None, checkpointer=None))]
 pub(super) fn create_react_agent(
     model: Py<PyAny>,
     tools: &Bound<'_, PyAny>,
     messages_key: Option<String>,
+    checkpointer: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<super::graph::PyCompiledGraph> {
     let mut tool_node = ToolNode::new(tool_definitions(tools)?);
     if let Some(key) = messages_key.clone() {
@@ -127,8 +128,14 @@ pub(super) fn create_react_agent(
             Ok::<Route, crate::Error>(rust_tools_condition(state))
         })
         .add_edge(TOOLS, "agent");
+    let mut options = crate::CompileOptions::new();
+    if let Some(checkpointer) = checkpointer {
+        if let Some(saver) = super::types::checkpointer_from_py(Some(checkpointer))? {
+            options = options.with_checkpointer(saver);
+        }
+    }
     let compiled = inner
-        .compile()
+        .compile_with(options)
         .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
     Ok(super::graph::PyCompiledGraph::from_inner(compiled))
 }
