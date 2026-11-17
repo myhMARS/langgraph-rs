@@ -189,6 +189,7 @@ async fn subgraph_states_are_listed() {
 struct SlowSaver {
     inner: InMemorySaver,
     puts: AtomicUsize,
+    gets: AtomicUsize,
 }
 
 impl SlowSaver {
@@ -196,6 +197,7 @@ impl SlowSaver {
         Self {
             inner: InMemorySaver::new(),
             puts: AtomicUsize::new(0),
+            gets: AtomicUsize::new(0),
         }
     }
 }
@@ -212,6 +214,7 @@ impl langgraph_rs::Checkpointer for SlowSaver {
         thread_id: &str,
         checkpoint_id: &str,
     ) -> langgraph_rs::Result<Option<langgraph_rs::Checkpoint>> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
         self.inner.get(thread_id, checkpoint_id)
     }
 
@@ -285,6 +288,9 @@ async fn durability_async_writes_in_the_background() {
         "checkpoint writes blocked the first node"
     );
     assert!(saver.puts.load(Ordering::SeqCst) >= 2);
+    // The loop carries the previous checkpoint in memory; it must not re-read the
+    // store while background writes are still queued.
+    assert_eq!(saver.gets.load(Ordering::SeqCst), 0);
     let history = graph.get_state_history("async-durability-bg").unwrap();
     assert!(!history.is_empty());
     assert_eq!(history[0].values.get("value"), Some(&json!(2)));

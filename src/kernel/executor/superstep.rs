@@ -120,8 +120,10 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
     let started = Instant::now();
     let mut usage: Vec<Usage> = Vec::new();
     let mut last_error: Option<String> = None;
+    let mut attempts_used = 0u32;
 
     for attempt in 1..=max_attempts {
+        attempts_used = attempt as u32;
         let timeout = task.timeout_millis.map(Duration::from_millis).or_else(|| {
             graph
                 .timeout_of(&task.node)
@@ -203,7 +205,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
     failed(
         task,
         last_error.unwrap_or_else(|| "node failed without an error message".to_string()),
-        max_attempts as u32,
+        attempts_used,
         usage,
         started,
     )

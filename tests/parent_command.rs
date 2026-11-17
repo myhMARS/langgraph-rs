@@ -113,3 +113,50 @@ fn parent_command_updates_merge_through_reducers() {
         .unwrap();
     assert_eq!(output.log, vec!["seed", "child"]);
 }
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_parent_command_aborts_sibling_nodes() {
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static SIBLING_RAN: AtomicUsize = AtomicUsize::new(0);
+
+    let child = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("jump", |_state: JsonState, _ctx| async move {
+            Ok(NodeOutput::new()
+                .update("value", json!(100))
+                .goto_parent("parent_after"))
+        })
+        .add_node("sibling", |_state: JsonState, _ctx| async move {
+            SIBLING_RAN.fetch_add(1, Ordering::SeqCst);
+            Ok(NodeOutput::new().update("value", json!(999)))
+        })
+        .set_entry_point("jump")
+        .add_edge("jump", "sibling")
+        .set_finish_point("sibling")
+        .compile()
+        .unwrap();
+
+    let parent = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_subgraph("child", Arc::new(child))
+        .add_node("parent_after", |state: JsonState, _ctx| async move {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default();
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("child")
+        .set_finish_point("parent_after")
+        .compile()
+        .unwrap();
+
+    let output = parent
+        .run(&JsonState::new(), &RunConfig::new())
+        .await
+        .unwrap();
+    assert_eq!(output.state.get("value"), Some(&json!(101)));
+    assert_eq!(SIBLING_RAN.load(Ordering::SeqCst), 0);
+}

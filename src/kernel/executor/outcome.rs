@@ -73,30 +73,10 @@ pub(crate) trait OutcomeGraph {
     fn has_node(&self, node: &str) -> bool;
     fn destinations_of(&self, node: &str) -> Option<&[String]>;
     fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>);
+    fn has_parent_command(&self) -> bool;
 }
 
-impl<S: crate::kernel::state::State> OutcomeGraph for crate::kernel::graph::CompiledGraph<S> {
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn TraceSink>] {
-        self.trace_sinks()
-    }
-
-    fn error_handler(&self, node: &str) -> Option<&str> {
-        self.error_handler(node).map(String::as_str)
-    }
-
-    fn has_node(&self, node: &str) -> bool {
-        self.node(node).is_some()
-    }
-
-    fn destinations_of(&self, node: &str) -> Option<&[String]> {
-        self.destinations_of(node)
-    }
-
-    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
-        crate::kernel::context::record_parent_command(updates, goto);
-    }
-}
-
+/// Process a superstep's outcomes into channel writes, scheduled tasks and stream events.
 pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
     graph: &G,
     outcomes: Vec<TaskOutcome>,

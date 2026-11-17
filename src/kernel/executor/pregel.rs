@@ -2,7 +2,7 @@
 //!
 //! All superstep, checkpoint and interrupt decisions live here. A [`PregelBackend`]
 //! supplies graph metadata, node-batch execution and checkpoint persistence; the sync
-//! runtime drives this loop with `futures::executor::block_on`, the async runtime
+//! runtime drives this loop with a nested-safe `block_on`, the async runtime
 //! awaits it.
 
 use std::collections::{HashMap, HashSet};
@@ -65,6 +65,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
     );
     let mut parent: Option<String> = None;
+    let mut previous_checkpoint: Option<crate::kernel::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
     let (mut values, mut state, mut tasks, mut step) = if let Some((values, state, tasks)) =
         start::resolve_fresh_start(
@@ -100,14 +101,21 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     if tasks.is_empty() {
         return finish(state, backend.schema(), report, started);
     }
+    if config
+        .control
+        .as_ref()
+        .is_some_and(crate::RunControl::is_aborted)
+    {
+        return Err(Error::other("run aborted by RunControl"));
+    }
 
     if fresh {
         context::clear_task_results();
         if let Some(tid) = thread_id.as_deref() {
-            parent = backend
-                .load_checkpoint(tid, None, &namespace)
-                .await?
-                .map(|checkpoint| checkpoint.id);
+            if let Some(latest) = backend.load_checkpoint(tid, None, &namespace).await? {
+                parent = Some(latest.id.clone());
+                previous_checkpoint = Some(latest);
+            }
         }
         // LangGraph records an input checkpoint before the first superstep.
         save_checkpoint_via(
@@ -115,6 +123,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             thread_id.as_deref(),
             &namespace,
             &mut parent,
+            &mut previous_checkpoint,
             &values,
             &tasks,
             step,
@@ -131,6 +140,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             thread_id.as_deref(),
             &namespace,
             &mut parent,
+            &mut previous_checkpoint,
             &values,
             &tasks,
             step,
@@ -171,6 +181,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 thread_id.as_deref(),
                 &namespace,
                 &mut parent,
+                &mut previous_checkpoint,
                 &values,
                 &tasks,
                 step,
@@ -186,9 +197,16 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return Err(Error::Interrupt(interrupted_interrupt));
         }
 
-        let outcomes = backend
+        let outcomes = match backend
             .run_superstep(&state, &tasks, step, config.control.as_ref())
-            .await?;
+            .await
+        {
+            Ok(outcomes) => outcomes,
+            Err(error) => {
+                drain_collector(backend, &setup, sink);
+                return Err(error);
+            }
+        };
         if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
             let chunks: Vec<StreamChunk> = collector
                 .lock()
@@ -227,6 +245,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     thread_id.as_deref(),
                     &namespace,
                     &mut parent,
+                    &mut previous_checkpoint,
                     &values,
                     &next_tasks,
                     step,
@@ -246,6 +265,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             }
             let interrupted_nodes: HashSet<String> =
                 interrupts.iter().map(|i| i.node.clone()).collect();
+            let finish_writes: Vec<crate::kernel::checkpoint::PendingWrite> =
+                collect_pending_writes(&tasks, &outcomes)
+                    .into_iter()
+                    .filter(|write| backend.schema().is_finish_value(&write.channel))
+                    .collect();
             let successful: Vec<TaskOutcome> = outcomes
                 .into_iter()
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -270,13 +294,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 thread_id.as_deref(),
                 &namespace,
                 &mut parent,
+                &mut previous_checkpoint,
                 &values,
                 &next_tasks,
                 step,
                 true,
                 false,
                 interrupts.clone(),
-                Vec::new(),
+                finish_writes,
                 &[],
                 sink,
             )
@@ -309,7 +334,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         )?;
         state = values_to_state::<S>(&values)?;
         sink(values_chunk(step, &values));
-        if context::has_parent_command() {
+        if backend.has_parent_command() {
             return finish(state, backend.schema(), report, started);
         }
 
@@ -338,34 +363,33 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
         step += 1;
         let interrupt_after =
-            interrupt_after_node(&executed, |node| backend.interrupts_after(node));
+            interrupt_after_node(&executed, |node| backend.interrupts_after(node))
+                .map(|node| Interrupt::new(node, Value::Null));
         if should_save_after_step(durability, interrupt_after.is_some()) {
             save_checkpoint_via(
                 backend,
                 thread_id.as_deref(),
                 &namespace,
                 &mut parent,
+                &mut previous_checkpoint,
                 &values,
                 &next_tasks,
                 step,
                 interrupt_after.is_some(),
                 false,
-                interrupt_after
-                    .iter()
-                    .map(|node| Interrupt::new(node.clone(), Value::Null))
-                    .collect(),
+                interrupt_after.clone().into_iter().collect(),
                 Vec::new(),
                 &executed,
                 sink,
             )
             .await?;
         }
-        if let Some(node) = interrupt_after {
+        if let Some(interrupt) = interrupt_after {
             sink(StreamChunk::Interrupt {
-                node: node.clone(),
+                node: interrupt.node.clone(),
                 value: Value::Null,
             });
-            return Err(Error::Interrupt(Interrupt::new(node, Value::Null)));
+            return Err(Error::Interrupt(interrupt));
         }
 
         if next_tasks.is_empty() {
@@ -379,6 +403,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     thread_id.as_deref(),
                     &namespace,
                     &mut parent,
+                    &mut previous_checkpoint,
                     &values,
                     &[],
                     step,
@@ -402,7 +427,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
 /// Drive a future to completion, parking the current thread while it is pending.
 ///
-/// Unlike utures::executor::block_on this supports nested runs (a subgraph executes
+/// Unlike `futures::executor::block_on` this supports nested runs (a subgraph executes
 /// another graph on the same thread).
 pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
     struct ThreadWake(std::thread::Thread);
@@ -421,6 +446,23 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
         match future.as_mut().poll(&mut context) {
             Poll::Ready(value) => return value,
             Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
+    backend: &B,
+    setup: &step::RunSetup,
+    sink: &mut F,
+) {
+    if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
+        let chunks: Vec<StreamChunk> = collector
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain(..)
+            .collect();
+        for chunk in chunks {
+            sink(chunk);
         }
     }
 }

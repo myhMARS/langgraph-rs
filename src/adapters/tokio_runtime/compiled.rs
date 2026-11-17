@@ -28,42 +28,6 @@ use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::timeout::TimeoutPolicy;
 use crate::kernel::usage::{RunOutcome, Usage};
 
-/// Where a run starts from.
-struct AsyncRunInfo {
-    thread_id: Option<String>,
-    namespace: String,
-    store: Option<Arc<dyn BaseStore>>,
-    context: Option<Value>,
-    collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
-}
-
-impl<S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncCompiledGraph<S> {
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
-        &self.trace_sinks
-    }
-
-    fn error_handler(&self, node: &str) -> Option<&str> {
-        self.error_edges.get(node).map(String::as_str)
-    }
-
-    fn has_node(&self, node: &str) -> bool {
-        self.nodes.contains_key(node)
-    }
-
-    fn destinations_of(&self, node: &str) -> Option<&[String]> {
-        self.destinations.get(node).map(Vec::as_slice)
-    }
-
-    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
-        super::context::record_parent_command(updates, goto);
-    }
-}
-
-/// A compiled async graph.
-///
-/// Build one with [`AsyncStateGraph::compile`](crate::tokio_runtime::AsyncStateGraph::compile).
-/// The graph is immutable afterwards and can be shared between tasks.
-#[derive(Clone)]
 pub struct AsyncCompiledGraph<S: State> {
     pub(crate) schema: StateSchema,
     pub(crate) nodes: IndexMap<String, AsyncNodeFn<S>>,
@@ -86,6 +50,15 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) recursion_limit: usize,
     pub(crate) context_schema: Option<Value>,
     pub(crate) name: Option<String>,
+}
+
+/// Where a run starts from.
+struct AsyncRunInfo {
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<Arc<dyn BaseStore>>,
+    context: Option<Value>,
+    collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
@@ -863,7 +836,10 @@ impl<S: State> AsyncCompiledGraph<S> {
         config: &RunConfig,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<RunOutcome<S>> {
-        if config.durability != crate::Durability::Async || !self.has_checkpointer() {
+        if config.durability != crate::Durability::Async
+            || !self.has_checkpointer()
+            || config.thread_id.is_none()
+        {
             return self.execute_inner(start, config, sink, None).await;
         }
         let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Checkpoint>();
@@ -961,23 +937,38 @@ impl<S: State> AsyncCompiledGraph<S> {
             _ => None,
         };
         if let (Some(cache), Some(key)) = (&cache, &cache_key) {
-            if let Ok(Some(cached)) = cache.get(key) {
-                let usage = cached
-                    .usage
-                    .clone()
-                    .map(|usage| vec![usage])
-                    .unwrap_or_default();
-                return TaskOutcome::Ok(Box::new(TaskResult {
-                    node: task.node.clone(),
-                    output: crate::kernel::node::NodeOutput::from_cached(cached),
-                    custom: Vec::new(),
-                    messages: Vec::new(),
-                    usage,
-                    duration_millis: 0,
-                    attempts: 0,
-                    cached: true,
-                    input: task.input.clone().map(Value::Object),
-                }));
+            match cache.get(key) {
+                Ok(Some(cached)) => {
+                    let usage = cached
+                        .usage
+                        .clone()
+                        .map(|usage| vec![usage])
+                        .unwrap_or_default();
+                    return TaskOutcome::Ok(Box::new(TaskResult {
+                        node: task.node.clone(),
+                        output: crate::kernel::node::NodeOutput::from_cached(cached),
+                        custom: Vec::new(),
+                        messages: Vec::new(),
+                        usage,
+                        duration_millis: 0,
+                        attempts: 0,
+                        cached: true,
+                        input: task.input.clone().map(Value::Object),
+                    }));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    return TaskOutcome::Failed(Box::new(TaskFailure {
+                        failure: NodeFailure::new(
+                            &task.node,
+                            format!("node cache lookup failed: {error}"),
+                            1,
+                        ),
+                        usage: Vec::new(),
+                        duration_millis: 0,
+                        input: task.input.clone().map(Value::Object),
+                    }));
+                }
             }
         }
 
@@ -986,8 +977,10 @@ impl<S: State> AsyncCompiledGraph<S> {
         let started = Instant::now();
         let mut usage: Vec<Usage> = Vec::new();
         let mut last_error: Option<String> = None;
+        let mut attempts_used = 0u32;
 
         for attempt in 1..=max_attempts {
+            attempts_used = attempt as u32;
             let timeout_policy = self.timeout_of(&task.node).cloned().unwrap_or_default();
             let run_timeout = task
                 .timeout_millis
@@ -1077,6 +1070,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 }
                 Err(error) => {
                     last_error = Some(error.to_string());
+                    if !policy.should_retry(&error.to_string()) {
+                        break;
+                    }
                     if attempt < max_attempts {
                         let backoff = policy.backoff_for(attempt);
                         if !backoff.is_zero() {
@@ -1091,7 +1087,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             failure: NodeFailure::new(
                 &task.node,
                 last_error.unwrap_or_else(|| "node failed without an error message".to_string()),
-                max_attempts as u32,
+                attempts_used,
             ),
             usage,
             duration_millis: started.elapsed().as_millis() as u64,
@@ -1324,7 +1320,9 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
 
     async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
         if let Some(writer) = self.writer {
-            let _ = writer.send(checkpoint);
+            writer
+                .send(checkpoint)
+                .map_err(|_| Error::Checkpoint("checkpoint writer stopped".to_string()))?;
             return Ok(());
         }
         if let Some(async_saver) = &self.graph.async_checkpointer {
@@ -1361,5 +1359,9 @@ impl<'a, S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncBacke
 
     fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
         super::context::record_parent_command(updates, goto);
+    }
+
+    fn has_parent_command(&self) -> bool {
+        super::context::has_parent_command()
     }
 }

@@ -28,7 +28,7 @@ pyo3-async-runtimes = { version = "0.29", optional = true, features = ["tokio-ru
 # Optional Tokio integration: `AsyncStateGraph` for async nodes and concurrent
 # supersteps on a Tokio runtime.
 tokio = { version = "1", optional = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
-futures = "0.3"
+futures = { version = "0.3", optional = true }
 
 # Optional persistent checkpointers (adapters::sqlite / redis / postgres).
 rusqlite = { version = "0.32", optional = true, default-features = false }
@@ -43,7 +43,7 @@ xxhash-rust = { version = "0.8.21", features = ["xxh3"] }
 default = []
 python = ["dep:pyo3"]
 python-async = ["python", "async", "dep:pyo3-async-runtimes"]
-async = ["dep:tokio"]
+async = ["dep:tokio", "dep:futures"]
 sqlite = ["dep:rusqlite"]
 msgpack = []
 redis = ["dep:redis"]

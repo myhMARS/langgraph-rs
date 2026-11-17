@@ -192,3 +192,30 @@ async fn async_usage_is_recorded_across_retries() {
         .unwrap_err();
     assert!(matches!(error, Error::Node { .. }));
 }
+
+#[tokio::test]
+async fn async_retry_on_predicates_stop_unmatched_retries() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let graph = AsyncStateGraph::<HitlState>::new()
+        .add_node_with_retry("fail", RetryPolicy::new(3).with_retry_on(["connect"]), {
+            let calls = calls.clone();
+            move |_state: HitlState, _ctx| {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Err(Error::other("boom"))
+                }
+            }
+        })
+        .set_entry_point("fail")
+        .set_finish_point("fail")
+        .compile()
+        .unwrap();
+    assert!(
+        graph
+            .run(&HitlState::default(), &RunConfig::new())
+            .await
+            .is_err()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

@@ -168,6 +168,13 @@ fn interrupt_after_pauses_after_the_node_ran() {
     let snapshot = graph.get_state("after").unwrap().unwrap();
     assert_eq!(snapshot.values.log, vec!["a"]);
     assert_eq!(snapshot.next, vec!["b".to_string()]);
+    assert_eq!(
+        snapshot
+            .interrupts
+            .first()
+            .map(|interrupt| interrupt.id.as_str()),
+        error.interrupt().map(|interrupt| interrupt.id.as_str())
+    );
 
     let output = graph.continue_thread("after").unwrap();
     assert_eq!(output.log, vec!["a", "b"]);
