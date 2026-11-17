@@ -63,28 +63,49 @@ fn write_value(output: &mut Vec<u8>, value: &Value) {
     {
         let mut payload = object.clone();
         payload.remove("__langgraph_type__");
-        let body = {
-            let mut nested = Vec::new();
-            write_value(
-                &mut nested,
-                &Value::Array(vec![
+        let (type_code, body_value) = if class == "Send" {
+            (
+                1u8,
+                Value::Array(vec![
+                    Value::String("langgraph.types".to_string()),
+                    Value::String("Send".to_string()),
+                    Value::Array(vec![
+                        payload
+                            .get("node")
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        payload
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    ]),
+                ]),
+            )
+        } else {
+            (
+                2u8,
+                Value::Array(vec![
                     Value::String("langgraph.types".to_string()),
                     Value::String(class.to_string()),
                     Value::Object(payload),
                 ]),
-            );
+            )
+        };
+        let body = {
+            let mut nested = Vec::new();
+            write_value(&mut nested, &body_value);
             nested
         };
         if body.len() <= u8::MAX as usize {
-            output.extend_from_slice(&[0xc7, body.len() as u8, 0x02]);
+            output.extend_from_slice(&[0xc7, body.len() as u8, type_code]);
         } else if body.len() <= u16::MAX as usize {
             output.push(0xc8);
             output.extend_from_slice(&(body.len() as u16).to_be_bytes());
-            output.push(0x02);
+            output.push(type_code);
         } else {
             output.push(0xc9);
             output.extend_from_slice(&(body.len() as u32).to_be_bytes());
-            output.push(0x02);
+            output.push(type_code);
         }
         output.extend_from_slice(&body);
         return;

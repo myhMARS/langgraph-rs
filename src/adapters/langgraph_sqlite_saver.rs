@@ -178,14 +178,14 @@ impl LangGraphSqliteSaver {
         // LangGraph's root (dict) state lives in `__root__`; pending branch channels
         // and interrupts must be visible for its scheduler and resume logic.
         let mut root = checkpoint.values.clone();
+        let interrupt_entries =
+            langgraph_interrupt_entries(&Self::langgraph_id(checkpoint), checkpoint);
         if !checkpoint.interrupts.is_empty() {
-            let interrupt_ids =
-                langgraph_interrupt_ids(&Self::langgraph_id(checkpoint), checkpoint);
             let interrupts = checkpoint
                 .interrupts
                 .iter()
-                .zip(interrupt_ids)
-                .map(|(interrupt, id)| {
+                .zip(&interrupt_entries)
+                .map(|(interrupt, (id, _, _))| {
                     json!({
                         "__langgraph_type__": "Interrupt",
                         "value": interrupt.value,
@@ -209,9 +209,22 @@ impl LangGraphSqliteSaver {
                 .entry(channel.clone())
                 .or_insert_with(|| version.clone());
         }
+        let mut sends = Vec::new();
         for task in &checkpoint.next {
-            channel_values.insert(format!("branch:to:{}", task.node), Value::Null);
-            versions.insert(format!("branch:to:{}", task.node), version.clone());
+            if let Some(input) = &task.input {
+                sends.push(json!({
+                    "__langgraph_type__": "Send",
+                    "node": task.node,
+                    "input": input,
+                }));
+            } else {
+                channel_values.insert(format!("branch:to:{}", task.node), Value::Null);
+                versions.insert(format!("branch:to:{}", task.node), version.clone());
+            }
+        }
+        if !sends.is_empty() {
+            channel_values.insert("__pregel_tasks".to_string(), Value::Array(sends));
+            versions.insert("__pregel_tasks".to_string(), version.clone());
         }
         versions.insert("__root__".to_string(), version);
         object.insert("channel_values".to_string(), Value::Object(channel_values));
@@ -239,25 +252,76 @@ impl LangGraphSqliteSaver {
     }
 }
 
-fn langgraph_interrupt_ids(
+fn send_task_id(
+    checkpoint_id: &str,
+    node: &str,
+    step: usize,
+    index: usize,
+) -> String {
+    let mut bytes: Vec<u8> = checkpoint_id
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
+        .collect();
+    bytes.extend_from_slice(node.as_bytes());
+    bytes.extend_from_slice((step + 1).to_string().as_bytes());
+    bytes.extend_from_slice(node.as_bytes());
+    bytes.extend_from_slice(b"__pregel_push");
+    bytes.extend_from_slice(index.to_string().as_bytes());
+    format!("{:032x}", xxhash_rust::xxh3::xxh3_128(&bytes))
+}
+
+fn langgraph_interrupt_entries(
     checkpoint_id: &str,
     checkpoint: &crate::kernel::checkpoint::Checkpoint,
-) -> Vec<String> {
-    let mut counters: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+) -> Vec<(String, String, String)> {
+    let mut send_queues: std::collections::BTreeMap<
+        String,
+        std::collections::VecDeque<(usize, String)>,
+    > = std::collections::BTreeMap::new();
+    for (index, task) in checkpoint
+        .next
+        .iter()
+        .filter(|task| task.input.is_some())
+        .enumerate()
+    {
+        let task_id = send_task_id(checkpoint_id, &task.node, checkpoint.step, index);
+        send_queues
+            .entry(task.node.clone())
+            .or_default()
+            .push_back((index, task_id));
+    }
+    let mut answered: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     checkpoint
         .interrupts
         .iter()
         .map(|interrupt| {
-            let answered = *counters.entry(interrupt.node.clone()).or_insert(0);
-            *counters.get_mut(&interrupt.node).expect("counter") += 1;
-            let task_id = langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
+            if let Some(queue) = send_queues.get_mut(&interrupt.node) {
+                if let Some((index, task_id)) = queue.pop_front() {
+                    let key = format!("{}:{}", interrupt.node, task_id);
+                    let id = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()));
+                    let path = format!("~__pregel_push, {index:010}, 0000000000");
+                    return (id, task_id, path);
+                }
+            }
+            let count = *answered.entry(interrupt.node.clone()).or_insert(0);
+            *answered.get_mut(&interrupt.node).expect("counter") += 1;
+            let task_id =
+                langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
             let namespace = format!("{}:{}", interrupt.node, task_id);
-            let key = if answered == 0 {
+            let key = if count == 0 {
                 namespace
             } else {
-                format!("{namespace}:{answered}")
+                format!("{namespace}:{count}")
             };
-            format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()))
+            let id = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()));
+            let path = format!("~__pregel_pull, {}", interrupt.node);
+            (id, task_id, path)
         })
         .collect()
 }
@@ -385,7 +449,12 @@ impl Checkpointer for LangGraphSqliteSaver {
                     Error::Checkpoint(format!("langgraph sqlite saver: write row: {error}"))
                 })?;
         }
-        for (index, task) in checkpoint.next.iter().enumerate() {
+        for (index, task) in checkpoint
+            .next
+            .iter()
+            .enumerate()
+            .filter(|(_, task)| task.input.is_none())
+        {
             statement
                 .execute(params![
                     checkpoint.thread_id,
@@ -402,9 +471,10 @@ impl Checkpointer for LangGraphSqliteSaver {
                     Error::Checkpoint(format!("langgraph sqlite saver: branch write: {error}"))
                 })?;
         }
-        let interrupt_ids = langgraph_interrupt_ids(&checkpoint_id, &checkpoint);
-        for (interrupt, interrupt_id) in checkpoint.interrupts.iter().zip(interrupt_ids) {
-            let task_id = langgraph_task_id(&checkpoint_id, &interrupt.node, checkpoint.step);
+        let interrupt_entries = langgraph_interrupt_entries(&checkpoint_id, &checkpoint);
+        for (interrupt, (interrupt_id, task_id, task_path)) in
+            checkpoint.interrupts.iter().zip(interrupt_entries)
+        {
             let value = encode_interrupt_ext(interrupt, &interrupt_id);
             statement
                 .execute(params![
@@ -412,7 +482,7 @@ impl Checkpointer for LangGraphSqliteSaver {
                     checkpoint.namespace,
                     checkpoint_id,
                     task_id,
-                    format!("~__pregel_pull, {}", interrupt.node),
+                    task_path,
                     -3i64,
                     "__interrupt__",
                     "msgpack",
