@@ -497,9 +497,13 @@ impl PyAsyncCompiledGraph {
     fn get_state(
         &self,
         py: Python<'_>,
-        thread_id: String,
+        thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
     ) -> PyResult<Option<Py<PyAny>>> {
+        let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
+        let thread_id =
+            thread_id.ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
         let snapshot = match checkpoint_ns.as_deref() {
             Some(namespace) => self.graph.get_state_in(&thread_id, namespace),
             None => self.graph.get_state(&thread_id),
@@ -520,6 +524,71 @@ impl PyAsyncCompiledGraph {
 
     fn has_checkpointer(&self) -> bool {
         self.saver.is_some()
+    }
+
+    /// Awaitable `get_state` for async callers.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn aget_state<'py>(
+        &self,
+        py: Python<'py>,
+        thread_id: &Bound<'_, PyAny>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
+        let thread_id =
+            thread_id.ok_or_else(|| PyTypeError::new_err("aget_state requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            Python::attach(|py| {
+                let snapshot = match checkpoint_ns.as_deref() {
+                    Some(namespace) => graph.get_state_in(&thread_id, namespace),
+                    None => graph.get_state(&thread_id),
+                }
+                .map_err(|error| to_pyerr(py, error))?;
+                let Some(snapshot) = snapshot else {
+                    return Ok(None);
+                };
+                let history = graph
+                    .get_state_history(&thread_id)
+                    .map_err(|error| to_pyerr(py, error))?;
+                let global_step = global_step_for(&history, &snapshot.checkpoint_id);
+                snapshot_to_py_with_step(py, &snapshot, global_step).map(Some)
+            })
+        })
+    }
+
+    /// Awaitable `get_state_history` for async callers.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    fn aget_state_history<'py>(
+        &self,
+        py: Python<'py>,
+        thread_id: &Bound<'_, PyAny>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
+        let thread_id = thread_id
+            .ok_or_else(|| PyTypeError::new_err("aget_state_history requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
+        let graph = self.graph.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            Python::attach(|py| {
+                let snapshots = match checkpoint_ns.as_deref() {
+                    Some(namespace) => graph.get_state_history_in(&thread_id, namespace),
+                    None => graph.get_state_history(&thread_id),
+                }
+                .map_err(|error| to_pyerr(py, error))?;
+                let full = graph
+                    .get_state_history(&thread_id)
+                    .map_err(|error| to_pyerr(py, error))?;
+                let list = PyList::empty(py);
+                for snapshot in snapshots {
+                    let global_step = global_step_for(&full, &snapshot.checkpoint_id);
+                    list.append(snapshot_to_py_with_step(py, &snapshot, global_step)?)?;
+                }
+                Ok(list.into_any().unbind())
+            })
+        })
     }
 
     /// Awaitably update state without running nodes.
@@ -621,9 +690,13 @@ impl PyAsyncCompiledGraph {
     fn get_state_history(
         &self,
         py: Python<'_>,
-        thread_id: String,
+        thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
+        let thread_id = thread_id
+            .ok_or_else(|| PyTypeError::new_err("get_state_history requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
         let snapshots = match checkpoint_ns.as_deref() {
             Some(namespace) => self
                 .graph

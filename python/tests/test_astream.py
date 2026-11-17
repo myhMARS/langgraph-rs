@@ -37,6 +37,24 @@ class AsyncStreamTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_async_state_accessors(self):
+        async def scenario():
+            graph = (
+                lg.AsyncStateGraph({"value": "last_value"})
+                .add_node("inc", lambda state: {"value": state["value"] + 1})
+                .set_entry_point("inc")
+                .set_finish_point("inc")
+            )
+            compiled = graph.compile(checkpointer=lg.InMemorySaver())
+            config = {"configurable": {"thread_id": "async-state"}}
+            await compiled.ainvoke({"value": 0}, thread_id="async-state")
+            snapshot = await compiled.aget_state(config)
+            self.assertEqual(snapshot["values"]["value"], 1)
+            history = await compiled.aget_state_history(config)
+            self.assertTrue(history)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()
