@@ -290,12 +290,13 @@ impl PyAsyncCompiledGraph {
             Python::attach(|py| {
                 let list = PyList::empty(py);
                 for chunk in &collected {
-                    let item = if v2 {
-                        chunk_to_py_v2(py, chunk)?
+                    if v2 {
+                        for item in chunk_to_py_v2_parts(py, chunk)? {
+                            list.append(item)?;
+                        }
                     } else {
-                        chunk_to_py(py, chunk)?
-                    };
-                    list.append(item)?;
+                        list.append(chunk_to_py(py, chunk)?)?;
+                    }
                 }
                 Ok(list.into_any().unbind())
             })

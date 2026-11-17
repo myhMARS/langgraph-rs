@@ -327,16 +327,14 @@ impl PyCompiledGraph {
                 .collect::<Vec<_>>()
         };
         let multi_mode = requested.len() > 1;
-        let mut converted: Vec<Py<PyAny>> = chunks
-            .iter()
-            .map(|chunk| {
-                if v2 {
-                    chunk_to_py_v2(py, chunk)
-                } else {
-                    chunk_to_py_v1(py, chunk, multi_mode)
-                }
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
+        for chunk in &chunks {
+            if v2 {
+                converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+            } else {
+                converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
+            }
+        }
         let interrupts = converted.iter().rev().find_map(|item| {
             let dict = item.bind(py).cast::<PyDict>().ok()?;
             if v2 {

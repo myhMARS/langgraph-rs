@@ -212,6 +212,66 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
     Ok(dict.into_any().unbind())
 }
 
+/// LangGraph v2 task events: emit a start payload and a result payload.
+pub(crate) fn chunk_to_py_v2_parts(
+    py: Python<'_>,
+    chunk: &StreamChunk,
+) -> PyResult<Vec<Py<PyAny>>> {
+    if let StreamChunk::Task {
+        id,
+        node,
+        input,
+        result,
+        error,
+        ..
+    } = chunk
+    {
+        let start = PyDict::new(py);
+        start.set_item("type", "tasks")?;
+        let start_data = PyDict::new(py);
+        start_data.set_item("id", id)?;
+        start_data.set_item("name", node)?;
+        start_data.set_item(
+            "input",
+            match input {
+                Some(input) => value_to_py(py, input)?,
+                None => py.None(),
+            },
+        )?;
+        start_data.set_item("triggers", Vec::<String>::new())?;
+        start.set_item("data", start_data)?;
+        start.set_item("ns", Vec::<String>::new())?;
+
+        let finish = PyDict::new(py);
+        finish.set_item("type", "tasks")?;
+        let finish_data = PyDict::new(py);
+        finish_data.set_item("id", id)?;
+        finish_data.set_item("name", node)?;
+        finish_data.set_item(
+            "error",
+            value_to_py(
+                py,
+                &match error {
+                    Some(error) => Value::String(error.message.clone()),
+                    None => Value::Null,
+                },
+            )?,
+        )?;
+        finish_data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+        finish_data.set_item(
+            "result",
+            match result {
+                Some(result) => value_to_py(py, result)?,
+                None => py.None(),
+            },
+        )?;
+        finish.set_item("data", finish_data)?;
+        finish.set_item("ns", Vec::<String>::new())?;
+        return Ok(vec![start.into_any().unbind(), finish.into_any().unbind()]);
+    }
+    Ok(vec![chunk_to_py_v2(py, chunk)?])
+}
+
 /// LangGraph v1 chunk conversion that also applies multi-mode tuple wrapping.
 pub(crate) fn chunk_to_py_v1(
     py: Python<'_>,
@@ -325,13 +385,14 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
         }
         StreamChunk::Task {
             step,
+            id,
             node,
             input,
             result,
             error,
         } => {
             let dict = PyDict::new(py);
-            dict.set_item("id", node)?;
+            dict.set_item("id", id)?;
             dict.set_item("name", node)?;
             dict.set_item("step", *step)?;
             if let Some(input) = input {

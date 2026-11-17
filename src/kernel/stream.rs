@@ -69,6 +69,8 @@ pub enum StreamChunk {
     Task {
         /// Superstep index.
         step: usize,
+        /// Stable task id.
+        id: String,
         /// Node of the task.
         node: String,
         /// Input state override for `Send` tasks.

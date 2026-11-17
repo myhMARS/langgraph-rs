@@ -131,6 +131,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
 
                 sink(StreamChunk::Task {
                     step,
+                    id: format!("{step}:{}", failure.node),
                     node: failure.node.clone(),
                     input,
                     result: None,
@@ -223,6 +224,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     };
                     sink(StreamChunk::Task {
                         step,
+                        id: format!("{step}:{node}"),
                         node: node.clone(),
                         input: input.clone(),
                         result: task_result,
