@@ -104,13 +104,21 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Vec<StateSnapshot<S>>> {
         let all = futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
         let total = all.len() as i64;
+        let step_by_id: std::collections::HashMap<&str, usize> = all
+            .iter()
+            .enumerate()
+            .map(|(index, checkpoint)| (checkpoint.id.as_str(), index))
+            .collect();
         let mut checkpoints = all.clone();
         if let Some(before) = before {
-            if let Some(index) = checkpoints
+            match checkpoints
                 .iter()
                 .position(|checkpoint| checkpoint.id == before)
             {
-                checkpoints.drain(0..=index);
+                Some(index) => {
+                    checkpoints.drain(0..=index);
+                }
+                None => checkpoints.clear(),
             }
         }
         if let Some(limit) = limit {
@@ -119,10 +127,9 @@ impl<S: State> AsyncCompiledGraph<S> {
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let step = all
-                    .iter()
-                    .position(|item| item.id == checkpoint.id)
-                    .map(|index| total - 2 - index as i64)
+                let step = step_by_id
+                    .get(checkpoint.id.as_str())
+                    .map(|index| total - 2 - *index as i64)
                     .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
                 snapshot.step = step;
@@ -157,8 +164,13 @@ impl<S: State> AsyncCompiledGraph<S> {
         I: IntoIterator<Item = (K, Value)>,
         K: Into<String>,
     {
-        let resolved = self.resolve_task_node(thread_id, "", task_id).await?;
-        let as_node = as_node.map(str::to_owned).or(resolved);
+        if task_id.is_some() {
+            // Validate the task id but keep the checkpoint's pending `next`, matching
+            // the sync implementation's preserve-next semantics.
+            self.resolve_task_node(thread_id, "", task_id).await?;
+            return self.update_state_in(thread_id, "", updates, None).await;
+        }
+        let as_node = as_node.map(str::to_owned);
         self.update_state_in(thread_id, "", updates, as_node.as_deref())
             .await
     }

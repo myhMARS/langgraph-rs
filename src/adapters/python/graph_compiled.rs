@@ -40,14 +40,16 @@ impl PyCompiledGraph {
         control: Option<PyRef<'_, crate::adapters::python::types::PyRunControl>>,
         checkpoint_ns: Option<String>,
     ) -> PyResult<Py<PyAny>> {
-        let thread_id = thread_id_from_py(py, thread_id)?;
+        let (thread_id, base_config) =
+            crate::adapters::python::convert::config_from_py(py, thread_id)?;
+        let base_config = base_config;
         let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
                 let targets = command.goto_targets(py)?;
                 if !targets.is_empty() && command.resume.is_none() {
                     let updates = command.to_update_map(py)?;
-                    let mut config = run_config(thread_id.clone());
+                    let mut config = base_config.clone();
                     if let Some(control) = control.clone() {
                         config = config.with_control(control);
                     }
@@ -93,7 +95,7 @@ impl PyCompiledGraph {
                         goto: Vec::new(),
                         parent: false,
                     };
-                    let mut config = run_config(thread_id);
+                    let mut config = base_config.clone();
                     if let Some(control) = control.clone() {
                         config = config.with_control(control);
                     }
@@ -131,7 +133,7 @@ impl PyCompiledGraph {
                 };
             }
         }
-        let mut config = run_config(thread_id.clone());
+        let mut config = base_config.clone();
         if let Some(namespace) = checkpoint_ns {
             config = config.with_checkpoint_ns(namespace);
         }
