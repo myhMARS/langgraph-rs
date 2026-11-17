@@ -157,6 +157,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
             Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
             None => {
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
+                    .with_task_id(task.id.clone())
                     .with_error(task.error.clone());
                 crate::kernel::context::with_task(context, || node(&node_state))
             }
@@ -267,9 +268,12 @@ fn run_node_timed<S: State>(
     let (sender, receiver) = std::sync::mpsc::channel();
     let node_name = task.node.clone();
     let resume = task.resume_history.clone();
+    let task_id = task.id.clone();
     let error = task.error.clone();
     std::thread::spawn(move || {
-        let context = TaskContext::new(node_name.clone(), resume).with_error(error);
+        let context = TaskContext::new(node_name.clone(), resume)
+            .with_task_id(task_id)
+            .with_error(error);
         let outcome = crate::kernel::context::with_task(context, || node(&node_state));
         let _ = sender.send(outcome);
     });

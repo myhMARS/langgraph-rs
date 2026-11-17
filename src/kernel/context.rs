@@ -189,6 +189,7 @@ pub fn current_resume() -> Option<Value> {
 #[derive(Debug, Default)]
 pub(crate) struct TaskContext {
     node: String,
+    task_id: Option<String>,
     resume_values: Vec<Value>,
     resume_index: usize,
     resume_consumed: bool,
@@ -202,6 +203,7 @@ impl TaskContext {
     pub(crate) fn new(node: impl Into<String>, resume_values: Vec<Value>) -> Self {
         Self {
             node: node.into(),
+            task_id: None,
             resume_values,
             resume_index: 0,
             resume_consumed: false,
@@ -210,6 +212,11 @@ impl TaskContext {
             usage: Vec::new(),
             error: None,
         }
+    }
+
+    pub(crate) fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
+        self.task_id = Some(task_id.into());
+        self
     }
 
     pub(crate) fn with_error(mut self, error: Option<NodeFailure>) -> Self {
@@ -659,6 +666,16 @@ pub fn record_tokens(input_tokens: u64, output_tokens: u64) -> Result<()> {
 /// Superstep currently being executed, when called from a node.
 pub fn current_step() -> Option<usize> {
     CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step))
+}
+
+/// Task id currently executing, when called from a node.
+#[allow(dead_code)]
+pub fn current_task_id() -> Option<String> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|context| context.task_id.clone())
+    })
 }
 
 pub fn current_node() -> Option<String> {
