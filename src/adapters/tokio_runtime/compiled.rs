@@ -13,6 +13,7 @@ use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
+use crate::kernel::executor::outcome::{ProcessedResults, merge_usage};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -74,15 +75,6 @@ enum TaskOutcome {
     Ok(Box<AsyncTaskResult>),
     Interrupted(Interrupt),
     Failed(Box<AsyncTaskFailure>),
-}
-
-struct ProcessedResults {
-    channel_updates: Vec<ChannelUpdate>,
-    replacements: Vec<(String, Value)>,
-    next_tasks: Vec<Task>,
-    goto_targets: Vec<(String, String)>,
-    executed: Vec<String>,
-    goto_nodes: HashSet<String>,
 }
 
 /// A compiled async graph.
@@ -2098,14 +2090,6 @@ impl<S: State> AsyncCompiledGraph<S> {
     fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
         self.conditional.get(node).map(Vec::as_slice)
     }
-}
-
-fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
-    let mut combined: Option<Usage> = None;
-    for item in usage {
-        combined.get_or_insert_with(Usage::new).merge(&item);
-    }
-    combined
 }
 
 /// Await a node future, resetting the idle timer whenever the node reports progress.

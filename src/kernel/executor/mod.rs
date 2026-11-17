@@ -10,6 +10,7 @@
 //! concern.
 
 mod checkpointing;
+pub(crate) mod outcome;
 pub(crate) mod scheduling;
 mod superstep;
 
@@ -19,6 +20,7 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
+use self::outcome::{ProcessedResults, merge_usage};
 use self::scheduling::{collect_next_nodes, dedupe, send_task};
 use self::superstep::{TaskFailure, TaskOutcome, TaskResult, run_superstep};
 use crate::kernel::error::{Error, Interrupt, Result};
@@ -26,7 +28,7 @@ use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
 use crate::kernel::node::Task;
 use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
 use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport};
 
 /// Where a run starts from.
 pub(crate) enum StartInput {
@@ -647,24 +649,6 @@ fn finish<S: State>(
         state
     };
     Ok(RunOutcome { state, report })
-}
-
-/// Everything one superstep's node outcomes contribute to the run.
-struct ProcessedResults {
-    channel_updates: Vec<ChannelUpdate>,
-    replacements: Vec<(String, Value)>,
-    next_tasks: Vec<Task>,
-    goto_targets: Vec<(String, String)>,
-    executed: Vec<String>,
-    goto_nodes: HashSet<String>,
-}
-
-fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
-    let mut combined: Option<Usage> = None;
-    for item in usage {
-        combined.get_or_insert_with(Usage::new).merge(&item);
-    }
-    combined
 }
 
 fn collect_pending_writes(
