@@ -213,7 +213,7 @@ fn message(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
 /// Create a LangChain callback handler that forwards LLM tokens and usage into the graph stream.
 #[pyfunction]
 #[pyo3(signature = (model=None, tags=None))]
-fn langchain_callback_handler(
+pub(super) fn langchain_callback_handler(
     py: Python<'_>,
     model: Option<String>,
     tags: Option<Vec<String>>,

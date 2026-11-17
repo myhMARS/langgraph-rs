@@ -223,12 +223,44 @@ impl Checkpointer for LangGraphSqliteSaver {
                     checkpoint.thread_id,
                     checkpoint.namespace,
                     checkpoint_id,
-                    Option::<String>::None,
+                    checkpoint.parent_id,
                     checkpoint_blob,
                     metadata_blob,
                 ],
             )
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite saver: put: {error}")))?;
+        connection
+            .execute(
+                "DELETE FROM writes WHERE thread_id = ?1 AND checkpoint_ns = ?2 AND checkpoint_id = ?3",
+                params![checkpoint.thread_id, checkpoint.namespace, checkpoint_id],
+            )
+            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite saver: writes: {error}")))?;
+        let mut statement = connection
+            .prepare(
+                "INSERT OR REPLACE INTO writes
+                    (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, idx, channel, type, value)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'json', ?8)",
+            )
+            .map_err(|error| Error::Checkpoint(format!("langgraph sqlite saver: writes: {error}")))?;
+        for (idx, write) in checkpoint.pending_writes.iter().enumerate() {
+            let value = serde_json::to_vec(&write.value).map_err(|error| {
+                Error::Checkpoint(format!("langgraph sqlite saver: write value: {error}"))
+            })?;
+            statement
+                .execute(params![
+                    checkpoint.thread_id,
+                    checkpoint.namespace,
+                    checkpoint_id,
+                    write.task_id,
+                    write.node,
+                    idx as i64,
+                    write.channel,
+                    value,
+                ])
+                .map_err(|error| {
+                    Error::Checkpoint(format!("langgraph sqlite saver: write row: {error}"))
+                })?;
+        }
         Ok(())
     }
 

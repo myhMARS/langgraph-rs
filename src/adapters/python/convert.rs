@@ -391,6 +391,20 @@ pub(super) fn path_map_from_py(path_map: &Bound<'_, PyAny>) -> PyResult<Option<P
     Ok(Some(map))
 }
 
+pub(super) fn install_langchain_callbacks<'py>(
+    py: Python<'py>,
+) -> Option<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let handler = super::langchain_callback_handler(py, None, None).ok()?;
+    let callbacks = PyList::empty(py);
+    callbacks.append(handler.bind(py)).ok()?;
+    let config = PyDict::new(py);
+    config.set_item("callbacks", callbacks).ok()?;
+    let module = py.import("langchain_core.runnables.config").ok()?;
+    let variable = module.getattr("var_child_runnable_config").ok()?;
+    let token = variable.call_method1("set", (config,)).ok()?;
+    Some((variable, token))
+}
+
 pub(super) fn node_from_python(
     name: String,
     callable: Py<PyAny>,
@@ -403,9 +417,12 @@ pub(super) fn node_from_python(
                     "failed to convert state for node `{name}`: {error}"
                 ))
             })?;
-            let result = callable
-                .call1(py, (state_obj,))
-                .map_err(|error| pyerr_to_error(py, error))?;
+            let callback_guard = install_langchain_callbacks(py);
+            let result = callable.call1(py, (state_obj,));
+            if let Some((variable, token)) = callback_guard {
+                let _ = variable.call_method1("reset", (token,));
+            }
+            let result = result.map_err(|error| pyerr_to_error(py, error))?;
             node_output_from_py(result.bind(py)).map_err(|error| {
                 Error::other(format!("node `{name}` returned an invalid output: {error}"))
             })

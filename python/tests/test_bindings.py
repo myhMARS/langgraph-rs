@@ -1833,6 +1833,33 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
 
 
+    def test_langchain_callbacks_auto_injected(self):
+        try:
+            from langchain_core.language_models.fake_chat_models import (
+                FakeListChatModel,
+            )
+        except ImportError:
+            self.skipTest("langchain_core is not installed")
+
+        model = FakeListChatModel(responses=["hello world"])
+
+        def emit(state):
+            for _ in model.stream("hi"):
+                pass
+            return {"text": "done"}
+
+        graph = lg.StateGraph({"text": "last_value"})
+        graph.add_node("model", emit)
+        graph.set_entry_point("model")
+        graph.set_finish_point("model")
+        chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
+        tokens = "".join(
+            chunk["message"]["content"]
+            for chunk in chunks
+            if chunk["type"] == "messages"
+        )
+        self.assertEqual(tokens, "hello world")
+
     def test_langchain_callback_handler(self):
         handler = lg.langchain_callback_handler(model="fake", tags=["stream"])
         from langchain_core.callbacks.manager import CallbackManager

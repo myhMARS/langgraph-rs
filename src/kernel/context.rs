@@ -305,9 +305,34 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     let Some(schema) = schema else {
         return Ok(());
     };
+    validate_schema(value, schema, schema, 0)
+}
+
+fn validate_schema(value: &Value, schema: &Value, root: &Value, depth: usize) -> Result<()> {
+    if depth > 64 {
+        return Err(Error::other("response_schema $ref nesting is too deep"));
+    }
     let Some(object) = schema.as_object() else {
         return Ok(());
     };
+    if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+        let resolved = resolve_schema_ref(root, reference)?;
+        validate_schema(value, resolved, root, depth + 1)?;
+    }
+    if let Some(pattern) = object.get("pattern").and_then(Value::as_str) {
+        let regex = regex::Regex::new(pattern).map_err(|error| {
+            Error::other(format!(
+                "invalid response_schema pattern `{pattern}`: {error}"
+            ))
+        })?;
+        if let Some(text) = value.as_str()
+            && !regex.is_match(text)
+        {
+            return Err(Error::other(format!(
+                "resume value does not match response_schema pattern `{pattern}`: {value}"
+            )));
+        }
+    }
     if let Some(kind) = object.get("type") {
         let types: Vec<&str> = match kind {
             Value::String(kind) => vec![kind.as_str()],
@@ -337,7 +362,7 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     if let Some(any_of) = object.get("anyOf").and_then(Value::as_array)
         && !any_of
             .iter()
-            .any(|candidate| validate_response(value, Some(candidate)).is_ok())
+            .any(|candidate| validate_schema(value, candidate, root, depth + 1).is_ok())
     {
         return Err(Error::other(format!(
             "resume value does not match any response_schema anyOf branch: {value}"
@@ -346,7 +371,7 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     if let Some(one_of) = object.get("oneOf").and_then(Value::as_array) {
         let matches = one_of
             .iter()
-            .filter(|candidate| validate_response(value, Some(candidate)).is_ok())
+            .filter(|candidate| validate_schema(value, candidate, root, depth + 1).is_ok())
             .count();
         if matches != 1 {
             return Err(Error::other(format!(
@@ -356,11 +381,11 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
     }
     if let Some(all_of) = object.get("allOf").and_then(Value::as_array) {
         for candidate in all_of {
-            validate_response(value, Some(candidate))?;
+            validate_schema(value, candidate, root, depth + 1)?;
         }
     }
     if let Some(not) = object.get("not")
-        && validate_response(value, Some(not)).is_ok()
+        && validate_schema(value, not, root, depth + 1).is_ok()
     {
         return Err(Error::other(format!(
             "resume value matches a response_schema `not` branch: {value}"
@@ -463,7 +488,7 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
         if let Some(properties) = object.get("properties").and_then(Value::as_object) {
             for (key, property_schema) in properties {
                 if let Some(property) = object_value.get(key) {
-                    validate_response(property, Some(property_schema))?;
+                    validate_schema(property, property_schema, root, depth + 1)?;
                 }
             }
         }
@@ -500,18 +525,39 @@ pub(crate) fn validate_response(value: &Value, schema: Option<&Value>) -> Result
             Value::Array(tuple_schemas) => {
                 for (index, item) in array.iter().enumerate() {
                     if let Some(item_schema) = tuple_schemas.get(index) {
-                        validate_response(item, Some(item_schema))?;
+                        validate_schema(item, item_schema, root, depth + 1)?;
                     }
                 }
             }
             schema => {
                 for item in array {
-                    validate_response(item, Some(schema))?;
+                    validate_schema(item, schema, root, depth + 1)?;
                 }
             }
         }
     }
     Ok(())
+}
+
+fn resolve_schema_ref<'a>(root: &'a Value, reference: &str) -> Result<&'a Value> {
+    let pointer = reference.strip_prefix('#').ok_or_else(|| {
+        Error::other(format!(
+            "response_schema $ref must be a local pointer, got `{reference}`"
+        ))
+    })?;
+    if pointer.is_empty() {
+        return Ok(root);
+    }
+    let pointer = pointer.strip_prefix('/').ok_or_else(|| {
+        Error::other(format!(
+            "response_schema $ref must start with `#/`, got `{reference}`"
+        ))
+    })?;
+    root.pointer(&format!("/{pointer}")).ok_or_else(|| {
+        Error::other(format!(
+            "response_schema $ref `{reference}` cannot be resolved"
+        ))
+    })
 }
 
 fn matches_type(value: &Value, kind: &str) -> bool {
@@ -751,6 +797,24 @@ mod response_schema_tests {
         validate_response(&json!(4), Some(&bounds)).unwrap();
         assert!(validate_response(&json!(0), Some(&bounds)).is_err());
         assert!(validate_response(&json!(3), Some(&bounds)).is_err());
+    }
+
+    #[test]
+    fn validates_pattern_and_local_refs() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "code": {"$ref": "#/$defs/code"},
+                "label": {"type": "string", "pattern": "^[a-z]+$"}
+            },
+            "required": ["code"],
+            "$defs": {
+                "code": {"type": "string", "pattern": "^[A-Z]{3}$"}
+            }
+        });
+        validate_response(&json!({"code": "ABC", "label": "ok"}), Some(&schema)).unwrap();
+        assert!(validate_response(&json!({"code": "abc"}), Some(&schema)).is_err());
+        assert!(validate_response(&json!({"code": "ABC", "label": "NO"}), Some(&schema)).is_err());
     }
 }
 

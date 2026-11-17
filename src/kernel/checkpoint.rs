@@ -147,7 +147,11 @@ pub(crate) fn version_string(_step: usize) -> String {
         .map(|duration| duration.as_nanos())
         .unwrap_or_default()
         .hash(&mut hasher);
-    format!("{:032}.0.{}", sequence, hasher.finish())
+    format!(
+        "{:032}.0.{:016}",
+        sequence,
+        hasher.finish() % 10_000_000_000_000_000
+    )
 }
 
 /// Compute LangGraph-style version metadata for a new checkpoint.

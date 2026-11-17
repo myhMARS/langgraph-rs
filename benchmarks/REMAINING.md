@@ -25,10 +25,8 @@ The following areas have dedicated behavior + benchmark scenarios in
 
 | Area | Difference | Impact |
 | --- | --- | --- |
-| Pending writes storage | Successful writes are stored inside the checkpoint JSON, not a separate `writes` table | Observable resume behavior matches; database layout differs from LangGraph |
-| Messages callbacks | The binding needs an explicit `langchain_callback_handler`; LangGraph injects callbacks globally | Token stream content matches; callback metadata is narrower |
-| Interrupt response schema | `pattern` and `$ref` are not supported | Supported JSON-schema subset covers the documented cases |
 | Timed async loop | Timed Python nodes reuse a per-thread asyncio loop | With a 50ms deadline both engines are ~0.99x; short deadlines expose timer-resolution differences |
+| Messages metadata | Injected callbacks expose model/tags but not LangGraph's full callback record | Token content matches; metadata is narrower |
 | SQLite/Postgres cache/store APIs | Binding constructors take a path/URL rather than a live connection/client | Behavior matches; Python object shape differs |
 
 ## Performance snapshot

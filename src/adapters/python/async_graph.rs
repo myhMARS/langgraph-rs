@@ -6,6 +6,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 
+use super::convert::install_langchain_callbacks;
 use super::convert::*;
 use super::types::{PyTimeoutPolicy, checkpointer_from_py, store_from_py};
 use crate::BlockingSaver;
@@ -111,6 +112,7 @@ fn async_node_from_python(
                 let (result, custom, messages, usage) = crate::kernel::context::with_task(
                     TaskContext::new(node_name, resume),
                     || -> crate::Result<NodeOutput> {
+                        let callback_guard = install_langchain_callbacks(py);
                         let value = function
                             .as_ref()
                             .bind(py)
@@ -145,6 +147,9 @@ fn async_node_from_python(
                         } else {
                             value
                         };
+                        if let Some((variable, token)) = callback_guard {
+                            let _ = variable.call_method1("reset", (token,));
+                        }
                         node_output_from_py(&value).map_err(|error| pyerr_to_error(py, error))
                     },
                 );
