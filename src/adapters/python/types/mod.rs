@@ -147,23 +147,41 @@ impl PyCommand {
             }
         }
         if let Some(goto) = &self.goto {
-            if !goto.bind(py).is_none() {
-                if let Ok(names) = goto.bind(py).extract::<Vec<String>>() {
-                    for name in names {
-                        let target = normalize_node(&name);
+            let goto = goto.bind(py);
+            if !goto.is_none() {
+                let mut handled = false;
+                if goto.extract::<String>().is_err()
+                    && let Ok(items) = goto.try_iter()
+                {
+                    for item in items {
+                        let item = item?;
+                        if let Ok(send) = item.extract::<PyRef<PySend>>() {
+                            output = output.send(send.to_send(py)?);
+                            handled = true;
+                            continue;
+                        }
+                        if let Ok(name) = item.extract::<String>() {
+                            let target = normalize_node(&name);
+                            output = if parent {
+                                output.goto_parent(target)
+                            } else {
+                                output.goto(target)
+                            };
+                            handled = true;
+                        }
+                    }
+                }
+                if !handled {
+                    if let Ok(send) = goto.extract::<PyRef<PySend>>() {
+                        output = output.send(send.to_send(py)?);
+                    } else {
+                        let target = normalize_node(&goto.extract::<String>()?);
                         output = if parent {
                             output.goto_parent(target)
                         } else {
                             output.goto(target)
                         };
                     }
-                } else {
-                    let target = normalize_node(&goto.bind(py).extract::<String>()?);
-                    output = if parent {
-                        output.goto_parent(target)
-                    } else {
-                        output.goto(target)
-                    };
                 }
             }
         }
