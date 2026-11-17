@@ -515,6 +515,21 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # SQLite-backed node cache survives across compiled graphs sharing the file.
+    lg_value, rs_value = sqlite_cache_values()
+    results.append(
+        {
+            "scenario": "cache_sqlite",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_sqlite_cache_invoke),
+                "lg": measure(lg_sqlite_cache_invoke),
+            },
+        }
+    )
+
     # v2 stream: compare the final values part (the binding also emits its usage
     # extension chunk, which LangGraph has no equivalent for).
     lg_graph, rs_graph = lg_linear(), rs_linear()
@@ -1175,6 +1190,55 @@ def _lg_sqlite_saver(connection):
     from langgraph.checkpoint.sqlite import SqliteSaver
 
     return SqliteSaver(connection)
+
+
+def _cache_sqlite_pair():
+    directory = Path(tempfile.mkdtemp())
+    return directory / "lg-cache.sqlite", directory / "rs-cache.sqlite"
+
+
+def lg_sqlite_cache_invoke():
+    from langgraph.cache.sqlite import SqliteCache
+
+    directory = Path(tempfile.mkdtemp())
+    cache = SqliteCache(path=str(directory / "cache.sqlite"))
+    calls = {"count": 0}
+
+    def work(state):
+        calls["count"] += 1
+        return {"value": state["value"] + 1}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("work", work, cache_policy=LgCachePolicy(ttl=60))
+    graph.add_edge(START, "work")
+    graph.add_edge("work", END)
+    compiled = graph.compile(cache=cache)
+    compiled.invoke({"value": 0})
+    return compiled.invoke({"value": 0})
+
+
+def rs_sqlite_cache_invoke():
+    directory = Path(tempfile.mkdtemp())
+    cache = rs.SqliteCache(str(directory / "cache.sqlite"))
+    calls = {"count": 0}
+
+    def work(state):
+        calls["count"] += 1
+        return {"value": state["value"] + 1}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("work", work, cache_policy=rs.CachePolicy(ttl=60))
+    graph.set_entry_point("work")
+    graph.set_finish_point("work")
+    compiled = graph.compile(cache=cache)
+    compiled.invoke({"value": 0})
+    return compiled.invoke({"value": 0})
+
+
+def sqlite_cache_values():
+    lg_value = lg_sqlite_cache_invoke()
+    rs_value = rs_sqlite_cache_invoke()
+    return lg_value, rs_value
 
 
 def lg_command_graph():

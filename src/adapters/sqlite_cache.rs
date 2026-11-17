@@ -39,6 +39,9 @@ impl SqliteCache {
     }
 
     fn from_connection(connection: Connection, max_entries: Option<usize>) -> Result<Self> {
+        let _ = connection.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+        );
         connection
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS langgraph_rs_cache (
