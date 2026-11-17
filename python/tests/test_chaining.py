@@ -58,6 +58,22 @@ class MessagesStateTests(unittest.TestCase):
         output = graph.compile().invoke({"messages": []})
         self.assertEqual(output["messages"][0]["content"], "x")
 
+    def test_config_dict_covers_stream_history_and_update(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        config = {
+            "configurable": {"thread_id": "config-everywhere"},
+            "recursion_limit": 5,
+        }
+        self.assertTrue(compiled.stream({"value": 0}, config))
+        history = compiled.get_state_history(config)
+        self.assertEqual(history[0]["values"]["value"], 1)
+        compiled.update_state(config, {"value": 7})
+        self.assertEqual(compiled.get_state(config)["values"]["value"], 7)
+
 
 if __name__ == "__main__":
     unittest.main()

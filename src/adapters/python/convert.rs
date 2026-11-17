@@ -465,3 +465,63 @@ pub(super) fn run_config(thread_id: Option<String>) -> RunConfig {
 #[path = "stream_convert.rs"]
 mod stream_convert;
 pub(crate) use stream_convert::*;
+
+/// Parse a plain thread id or a LangGraph RunnableConfig-shaped dict into run config.
+pub(crate) fn config_from_py(
+    _py: Python<'_>,
+    value: Option<&Bound<'_, PyAny>>,
+) -> PyResult<(Option<String>, crate::kernel::graph::RunConfig)> {
+    let mut config = crate::kernel::graph::RunConfig::new();
+    let Some(value) = value else {
+        return Ok((None, config));
+    };
+    if value.is_none() {
+        return Ok((None, config));
+    }
+    if let Ok(thread) = value.extract::<String>() {
+        config.thread_id = Some(thread.clone());
+        return Ok((Some(thread), config));
+    }
+    let Some(object) = value.cast::<PyDict>().ok() else {
+        return Err(PyTypeError::new_err(
+            "expected a thread id string or a config dict",
+        ));
+    };
+    let mut thread = None;
+    if let Some(configurable) = object.get_item("configurable")? {
+        if let Ok(configurable) = configurable.cast::<PyDict>() {
+            if let Some(item) = configurable.get_item("thread_id")? {
+                thread = item.extract::<String>().ok();
+            }
+            if let Some(item) = configurable.get_item("checkpoint_ns")? {
+                if let Ok(namespace) = item.extract::<String>() {
+                    config = config.with_checkpoint_ns(namespace);
+                }
+            }
+        }
+    }
+    if let Some(item) = object.get_item("checkpoint_ns")? {
+        if let Ok(namespace) = item.extract::<String>() {
+            config = config.with_checkpoint_ns(namespace);
+        }
+    }
+    if let Some(item) = object.get_item("recursion_limit")? {
+        if let Ok(limit) = item.extract::<usize>() {
+            config = config.with_recursion_limit(limit);
+        }
+    }
+    if let Some(item) = object.get_item("max_concurrency")? {
+        if let Ok(limit) = item.extract::<usize>() {
+            config = config.with_max_concurrency(limit);
+        }
+    }
+    if let Some(item) = object.get_item("durability")? {
+        if let Ok(name) = item.extract::<String>()
+            && let Some(durability) = crate::Durability::parse(&name)
+        {
+            config = config.with_durability(durability);
+        }
+    }
+    config.thread_id = thread.clone();
+    Ok((thread, config))
+}

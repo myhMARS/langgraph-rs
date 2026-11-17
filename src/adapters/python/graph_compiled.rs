@@ -243,7 +243,7 @@ impl PyCompiledGraph {
         &self,
         py: Python<'_>,
         input: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<String>,
+        thread_id: Option<&Bound<'_, PyAny>>,
         stream_mode: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
@@ -260,7 +260,7 @@ impl PyCompiledGraph {
             }
         };
         let state = state_from_py(input)?;
-        let mut config = run_config(thread_id);
+        let (_, mut config) = config_from_py(py, thread_id)?;
         if let Some(control) = control {
             config = config.with_control(control.inner.clone());
         }
@@ -390,8 +390,10 @@ impl PyCompiledGraph {
         checkpoint_ns: Option<String>,
         subgraphs: bool,
     ) -> PyResult<Py<PyAny>> {
-        let thread_id = thread_id_from_py(py, Some(thread_id))?
-            .ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
+        let (parsed_thread, parsed_config) = config_from_py(py, Some(thread_id))?;
+        let thread_id =
+            parsed_thread.ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
         if subgraphs {
             let states = self
                 .graph
@@ -435,11 +437,14 @@ impl PyCompiledGraph {
     fn update_state(
         &self,
         py: Python<'_>,
-        thread_id: String,
+        thread_id: &Bound<'_, PyAny>,
         values: &Bound<'_, PyAny>,
         as_node: Option<String>,
         task_id: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        let thread_id = config_from_py(py, Some(thread_id))?
+            .0
+            .ok_or_else(|| PyTypeError::new_err("update_state requires a thread id"))?;
         let value = py_to_value(values)?;
         let map = value
             .as_object()
@@ -468,11 +473,15 @@ impl PyCompiledGraph {
     fn get_state_history(
         &self,
         py: Python<'_>,
-        thread_id: String,
+        thread_id: &Bound<'_, PyAny>,
         before: Option<String>,
         limit: Option<usize>,
         checkpoint_ns: Option<String>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let (thread_id, parsed_config) = config_from_py(py, Some(thread_id))?;
+        let thread_id = thread_id
+            .ok_or_else(|| PyTypeError::new_err("get_state_history requires a thread id"))?;
+        let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
         let history = match checkpoint_ns.as_deref() {
             Some(namespace) => self.graph.get_state_history_filtered_in(
                 &thread_id,
