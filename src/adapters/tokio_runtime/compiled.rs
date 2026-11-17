@@ -534,7 +534,18 @@ impl<S: State> AsyncCompiledGraph<S> {
         namespace: &str,
     ) -> Result<Option<StateSnapshot<S>>> {
         match self.saver_latest_in_sync(thread_id, namespace)? {
-            Some(checkpoint) => Ok(Some(StateSnapshot::from_checkpoint(checkpoint)?)),
+            Some(checkpoint) => {
+                let history = self.saver_history_in_sync(thread_id, namespace)?;
+                let total = history.len() as i64;
+                let step = history
+                    .iter()
+                    .position(|item| item.id == checkpoint.id)
+                    .map(|index| total - 2 - index as i64)
+                    .unwrap_or(checkpoint.step as i64);
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = step;
+                Ok(Some(snapshot))
+            }
             None => Ok(None),
         }
     }
@@ -601,8 +612,10 @@ impl<S: State> AsyncCompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        let mut checkpoints =
+        let all =
             futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
+        let total = all.len() as i64;
+        let mut checkpoints = all.clone();
         if let Some(before) = before {
             if let Some(index) = checkpoints
                 .iter()
@@ -616,7 +629,16 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
         checkpoints
             .into_iter()
-            .map(StateSnapshot::from_checkpoint)
+            .map(|checkpoint| {
+                let step = all
+                    .iter()
+                    .position(|item| item.id == checkpoint.id)
+                    .map(|index| total - 2 - index as i64)
+                    .unwrap_or(checkpoint.step as i64);
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = step;
+                Ok(snapshot)
+            })
             .collect()
     }
 
@@ -806,9 +828,15 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Read the full checkpoint history of a thread, newest first.
     pub fn get_state_history(&self, thread_id: &str) -> Result<Vec<StateSnapshot<S>>> {
-        self.saver_history_sync(thread_id)?
-            .into_iter()
-            .map(StateSnapshot::from_checkpoint)
+        let all = self.saver_history_sync(thread_id)?;
+        let total = all.len() as i64;
+        all.into_iter()
+            .enumerate()
+            .map(|(index, checkpoint)| {
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = total - 2 - index as i64;
+                Ok(snapshot)
+            })
             .collect()
     }
 
@@ -818,9 +846,15 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         namespace: &str,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        self.saver_history_in_sync(thread_id, namespace)?
-            .into_iter()
-            .map(StateSnapshot::from_checkpoint)
+        let all = self.saver_history_in_sync(thread_id, namespace)?;
+        let total = all.len() as i64;
+        all.into_iter()
+            .enumerate()
+            .map(|(index, checkpoint)| {
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = total - 2 - index as i64;
+                Ok(snapshot)
+            })
             .collect()
     }
 

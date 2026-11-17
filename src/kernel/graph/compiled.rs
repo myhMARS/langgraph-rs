@@ -713,7 +713,18 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state"))?;
         match checkpointer.latest_in(thread_id, namespace)? {
-            Some(checkpoint) => Ok(Some(StateSnapshot::from_checkpoint(checkpoint)?)),
+            Some(checkpoint) => {
+                let history = checkpointer.history_in(thread_id, namespace)?;
+                let total = history.len() as i64;
+                let step = history
+                    .iter()
+                    .position(|item| item.id == checkpoint.id)
+                    .map(|index| total - 2 - index as i64)
+                    .unwrap_or(checkpoint.step as i64);
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = step;
+                Ok(Some(snapshot))
+            }
             None => Ok(None),
         }
     }
@@ -787,7 +798,9 @@ impl<S: State> CompiledGraph<S> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        let mut checkpoints = checkpointer.history_in(thread_id, namespace)?;
+        let all = checkpointer.history_in(thread_id, namespace)?;
+        let total = all.len() as i64;
+        let mut checkpoints = all.clone();
         if let Some(before) = before {
             if let Some(index) = checkpoints.iter().position(|cp| cp.id == before) {
                 checkpoints.drain(0..=index);
@@ -798,7 +811,16 @@ impl<S: State> CompiledGraph<S> {
         }
         checkpoints
             .into_iter()
-            .map(StateSnapshot::from_checkpoint)
+            .map(|checkpoint| {
+                let step = all
+                    .iter()
+                    .position(|item| item.id == checkpoint.id)
+                    .map(|index| total - 2 - index as i64)
+                    .unwrap_or(checkpoint.step as i64);
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = step;
+                Ok(snapshot)
+            })
             .collect()
     }
 

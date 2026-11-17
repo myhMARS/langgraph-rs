@@ -30,8 +30,8 @@ pub struct StateSnapshot<S: State> {
     pub checkpoint_id: String,
     /// Thread id.
     pub thread_id: String,
-    /// Supersteps completed.
-    pub step: usize,
+    /// Thread-cumulative step (LangGraph metadata step).
+    pub step: i64,
     /// `true` when the graph stopped because of an interrupt.
     pub interrupted: bool,
     /// Creation time in milliseconds since the Unix epoch.
@@ -74,7 +74,7 @@ impl<S: State> StateSnapshot<S> {
             next: checkpoint.next_nodes(),
             checkpoint_id: checkpoint.id,
             thread_id: checkpoint.thread_id,
-            step: checkpoint.step,
+            step: checkpoint.step as i64,
             interrupted: checkpoint.interrupted,
             created_at_millis: checkpoint.created_at_millis,
             tasks,
