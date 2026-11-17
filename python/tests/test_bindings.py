@@ -526,11 +526,13 @@ class PythonParityRound2Tests(unittest.TestCase):
             compiled.invoke({"value": 0}, thread_id="py-sub")
 
         self.assertTrue(compiled.get_state("py-sub")["interrupted"])
-        _, subgraphs = compiled.get_state("py-sub", subgraphs=True)
-        child_ns = next(ns for ns in subgraphs if ns.startswith("child"))
-        child_state = compiled.get_state("py-sub", checkpoint_ns=child_ns)
-        self.assertIsNotNone(child_state)
-        self.assertTrue(child_state["interrupted"])
+        root = compiled.get_state("py-sub", subgraphs=True)
+        child_task = next(
+            task for task in root["tasks"] if task["node"] == "child"
+        )
+        self.assertIsNotNone(child_task["state"])
+        self.assertTrue(child_task["state"]["interrupted"])
+        child_ns = child_task["state"]["checkpoint_ns"]
 
         output = compiled.resume("py-sub", 5)
         self.assertEqual(output["value"], 15)
@@ -1580,10 +1582,12 @@ class AsyncPythonTests(unittest.TestCase):
         compiled.invoke(
             {"value": 20}, thread_id="py-substates", checkpoint_ns="sub/two"
         )
-        root, subgraphs = compiled.get_state("py-substates", subgraphs=True)
+        root = compiled.get_state("py-substates", subgraphs=True)
         self.assertEqual(root["checkpoint_ns"], "")
-        self.assertEqual(set(subgraphs.keys()), {"sub/one", "sub/two"})
-        self.assertEqual(subgraphs["sub/one"]["values"]["value"], 11)
+        one = compiled.get_state("py-substates", checkpoint_ns="sub/one")
+        two = compiled.get_state("py-substates", checkpoint_ns="sub/two")
+        self.assertEqual(one["values"]["value"], 11)
+        self.assertEqual(two["values"]["value"], 21)
 
 
     def test_graph_draw_ascii(self):
