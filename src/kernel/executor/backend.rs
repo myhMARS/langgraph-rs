@@ -16,7 +16,7 @@ use crate::kernel::state::{State, StateSchema};
 
 /// Runtime-specific half of the shared Pregel loop.
 #[allow(dead_code)]
-pub(crate) trait PregelBackend<S: State> {
+pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     fn schema(&self) -> &StateSchema;
     fn recursion_limit(&self) -> usize;
     fn entry_tasks(&self, state: &S) -> Result<Vec<Task>>;
@@ -28,6 +28,9 @@ pub(crate) trait PregelBackend<S: State> {
     fn interrupts_after(&self, node: &str) -> bool;
     fn is_deferred(&self, node: &str) -> bool;
     fn context_schema(&self) -> Option<&Value>;
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>>;
+    fn has_checkpointer(&self) -> bool;
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>);
     fn run_superstep(
         &self,
         state: &S,
@@ -100,6 +103,18 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         self.graph.context_schema()
     }
 
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>> {
+        self.graph.store().cloned()
+    }
+
+    fn has_checkpointer(&self) -> bool {
+        self.graph.checkpointer().is_some()
+    }
+
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) {
+        self.graph.schema().clear_ephemeral(values);
+    }
+
     async fn run_superstep(
         &self,
         state: &S,
@@ -155,5 +170,27 @@ impl<'a, S: State> SyncBackend<'a, S> {
             |node| self.is_deferred(node),
             pending_deferred,
         )
+    }
+}
+
+impl<'a, S: State> super::outcome::OutcomeGraph for SyncBackend<'a, S> {
+    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
+        self.graph.trace_sinks()
+    }
+
+    fn error_handler(&self, node: &str) -> Option<&str> {
+        self.graph.error_handler(node).map(String::as_str)
+    }
+
+    fn has_node(&self, node: &str) -> bool {
+        self.graph.node(node).is_some()
+    }
+
+    fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.graph.destinations_of(node)
+    }
+
+    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
+        crate::kernel::context::record_parent_command(updates, goto);
     }
 }

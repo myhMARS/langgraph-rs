@@ -8,7 +8,6 @@ use serde_json::{Map, Value};
 use crate::Result;
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::Interrupt;
-use crate::kernel::graph::CompiledGraph;
 use crate::kernel::node::Task;
 use crate::kernel::ports::Checkpointer;
 use crate::kernel::state::State;
@@ -60,61 +59,6 @@ impl Drop for CheckpointWriter {
     fn drop(&mut self) {
         self.flush();
     }
-}
-
-/// Persist a checkpoint when the graph is bound to a thread and has a checkpointer.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn save_checkpoint<S: State>(
-    graph: &CompiledGraph<S>,
-    thread_id: Option<&str>,
-    namespace: &str,
-    parent: &mut Option<String>,
-    values: &Map<String, Value>,
-    next: &[Task],
-    step: usize,
-    interrupted: bool,
-    paused_before: bool,
-    interrupts: Vec<Interrupt>,
-    pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
-    executed: &[String],
-    sink: &mut dyn FnMut(StreamChunk),
-    writer: Option<&CheckpointWriter>,
-) -> Result<()> {
-    let Some(thread_id) = thread_id else {
-        return Ok(());
-    };
-    let Some(checkpointer) = graph.checkpointer() else {
-        return Ok(());
-    };
-
-    let id = new_checkpoint_id(thread_id, step);
-    let persisted_values = graph.schema().persisted_values(values);
-    let previous = if writer.is_some() {
-        None
-    } else {
-        parent
-            .as_deref()
-            .and_then(|parent_id| checkpointer.get(thread_id, parent_id).ok().flatten())
-    };
-    let checkpoint = build_checkpoint(CheckpointDraft {
-        thread_id,
-        namespace,
-        id: id.clone(),
-        parent: parent.clone(),
-        values: persisted_values,
-        next,
-        step,
-        interrupted,
-        paused_before,
-        interrupts,
-        pending_writes,
-        executed,
-        previous: previous.as_ref(),
-        task_results: crate::kernel::context::snapshot_task_results(),
-    });
-    persist_checkpoint(checkpointer.as_ref(), checkpoint, writer)?;
-    checkpoint_committed(parent, &id, sink);
-    Ok(())
 }
 
 /// Inputs shared by the sync and async checkpoint writers.

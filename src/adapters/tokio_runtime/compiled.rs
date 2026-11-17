@@ -1767,6 +1767,18 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
         self.graph.context_schema()
     }
 
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>> {
+        self.graph.store.clone()
+    }
+
+    fn has_checkpointer(&self) -> bool {
+        self.graph.has_checkpointer()
+    }
+
+    fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) {
+        self.graph.schema.clear_ephemeral(values);
+    }
+
     async fn run_superstep(
         &self,
         state: &S,
@@ -1817,5 +1829,27 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
             return Err(Error::MissingCheckpointer("persist_checkpoint"));
         }
         Ok(())
+    }
+}
+
+impl<'a, S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncBackend<'a, S> {
+    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
+        &self.graph.trace_sinks
+    }
+
+    fn error_handler(&self, node: &str) -> Option<&str> {
+        self.graph.error_edges.get(node).map(String::as_str)
+    }
+
+    fn has_node(&self, node: &str) -> bool {
+        self.graph.nodes.contains_key(node)
+    }
+
+    fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.graph.destinations_of(node)
+    }
+
+    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
+        super::context::record_parent_command(updates, goto);
     }
 }
