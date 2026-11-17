@@ -28,7 +28,6 @@ use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::timeout::TimeoutPolicy;
 use crate::kernel::usage::{RunOutcome, RunReport, Usage};
-use crate::{END, START};
 
 /// Where a run starts from.
 enum StartInput {
@@ -1399,25 +1398,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     }
 
     fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        match &self.entry {
-            Entry::Static(nodes) => Ok(nodes
-                .iter()
-                .filter(|node| node.as_str() != END)
-                .map(Task::new)
-                .collect()),
-            Entry::Conditional(edge) => {
-                let (targets, sends) = edge.resolve(state, START)?;
-                let mut tasks: Vec<Task> = targets
-                    .into_iter()
-                    .filter(|node| node != END)
-                    .map(Task::new)
-                    .collect();
-                for send in sends {
-                    tasks.push(send_task(START, send)?);
-                }
-                Ok(tasks)
-            }
-        }
+        crate::kernel::executor::scheduling::entry_tasks(&self.entry, state)
     }
 
     async fn run_task(

@@ -193,3 +193,29 @@ pub(crate) fn schedule_next_tasks<'a>(
         },
     )
 }
+
+/// Tasks created by a graph's entry point.
+pub(crate) fn entry_tasks<S: State>(
+    entry: &crate::kernel::graph::Entry<S>,
+    state: &S,
+) -> Result<Vec<Task>> {
+    match entry {
+        crate::kernel::graph::Entry::Static(nodes) => Ok(nodes
+            .iter()
+            .filter(|node| node.as_str() != END)
+            .map(Task::new)
+            .collect()),
+        crate::kernel::graph::Entry::Conditional(edge) => {
+            let (targets, sends) = edge.resolve(state, START)?;
+            let mut tasks: Vec<Task> = targets
+                .into_iter()
+                .filter(|node| node != END)
+                .map(Task::new)
+                .collect();
+            for send in sends {
+                tasks.push(send_task(START, send)?);
+            }
+            Ok(tasks)
+        }
+    }
+}
