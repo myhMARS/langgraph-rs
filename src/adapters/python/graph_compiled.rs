@@ -30,7 +30,7 @@ impl PyCompiledGraph {
 #[pymethods]
 impl PyCompiledGraph {
     /// Run the graph and return the final state dict.
-    #[pyo3(signature = (input=None, thread_id=None, context=None, control=None, checkpoint_ns=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, control=None, checkpoint_ns=None, config=None))]
     fn invoke(
         &self,
         py: Python<'_>,
@@ -39,9 +39,10 @@ impl PyCompiledGraph {
         context: Option<&Bound<'_, PyAny>>,
         control: Option<PyRef<'_, crate::adapters::python::types::PyRunControl>>,
         checkpoint_ns: Option<String>,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, base_config) =
-            crate::adapters::python::convert::config_from_py(py, thread_id)?;
+            crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
         let base_config = base_config;
         let control = control.map(|control| control.inner.clone());
         if let Some(obj) = input {
@@ -209,7 +210,7 @@ impl PyCompiledGraph {
     }
 
     /// Run the graph and return the list of stream chunks.
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, control=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, control=None, config=None))]
     #[allow(clippy::too_many_arguments)]
     fn stream(
         &self,
@@ -221,6 +222,7 @@ impl PyCompiledGraph {
         subgraphs: bool,
         version: Option<String>,
         control: Option<PyRef<'_, crate::adapters::python::types::PyRunControl>>,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
@@ -232,7 +234,7 @@ impl PyCompiledGraph {
             }
         };
         let state = state_from_py(input)?;
-        let (_, mut config) = config_from_py(py, thread_id)?;
+        let (_, mut config) = config_from_py(py, config.or(thread_id))?;
         if let Some(control) = control {
             config = config.with_control(control.inner.clone());
         }
@@ -354,15 +356,16 @@ impl PyCompiledGraph {
     }
 
     /// Return the latest checkpoint of a thread, or `None`.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]
+    #[pyo3(signature = (thread_id=None, checkpoint_ns=None, subgraphs=false, config=None))]
     fn get_state(
         &self,
         py: Python<'_>,
-        thread_id: &Bound<'_, PyAny>,
+        thread_id: Option<&Bound<'_, PyAny>>,
         checkpoint_ns: Option<String>,
         subgraphs: bool,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        let (parsed_thread, parsed_config) = config_from_py(py, Some(thread_id))?;
+        let (parsed_thread, parsed_config) = config_from_py(py, config.or(thread_id))?;
         let thread_id =
             parsed_thread.ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
