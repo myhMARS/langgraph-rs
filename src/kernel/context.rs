@@ -171,6 +171,22 @@ pub fn current_runtime() -> Option<Runtime> {
     })
 }
 
+/// Capture the current run context for a scoped worker thread.
+pub(crate) fn capture_run_context() -> Option<RunContext> {
+    current_run()
+}
+
+/// Install a captured run context on the current thread.
+pub(crate) fn install_run_context(run: RunContext) -> RunGuard {
+    let previous = CURRENT_RUN.with(|slot| slot.borrow_mut().replace(run));
+    RunGuard { previous }
+}
+
+/// Current superstep context `(step, recursion_limit)`, when inside a step.
+pub(crate) fn capture_step_context() -> Option<(usize, usize)> {
+    CURRENT_STEP.with(|slot| *slot.borrow())
+}
+
 /// RAII guard restoring the previous step context.
 type AsyncStepPrevious = (
     std::sync::Arc<std::sync::atomic::AtomicUsize>,

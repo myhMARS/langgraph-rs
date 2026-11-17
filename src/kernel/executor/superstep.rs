@@ -32,10 +32,24 @@ pub(super) fn run_superstep<S: State>(
             .collect();
     }
 
+    let run = crate::kernel::context::capture_run_context();
+    let step = crate::kernel::context::capture_step_context();
+    let collector = crate::kernel::context::current_subgraph_collector();
     std::thread::scope(|scope| {
         let handles: Vec<_> = tasks
             .iter()
-            .map(|task| scope.spawn(move || run_task(graph, state, task)))
+            .map(|task| {
+                let run = run.clone();
+                let collector = collector.clone();
+                scope.spawn(move || {
+                    let _run_guard = run.map(crate::kernel::context::install_run_context);
+                    let _step_guard =
+                        step.map(|(step, limit)| crate::kernel::context::install_step(step, limit));
+                    let _collector_guard =
+                        collector.map(crate::kernel::context::install_subgraph_collector);
+                    run_task(graph, state, task)
+                })
+            })
             .collect();
         handles
             .into_iter()
