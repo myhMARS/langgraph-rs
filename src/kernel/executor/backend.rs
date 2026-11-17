@@ -55,6 +55,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
     pub(crate) writer: Option<&'a crate::kernel::executor::checkpointing::CheckpointWriter>,
+    pub(crate) max_concurrency: Option<usize>,
 }
 
 impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
@@ -127,7 +128,12 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         _step: usize,
         _control: Option<&crate::RunControl>,
     ) -> Result<Vec<TaskOutcome>> {
-        Ok(super::superstep::run_superstep(self.graph, state, tasks))
+        Ok(super::superstep::run_superstep(
+            self.graph,
+            state,
+            tasks,
+            self.max_concurrency,
+        ))
     }
 
     async fn load_checkpoint(

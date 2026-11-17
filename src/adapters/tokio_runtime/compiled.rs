@@ -53,6 +53,7 @@ pub struct AsyncCompiledGraph<S: State> {
 
 /// Where a run starts from.
 pub(crate) struct AsyncRunInfo {
+    pub(crate) max_concurrency: Option<usize>,
     pub(crate) thread_id: Option<String>,
     pub(crate) namespace: String,
     pub(crate) store: Option<Arc<dyn BaseStore>>,
@@ -904,6 +905,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .stream_subgraphs
             .then(|| Arc::new(std::sync::Mutex::new(Vec::new())));
         let run = AsyncRunInfo {
+            max_concurrency: config.max_concurrency,
             thread_id,
             namespace,
             store: config.store.clone().or_else(|| self.store.clone()),

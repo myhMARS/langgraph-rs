@@ -85,6 +85,7 @@ fn execute_with_emit<S: State>(
     let backend = backend::SyncBackend {
         graph,
         writer: checkpoint_writer.as_ref(),
+        max_concurrency: config.max_concurrency,
     };
     let mut adapt = |chunk| sink(chunk);
     pregel::block_on(pregel::run_loop(&backend, start, config, &mut adapt, emit))

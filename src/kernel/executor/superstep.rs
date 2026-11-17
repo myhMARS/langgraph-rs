@@ -24,7 +24,15 @@ pub(super) fn run_superstep<S: State>(
     graph: &CompiledGraph<S>,
     state: &S,
     tasks: &[Task],
+    max_concurrency: Option<usize>,
 ) -> Vec<TaskOutcome> {
+    if let Some(limit) = max_concurrency.filter(|limit| *limit > 0 && tasks.len() > *limit) {
+        let mut outcomes = Vec::with_capacity(tasks.len());
+        for chunk in tasks.chunks(limit) {
+            outcomes.extend(run_superstep(graph, state, chunk, None));
+        }
+        return outcomes;
+    }
     if tasks.len() <= 1 {
         return tasks
             .iter()

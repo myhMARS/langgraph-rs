@@ -79,11 +79,32 @@ impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncB
         step: usize,
         control: Option<&crate::RunControl>,
     ) -> Result<Vec<TaskOutcome>> {
-        let run = join_all(
-            tasks
-                .iter()
-                .map(|task| self.graph.run_task(task, state, step, self.run)),
-        );
+        let run = async {
+            match self.run.max_concurrency.filter(|limit| *limit > 0) {
+                Some(limit) if tasks.len() > limit => {
+                    let mut outcomes = Vec::with_capacity(tasks.len());
+                    for chunk in tasks.chunks(limit) {
+                        outcomes.extend(
+                            join_all(
+                                chunk
+                                    .iter()
+                                    .map(|task| self.graph.run_task(task, state, step, self.run)),
+                            )
+                            .await,
+                        );
+                    }
+                    outcomes
+                }
+                _ => {
+                    join_all(
+                        tasks
+                            .iter()
+                            .map(|task| self.graph.run_task(task, state, step, self.run)),
+                    )
+                    .await
+                }
+            }
+        };
         match control {
             Some(control) => tokio::select! {
                 outcomes = run => Ok(outcomes),
