@@ -89,3 +89,5 @@ differences**.
 - Python `stream()` defaults to `updates`, strict mode filtering, version validated before running.
 - History ordering is creation-time based for SQLite/Postgres; msgpack bin8/16/32 decoded; named barrier validates writer names; `before` unknown id returns empty history.
 
+
+- Python builder methods (dd_node, dd_edge, dd_conditional_edges, entry/finish, dd_subgraph) now return the graph, so LangGraph-style chaining works; covered by python/tests/test_chaining.py.

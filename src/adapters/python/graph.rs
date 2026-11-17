@@ -98,7 +98,7 @@ impl PyStateGraph {
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, input_schema=None, timeout=None))]
     fn add_node(
-        &mut self,
+        mut slf: PyRefMut<'_, Self>,
         name: String,
         function: Py<PyAny>,
         retry_policy: Option<PyRef<'_, PyRetryPolicy>>,
@@ -108,8 +108,8 @@ impl PyStateGraph {
         destinations: Option<Vec<String>>,
         input_schema: Option<&Bound<'_, PyAny>>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
-    ) -> PyResult<()> {
-        let mut graph = std::mem::take(&mut self.inner);
+    ) -> PyResult<Py<Self>> {
+        let mut graph = std::mem::take(&mut slf.inner);
         if deferred {
             graph = graph.set_deferred(name.clone());
         }
@@ -132,62 +132,73 @@ impl PyStateGraph {
         if let Some(policy) = timeout {
             graph = graph.set_timeout(name, policy.to_policy());
         }
-        self.inner = graph;
-        Ok(())
+        slf.inner = graph;
+        Ok(slf.into())
     }
 
     /// Add a static edge (`"START"` / `"END"` are accepted as source/target).
-    fn add_edge(&mut self, from: String, to: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn add_edge(
+        mut slf: PyRefMut<'_, Self>,
+        from: String,
+        to: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<Self>> {
         let targets = targets_from_py(to)?;
-        let graph = std::mem::take(&mut self.inner);
-        self.inner = graph.add_edge(normalize_node(&from), targets);
-        Ok(())
+        let graph = std::mem::take(&mut slf.inner);
+        slf.inner = graph.add_edge(normalize_node(&from), targets);
+        Ok(slf.into())
     }
 
     /// Add a conditional edge. Either return node names directly or pass a `path_map`.
     #[pyo3(signature = (source, router, path_map=None))]
     fn add_conditional_edges(
-        &mut self,
+        mut slf: PyRefMut<'_, Self>,
         source: String,
         router: Py<PyAny>,
         path_map: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<()> {
-        let graph = std::mem::take(&mut self.inner);
+    ) -> PyResult<Py<Self>> {
+        let graph = std::mem::take(&mut slf.inner);
         let route = router_from_python(router);
-        self.inner = match path_map.map(path_map_from_py).transpose()?.flatten() {
+        slf.inner = match path_map.map(path_map_from_py).transpose()?.flatten() {
             Some(path_map) => graph.add_conditional_edges_mapped(source, route, path_map),
             None => graph.add_conditional_edges(source, route),
         };
-        Ok(())
+        Ok(slf.into())
     }
 
     /// Set the static entry point.
-    fn set_entry_point(&mut self, node: String) {
-        let graph = std::mem::take(&mut self.inner);
-        self.inner = graph.set_entry_point(node);
+    fn set_entry_point(mut slf: PyRefMut<'_, Self>, node: String) -> Py<Self> {
+        let graph = std::mem::take(&mut slf.inner);
+        slf.inner = graph.set_entry_point(node);
+        slf.into()
     }
 
     /// Use a router to choose the entry point.
-    fn set_conditional_entry_point(&mut self, router: Py<PyAny>) {
-        let graph = std::mem::take(&mut self.inner);
-        self.inner = graph.set_conditional_entry_point(router_from_python(router));
+    fn set_conditional_entry_point(mut slf: PyRefMut<'_, Self>, router: Py<PyAny>) -> Py<Self> {
+        let graph = std::mem::take(&mut slf.inner);
+        slf.inner = graph.set_conditional_entry_point(router_from_python(router));
+        slf.into()
     }
 
     /// Add an edge from `node` to `"END"`.
-    fn set_finish_point(&mut self, node: String) {
-        let graph = std::mem::take(&mut self.inner);
-        self.inner = graph.set_finish_point(node);
+    fn set_finish_point(mut slf: PyRefMut<'_, Self>, node: String) -> Py<Self> {
+        let graph = std::mem::take(&mut slf.inner);
+        slf.inner = graph.set_finish_point(node);
+        slf.into()
     }
 
     /// Embed a compiled graph as a node, sharing the parent thread and state type.
     ///
     /// The child runs in a checkpoint namespace derived from the node name, so an
     /// `interrupt()` inside it pauses the parent and a parent `resume` continues it.
-    fn add_subgraph(&mut self, name: String, subgraph: PyRef<'_, PyCompiledGraph>) -> PyResult<()> {
+    fn add_subgraph(
+        mut slf: PyRefMut<'_, Self>,
+        name: String,
+        subgraph: PyRef<'_, PyCompiledGraph>,
+    ) -> PyResult<Py<Self>> {
         let child = subgraph.graph.clone();
-        let builder = std::mem::take(&mut self.inner);
-        self.inner = builder.add_subgraph(name, child);
-        Ok(())
+        let builder = std::mem::take(&mut slf.inner);
+        slf.inner = builder.add_subgraph(name, child);
+        Ok(slf.into())
     }
 
     /// Validate and compile the graph.
