@@ -168,3 +168,33 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         pending_writes: draft.pending_writes,
     }
 }
+
+/// Rebuild pending tasks from an interrupted checkpoint and bind resume values.
+///
+/// A resume object with several pending interrupts is a map keyed by interrupt id;
+/// otherwise the same value is replayed into every pending task. The new value is
+/// folded into each task's consumed history so repeated `interrupt()` calls see
+/// earlier answers on re-runs.
+pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Value>) -> Vec<Task> {
+    let interrupt_map = match (resume, checkpoint.interrupts.len() > 1) {
+        (Some(Value::Object(map)), true) => Some(map.clone()),
+        _ => None,
+    };
+    let mut tasks = checkpoint.next.clone();
+    for task in &mut tasks {
+        task.resume = match &interrupt_map {
+            Some(map) => checkpoint
+                .interrupts
+                .iter()
+                .find(|interrupt| interrupt.node == task.node)
+                .and_then(|interrupt| interrupt.resume_from(map)),
+            None => resume.clone(),
+        };
+    }
+    for task in &mut tasks {
+        if let Some(value) = task.resume.take() {
+            task.resume_history.push(value);
+        }
+    }
+    tasks
+}

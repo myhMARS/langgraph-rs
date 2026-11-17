@@ -1029,26 +1029,10 @@ impl<S: State> AsyncCompiledGraph<S> {
                     )?;
                 }
                 let state = values_to_state::<S>(&values)?;
-                let interrupt_map = match (&resume, checkpoint.interrupts.len() > 1) {
-                    (Some(Value::Object(map)), true) => Some(map.clone()),
-                    _ => None,
-                };
-                let mut tasks = checkpoint.next.clone();
-                for task in &mut tasks {
-                    task.resume = match &interrupt_map {
-                        Some(map) => checkpoint
-                            .interrupts
-                            .iter()
-                            .find(|interrupt| interrupt.node == task.node)
-                            .and_then(|interrupt| interrupt.resume_from(map)),
-                        None => resume.clone(),
-                    };
-                }
-                for task in &mut tasks {
-                    if let Some(value) = task.resume.take() {
-                        task.resume_history.push(value);
-                    }
-                }
+                let tasks = crate::kernel::executor::checkpointing::prepare_resume_tasks(
+                    &checkpoint,
+                    &resume,
+                );
                 (values, state, tasks, checkpoint.step)
             }
         };
