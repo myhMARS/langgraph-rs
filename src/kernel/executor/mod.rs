@@ -9,6 +9,7 @@
 //! and owns the per-step merge + control flow, which keeps each file focused on one
 //! concern.
 
+pub(crate) mod backend;
 pub(crate) mod checkpointing;
 pub(crate) mod outcome;
 pub(crate) mod scheduling;
