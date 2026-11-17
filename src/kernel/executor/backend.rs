@@ -32,6 +32,8 @@ pub(crate) trait PregelBackend<S: State> {
         &self,
         state: &S,
         tasks: &[Task],
+        step: usize,
+        control: Option<&crate::RunControl>,
     ) -> impl std::future::Future<Output = Vec<TaskOutcome>>;
     fn load_checkpoint(
         &self,
@@ -39,7 +41,7 @@ pub(crate) trait PregelBackend<S: State> {
         checkpoint_id: Option<&str>,
         namespace: &str,
     ) -> impl std::future::Future<Output = Result<Option<Checkpoint>>>;
-    fn save_checkpoint(
+    fn persist_checkpoint(
         &self,
         checkpoint: Checkpoint,
     ) -> impl std::future::Future<Output = Result<()>>;
@@ -98,7 +100,13 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         self.graph.context_schema()
     }
 
-    async fn run_superstep(&self, state: &S, tasks: &[Task]) -> Vec<TaskOutcome> {
+    async fn run_superstep(
+        &self,
+        state: &S,
+        tasks: &[Task],
+        _step: usize,
+        _control: Option<&crate::RunControl>,
+    ) -> Vec<TaskOutcome> {
         super::superstep::run_superstep(self.graph, state, tasks)
     }
 
@@ -117,7 +125,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         }
     }
 
-    async fn save_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
+    async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
         let Some(checkpointer) = self.graph.checkpointer() else {
             return Ok(());
         };

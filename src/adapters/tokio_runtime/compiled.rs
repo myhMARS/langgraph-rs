@@ -1712,3 +1712,110 @@ async fn run_with_idle_timeout(
         }
     }
 }
+
+/// Async backend: future joins and awaitable checkpoint I/O.
+#[allow(dead_code)]
+pub(crate) struct AsyncBackend<'a, S: State> {
+    graph: &'a AsyncCompiledGraph<S>,
+    writer: Option<&'a tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+    run: &'a AsyncRunInfo,
+}
+
+#[allow(dead_code)]
+impl<'a, S: State> crate::kernel::executor::backend::PregelBackend<S> for AsyncBackend<'a, S> {
+    fn schema(&self) -> &crate::kernel::state::StateSchema {
+        &self.graph.schema
+    }
+
+    fn recursion_limit(&self) -> usize {
+        self.graph.recursion_limit
+    }
+
+    fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
+        self.graph.entry_tasks(state)
+    }
+
+    fn node_exists(&self, node: &str) -> bool {
+        self.graph.nodes.contains_key(node)
+    }
+
+    fn edges_of(&self, node: &str) -> Option<&[String]> {
+        self.graph.edges.get(node).map(Vec::as_slice)
+    }
+
+    fn conditional_of(&self, node: &str) -> Option<&[ConditionalEdge<S>]> {
+        self.graph.conditional.get(node).map(Vec::as_slice)
+    }
+
+    fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.graph.destinations_of(node)
+    }
+
+    fn interrupts_before(&self, node: &str) -> bool {
+        self.graph.interrupt_before.contains(node)
+    }
+
+    fn interrupts_after(&self, node: &str) -> bool {
+        self.graph.interrupt_after.contains(node)
+    }
+
+    fn is_deferred(&self, node: &str) -> bool {
+        self.graph.deferred.contains(node)
+    }
+
+    fn context_schema(&self) -> Option<&Value> {
+        self.graph.context_schema()
+    }
+
+    async fn run_superstep(
+        &self,
+        state: &S,
+        tasks: &[Task],
+        step: usize,
+        control: Option<&crate::RunControl>,
+    ) -> Vec<TaskOutcome> {
+        let run = join_all(
+            tasks
+                .iter()
+                .map(|task| self.graph.run_task(task, state, step, self.run)),
+        );
+        match control {
+            Some(control) => tokio::select! {
+                outcomes = run => outcomes,
+                _ = control.wait_aborted() => Vec::new(),
+            },
+            None => run.await,
+        }
+    }
+
+    async fn load_checkpoint(
+        &self,
+        thread_id: &str,
+        checkpoint_id: Option<&str>,
+        namespace: &str,
+    ) -> Result<Option<Checkpoint>> {
+        match checkpoint_id {
+            Some(id) => self.graph.saver_get(thread_id, id).await,
+            None => self.graph.saver_latest_in(thread_id, namespace).await,
+        }
+    }
+
+    async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
+        if let Some(writer) = self.writer {
+            let _ = writer.send(checkpoint);
+            return Ok(());
+        }
+        if let Some(async_saver) = &self.graph.async_checkpointer {
+            async_saver.put(checkpoint).await?;
+        } else if let Some(saver) = &self.graph.checkpointer {
+            crate::kernel::executor::checkpointing::persist_checkpoint(
+                saver.as_ref(),
+                checkpoint,
+                None,
+            )?;
+        } else {
+            return Err(Error::MissingCheckpointer("persist_checkpoint"));
+        }
+        Ok(())
+    }
+}
