@@ -250,10 +250,17 @@ class LangChainCallbackHandler:
         metadata = {}
         if self.model:
             metadata["model"] = self.model
+        event_metadata = (kwargs or {}).get("metadata") or {}
+        for key, value in event_metadata.items():
+            if isinstance(value, (str, int, float, bool)):
+                metadata.setdefault(key, value)
         for key in ("ls_provider", "ls_model_name", "ls_model_type", "ls_integration"):
             value = (kwargs or {}).get(key)
             if value is not None:
                 metadata[key] = value
+        namespace = langgraph_rs.current_namespace()
+        if namespace:
+            metadata["langgraph_checkpoint_ns"] = namespace
         node = langgraph_rs.current_node()
         if node:
             metadata["langgraph_node"] = node

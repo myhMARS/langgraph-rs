@@ -577,6 +577,46 @@ fn postgres_url_from_py(object: &Bound<'_, PyAny>) -> PyResult<String> {
 }
 
 #[cfg(feature = "redis")]
+fn redis_url_from_py(object: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(url) = object.extract::<String>() {
+        return Ok(url);
+    }
+    let kwargs = object
+        .getattr("connection_pool")
+        .and_then(|pool| pool.getattr("connection_kwargs"))
+        .map_err(|_| {
+            PyTypeError::new_err(
+                "RedisSaver expects a URL or a redis client with connection_pool.connection_kwargs",
+            )
+        })?;
+    let kwargs = kwargs.cast::<PyDict>()?;
+    let get = |key: &str| -> PyResult<Option<Bound<'_, PyAny>>> {
+        Ok(kwargs.get_item(key)?.map(|value| value))
+    };
+    let host = get("host")?
+        .and_then(|value| value.extract::<String>().ok())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port = get("port")?
+        .and_then(|value| value.extract::<u16>().ok())
+        .unwrap_or(6379);
+    let db = get("db")?
+        .and_then(|value| value.extract::<u16>().ok())
+        .unwrap_or(0);
+    let username = get("username")?.and_then(|value| value.extract::<String>().ok());
+    let password = get("password")?.and_then(|value| value.extract::<String>().ok());
+    let secure = get("ssl")?
+        .and_then(|value| value.extract::<bool>().ok())
+        .unwrap_or(false);
+    let scheme = if secure { "rediss" } else { "redis" };
+    let auth = match (username, password) {
+        (Some(username), Some(password)) => format!("{username}:{password}@"),
+        (None, Some(password)) => format!(":{password}@"),
+        _ => String::new(),
+    };
+    Ok(format!("{scheme}://{auth}{host}:{port}/{db}"))
+}
+
+#[cfg(feature = "redis")]
 #[pyclass(name = "RedisSaver")]
 pub struct PyRedisSaver {
     pub(crate) inner: Arc<RedisSaver>,
@@ -586,7 +626,8 @@ pub struct PyRedisSaver {
 #[pymethods]
 impl PyRedisSaver {
     #[new]
-    fn new(url: String) -> PyResult<Self> {
+    fn new(url: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let url = redis_url_from_py(url)?;
         let saver =
             RedisSaver::connect(&url).map_err(|error| PyTypeError::new_err(error.to_string()))?;
         Ok(Self {
@@ -936,8 +977,9 @@ pub struct PyRedisStore {
 #[pymethods]
 impl PyRedisStore {
     #[new]
-    fn new(url: &str) -> PyResult<Self> {
-        let store = crate::RedisStore::connect(url)
+    fn new(url: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let url = redis_url_from_py(url)?;
+        let store = crate::RedisStore::connect(&url)
             .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
         Ok(Self {
             store: Arc::new(store),
