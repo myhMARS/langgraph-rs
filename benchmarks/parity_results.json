@@ -11,13 +11,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 207485.0,
-        "ops_per_sec": 4819.6
+        "ns_per_op": 194868.0,
+        "ops_per_sec": 5131.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1940855.0,
-        "ops_per_sec": 515.2
+        "ns_per_op": 1980179.0,
+        "ops_per_sec": 505.0
       }
     }
   },
@@ -33,13 +33,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 90923.0,
-        "ops_per_sec": 10998.3
+        "ns_per_op": 41497.0,
+        "ops_per_sec": 24098.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 742143.0,
-        "ops_per_sec": 1347.4
+        "ns_per_op": 632270.0,
+        "ops_per_sec": 1581.6
       }
     }
   },
@@ -55,13 +55,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 141048.0,
-        "ops_per_sec": 7089.8
+        "ns_per_op": 114624.0,
+        "ops_per_sec": 8724.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1440499.0,
-        "ops_per_sec": 694.2
+        "ns_per_op": 1309169.0,
+        "ops_per_sec": 763.8
       }
     }
   },
@@ -87,13 +87,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 450027.0,
-        "ops_per_sec": 2222.1
+        "ns_per_op": 442653.0,
+        "ops_per_sec": 2259.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 6144889.0,
-        "ops_per_sec": 162.7
+        "ns_per_op": 4923449.0,
+        "ops_per_sec": 203.1
       }
     }
   },
@@ -105,7 +105,19 @@
     "lg": {
       "value": "4/False"
     },
-    "equivalent": true
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 36776.0,
+        "ops_per_sec": 27191.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 633204.0,
+        "ops_per_sec": 1579.3
+      }
+    }
   },
   {
     "scenario": "stream_values",
@@ -115,7 +127,19 @@
     "lg": {
       "value": 10
     },
-    "equivalent": true
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 316499.0,
+        "ops_per_sec": 3159.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1763213.0,
+        "ops_per_sec": 567.1
+      }
+    }
   },
   {
     "scenario": "command_update",
@@ -125,7 +149,19 @@
     "lg": {
       "value": 11
     },
-    "equivalent": true
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 30582.0,
+        "ops_per_sec": 32699.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 475623.0,
+        "ops_per_sec": 2102.5
+      }
+    }
   },
   {
     "scenario": "retry_policy",
@@ -141,7 +177,86 @@
       },
       "calls": 3
     },
-    "equivalent": true
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 24204.0,
+        "ops_per_sec": 41315.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 437851.0,
+        "ops_per_sec": 2283.9
+      }
+    }
+  },
+  {
+    "scenario": "stream_v2_values",
+    "rs": {
+      "value": 10
+    },
+    "lg": {
+      "value": 10
+    },
+    "equivalent": true,
+    "note": "binding also emits a usage extension chunk",
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 269065.0,
+        "ops_per_sec": 3716.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1750881.0,
+        "ops_per_sec": 571.1
+      }
+    }
+  },
+  {
+    "scenario": "store_roundtrip",
+    "rs": {
+      "value": 7
+    },
+    "lg": {
+      "value": 7
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 114234.0,
+        "ops_per_sec": 8754.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 849019.0,
+        "ops_per_sec": 1177.8
+      }
+    }
+  },
+  {
+    "scenario": "sqlite_persistence",
+    "rs": {
+      "value": 1
+    },
+    "lg": {
+      "value": 1
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 36403969.0,
+        "ops_per_sec": 27.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 17980203.0,
+        "ops_per_sec": 55.6
+      }
+    }
   },
   {
     "scenario": "interrupt_resume",
@@ -157,7 +272,19 @@
         "value": 5
       }
     },
-    "equivalent": true
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 99600.0,
+        "ops_per_sec": 10040.2
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2869902.0,
+        "ops_per_sec": 348.4
+      }
+    }
   },
   {
     "scenario": "update_state",
@@ -168,14 +295,38 @@
       "value": 42
     },
     "equivalent": true,
-    "note": "language API shape differs (snapshot vs config); state matches"
+    "note": "language API shape differs (snapshot vs config); state matches",
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 102769.0,
+        "ops_per_sec": 9730.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1730009.0,
+        "ops_per_sec": 578.0
+      }
+    }
   },
   {
     "scenario": "checkpoint_history",
     "rs": 6,
     "lg": 6,
     "equivalent": true,
-    "known_difference": "LangGraph records one extra input checkpoint per fresh run"
+    "note": "counts match after aligning input-checkpoint creation",
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 2286342.0,
+        "ops_per_sec": 437.4
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 9367582.0,
+        "ops_per_sec": 106.8
+      }
+    }
   },
   {
     "scenario": "subgraph",
@@ -189,13 +340,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 67883.0,
-        "ops_per_sec": 14731.2
+        "ns_per_op": 71901.0,
+        "ops_per_sec": 13908.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1124924.0,
-        "ops_per_sec": 888.9
+        "ns_per_op": 1237701.0,
+        "ops_per_sec": 807.9
       }
     }
   }

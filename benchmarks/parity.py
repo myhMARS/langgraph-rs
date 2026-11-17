@@ -11,6 +11,8 @@ The script writes ``benchmarks/parity_results.json`` and ``benchmarks/PARITY.md`
 from __future__ import annotations
 
 import json
+import sqlite3
+import tempfile
 import time
 from pathlib import Path
 from typing import TypedDict
@@ -18,7 +20,9 @@ from typing import TypedDict
 import langgraph_rs as rs
 from langgraph.checkpoint.memory import InMemorySaver as LgInMemorySaver
 from langgraph.graph import END, START, StateGraph as LgStateGraph
+from langgraph.config import get_store as lg_get_store
 from langgraph.managed import IsLastStep, RemainingSteps
+from langgraph.store.memory import InMemoryStore as LgInMemoryStore
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy
 from langgraph.types import interrupt as lg_interrupt
 
@@ -267,6 +271,10 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_managed.invoke({})),
+                "lg": measure(lambda: lg_managed.invoke({}, {"recursion_limit": 5})),
+            },
         }
     )
 
@@ -286,6 +294,14 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_graph.stream({"value": 0}, stream_mode="values")
+                ),
+                "lg": measure(
+                    lambda: list(lg_graph.stream({"value": 0}, stream_mode="values"))
+                ),
+            },
         }
     )
 
@@ -299,6 +315,14 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_graph.invoke(rs.Command(update={"value": 10}))
+                ),
+                "lg": measure(
+                    lambda: lg_graph.invoke(LgCommand(update={"value": 10}))
+                ),
+            },
         }
     )
 
@@ -313,9 +337,174 @@ def run_linear_scenarios() -> list[dict]:
             "rs": {"value": rs_value, "calls": rs_calls()},
             "lg": {"value": lg_value, "calls": lg_calls()},
             "equivalent": rs_value == lg_value and rs_calls() == lg_calls(),
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"value": 0})),
+                "lg": measure(lambda: lg_graph.invoke({"value": 0})),
+            },
+        }
+    )
+
+    # v2 stream: compare the final values part (the binding also emits its usage
+    # extension chunk, which LangGraph has no equivalent for).
+    lg_graph, rs_graph = lg_linear(), rs_linear()
+    lg_parts = list(
+        lg_graph.stream({"value": 0}, stream_mode=["values"], version="v2")
+    )
+    rs_parts = rs_graph.stream(
+        {"value": 0}, stream_mode=["values"], version="v2"
+    )
+    lg_value = [part for part in lg_parts if part["type"] == "values"][-1]["data"]
+    rs_value = [part for part in rs_parts if part["type"] == "values"][-1]["data"]
+    results.append(
+        {
+            "scenario": "stream_v2_values",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "note": "binding also emits a usage extension chunk",
+            "bench": {
+                "rs": measure(
+                    lambda: rs_graph.stream(
+                        {"value": 0}, stream_mode=["values"], version="v2"
+                    )
+                ),
+                "lg": measure(
+                    lambda: list(
+                        lg_graph.stream(
+                            {"value": 0}, stream_mode=["values"], version="v2"
+                        )
+                    )
+                ),
+            },
+        }
+    )
+
+    # In-memory store round trip
+    lg_value = lg_store_graph().invoke({})
+    rs_value = rs_store_graph().invoke({})
+    results.append(
+        {
+            "scenario": "store_roundtrip",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_store_graph().invoke({})),
+                "lg": measure(lambda: lg_store_graph().invoke({})),
+            },
+        }
+    )
+
+    # SQLite persistence round trip
+    lg_value, rs_value, persistence_bench = persistence_values()
+    results.append(
+        {
+            "scenario": "sqlite_persistence",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": persistence_bench,
         }
     )
     return results
+
+
+def lg_store_graph():
+    graph = LgStateGraph(dict)
+    store = LgInMemoryStore()
+
+    def write(state):
+        lg_get_store().put(("parity",), "key", {"value": 7})
+        item = lg_get_store().get(("parity",), "key")
+        return {"value": item.value["value"]}
+
+    graph.add_node("write", write)
+    graph.add_edge(START, "write")
+    graph.add_edge("write", END)
+    return graph.compile(store=store)
+
+
+def rs_store_graph():
+    graph = rs.StateGraph({"value": "last_value"})
+    store = rs.InMemoryStore()
+
+    def write(state):
+        rs.get_store().put(("parity",), "key", {"value": 7})
+        item = rs.get_store().get(("parity",), "key")
+        return {"value": item["value"]}
+
+    graph.add_node("write", write)
+    graph.set_entry_point("write")
+    graph.set_finish_point("write")
+    return graph.compile(store=store)
+
+
+def persistence_values():
+    directory = Path(tempfile.mkdtemp())
+    lg_path = directory / "lg.sqlite"
+    rs_path = directory / "rs.sqlite"
+
+    lg_graph = LgStateGraph(dict)
+    lg_graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    lg_graph.add_edge(START, "inc")
+    lg_graph.add_edge("inc", END)
+    lg_conn = sqlite3.connect(lg_path, check_same_thread=False)
+    lg_compiled = lg_graph.compile(
+        checkpointer=_lg_sqlite_saver(lg_conn)
+    )
+    lg_config = {"configurable": {"thread_id": "parity-persist"}}
+    lg_compiled.invoke({"value": 0}, lg_config)
+    lg_value = lg_compiled.get_state(lg_config).values
+
+    rs_graph = rs.StateGraph({"value": "last_value"})
+    rs_graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    rs_graph.set_entry_point("inc")
+    rs_graph.set_finish_point("inc")
+    rs_compiled = rs_graph.compile(checkpointer=rs.SqliteSaver(str(rs_path)))
+    rs_compiled.invoke({"value": 0}, thread_id="parity-persist")
+    rs_value = rs_compiled.get_state("parity-persist")["values"]
+
+    bench = {
+        "rs": measure(
+            lambda: rs_compiled.invoke(
+                {"value": 0}, thread_id="parity-persist-bench"
+            )
+        ),
+        "lg": measure(
+            lambda: lg_compiled.invoke(
+                {"value": 0},
+                {"configurable": {"thread_id": "parity-persist-bench"}},
+            )
+        ),
+    }
+    lg_conn.close()
+    return dict(lg_value), rs_value, bench
+
+
+_interrupt_counter = [0]
+
+
+def interrupt_bench(graph, prefix, use_lg):
+    _interrupt_counter[0] += 1
+    thread = f"{prefix}-interrupt-bench-{_interrupt_counter[0]}"
+    if use_lg:
+        config = {"configurable": {"thread_id": thread}}
+        try:
+            graph.invoke({"value": 0}, config)
+        except Exception:  # noqa: BLE001
+            pass
+        return graph.invoke(LgCommand(resume=5), config)
+    try:
+        graph.invoke({"value": 0}, thread_id=thread)
+    except Exception:  # noqa: BLE001
+        pass
+    return graph.resume(thread, 5)
+
+
+def _lg_sqlite_saver(connection):
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    return SqliteSaver(connection)
 
 
 def lg_command_graph():
@@ -429,6 +618,10 @@ def run_checkpoint_scenarios() -> list[dict]:
             "rs": {"error": rs_error, "value": rs_value},
             "lg": {"error": lg_error, "value": lg_value},
             "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: interrupt_bench(rs_graph, "rs", False)),
+                "lg": measure(lambda: interrupt_bench(lg_graph, "lg", True)),
+            },
         }
     )
 
@@ -447,6 +640,30 @@ def run_checkpoint_scenarios() -> list[dict]:
             "equivalent": rs_state["values"] == lg_values,
             # LangGraph returns a config dict here; the binding returns the snapshot.
             "note": "language API shape differs (snapshot vs config); state matches",
+            "bench": {
+                "rs": measure(
+                    lambda: (
+                        rs_graph.invoke(
+                            {"value": 0}, thread_id="parity-rs-update-bench"
+                        ),
+                        rs_graph.update_state(
+                            "parity-rs-update-bench", {"value": 42}
+                        ),
+                    )
+                ),
+                "lg": measure(
+                    lambda: (
+                        lg_graph.invoke(
+                            {"value": 0},
+                            {"configurable": {"thread_id": "parity-lg-update-bench"}},
+                        ),
+                        lg_graph.update_state(
+                            {"configurable": {"thread_id": "parity-lg-update-bench"}},
+                            {"value": 42},
+                        ),
+                    )
+                ),
+            },
         }
     )
 
@@ -464,8 +681,30 @@ def run_checkpoint_scenarios() -> list[dict]:
             "rs": len(rs_history),
             "lg": len(lg_history),
             "equivalent": len(rs_history) == len(lg_history),
-            # LangGraph writes an extra input checkpoint before the first superstep.
-            "known_difference": "LangGraph records one extra input checkpoint per fresh run",
+            "note": "counts match after aligning input-checkpoint creation",
+            "bench": {
+                "rs": measure(
+                    lambda: (
+                        rs_graph.invoke(
+                            {"value": 0}, thread_id="parity-rs-history-bench"
+                        ),
+                        rs_graph.get_state_history("parity-rs-history-bench"),
+                    )
+                ),
+                "lg": measure(
+                    lambda: (
+                        lg_graph.invoke(
+                            {"value": 0},
+                            {"configurable": {"thread_id": "parity-lg-history-bench"}},
+                        ),
+                        list(
+                            lg_graph.get_state_history(
+                                {"configurable": {"thread_id": "parity-lg-history-bench"}}
+                            )
+                        ),
+                    )
+                ),
+            },
         }
     )
     return results
