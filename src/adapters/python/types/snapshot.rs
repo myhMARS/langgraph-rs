@@ -85,12 +85,16 @@ impl PyStateSnapshot {
         let dict = self.data.bind(py);
         let thread_id = dict.get_item("thread_id")?.map(|value| value.unbind());
         let checkpoint_id = dict.get_item("checkpoint_id")?.map(|value| value.unbind());
+        let checkpoint_ns = dict.get_item("checkpoint_ns")?.map(|value| value.unbind());
         let configurable = PyDict::new(py);
         if let Some(thread_id) = thread_id {
             configurable.set_item("thread_id", thread_id)?;
         }
         if let Some(checkpoint_id) = checkpoint_id {
             configurable.set_item("checkpoint_id", checkpoint_id)?;
+        }
+        if let Some(checkpoint_ns) = checkpoint_ns {
+            configurable.set_item("checkpoint_ns", checkpoint_ns)?;
         }
         let config = PyDict::new(py);
         config.set_item("configurable", configurable)?;

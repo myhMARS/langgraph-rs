@@ -476,6 +476,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         let interrupt_after =
             interrupt_after_node(&executed, |node| backend.interrupts_after(node))
                 .map(|node| Interrupt::new(node, Value::Null));
+        // A finished graph publishes held finish-channel values before its final checkpoint,
+        // so the latest checkpoint matches the returned state.
+        if next_tasks.is_empty() && interrupt_after.is_none() && !finish_updates.is_empty() {
+            apply_finish_updates(&mut values, &mut finish_updates);
+            state = values_to_state::<S>(&values)?;
+        }
         if should_save_after_step(durability, interrupt_after.is_some()) {
             save_checkpoint_via(
                 backend,

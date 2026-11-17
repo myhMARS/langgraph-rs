@@ -723,7 +723,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             paused_before: checkpoint.paused_before,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
-            interrupts: Vec::new(),
+            interrupts: checkpoint.interrupts.clone(),
             metadata: Map::from_iter([(
                 String::from("source"),
                 Value::String(String::from("update")),
