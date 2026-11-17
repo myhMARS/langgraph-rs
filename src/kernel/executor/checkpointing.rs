@@ -116,8 +116,7 @@ pub(super) fn save_checkpoint<S: State>(
         Some(writer) => writer.submit(checkpoint)?,
         None => checkpointer.put(checkpoint)?,
     }
-    *parent = Some(id.clone());
-    sink(StreamChunk::Checkpoint { checkpoint_id: id });
+    checkpoint_committed(parent, &id, sink);
     Ok(())
 }
 
@@ -197,4 +196,16 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
         }
     }
     tasks
+}
+
+/// Record a persisted checkpoint as the new parent and emit its stream event.
+pub(crate) fn checkpoint_committed(
+    parent: &mut Option<String>,
+    id: &str,
+    sink: &mut dyn FnMut(StreamChunk),
+) {
+    *parent = Some(id.to_string());
+    sink(StreamChunk::Checkpoint {
+        checkpoint_id: id.to_string(),
+    });
 }

@@ -1671,8 +1671,9 @@ impl<S: State> AsyncCompiledGraph<S> {
         } else {
             self.saver_put(checkpoint).await?;
         }
-        *parent = Some(id.clone());
-        sink(StreamChunk::Checkpoint { checkpoint_id: id });
+        crate::kernel::executor::checkpointing::checkpoint_committed(parent, &id, &mut |chunk| {
+            sink(chunk)
+        });
         Ok(())
     }
 
