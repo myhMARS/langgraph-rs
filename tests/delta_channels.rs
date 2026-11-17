@@ -202,3 +202,44 @@ fn multi_interrupt_preserves_held_finish_writes() {
         .unwrap();
     assert_eq!(output.final_answer, "draft");
 }
+
+#[test]
+fn held_finish_writes_stay_hidden_after_resume() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<DeltaState>::new()
+        .add_node("ok", |_state: &DeltaState| {
+            Ok(NodeOutput::new().set("final_answer", "draft"))
+        })
+        .add_node("ask", |_state: &DeltaState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new())
+        })
+        .add_node("down", |state: &DeltaState| {
+            let observed = if state.final_answer.is_empty() {
+                "hidden"
+            } else {
+                "leaked"
+            };
+            Ok(NodeOutput::new().set("observed", vec![observed.to_string()]))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .add_edge("ok", "down")
+        .set_finish_point("down")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &DeltaState::default(),
+            &RunConfig::new().with_thread("held-finish"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+    let snapshot = graph.get_state("held-finish").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "answer" });
+    let output = graph.resume("held-finish", resume).unwrap();
+    assert_eq!(output.observed, vec!["hidden"]);
+    assert_eq!(output.final_answer, "draft");
+}

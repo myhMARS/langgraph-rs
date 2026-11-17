@@ -74,6 +74,8 @@ pub(crate) fn begin_run(
     stream_subgraphs: bool,
     collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>,
 ) -> Result<RunSetup> {
+    // A new run must not inherit a parent command left by an unconsumed goto_parent.
+    crate::kernel::context::clear_parent_command();
     if let (Some(schema), Some(context)) = (context_schema, context.as_ref()) {
         crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
             Error::validation(format!("context does not match context_schema: {error}"))

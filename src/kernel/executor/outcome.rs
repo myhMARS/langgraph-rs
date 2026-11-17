@@ -144,6 +144,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                             resume_history: Vec::new(),
                             error: Some(failure),
                             timeout_millis: None,
+                            interrupted: false,
                         });
                     }
                     Some(_) => {}
@@ -294,6 +295,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         resume_history: Vec::new(),
                         error: None,
                         timeout_millis: send.timeout_millis,
+                        interrupted: false,
                     });
                 }
             }

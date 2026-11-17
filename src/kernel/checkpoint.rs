@@ -80,6 +80,9 @@ pub struct Checkpoint {
     /// Successful task writes recorded when a superstep paused on an interrupt.
     #[serde(default)]
     pub pending_writes: Vec<PendingWrite>,
+    /// Deferred tasks parked until a superstep has no regular work.
+    #[serde(default)]
+    pub deferred: Vec<Task>,
 }
 
 impl Checkpoint {
@@ -108,6 +111,7 @@ impl Checkpoint {
             versions_seen: Map::new(),
             updated_channels: Vec::new(),
             pending_writes: Vec::new(),
+            deferred: Vec::new(),
         }
     }
 

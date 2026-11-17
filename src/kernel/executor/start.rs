@@ -9,6 +9,13 @@ use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, val
 /// Resolved channel values, state and tasks for a run start.
 pub(crate) type FreshStart<S> = Option<(Map<String, Value>, S, Vec<crate::kernel::node::Task>)>;
 
+pub(crate) type ResumeStart<S> = (
+    Map<String, Value>,
+    S,
+    Vec<crate::kernel::node::Task>,
+    Vec<crate::kernel::checkpoint::PendingWrite>,
+);
+
 /// Resolve the three non-resume start inputs into initial channel values, state and
 /// entry tasks. Returns `None` for [`StartInput::Resume`].
 pub(crate) fn resolve_fresh_start<S: State>(
@@ -73,10 +80,19 @@ pub(crate) fn resolve_resume_start<S: State>(
     resume: &Option<Value>,
     updates: Option<Map<String, Value>>,
     schema: &StateSchema,
-) -> Result<(Map<String, Value>, S, Vec<crate::kernel::node::Task>)> {
+) -> Result<ResumeStart<S>> {
     crate::kernel::context::load_task_results(&checkpoint.task_results);
     let mut values = checkpoint.values.clone();
-    apply_pending_writes(schema, &mut values, &checkpoint.pending_writes)?;
+    let mut finish_writes = Vec::new();
+    let mut regular_writes = Vec::new();
+    for write in &checkpoint.pending_writes {
+        if schema.is_finish_value(&write.channel) {
+            finish_writes.push(write.clone());
+        } else {
+            regular_writes.push(write.clone());
+        }
+    }
+    apply_pending_writes(schema, &mut values, &regular_writes)?;
     if let Some(updates) = updates {
         apply_updates(
             schema,
@@ -93,5 +109,5 @@ pub(crate) fn resolve_resume_start<S: State>(
     }
     let state = values_to_state::<S>(&values)?;
     let tasks = crate::kernel::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
-    Ok((values, state, tasks))
+    Ok((values, state, tasks, finish_writes))
 }

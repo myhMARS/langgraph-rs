@@ -546,6 +546,9 @@ pub struct Task {
     /// Per-task timeout in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_millis: Option<u64>,
+    /// Whether this task paused on `interrupt()` in the checkpoint that stores it.
+    #[serde(default)]
+    pub interrupted: bool,
 }
 
 impl Task {
@@ -560,6 +563,7 @@ impl Task {
             resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
+            interrupted: false,
         }
     }
 
@@ -574,6 +578,7 @@ impl Task {
             resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
+            interrupted: false,
         }
     }
 }

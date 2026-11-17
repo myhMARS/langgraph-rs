@@ -101,3 +101,97 @@ fn successful_sibling_routes_are_scheduled_after_multiple_interrupts() {
         .unwrap();
     assert_eq!(output.log, vec!["ok", "a", "b", "down"]);
 }
+
+#[test]
+fn routed_sibling_interrupt_does_not_consume_the_previous_answer() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["ok"])))
+        })
+        .add_node("ask1", |_state: &RouteState| {
+            let answer = interrupt(json!({ "q": 1 }))?;
+            Ok(NodeOutput::new().update(
+                "log",
+                json!([format!("ask1:{}", answer.as_str().unwrap_or("?"))]),
+            ))
+        })
+        .add_node("ask2", |_state: &RouteState| {
+            let answer = interrupt(json!({ "q": 2 }))?;
+            Ok(NodeOutput::new().update(
+                "log",
+                json!([format!("ask2:{}", answer.as_str().unwrap_or("?"))]),
+            ))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask1")
+        .add_edge("ok", "ask2")
+        .set_finish_point("ask1")
+        .set_finish_point("ask2")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &RouteState::default(),
+            &RunConfig::new().with_thread("routed-interrupt"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    // ask1 consumes "first"; ask2 must raise its own interrupt, not reuse that answer.
+    let error = graph
+        .resume("routed-interrupt", json!("first"))
+        .unwrap_err();
+    assert!(error.is_interrupt());
+    let snapshot = graph.get_state("routed-interrupt").unwrap().unwrap();
+    assert_eq!(snapshot.interrupts[0].node, "ask2");
+
+    let output = graph.resume("routed-interrupt", json!("second")).unwrap();
+    assert!(
+        output.log.contains(&"ask1:first".to_string()),
+        "log={:?}",
+        output.log
+    );
+    assert!(output.log.contains(&"ask2:second".to_string()));
+}
+
+#[test]
+fn deferred_tasks_survive_an_interrupt() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["ok"])))
+        })
+        .add_node("ask", |_state: &RouteState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new().update("log", json!(["ask"])))
+        })
+        .add_node("regular", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["regular"])))
+        })
+        .add_node_deferred("late", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["late"])))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .add_edge("ok", "regular")
+        .add_edge("ok", "late")
+        .set_finish_point("regular")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &RouteState::default(),
+            &RunConfig::new().with_thread("deferred-interrupt"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let snapshot = graph.get_state("deferred-interrupt").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "answer" });
+    let output = graph.resume("deferred-interrupt", resume).unwrap();
+    assert_eq!(output.log, vec!["ok", "ask", "regular", "late"]);
+}

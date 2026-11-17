@@ -398,6 +398,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
             resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
+            interrupted: false,
         });
     }
     Ok(())

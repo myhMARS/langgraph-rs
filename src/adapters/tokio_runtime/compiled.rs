@@ -728,6 +728,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             versions_seen: checkpoint.versions_seen.clone(),
             updated_channels,
             pending_writes: Vec::new(),
+            deferred: Vec::new(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         self.saver_put(updated).await?;

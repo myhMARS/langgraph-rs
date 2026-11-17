@@ -74,6 +74,7 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) paused_before: bool,
     pub(crate) interrupts: Vec<Interrupt>,
     pub(crate) pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    pub(crate) deferred: Vec<Task>,
     pub(crate) executed: &'a [String],
     pub(crate) previous: Option<&'a Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
@@ -106,6 +107,7 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         versions_seen,
         updated_channels,
         pending_writes: draft.pending_writes,
+        deferred: draft.deferred,
     }
 }
 
@@ -121,7 +123,16 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
         _ => None,
     };
     let mut tasks = checkpoint.next.clone();
+    let flagged: std::collections::HashSet<String> = tasks
+        .iter()
+        .filter(|task| task.interrupted)
+        .map(|task| task.id.clone())
+        .collect();
     for task in &mut tasks {
+        if !flagged.is_empty() && !flagged.contains(&task.id) {
+            task.resume = None;
+            continue;
+        }
         task.resume = match &interrupt_map {
             Some(map) => checkpoint
                 .interrupts
@@ -182,6 +193,7 @@ pub(crate) async fn save_checkpoint_via<
     paused_before: bool,
     interrupts: Vec<Interrupt>,
     pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    deferred: Vec<Task>,
     executed: &[String],
     sink: &mut F,
 ) -> Result<()> {
@@ -202,6 +214,7 @@ pub(crate) async fn save_checkpoint_via<
         paused_before,
         interrupts,
         pending_writes,
+        deferred,
         executed,
         previous: previous.as_ref(),
         task_results: crate::kernel::context::snapshot_task_results(),

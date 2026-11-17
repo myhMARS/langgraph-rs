@@ -315,6 +315,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                     .collect()
             })
             .unwrap_or_default(),
+        deferred: Vec::new(),
     })
 }
 
