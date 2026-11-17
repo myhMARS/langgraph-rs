@@ -113,8 +113,8 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
 
 /// Rebuild pending tasks from an interrupted checkpoint and bind resume values.
 ///
-/// A resume object with several pending interrupts is a map keyed by interrupt id;
-/// otherwise the same value is replayed into every pending task. The new value is
+/// Only tasks flagged as interrupted receive the resume value; a resume object with
+/// several pending interrupts is a map keyed by interrupt id. The new value is
 /// folded into each task's consumed history so repeated `interrupt()` calls see
 /// earlier answers on re-runs.
 pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Value>) -> Vec<Task> {

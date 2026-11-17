@@ -17,6 +17,43 @@ pub(crate) mod visualize;
 
 use crate::kernel::node::ConditionalEdge;
 
+/// Convert a recorded parent command into a node output, folding repeated reducer
+/// writes through the parent schema instead of collapsing them in an `IndexMap`.
+pub(crate) fn parent_command_output<S: crate::kernel::state::State>(
+    command: crate::kernel::context::ParentCommand,
+    state: &S,
+) -> crate::Result<crate::kernel::node::NodeOutput> {
+    let mut parent_values = crate::kernel::state::state_to_values(state)?;
+    let updates: Vec<crate::kernel::state::ChannelUpdate> = command
+        .updates
+        .iter()
+        .map(|(channel, value)| crate::kernel::state::ChannelUpdate {
+            channel: channel.clone(),
+            value: value.clone(),
+            node: "<parent>".to_string(),
+        })
+        .collect();
+    crate::kernel::state::apply_updates(&S::schema(), &mut parent_values, updates)?;
+
+    let mut result = crate::kernel::node::NodeOutput::new();
+    let mut channels: Vec<&String> = Vec::new();
+    for (channel, _) in &command.updates {
+        if !channels.contains(&channel) {
+            channels.push(channel);
+            if let Some(value) = parent_values.get(channel) {
+                result = result.replace(channel.clone(), value.clone());
+            }
+        }
+    }
+    for (channel, value) in command.replaces {
+        result = result.replace(channel, value);
+    }
+    for target in command.goto {
+        result = result.goto(target);
+    }
+    Ok(result)
+}
+
 /// Checkpoint namespace for a child graph.
 ///
 /// LangGraph nests child namespaces as `<parent>|<node>:<task_id>`. The task id is

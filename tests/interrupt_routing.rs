@@ -195,3 +195,38 @@ fn deferred_tasks_survive_an_interrupt() {
     let output = graph.resume("deferred-interrupt", resume).unwrap();
     assert_eq!(output.log, vec!["ok", "ask", "regular", "late"]);
 }
+
+#[test]
+fn deferred_only_route_stays_deferred_across_an_interrupt() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["ok"])))
+        })
+        .add_node("ask", |_state: &RouteState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new().update("log", json!(["ask"])))
+        })
+        .add_node_deferred("late", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["late"])))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .add_edge("ok", "late")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &RouteState::default(),
+            &RunConfig::new().with_thread("deferred-only"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let snapshot = graph.get_state("deferred-only").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "answer" });
+    let output = graph.resume("deferred-only", resume).unwrap();
+    assert_eq!(output.log, vec!["ok", "ask", "late"]);
+}

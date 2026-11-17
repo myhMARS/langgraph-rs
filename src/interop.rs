@@ -108,6 +108,7 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
         },
         "metadata": metadata,
         "parent_config": parent_config,
+        "deferred": checkpoint.deferred,
         "pending_writes": checkpoint
             .pending_writes
             .iter()
@@ -315,7 +316,11 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                     .collect()
             })
             .unwrap_or_default(),
-        deferred: Vec::new(),
+        deferred: object
+            .get("deferred")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default(),
     })
 }
 

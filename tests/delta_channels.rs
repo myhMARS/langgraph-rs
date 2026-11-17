@@ -243,3 +243,33 @@ fn held_finish_writes_stay_hidden_after_resume() {
     assert_eq!(output.observed, vec!["hidden"]);
     assert_eq!(output.final_answer, "draft");
 }
+
+#[test]
+fn finish_writes_survive_interrupt_after() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<DeltaState>::new()
+        .add_node("draft", |_state: &DeltaState| {
+            Ok(NodeOutput::new().set("final_answer", "draft"))
+        })
+        .set_entry_point("draft")
+        .set_finish_point("draft")
+        .compile_with(
+            CompileOptions::new()
+                .with_checkpointer(saver)
+                .interrupt_after(["draft"]),
+        )
+        .unwrap();
+
+    let error = graph
+        .run(
+            &DeltaState::default(),
+            &RunConfig::new().with_thread("finish-after"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+    let snapshot = graph.get_state("finish-after").unwrap().unwrap();
+    assert_eq!(snapshot.values.final_answer, "");
+
+    let output = graph.continue_thread("finish-after").unwrap();
+    assert_eq!(output.final_answer, "draft");
+}

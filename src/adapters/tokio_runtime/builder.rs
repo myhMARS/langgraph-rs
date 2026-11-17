@@ -631,17 +631,7 @@ async fn run_async_subgraph<S: State>(
     // Propagate a child failure even if another task recorded a parent command.
     let output = output?;
     if let Some(command) = parent_command {
-        let mut result = NodeOutput::new();
-        for (channel, value) in command.updates {
-            result = result.update(channel, value);
-        }
-        for (channel, value) in command.replaces {
-            result = result.replace(channel, value);
-        }
-        for target in command.goto {
-            result = result.goto(target);
-        }
-        return Ok(result);
+        return crate::kernel::graph::parent_command_output(command, &state);
     }
     let after = state_to_values(&output)?;
     let mut result = NodeOutput::new();

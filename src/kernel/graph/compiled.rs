@@ -999,7 +999,7 @@ impl<S: State> CompiledGraph<S> {
             versions_seen: checkpoint.versions_seen.clone(),
             updated_channels,
             pending_writes: Vec::new(),
-            deferred: Vec::new(),
+            deferred: checkpoint.deferred.clone(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
         checkpointer.put(updated)?;

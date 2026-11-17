@@ -292,17 +292,7 @@ impl<S: State> StateGraph<S> {
             crate::kernel::context::clear_parent_command();
             let output = run_subgraph(&subgraph, state, &name)?;
             if let Some(command) = crate::kernel::context::take_parent_command() {
-                let mut result = NodeOutput::new();
-                for (channel, value) in command.updates {
-                    result = result.update(channel, value);
-                }
-                for (channel, value) in command.replaces {
-                    result = result.replace(channel, value);
-                }
-                for target in command.goto {
-                    result = result.goto(target);
-                }
-                return Ok(result);
+                return super::parent_command_output(command, state);
             }
             let after = state_to_values(&output)?;
             let mut result = NodeOutput::new();
@@ -339,17 +329,7 @@ impl<S: State> StateGraph<S> {
             crate::kernel::context::clear_parent_command();
             let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
             if let Some(command) = crate::kernel::context::take_parent_command() {
-                let mut result = NodeOutput::new();
-                for (channel, value) in command.updates {
-                    result = result.update(channel, value);
-                }
-                for (channel, value) in command.replaces {
-                    result = result.replace(channel, value);
-                }
-                for target in command.goto {
-                    result = result.goto(target);
-                }
-                return Ok(result);
+                return super::parent_command_output(command, state);
             }
             output(&sub_output, state)
         })
@@ -708,7 +688,7 @@ fn child_namespace(parent: &str, name: &str) -> String {
 fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
     let thread = crate::kernel::context::current_thread_id();
     let namespace = child_namespace(&crate::kernel::context::current_namespace(), name);
-    let resume = crate::kernel::context::current_resume();
+    let resume = crate::kernel::context::current_resume_last();
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
     if let Some(store) = crate::kernel::context::get_store() {
         config = config.with_store(store);

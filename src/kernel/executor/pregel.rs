@@ -108,6 +108,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         };
 
     if tasks.is_empty() {
+        let mut state = state;
+        if !resume_finish.is_empty() {
+            for write in &resume_finish {
+                values.insert(write.channel.clone(), write.value.clone());
+            }
+            state = values_to_state::<S>(&values)?;
+        }
         return finish(state, backend.schema(), report, started);
     }
     if config
@@ -212,7 +219,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 true,
                 true,
                 vec![interrupted_interrupt.clone()],
-                Vec::new(),
+                finish_pending(&finish_updates),
                 pending_deferred.clone(),
                 &[],
                 sink,
@@ -253,7 +260,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
                     .map(|(task, _)| task.id.clone())
                     .collect();
-                let pending_writes = collect_pending_writes(&tasks, &outcomes);
+                let mut pending_writes = collect_pending_writes(&tasks, &outcomes);
+                pending_writes.extend(finish_pending(&finish_updates));
                 let successful: Vec<TaskOutcome> = outcomes
                     .into_iter()
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -287,12 +295,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     |node| PregelBackend::destinations_of(backend, node),
                     |node| backend.is_deferred(node),
                     &mut pending_deferred,
+                    false,
                 )?;
                 let mut next_tasks = merge_interrupted_tasks(
                     &tasks,
                     |task| interrupted_ids.contains(&task.id),
                     scheduled,
-                    true,
                 );
                 for task in &mut next_tasks {
                     if interrupted_ids.contains(&task.id) {
@@ -329,11 +337,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
                 .map(|(task, _)| task.id.clone())
                 .collect();
-            let finish_writes: Vec<crate::kernel::checkpoint::PendingWrite> =
+            let mut finish_writes: Vec<crate::kernel::checkpoint::PendingWrite> =
                 collect_pending_writes(&tasks, &outcomes)
                     .into_iter()
                     .filter(|write| backend.schema().is_finish_value(&write.channel))
                     .collect();
+            finish_writes.extend(finish_pending(&finish_updates));
             let successful: Vec<TaskOutcome> = outcomes
                 .into_iter()
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
@@ -366,12 +375,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 |node| PregelBackend::destinations_of(backend, node),
                 |node| backend.is_deferred(node),
                 &mut pending_deferred,
+                false,
             )?;
             let mut next_tasks = merge_interrupted_tasks(
                 &tasks,
                 |task| interrupted_task_ids.contains(&task.id),
                 scheduled,
-                true,
             );
             for task in &mut next_tasks {
                 if interrupted_task_ids.contains(&task.id) {
@@ -446,6 +455,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             |node| PregelBackend::destinations_of(backend, node),
             |node| backend.is_deferred(node),
             &mut pending_deferred,
+            true,
         )?;
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
@@ -468,7 +478,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 interrupt_after.is_some(),
                 false,
                 interrupt_after.clone().into_iter().collect(),
-                Vec::new(),
+                finish_pending(&finish_updates),
                 pending_deferred.clone(),
                 &executed,
                 sink,
@@ -557,4 +567,19 @@ fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
             sink(chunk);
         }
     }
+}
+
+fn finish_pending(
+    finish_updates: &HashMap<String, Value>,
+) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+    finish_updates
+        .iter()
+        .map(|(channel, value)| crate::kernel::checkpoint::PendingWrite {
+            task_id: "__finish__".to_string(),
+            node: "__finish__".to_string(),
+            channel: channel.clone(),
+            value: value.clone(),
+            replace: false,
+        })
+        .collect()
 }

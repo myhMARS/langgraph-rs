@@ -150,6 +150,7 @@ pub(crate) fn schedule_next_tasks<'a>(
     destinations_of: impl Fn(&str) -> Option<&'a [String]>,
     is_deferred: impl Fn(&str) -> bool,
     pending_deferred: &mut Vec<Task>,
+    promote_deferred: bool,
 ) -> Result<Vec<Task>> {
     let handler_nodes: HashSet<String> = next_tasks
         .iter()
@@ -186,7 +187,7 @@ pub(crate) fn schedule_next_tasks<'a>(
         .partition(|task| is_deferred(&task.node));
     pending_deferred.extend(deferred_tasks);
     Ok(
-        if regular_tasks.is_empty() && !pending_deferred.is_empty() {
+        if promote_deferred && regular_tasks.is_empty() && !pending_deferred.is_empty() {
             std::mem::take(pending_deferred)
         } else {
             regular_tasks

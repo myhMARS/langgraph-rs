@@ -315,6 +315,15 @@ pub fn current_resume() -> Option<Value> {
     })
 }
 
+/// Latest resume value stamped onto the current task (subgraph propagation).
+pub(crate) fn current_resume_last() -> Option<Value> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|context| context.resume_values.last().cloned())
+    })
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct TaskContext {
     node: String,

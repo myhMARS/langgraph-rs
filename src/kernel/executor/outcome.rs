@@ -373,26 +373,15 @@ pub(crate) fn interrupts_from(outcomes: &[TaskOutcome]) -> Vec<Interrupt> {
         .collect()
 }
 
-/// Combine replayed interrupted tasks with newly scheduled tasks.
-///
-/// `match_by_id` keeps a task when its id is already present (single-interrupt replay);
-/// otherwise tasks are matched by node name (multiple pending interrupts).
+/// Combine replayed interrupted tasks with newly scheduled tasks by task id.
 pub(crate) fn merge_interrupted_tasks(
     tasks: &[Task],
     keep: impl Fn(&Task) -> bool,
     scheduled: Vec<Task>,
-    match_by_id: bool,
 ) -> Vec<Task> {
     let mut merged: Vec<Task> = tasks.iter().filter(|task| keep(task)).cloned().collect();
     for task in scheduled {
-        let exists = merged.iter().any(|existing| {
-            if match_by_id {
-                existing.id == task.id
-            } else {
-                existing.node == task.node
-            }
-        });
-        if !exists {
+        if !merged.iter().any(|existing| existing.id == task.id) {
             merged.push(task);
         }
     }
