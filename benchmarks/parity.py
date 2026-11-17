@@ -600,6 +600,22 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Two sequential interrupts in one node, resumed with two values.
+    lg_value = lg_multi_interrupt()
+    rs_value = rs_multi_interrupt()
+    results.append(
+        {
+            "scenario": "multi_interrupt",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_multi_interrupt),
+                "lg": measure(lg_multi_interrupt),
+            },
+        }
+    )
+
     # Snapshot metadata: source and next tasks (step numbering differs: LangGraph
     # counts input checkpoints across the thread, the binding resets per run).
     lg_meta = lg_snapshot_metadata()
@@ -820,6 +836,60 @@ def rs_graph_export():
         [node["id"] for node in view["nodes"]],
         [(edge["source"], edge["target"]) for edge in view["edges"]],
     )
+
+
+_multi_counter = [0]
+
+
+def lg_multi_interrupt():
+    _multi_counter[0] += 1
+    thread = f"parity-lg-multi-{_multi_counter[0]}"
+
+    def ask(state):
+        first = lg_interrupt("first")
+        second = lg_interrupt("second")
+        return {"value": first + second}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("ask", ask)
+    graph.add_edge(START, "ask")
+    graph.add_edge("ask", END)
+    compiled = graph.compile(checkpointer=LgInMemorySaver())
+    config = {"configurable": {"thread_id": thread}}
+    try:
+        compiled.invoke({"value": 0}, config)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        compiled.invoke(LgCommand(resume=5), config)
+    except Exception:  # noqa: BLE001
+        pass
+    return compiled.invoke(LgCommand(resume=7), config)
+
+
+def rs_multi_interrupt():
+    _multi_counter[0] += 1
+    thread = f"parity-rs-multi-{_multi_counter[0]}"
+
+    def ask(state):
+        first = rs.interrupt("first")
+        second = rs.interrupt("second")
+        return {"value": first + second}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("ask", ask)
+    graph.set_entry_point("ask")
+    graph.set_finish_point("ask")
+    compiled = graph.compile(checkpointer=rs.InMemorySaver())
+    try:
+        compiled.invoke({"value": 0}, thread_id=thread)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        compiled.resume(thread, 5)
+    except Exception:  # noqa: BLE001
+        pass
+    return compiled.resume(thread, 7)
 
 
 def lg_snapshot_metadata():

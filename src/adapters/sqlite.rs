@@ -96,8 +96,9 @@ fn encode(checkpoint: &Checkpoint) -> Result<String> {
 impl Checkpointer for SqliteSaver {
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         let payload = encode(&checkpoint)?;
-        self.lock()
-            .execute(
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare_cached(
                 "INSERT INTO langgraph_rs_checkpoints
                      (thread_id, id, namespace, step, created_at, payload)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -106,15 +107,19 @@ impl Checkpointer for SqliteSaver {
                      step = excluded.step,
                      created_at = excluded.created_at,
                      payload = excluded.payload",
-                params![
-                    checkpoint.thread_id,
-                    checkpoint.id,
-                    checkpoint.namespace,
-                    checkpoint.step as i64,
-                    checkpoint.created_at_millis as i64,
-                    payload
-                ],
             )
+            .map_err(|error| {
+                Error::Checkpoint(format!("sqlite: prepare checkpoint write: {error}"))
+            })?;
+        statement
+            .execute(params![
+                checkpoint.thread_id,
+                checkpoint.id,
+                checkpoint.namespace,
+                checkpoint.step as i64,
+                checkpoint.created_at_millis as i64,
+                payload
+            ])
             .map_err(|error| Error::Checkpoint(format!("sqlite: store checkpoint: {error}")))?;
         Ok(())
     }

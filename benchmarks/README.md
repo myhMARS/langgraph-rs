@@ -97,12 +97,12 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers 33 scenarios: linear execution, conditional branches, loops, batch,
-managed values, v1/v2 streaming, messages/token streaming, functional API, Send fan-out, deferred nodes, graph export, time travel, pending writes, snapshot metadata, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache, store round trips, SQLite/Postgres/Redis persistence, async
+The latest run covers 34 scenarios: linear execution, conditional branches, loops, batch,
+managed values, v1/v2 streaming, messages/token streaming, functional API, Send fan-out, deferred nodes, graph export, time travel, pending writes, snapshot metadata, multi-interrupt resumes, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache, store round trips, SQLite/Postgres/Redis persistence, async
 execution, interrupt/resume, nested subgraph interrupt/resume, `update_state`, checkpoint
 history, and subgraphs. Every scenario records behavior equivalence plus per-scenario latency
-for both engines. The SQLite saver runs in WAL/NORMAL mode, which brought its parity benchmark
-from ~0.5x to ~20-29x versus LangGraph.
+for both engines. The SQLite saver runs in WAL/NORMAL mode and reuses a cached insert statement,
+which brought its parity benchmark from ~0.5x to ~25x versus LangGraph.
 
 Postgres/Redis scenarios are opt-in because they need live databases:
 
@@ -112,4 +112,4 @@ export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
 python benchmarks/parity.py
 ```
 
-Latest remote results: Postgres ~1.04x, Redis ~2.19x versus LangGraph. Postgres writes now reuse a prepared statement, reducing per-checkpoint parse overhead. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
+Latest remote results: Postgres ~1.07x, Redis ~2.06x versus LangGraph. Postgres writes now reuse a prepared statement, reducing per-checkpoint parse overhead. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
