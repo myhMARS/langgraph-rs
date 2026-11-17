@@ -294,16 +294,15 @@ class StreamingTests(unittest.TestCase):
         graph.set_finish_point("emit")
         compiled = graph.compile()
         chunks = compiled.stream({"value": 0})
-        kinds = {chunk["type"] for chunk in chunks}
-        # LangGraph's default stream mode is "updates".
-        self.assertEqual(kinds, {"updates"})
+        # LangGraph's default stream mode is "updates": raw {node: update} maps.
+        self.assertTrue(chunks)
+        self.assertTrue(all(isinstance(chunk, dict) for chunk in chunks))
         all_chunks = compiled.stream(
             {"value": 0}, stream_mode=["values", "updates", "custom"]
         )
-        all_kinds = {chunk["type"] for chunk in all_chunks}
-        self.assertIn("values", all_kinds)
-        self.assertIn("updates", all_kinds)
-        self.assertIn("custom", all_kinds)
+        self.assertTrue(any(chunk == {"progress": 0.5} for chunk in all_chunks))
+        self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in all_chunks))
+        self.assertTrue(any(isinstance(chunk, dict) and "emit" in chunk for chunk in all_chunks))
 
     def test_stream_modes(self):
         graph = lg.StateGraph({"value": "last_value"})
@@ -317,16 +316,14 @@ class StreamingTests(unittest.TestCase):
         compiled = graph.compile()
 
         values = compiled.stream({"value": 0}, stream_mode="values")
-        self.assertTrue(all(chunk["type"] in ("values", "usage") for chunk in values))
-        self.assertIn("values", {chunk["type"] for chunk in values})
+        self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in values))
 
         custom_modes = compiled.stream({"value": 0}, stream_mode=["values", "custom"])
-        types = {chunk["type"] for chunk in custom_modes}
-        self.assertIn("custom", types)
-        self.assertIn("values", types)
+        self.assertTrue(any(chunk == {"progress": 1} for chunk in custom_modes))
+        self.assertTrue(any(isinstance(chunk, dict) and "value" in chunk for chunk in custom_modes))
 
         messages = compiled.stream({"value": 0}, stream_mode="messages")
-        self.assertIn("messages", {chunk["type"] for chunk in messages})
+        self.assertTrue(any(isinstance(chunk, tuple) for chunk in messages))
 
     def test_module_metadata(self):
         self.assertEqual(lg.START, "__start__")
@@ -715,13 +712,9 @@ class PythonParityRound2Tests(unittest.TestCase):
         parent.add_edge("seed", "child")
         parent.set_finish_point("child")
         chunks = parent.compile().stream({"value": 0}, subgraphs=True)
-        namespaces = [
-            chunk.get("namespace")
-            for chunk in chunks
-            if isinstance(chunk, dict) and "namespace" in chunk
-        ]
+        namespaces = [chunk[0] for chunk in chunks if isinstance(chunk, tuple)]
         self.assertTrue(
-            any(namespace and namespace.startswith("child") for namespace in namespaces)
+            any("".join(namespace).startswith("child") for namespace in namespaces)
         )
 
 
@@ -923,19 +916,15 @@ class AsyncPythonTests(unittest.TestCase):
             chunks = await compiled.astream(
                 {"value": 0}, subgraphs=True
             )
-            namespaces = [
-                chunk.get("namespace")
-                for chunk in chunks
-                if isinstance(chunk, dict) and "namespace" in chunk
-            ]
+            namespaces = [chunk[0] for chunk in chunks if isinstance(chunk, tuple)]
             updates = await compiled.astream(
                 {"value": 0}, stream_mode=["updates"]
             )
             return namespaces, updates
 
         namespaces, updates = asyncio.run(scenario())
-        self.assertTrue(any(ns and ns.startswith("child") for ns in namespaces))
-        self.assertTrue(any(chunk.get("type") == "updates" for chunk in updates))
+        self.assertTrue(any("".join(ns).startswith("child") for ns in namespaces))
+        self.assertTrue(any(isinstance(chunk, dict) for chunk in updates))
 
 
     def test_async_batch_and_message_graph(self):
@@ -1358,7 +1347,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("cfg")
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
         chunks = compiled.stream({}, thread_id="closeout", stream_mode=["custom"])
-        self.assertTrue(any(chunk.get("type") == "custom" for chunk in chunks))
+        self.assertTrue(any(chunk == {"from": "cfg"} for chunk in chunks))
         snapshot = compiled.get_state("closeout")
         self.assertEqual(snapshot["values"]["value"], "closeout")
         self.assertEqual(
@@ -2209,9 +2198,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("model")
         chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
         tokens = "".join(
-            chunk["message"]["content"]
-            for chunk in chunks
-            if chunk["type"] == "messages"
+            chunk[0]["content"] for chunk in chunks if isinstance(chunk, tuple)
         )
         self.assertEqual(tokens, "hello world")
 

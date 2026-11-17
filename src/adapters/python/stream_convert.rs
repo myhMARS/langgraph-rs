@@ -205,15 +205,18 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
 }
 
 pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
     match chunk {
         StreamChunk::Subgraph { namespace, chunk } => {
-            dict.set_item("type", "subgraph")?;
-            dict.set_item("namespace", namespace.clone())?;
-            dict.set_item("chunk", chunk_to_py(py, chunk)?)?;
+            let namespace: Vec<String> = if namespace.is_empty() {
+                Vec::new()
+            } else {
+                namespace.split('|').map(str::to_owned).collect()
+            };
+            let inner = chunk_to_py(py, chunk)?;
+            Ok((namespace, inner).into_pyobject(py)?.into_any().unbind())
         }
         StreamChunk::Usage { execution } => {
-            dict.set_item("type", "usage")?;
+            let dict = PyDict::new(py);
             dict.set_item("node", execution.node.clone())?;
             dict.set_item("step", execution.step)?;
             dict.set_item("duration_millis", execution.duration_millis)?;
@@ -222,36 +225,51 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                     .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
                 dict.set_item("usage", value_to_py(py, &usage)?)?;
             }
+            Ok(dict.into_any().unbind())
         }
-        StreamChunk::Values { step, values } => {
-            dict.set_item("type", "values")?;
-            dict.set_item("step", *step)?;
-            dict.set_item("values", value_to_py(py, values)?)?;
+        StreamChunk::Values { values, .. } => value_to_py(py, values),
+        StreamChunk::Updates { node, update, .. } => {
+            let data = PyDict::new(py);
+            data.set_item(node, value_to_py(py, update)?)?;
+            Ok(data.into_any().unbind())
         }
-        StreamChunk::Updates { step, node, update } => {
-            dict.set_item("type", "updates")?;
-            dict.set_item("step", *step)?;
-            dict.set_item("node", node.clone())?;
-            dict.set_item("update", value_to_py(py, update)?)?;
-        }
-        StreamChunk::Custom { node, value } => {
-            dict.set_item("type", "custom")?;
-            dict.set_item("node", node.clone())?;
-            dict.set_item("value", value_to_py(py, value)?)?;
-        }
+        StreamChunk::Custom { value, .. } => value_to_py(py, value),
         StreamChunk::Interrupt { node, value } => {
-            dict.set_item("type", "interrupt")?;
-            dict.set_item("node", node.clone())?;
-            dict.set_item("value", value_to_py(py, value)?)?;
+            let interrupt = PyDict::new(py);
+            interrupt.set_item("node", node)?;
+            interrupt.set_item("value", value_to_py(py, value)?)?;
+            let data = PyDict::new(py);
+            data.set_item("__interrupt__", vec![interrupt])?;
+            Ok(data.into_any().unbind())
         }
-        StreamChunk::Checkpoint { checkpoint_id, .. } => {
-            dict.set_item("type", "checkpoint")?;
-            dict.set_item("checkpoint_id", checkpoint_id.clone())?;
-        }
+        StreamChunk::Checkpoint { payload, .. } => value_to_py(py, payload),
         StreamChunk::Message { node, message } => {
-            dict.set_item("type", "messages")?;
-            dict.set_item("node", node.clone())?;
-            dict.set_item("message", value_to_py(py, message)?)?;
+            let metadata = PyDict::new(py);
+            metadata.set_item("langgraph_node", node)?;
+            let tags = PyList::empty(py);
+            if let Some(object) = message.as_object() {
+                if let Some(values) = object.get("tags").and_then(serde_json::Value::as_array) {
+                    for tag in values {
+                        tags.append(value_to_py(py, tag)?)?;
+                    }
+                }
+                if let Some(extra) = object
+                    .get("metadata")
+                    .and_then(serde_json::Value::as_object)
+                {
+                    for (key, value) in extra {
+                        if key != "langgraph_node" && key != "tags" {
+                            metadata.set_item(key, value_to_py(py, value)?)?;
+                        }
+                    }
+                }
+            }
+            metadata.set_item("tags", tags)?;
+            let result = PyTuple::new(
+                py,
+                [value_to_py(py, message)?, metadata.into_any().unbind()],
+            )?;
+            Ok(result.into_any().unbind())
         }
         StreamChunk::Task {
             step,
@@ -260,9 +278,10 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             result,
             error,
         } => {
-            dict.set_item("type", "tasks")?;
+            let dict = PyDict::new(py);
+            dict.set_item("id", node)?;
+            dict.set_item("name", node)?;
             dict.set_item("step", *step)?;
-            dict.set_item("node", node.clone())?;
             if let Some(input) = input {
                 dict.set_item("input", value_to_py(py, input)?)?;
             }
@@ -276,12 +295,18 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                 failure.set_item("attempts", error.attempts)?;
                 dict.set_item("error", failure)?;
             }
+            Ok(dict.into_any().unbind())
         }
         StreamChunk::Debug { step, payload } => {
-            dict.set_item("type", "debug")?;
+            let dict = PyDict::new(py);
+            dict.set_item("type", "checkpoint")?;
+            dict.set_item(
+                "timestamp",
+                crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis()),
+            )?;
             dict.set_item("step", *step)?;
             dict.set_item("payload", value_to_py(py, payload)?)?;
+            Ok(dict.into_any().unbind())
         }
     }
-    Ok(dict.into_any().unbind())
 }
