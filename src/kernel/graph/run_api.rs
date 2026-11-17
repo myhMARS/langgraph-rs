@@ -7,7 +7,7 @@ use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::executor::{self, StartInput};
 use crate::kernel::graph::options::RunConfig;
-use crate::kernel::state::{State, state_to_values};
+use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values, values_to_state};
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;
 
@@ -17,6 +17,87 @@ impl<S: State> CompiledGraph<S> {
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute_quiet(self, StartInput::Values(values), config, &mut sink)
             .map(|outcome| outcome.state)
+    }
+
+    /// Run a graph on an existing thread, applying `updates` over the latest checkpoint
+    /// before starting from the graph's entry points (LangGraph `invoke(dict, config)`).
+    pub fn run_on_thread<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        config: &RunConfig,
+    ) -> Result<RunOutcome<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let mut values = match self.checkpointer() {
+            Some(checkpointer) => checkpointer
+                .latest_in(thread_id, config.checkpoint_ns.as_deref().unwrap_or(""))
+                .map(|checkpoint| {
+                    checkpoint
+                        .map(|checkpoint| checkpoint.values)
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default(),
+            None => Default::default(),
+        };
+        apply_updates(
+            &self.schema,
+            &mut values,
+            updates
+                .into_iter()
+                .map(|(channel, value)| ChannelUpdate {
+                    channel: channel.into(),
+                    value,
+                    node: "<input>".to_string(),
+                })
+                .collect(),
+        )?;
+        let _state: S = values_to_state(&values)?;
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute_quiet(self, StartInput::Values(values), &config, &mut sink)
+    }
+
+    /// Continue a thread and additionally schedule explicit `goto` targets.
+    pub fn resume_continue_with_goto<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        goto: Vec<String>,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        for node in &goto {
+            if node != crate::END && !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "Command(goto=...): `{node}` is not a registered node"
+                )));
+            }
+        }
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        let config = RunConfig::new().with_thread(thread_id);
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute_quiet(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: None,
+                resume: None,
+                updates: Some(updates),
+                goto,
+            },
+            &config,
+            &mut sink,
+        )
+        .map(|outcome| outcome.state)
     }
 
     /// Run the graph from a partial state patch applied over the default state.
@@ -452,6 +533,9 @@ impl<S: State> CompiledGraph<S> {
                 updates.unwrap_or_default(),
                 command.goto,
             ),
+            (None, false) => {
+                self.resume_continue_with_goto(thread_id, updates.unwrap_or_default(), command.goto)
+            }
             (resume, _) => self.resume_inner(thread_id, None, resume, updates, None, None),
         }
     }

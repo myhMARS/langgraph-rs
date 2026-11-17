@@ -47,22 +47,35 @@ impl PyCompiledGraph {
                 let targets = command.goto_targets(py)?;
                 if !targets.is_empty() && command.resume.is_none() {
                     let updates = command.to_update_map(py)?;
-                    let mut config = run_config(thread_id);
+                    let mut config = run_config(thread_id.clone());
                     if let Some(control) = control.clone() {
                         config = config.with_control(control);
                     }
                     if let Some(context) = context {
                         config = config.with_context(py_to_value(context)?);
                     }
+                    let thread = thread_id.clone();
                     let command = crate::Command {
                         resume: None,
-                        update: Some(updates),
-                        goto: targets,
+                        update: Some(updates.clone()),
+                        goto: targets.clone(),
                         parent: false,
                     };
-                    let result = py.detach(|| self.graph.run_command(command, &config));
+                    let result = py.detach(|| match thread.as_deref() {
+                        Some(thread) if self.graph.get_state(thread).ok().flatten().is_some() => {
+                            self.graph.resume_continue_with_goto(
+                                thread,
+                                updates.clone(),
+                                targets.clone(),
+                            )
+                        }
+                        _ => self
+                            .graph
+                            .run_command(command, &config)
+                            .map(|outcome| outcome.state),
+                    });
                     return match result {
-                        Ok(outcome) => json_state_to_py(py, &outcome.state),
+                        Ok(state) => json_state_to_py(py, &state),
                         Err(error) => Err(to_pyerr(py, error)),
                     };
                 }
@@ -118,8 +131,7 @@ impl PyCompiledGraph {
                 };
             }
         }
-        let state = state_from_py(input)?;
-        let mut config = run_config(thread_id);
+        let mut config = run_config(thread_id.clone());
         if let Some(namespace) = checkpoint_ns {
             config = config.with_checkpoint_ns(namespace);
         }
@@ -129,6 +141,33 @@ impl PyCompiledGraph {
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
+        let input_is_none = input.map(|value| value.is_none()).unwrap_or(true);
+        if input_is_none {
+            if let Some(thread) = thread_id.as_deref() {
+                let result = py.detach(|| self.graph.continue_thread(thread));
+                return match result {
+                    Ok(state) => json_state_to_py(py, &state),
+                    Err(error) => Err(to_pyerr(py, error)),
+                };
+            }
+        }
+        if let (Some(obj), Some(thread)) = (input, thread_id.as_deref()) {
+            if self.graph.get_state(thread).ok().flatten().is_some() {
+                let updates = py_to_value(obj)?;
+                if let Some(map) = updates.as_object() {
+                    let updates: Vec<(String, crate::Value)> = map
+                        .iter()
+                        .map(|(channel, value)| (channel.clone(), value.clone()))
+                        .collect();
+                    let result = py.detach(|| self.graph.run_on_thread(thread, updates, &config));
+                    return match result {
+                        Ok(outcome) => json_state_to_py(py, &outcome.state),
+                        Err(error) => Err(to_pyerr(py, error)),
+                    };
+                }
+            }
+        }
+        let state = state_from_py(input)?;
         let result = py.detach(|| self.graph.invoke(&state, &config));
         match result {
             Ok(state) => json_state_to_py(py, &state),

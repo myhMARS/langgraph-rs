@@ -120,5 +120,32 @@ class MessagesStateTests(unittest.TestCase):
         self.assertIn("other", output["log"])
 
 
+    def test_threaded_invoke_merges_and_resumes(self):
+        graph = lg.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node("a", lambda state: {"value": 1, "log": ["a"]})
+        graph.add_node("b", lambda state: {"value": 2, "log": ["b"]})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        compiled = graph.compile(
+            checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke(
+                {"value": 0, "log": []}, thread_id="threaded-invoke"
+            )
+        output = compiled.invoke(None, thread_id="threaded-invoke")
+        self.assertEqual(output["log"], ["a", "b"])
+
+        merged = lg.StateGraph({"value": "last_value", "log": "append"})
+        merged.add_node("a", lambda state: {"value": state["value"] + 1, "log": ["a"]})
+        merged.set_entry_point("a")
+        merged.set_finish_point("a")
+        compiled_merged = merged.compile(checkpointer=lg.InMemorySaver())
+        compiled_merged.invoke({"value": 0, "log": []}, thread_id="merge")
+        output = compiled_merged.invoke({"log": ["b"]}, thread_id="merge")
+        self.assertEqual(output["log"], ["a", "b", "a"])
+
+
 if __name__ == "__main__":
     unittest.main()
