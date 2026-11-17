@@ -21,9 +21,11 @@ from typing import TypedDict
 import langgraph_rs as rs
 from langgraph.checkpoint.memory import InMemorySaver as LgInMemorySaver
 from langgraph.graph import END, START, StateGraph as LgStateGraph
+from langgraph.cache.memory import InMemoryCache as LgCache
 from langgraph.config import get_store as lg_get_store
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
+from langgraph.types import CachePolicy as LgCachePolicy
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy
 from langgraph.types import interrupt as lg_interrupt
 
@@ -385,6 +387,30 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Node cache: second identical invocation reuses the cached output.
+    lg_graph, lg_cache_calls = lg_cache_graph()
+    rs_graph, rs_cache_calls = rs_cache_graph()
+    lg_first = lg_graph.invoke({"value": 0})
+    lg_second = lg_graph.invoke({"value": 0})
+    rs_first = rs_graph.invoke({"value": 0})
+    rs_second = rs_graph.invoke({"value": 0})
+    results.append(
+        {
+            "scenario": "node_cache",
+            "rs": {"value": rs_second, "calls": rs_cache_calls()},
+            "lg": {"value": lg_second, "calls": lg_cache_calls()},
+            "equivalent": (
+                rs_first == lg_first
+                and rs_second == lg_second
+                and rs_cache_calls() == lg_cache_calls()
+            ),
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"value": 0})),
+                "lg": measure(lambda: lg_graph.invoke({"value": 0})),
+            },
+        }
+    )
+
     # v2 stream: compare the final values part (the binding also emits its usage
     # extension chunk, which LangGraph has no equivalent for).
     lg_graph, rs_graph = lg_linear(), rs_linear()
@@ -589,6 +615,34 @@ def rs_command_graph():
     return graph.compile()
 
 
+def lg_cache_graph():
+    calls = {"count": 0}
+
+    def work(state):
+        calls["count"] += 1
+        return {"value": state["value"] + 1}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("work", work, cache_policy=LgCachePolicy(ttl=60))
+    graph.add_edge(START, "work")
+    graph.add_edge("work", END)
+    return graph.compile(cache=LgCache()), lambda: calls["count"]
+
+
+def rs_cache_graph():
+    calls = {"count": 0}
+
+    def work(state):
+        calls["count"] += 1
+        return {"value": state["value"] + 1}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("work", work, cache_policy=rs.CachePolicy(ttl=60))
+    graph.set_entry_point("work")
+    graph.set_finish_point("work")
+    return graph.compile(cache=rs.InMemoryCache()), lambda: calls["count"]
+
+
 def lg_managed_graph():
     graph = LgStateGraph(LgManagedState)
     graph.add_node(
@@ -776,6 +830,73 @@ def run_checkpoint_scenarios() -> list[dict]:
     return results
 
 
+def lg_subgraph_interrupt_graph():
+    saver = LgInMemorySaver()
+    child = LgStateGraph(dict)
+    child.add_node(
+        "ask",
+        lambda state: {"value": state.get("value", 0) + lg_interrupt("delta")},
+    )
+    child.add_edge(START, "ask")
+    child.add_edge("ask", END)
+    parent = LgStateGraph(dict)
+    parent.add_node("child", child.compile(checkpointer=saver))
+    parent.add_edge(START, "child")
+    parent.add_edge("child", END)
+    return parent.compile(checkpointer=saver)
+
+
+def rs_subgraph_interrupt_graph():
+    saver = rs.InMemorySaver()
+    child = rs.StateGraph({"value": "last_value"})
+    child.add_node(
+        "ask",
+        lambda state: {"value": state.get("value", 0) + rs.interrupt("delta")},
+    )
+    child.set_entry_point("ask")
+    child.set_finish_point("ask")
+    child_compiled = child.compile(checkpointer=saver)
+    parent = rs.StateGraph({"value": "last_value"})
+    parent.add_subgraph("child", child_compiled)
+    parent.set_entry_point("child")
+    parent.set_finish_point("child")
+    return parent.compile(checkpointer=saver)
+
+
+def run_subgraph_interrupt_scenario() -> list[dict]:
+    lg_graph = lg_subgraph_interrupt_graph()
+    rs_graph = rs_subgraph_interrupt_graph()
+    lg_thread = {"configurable": {"thread_id": "parity-lg-subgraph-int"}}
+    try:
+        lg_graph.invoke({"value": 0}, lg_thread)
+        lg_error = None
+    except Exception as exc:  # noqa: BLE001
+        lg_error = type(exc).__name__
+    try:
+        rs_graph.invoke({"value": 0}, thread_id="parity-rs-subgraph-int")
+        rs_error = None
+    except Exception as exc:  # noqa: BLE001
+        rs_error = type(exc).__name__
+    lg_value = lg_graph.invoke(LgCommand(resume=5), lg_thread)
+    rs_value = rs_graph.resume("parity-rs-subgraph-int", 5)
+    return [
+        {
+            "scenario": "subgraph_interrupt",
+            "rs": {"error": rs_error, "value": rs_value},
+            "lg": {"error": lg_error, "value": lg_value},
+            "equivalent": lg_value == rs_value,
+            "bench": {
+                "rs": measure(
+                    lambda: interrupt_bench(rs_graph, "rs-subgraph", False)
+                ),
+                "lg": measure(
+                    lambda: interrupt_bench(lg_graph, "lg-subgraph", True)
+                ),
+            },
+        }
+    ]
+
+
 def run_subgraph_scenario() -> list[dict]:
     lg_graph, rs_graph = lg_subgraph(), rs_subgraph()
     lg_value = lg_graph.invoke({"value": 1})
@@ -800,6 +921,7 @@ def main() -> None:
         run_linear_scenarios,
         run_checkpoint_scenarios,
         run_subgraph_scenario,
+        run_subgraph_interrupt_scenario,
     ):
         try:
             results.extend(runner())
