@@ -12,7 +12,7 @@ use crate::kernel::error::Result;
 use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
 use crate::kernel::ports::{Checkpointer, TraceSink};
 use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates};
+use crate::kernel::state::{State, StateSchema};
 use crate::kernel::store::BaseStore;
 use crate::kernel::timeout::TimeoutPolicy;
 
