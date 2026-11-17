@@ -209,6 +209,35 @@ impl LangGraphSqliteSaver {
     }
 }
 
+fn encode_interrupt_ext(interrupt: &crate::kernel::error::Interrupt) -> Vec<u8> {
+    let mut payload = Map::new();
+    payload.insert("value".to_string(), interrupt.value.clone());
+    payload.insert("id".to_string(), Value::String(interrupt.id.clone()));
+    if let Some(schema) = &interrupt.response_schema {
+        payload.insert("response_schema".to_string(), schema.clone());
+    }
+    let body = crate::interop::msgpack::encode(&Value::Array(vec![
+        Value::String("langgraph.types".to_string()),
+        Value::String("Interrupt".to_string()),
+        Value::Object(payload),
+    ]));
+    // LangGraph's serializer wraps types in msgpack ext type 2.
+    let mut bytes = Vec::with_capacity(body.len() + 4);
+    if body.len() <= u8::MAX as usize {
+        bytes.extend_from_slice(&[0xc7, body.len() as u8, 0x02]);
+    } else if body.len() <= u16::MAX as usize {
+        bytes.push(0xc8);
+        bytes.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        bytes.push(0x02);
+    } else {
+        bytes.push(0xc9);
+        bytes.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        bytes.push(0x02);
+    }
+    bytes.extend_from_slice(&body);
+    bytes
+}
+
 impl Checkpointer for LangGraphSqliteSaver {
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         let (checkpoint_blob, metadata_blob) = Self::langgraph_payload(&checkpoint)?;
@@ -239,7 +268,7 @@ impl Checkpointer for LangGraphSqliteSaver {
             .prepare(
                 "INSERT OR REPLACE INTO writes
                     (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, idx, channel, type, value)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'msgpack', ?8)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite saver: writes: {error}")))?;
         // Group writes per task and publish them as one LangGraph `__root__` write.
@@ -262,10 +291,52 @@ impl Checkpointer for LangGraphSqliteSaver {
                     format!("~__pregel_pull, {node}"),
                     0i64,
                     "__root__",
+                    "msgpack",
                     value,
                 ])
                 .map_err(|error| {
                     Error::Checkpoint(format!("langgraph sqlite saver: write row: {error}"))
+                })?;
+        }
+        for (index, task) in checkpoint.next.iter().enumerate() {
+            statement
+                .execute(params![
+                    checkpoint.thread_id,
+                    checkpoint.namespace,
+                    checkpoint_id,
+                    task.id,
+                    format!("~__pregel_pull, {}", task.node),
+                    index as i64 + 1,
+                    format!("branch:to:{}", task.node),
+                    "null",
+                    Vec::<u8>::new(),
+                ])
+                .map_err(|error| {
+                    Error::Checkpoint(format!("langgraph sqlite saver: branch write: {error}"))
+                })?;
+        }
+        for interrupt in &checkpoint.interrupts {
+            let task_id = checkpoint
+                .next
+                .iter()
+                .find(|task| task.node == interrupt.node)
+                .map(|task| task.id.clone())
+                .unwrap_or_else(|| interrupt.id.clone());
+            let value = encode_interrupt_ext(interrupt);
+            statement
+                .execute(params![
+                    checkpoint.thread_id,
+                    checkpoint.namespace,
+                    checkpoint_id,
+                    task_id,
+                    format!("~__pregel_pull, {}", interrupt.node),
+                    -3i64,
+                    "__interrupt__",
+                    "msgpack",
+                    value,
+                ])
+                .map_err(|error| {
+                    Error::Checkpoint(format!("langgraph sqlite saver: interrupt write: {error}"))
                 })?;
         }
         Ok(())
