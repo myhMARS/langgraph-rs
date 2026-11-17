@@ -23,7 +23,7 @@ use crate::kernel::executor::outcome::{
     values_chunk,
 };
 use crate::kernel::executor::scheduling::{collect_next_nodes, schedule_next_tasks};
-use crate::kernel::executor::{StartInput, start, step};
+use crate::kernel::executor::{StartInput, apply_pending_writes, start, step};
 use crate::kernel::graph::RunConfig;
 use crate::kernel::node::Task;
 use crate::kernel::state::{State, values_to_state};
@@ -92,6 +92,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
             })?;
         parent = Some(checkpoint.id.clone());
+        previous_checkpoint = Some(checkpoint.clone());
         skip_interrupt_before = checkpoint.paused_before;
         let (values, state, tasks) =
             start::resolve_resume_start(&checkpoint, &resume, updates, backend.schema())?;
@@ -236,10 +237,39 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                     .collect();
                 let processed = process_outcomes(backend, successful, step, &mut report, sink)?;
+                // Successful siblings still contribute their outgoing routes even though
+                // their values stay pending until resume.
+                let mut routing_values = values.clone();
+                let routing_writes: Vec<_> = pending_writes
+                    .iter()
+                    .filter(|write| !backend.schema().is_finish_value(&write.channel))
+                    .cloned()
+                    .collect();
+                apply_pending_writes(backend.schema(), &mut routing_values, &routing_writes)?;
+                let routing_state = values_to_state::<S>(&routing_values)?;
+                let (next_nodes, router_sends) = collect_next_nodes(
+                    &routing_state,
+                    &processed.executed,
+                    &processed.goto_nodes,
+                    &processed.goto_targets,
+                    |node| backend.edges_of(node),
+                    |node| backend.conditional_of(node),
+                    |node| backend.node_exists(node),
+                    |node| PregelBackend::destinations_of(backend, node),
+                )?;
+                let scheduled = schedule_next_tasks(
+                    next_nodes,
+                    router_sends,
+                    processed.next_tasks,
+                    |node| backend.node_exists(node),
+                    |node| PregelBackend::destinations_of(backend, node),
+                    |node| backend.is_deferred(node),
+                    &mut pending_deferred,
+                )?;
                 let next_tasks = merge_interrupted_tasks(
                     &tasks,
                     |task| interrupted_ids.contains(&task.id),
-                    processed.next_tasks,
+                    scheduled,
                     true,
                 );
                 save_checkpoint_via(
@@ -285,10 +315,30 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &mut finish_updates,
             )?;
             sink(values_chunk(step, &values));
+            state = values_to_state::<S>(&values)?;
+            let (next_nodes, router_sends) = collect_next_nodes(
+                &state,
+                &processed.executed,
+                &processed.goto_nodes,
+                &processed.goto_targets,
+                |node| backend.edges_of(node),
+                |node| backend.conditional_of(node),
+                |node| backend.node_exists(node),
+                |node| PregelBackend::destinations_of(backend, node),
+            )?;
+            let scheduled = schedule_next_tasks(
+                next_nodes,
+                router_sends,
+                processed.next_tasks,
+                |node| backend.node_exists(node),
+                |node| PregelBackend::destinations_of(backend, node),
+                |node| backend.is_deferred(node),
+                &mut pending_deferred,
+            )?;
             let next_tasks = merge_interrupted_tasks(
                 &tasks,
                 |task| interrupted_nodes.contains(&task.node),
-                processed.next_tasks,
+                scheduled,
                 false,
             );
             save_checkpoint_via(

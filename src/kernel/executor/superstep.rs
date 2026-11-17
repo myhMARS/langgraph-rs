@@ -260,7 +260,14 @@ fn run_node_timed<S: State>(
     let resume = task.resume_history.clone();
     let task_id = task.id.clone();
     let error = task.error.clone();
+    let run = crate::kernel::context::capture_run_context();
+    let step = crate::kernel::context::capture_step_context();
+    let collector = crate::kernel::context::current_subgraph_collector();
     std::thread::spawn(move || {
+        let _run_guard = run.map(crate::kernel::context::install_run_context);
+        let _step_guard =
+            step.map(|(step, limit)| crate::kernel::context::install_step(step, limit));
+        let _collector_guard = collector.map(crate::kernel::context::install_subgraph_collector);
         let context = TaskContext::new(node_name.clone(), resume)
             .with_task_id(task_id)
             .with_error(error);

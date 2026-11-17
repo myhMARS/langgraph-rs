@@ -72,7 +72,12 @@ pub(crate) trait OutcomeGraph {
     fn error_handler(&self, node: &str) -> Option<&str>;
     fn has_node(&self, node: &str) -> bool;
     fn destinations_of(&self, node: &str) -> Option<&[String]>;
-    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>);
+    fn record_parent_command(
+        &self,
+        updates: Vec<(String, Value)>,
+        replaces: Vec<(String, Value)>,
+        goto: Vec<String>,
+    );
     fn has_parent_command(&self) -> bool;
 }
 
@@ -218,9 +223,11 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 });
                 if output.is_parent() {
                     let (updates, replaces, goto, _sends) = output.into_parts();
-                    let mut parent_updates: Vec<(String, Value)> = updates.into_iter().collect();
-                    parent_updates.extend(replaces);
-                    graph.record_parent_command(parent_updates, goto);
+                    graph.record_parent_command(
+                        updates.into_iter().collect::<Vec<_>>(),
+                        replaces.into_iter().collect::<Vec<_>>(),
+                        goto,
+                    );
                     continue;
                 }
                 let (updates, replaces, goto, sends) = output.into_parts();

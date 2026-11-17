@@ -44,3 +44,36 @@ fn parallel_nodes_see_the_run_context() {
     log.sort();
     assert_eq!(log, vec!["a:parallel-ctx", "b:parallel-ctx"]);
 }
+
+#[test]
+fn timed_nodes_see_the_run_context() {
+    use langgraph_rs::TimeoutPolicy;
+    use std::time::Duration;
+
+    let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node_with_timeout(
+            "slow",
+            TimeoutPolicy::new().with_run_timeout(Duration::from_secs(1)),
+            |_state: &JsonState| {
+                let thread = langgraph_rs::current_thread_id().unwrap_or_else(|| "none".into());
+                Ok(NodeOutput::new().update("log", json!([format!("slow:{thread}")])))
+            },
+        )
+        .set_entry_point("slow")
+        .set_finish_point("slow")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap();
+
+    let output = graph
+        .run(
+            &JsonState::new(),
+            &RunConfig::new().with_thread("timed-ctx"),
+        )
+        .unwrap();
+    let log = output
+        .state
+        .get("log")
+        .and_then(|value| value.as_array())
+        .unwrap();
+    assert_eq!(log[0], json!("slow:timed-ctx"));
+}

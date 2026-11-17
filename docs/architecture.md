@@ -177,7 +177,7 @@ A checkpoint is written only when both a `thread_id` and a checkpointer exist:
 | --- | --- | --- | --- | --- |
 | fresh run start, before any node | 0 | false | false | entry tasks |
 | `interrupt_before` pause | current | true | true | task list including the paused node |
-| node called `interrupt()` | current (pre-merge values) | true | false | whole task list of the superstep |
+| node called `interrupt()` (single) | current (pre-merge values) | true | false | interrupted tasks + routes of successful siblings |
 | after a completed superstep | current + 1 | false | false | next scheduled tasks |
 | `interrupt_after` pause | current + 1 | true | false | tasks following the paused node |
 
@@ -211,11 +211,12 @@ the chain.
    before that call therefore happens twice.
 6. Execution continues normally from the node's writes.
 
-**Sibling re-execution.** The checkpoint's `next` holds the whole task set of the interrupted
-superstep, so a resume re-runs every task in it — including siblings that finished before the
-interrupting node. Their writes were never merged (merging happens after all tasks join), so
-state stays consistent, but their external side effects repeat. Keep workers idempotent, or put
-human-in-the-loop interrupts in single-task supersteps.
+**Sibling writes and routes.** A single interrupt checkpoint keeps the interrupted tasks plus
+the static/conditional routes of successful siblings, and stores the siblings' writes as
+pending writes. On resume the interrupted nodes re-run, the pending writes are replayed, and
+the sibling routes become the next tasks; siblings themselves are not executed again. With
+multiple pending interrupts the successful siblings' values are merged immediately and only
+the interrupted tasks are kept.
 
 **`paused_before`.** An `interrupt_before` pause checkpoints the pending tasks with
 `paused_before = true`; on resume the flag becomes `skip_interrupt_before`, suppresses the hook
@@ -416,21 +417,23 @@ synchronous and hold a `Mutex` around their connection.
 
 ## Known limitations and divergences
 
-- **Sync engine is thread-local.** The default engine runs sync nodes; `interrupt()`,
-  `custom()` and `current_node()` only work on the thread executing the node, so work spawned
-  elsewhere in a node loses the context. Async nodes live in the separate Tokio adapter and
-  use an explicit `AsyncContext` instead.
-- **Async adapter scope.** The async adapter has no node caching yet (execution, streaming,
-  checkpoints, HITL, retries and error routing are supported); its nodes receive the state by
-  value (a clone per execution).
-- **Persistent adapters are synchronous.** SQLite/Redis/Postgres adapters hold a
-  `Mutex<Connection>` and block while writing; they are not surfaced through the async
-  adapter yet, and Redis entries have no TTL by default.
-- **Subgraphs share the state type.** `add_subgraph` embeds a compiled graph as a node with
-  `replace` writes for changed channels; per-subgraph state mapping, checkpoint namespacing
-  and nested interrupts are unsupported.
-- **All-or-nothing supersteps.** An interrupt discards the superstep's writes and re-runs its
-  whole task list on resume, so side effects must be idempotent.
+- **Sync engine is thread-local.** The default engine runs sync nodes; parallel superstep
+  workers inherit the run/step/collector context, but user code that spawns its own threads
+  loses it. `interrupt()`, `custom()` and `current_node()` therefore only work on the
+  executing thread. Async nodes use `AsyncContext` plus task-local run/step context.
+- **Async adapter scope.** The async adapter shares the kernel Pregel loop and supports
+  execution, streaming, checkpoints, HITL, retries, error routing, node caching, subgraphs
+  and the Python bindings; its nodes receive the state by value (a clone per execution).
+- **Persistent adapters.** SQLite/Redis/Postgres sync savers block while writing; native
+  `AsyncPostgresSaver` / `AsyncRedisSaver` are available for async graphs, and Redis entries
+  have no TTL by default.
+- **Subgraphs.** `add_subgraph` embeds a same-type compiled graph as a node; mapped subgraphs
+  (`add_subgraph_mapped`) support different state types, checkpoint namespaces and nested
+  interrupts.
+- **Interrupt checkpoint semantics.** A single interrupt keeps the pre-merge values, stores
+  the successful siblings' writes as pending writes, and resumes only the interrupted tasks;
+  multiple interrupts commit the successful siblings' values immediately. Interrupted nodes
+  re-run from the top, so their side effects must be idempotent.
 - **JSON state.** No non-serializable handles; integer/float fidelity is JSON's.
   `state_to_values` rejects non-object state with `Error::NonObjectState`.
 - **`invoke_updates` starts from the patch only**, not from `S::default()`, so fields absent
@@ -438,10 +441,9 @@ synchronous and hold a `Mutex` around their connection.
 - **Coarse hooks and node-only `Send`.** Only the first matching task is reported, with a `null`
   payload; routers are pure, and `Route` carries plain names, so fan-out with per-task state
   happens in the node via `NodeOutput::send`.
-- **Checkpoint ids are process-local** (`thread-step-sequence`, not UUIDs); `InMemorySaver` keeps
-  everything for the process lifetime with no pruning, and there are no retries, caching,
-  deferred nodes, checkpoint namespaces, per-node policies, graph visualisation or time-travel
-  UI — time travel is `resume_from(thread, id, value)`.
+- **Checkpoint ids are process-local** (`thread-step-sequence`, not UUIDs); `InMemorySaver`
+  keeps everything for the process lifetime with no pruning. Time travel is
+  `resume_from(thread, id, value)`.
 - **Reducer errors are unwrapped**: they surface as `Error::Other` without the node name,
   unlike node errors, which are wrapped in `Error::Node`.
 - **Retry/error timing.** Backoff sleeps happen on the task thread (a parallel superstep's

@@ -142,3 +142,51 @@ async fn async_subgraph_without_checkpointer_still_runs() {
     let output = parent.invoke(&AsyncState::default()).await.unwrap();
     assert_eq!(output.value, 42);
 }
+
+struct FailingCache;
+
+impl langgraph_rs::NodeCache for FailingCache {
+    fn get(&self, _key: &str) -> langgraph_rs::Result<Option<langgraph_rs::CachedOutput>> {
+        Err(langgraph_rs::Error::other("cache get failed"))
+    }
+
+    fn put(
+        &self,
+        _key: &str,
+        _output: langgraph_rs::CachedOutput,
+        _ttl: Option<Duration>,
+    ) -> langgraph_rs::Result<()> {
+        Err(langgraph_rs::Error::other("cache put failed"))
+    }
+
+    fn clear(&self) -> langgraph_rs::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn async_cache_lookup_errors_fail_the_node() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let graph = AsyncStateGraph::<AsyncState>::new()
+        .add_node("work", move |state: AsyncState, _ctx| {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(NodeOutput::new().set("value", state.value + 1))
+            }
+        })
+        .set_entry_point("work")
+        .set_finish_point("work")
+        .with_cache(Arc::new(FailingCache))
+        .set_cache("work", CachePolicy::new())
+        .compile()
+        .unwrap();
+
+    let error = graph
+        .run(&AsyncState::default(), &RunConfig::new())
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("cache"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

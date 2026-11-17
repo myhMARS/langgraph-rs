@@ -54,8 +54,7 @@
 ## 子图
 
 `add_subgraph` 包装一个已编译图：以父状态运行子图，比较前后序列化状态，仅对发生变化的 channel
-发出 `NodeOutput::replace`（绕过 reducer，避免重复追加）。子图共享父状态类型，暂不支持子图独立
-checkpoint、状态映射或嵌套中断。
+发出 `NodeOutput::replace`（绕过 reducer，避免重复追加）。同类型子图共享父状态类型；mapped 子图支持不同状态类型、独立 checkpoint namespace 与嵌套中断。
 
 ## 节点级缓存
 
@@ -84,11 +83,11 @@ path-map 标签、错误边标注 `on error`、节点标签包含重试次数与
   `collect_next_nodes` 与 `apply_updates`，保证与同步引擎语义一致。
 - `AsyncContext` 提供 `interrupt` / `record_usage` / `record_tokens` / `custom` / `last_error`；
   future 交错执行，因此不使用 thread-local 上下文。
-- 具备 checkpoint/HITL/重试/错误路由/流式/usage 能力；暂不支持节点缓存、子图与 Python 暴露。
+- 与同步共享同一 Pregel 主循环，具备 checkpoint/HITL/重试/错误路由/流式/usage/节点缓存/子图/Python 暴露能力；AsyncBackend 仅负责 future 调度与异步持久化。
 
 ## 已知限制
 
 - 同步引擎的 `interrupt()` / `custom()` / `current_node()` 依赖 thread-local，只能在执行线程内使用。
-- async 适配器暂不支持节点缓存、子图状态映射、子图 checkpoint 命名空间。
-- 持久化适配器是同步阻塞的，暂未接入 async 适配器；Redis 条目默认无 TTL。
+- mapped-state 子图目前只暴露在同步 builder 上。
+- SQLite/Redis/Postgres 同步 saver 写入时阻塞；异步图可使用 AsyncPostgresSaver / AsyncRedisSaver；Redis 条目默认无 TTL。
 - 状态必须序列化为 JSON 对象；Python 绑定使用 `JsonState` 与内置 reducer。

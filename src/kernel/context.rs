@@ -31,13 +31,16 @@ tokio::task_local! {
     /// Run context mirrored into the async task so tokio can migrate the future.
     pub(crate) static ASYNC_RUN: RunContext;
     static ASYNC_TASK_RESULTS: RefCell<Map<String, Value>>;
+    static ASYNC_NODE: (String, Option<String>);
 }
 
 /// `Command(graph=PARENT)` collected from a subgraph node.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ParentCommand {
-    /// Writes applied to the parent state.
+    /// Reducer writes applied to the parent state.
     pub updates: Vec<(String, Value)>,
+    /// Direct replacements applied to the parent state.
+    pub replaces: Vec<(String, Value)>,
     /// Parent nodes to schedule.
     pub goto: Vec<String>,
 }
@@ -48,11 +51,16 @@ pub(crate) fn clear_parent_command() {
     });
 }
 
-pub(crate) fn record_parent_command(updates: Vec<(String, Value)>, goto: Vec<String>) {
+pub(crate) fn record_parent_command(
+    updates: Vec<(String, Value)>,
+    replaces: Vec<(String, Value)>,
+    goto: Vec<String>,
+) {
     PARENT_COMMAND.with(|slot| {
         let mut slot = slot.borrow_mut();
         let command = slot.get_or_insert_with(ParentCommand::default);
         command.updates.extend(updates);
+        command.replaces.extend(replaces);
         command.goto.extend(goto);
     });
 }
@@ -141,6 +149,16 @@ pub(crate) async fn with_async_run<F: std::future::Future>(
     ASYNC_TASK_RESULTS
         .scope(results, ASYNC_RUN.scope(run, future))
         .await
+}
+
+/// Scope an async node future with its task identity for context accessors.
+#[cfg(feature = "async")]
+pub(crate) async fn with_async_node<F: std::future::Future>(
+    node: String,
+    task_id: Option<String>,
+    future: F,
+) -> F::Output {
+    ASYNC_NODE.scope((node, task_id), future).await
 }
 
 fn current_run() -> Option<RunContext> {
@@ -251,7 +269,7 @@ pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
 /// Remaining supersteps before the recursion limit (LangGraph `RemainingSteps`).
 ///
 /// Returns `None` outside a run. The value is `recursion_limit - step`, so the first
-/// superstep of a graph compiled with a limit of 25 reports 25.
+/// superstep of a graph compiled with a limit of 25 reports 24.
 pub fn remaining_steps() -> Option<usize> {
     if let Some(run) = current_run()
         && run.step_active.load(std::sync::atomic::Ordering::Relaxed)
@@ -776,12 +794,20 @@ pub fn record_tokens(input_tokens: u64, output_tokens: u64) -> Result<()> {
 /// Name of the node that is currently executing, if any.
 /// Superstep currently being executed, when called from a node.
 pub fn current_step() -> Option<usize> {
+    if let Some(run) = current_run()
+        && run.step_active.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Some(run.step.load(std::sync::atomic::Ordering::Relaxed));
+    }
     CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step))
 }
 
 /// Task id currently executing, when called from a node.
-#[allow(dead_code)]
 pub fn current_task_id() -> Option<String> {
+    #[cfg(feature = "async")]
+    if let Ok(task_id) = ASYNC_NODE.try_with(|(_, task_id)| task_id.clone()) {
+        return task_id;
+    }
     CURRENT_TASK.with(|slot| {
         slot.borrow()
             .as_ref()
@@ -790,6 +816,10 @@ pub fn current_task_id() -> Option<String> {
 }
 
 pub fn current_node() -> Option<String> {
+    #[cfg(feature = "async")]
+    if let Ok(node) = ASYNC_NODE.try_with(|(node, _)| node.clone()) {
+        return Some(node);
+    }
     CURRENT_TASK.with(|slot| slot.borrow().as_ref().map(|context| context.node.clone()))
 }
 

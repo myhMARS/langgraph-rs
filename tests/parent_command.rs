@@ -160,3 +160,52 @@ async fn async_parent_command_aborts_sibling_nodes() {
     assert_eq!(output.state.get("value"), Some(&json!(101)));
     assert_eq!(SIBLING_RAN.load(Ordering::SeqCst), 0);
 }
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_parent_command_merges_through_reducers() {
+    use langgraph_rs::tokio_runtime::AsyncStateGraph;
+    use langgraph_rs::{State, StateSchema, reducers};
+    use std::sync::Arc;
+
+    #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct LogState {
+        log: Vec<String>,
+    }
+
+    impl State for LogState {
+        fn schema() -> StateSchema {
+            StateSchema::new().with_reducer("log", reducers::append())
+        }
+    }
+
+    let child = AsyncStateGraph::<LogState>::new()
+        .add_node("jump", |_state: LogState, _ctx| async move {
+            Ok(NodeOutput::new()
+                .update("log", json!(["child"]))
+                .goto_parent("parent_after"))
+        })
+        .set_entry_point("jump")
+        .compile()
+        .unwrap();
+
+    let parent = AsyncStateGraph::<LogState>::new()
+        .add_node("seed", |_state: LogState, _ctx| async move {
+            Ok(NodeOutput::new().update("log", json!(["seed"])))
+        })
+        .add_subgraph("child", Arc::new(child))
+        .add_node("parent_after", |_state: LogState, _ctx| async move {
+            Ok(NodeOutput::new())
+        })
+        .set_entry_point("seed")
+        .add_edge("seed", "child")
+        .set_finish_point("parent_after")
+        .compile()
+        .unwrap();
+
+    let output = parent
+        .run(&LogState::default(), &RunConfig::new())
+        .await
+        .unwrap();
+    assert_eq!(output.state.log, vec!["seed", "child"]);
+}

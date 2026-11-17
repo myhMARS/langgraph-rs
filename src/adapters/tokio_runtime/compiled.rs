@@ -1007,7 +1007,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.context.clone(),
                 run.collector.clone(),
             );
-            let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
+            let future: BoxNodeFuture = Box::pin(crate::kernel::context::with_async_node(
+                task.node.clone(),
+                Some(task.id.clone()),
+                (node.as_ref())(input.clone(), context.clone()),
+            ));
             let idle_timeout = timeout_policy.idle_timeout();
             let result = if let Some(timeout) = run_timeout {
                 match tokio::time::timeout(timeout, future).await {
@@ -1364,8 +1368,13 @@ impl<'a, S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncBacke
         self.graph.destinations_of(node)
     }
 
-    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
-        super::context::record_parent_command(updates, goto);
+    fn record_parent_command(
+        &self,
+        updates: Vec<(String, Value)>,
+        replaces: Vec<(String, Value)>,
+        goto: Vec<String>,
+    ) {
+        super::context::record_parent_command(updates, replaces, goto);
     }
 
     fn has_parent_command(&self) -> bool {

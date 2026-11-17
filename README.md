@@ -502,7 +502,7 @@ async fn example() -> langgraph_rs::Result<()> {
 ```
 
 The async adapter covers the same checkpoint, HITL, retry, error-routing and streaming
-surface as the sync path (node caching and subgraphs remain sync-only):
+surface as the sync path, including node caching and same-type subgraphs:
 checkpointing and thread history, human-in-the-loop (`ctx.interrupt(...)` +
 `graph.resume(thread, value)`),
 `interrupt_before` / `interrupt_after`, per-node `RetryPolicy`, error routing with
@@ -825,9 +825,10 @@ functions; custom reducers are supported as Python callables in the schema.
 - **Sync-first, async opt-in.** The default engine runs `Fn(&S) -> Result<NodeOutput>` nodes on
   scoped threads; the `async` feature adds a Tokio adapter for async nodes. There is no event
   loop in the default path.
-- **Thread-local node context.** In synchronous graphs `interrupt()`, `custom()` and
-  `current_node()` read a thread-local installed per node call. Async graphs use `AsyncContext`
-  (carried through the future), so the helpers work there too.
+- **Node context.** In synchronous graphs `interrupt()`, `custom()` and
+  `current_node()` read a context installed per node call. Async graphs use `AsyncContext`
+  methods (and task-local run/step context); the free functions that read node-local state
+  still target the sync execution context.
 - **State must serialize to a JSON object.** Channel values are `serde_json::Value`; non-object
   state fails with `Error::NonObjectState`, keeping checkpoints language-neutral. Checkpoints are
   JSON documents, not LangGraph's checkpoint format.
@@ -835,8 +836,9 @@ functions; custom reducers are supported as Python callables in the schema.
   parallelism over a shared `&State`, not cooperatively scheduled tasks. The async adapter runs
   supersteps as Tokio tasks instead.
 - **Routers are pure functions**, returning only destinations (or path-map keys).
-- **Subgraphs** support same or mapped state, per-subgraph checkpoint namespaces, nested
-  interrupts, streaming and `Command(graph=PARENT)` in synchronous and asynchronous graphs.
+- **Subgraphs** support same-type state, per-subgraph checkpoint namespaces, nested
+  interrupts, streaming and `Command(graph=PARENT)` in synchronous and asynchronous graphs;
+  mapped-state subgraphs (`add_subgraph_mapped`) are available on the sync builder.
 - **Python bindings use `JsonState`.** Python nodes exchange plain dicts; state is JSON. Schema
   values may be built-in policy names (`last_value`, `topic`, `append`, `add`, `messages`) or
   Python callable reducers. Python nodes are plain callables; async graphs also accept Python coroutine functions and

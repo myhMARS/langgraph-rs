@@ -309,6 +309,9 @@ async fn async_run_context_survives_task_migration() {
             );
             assert!(langgraph_rs::current_runtime().is_some());
             assert_eq!(langgraph_rs::remaining_steps(), Some(24));
+            assert_eq!(langgraph_rs::current_step(), Some(0));
+            assert_eq!(langgraph_rs::current_node().as_deref(), Some("check"));
+            assert!(langgraph_rs::current_task_id().is_some());
             Ok(NodeOutput::new().update("value", json!(1)))
         })
         .set_entry_point("check")

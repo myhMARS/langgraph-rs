@@ -174,8 +174,13 @@ impl<'a, S: State> super::outcome::OutcomeGraph for SyncBackend<'a, S> {
         self.graph.destinations_of(node)
     }
 
-    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
-        crate::kernel::context::record_parent_command(updates, goto);
+    fn record_parent_command(
+        &self,
+        updates: Vec<(String, Value)>,
+        replaces: Vec<(String, Value)>,
+        goto: Vec<String>,
+    ) {
+        crate::kernel::context::record_parent_command(updates, replaces, goto);
     }
 
     fn has_parent_command(&self) -> bool {
