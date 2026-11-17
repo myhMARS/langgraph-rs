@@ -1814,6 +1814,59 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(state.values["value"], 42)
 
 
+    def test_langgraph_resumes_subgraph_interrupt(self):
+        try:
+            import sqlite3
+            import tempfile
+            from pathlib import Path
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langgraph.graph import END, START, StateGraph
+            from langgraph.types import Command, interrupt
+        except ImportError:
+            self.skipTest("langgraph sqlite saver is not installed")
+
+        path = Path(tempfile.mkdtemp()) / "subgraph.sqlite"
+
+        child = lg.StateGraph({"value": "last_value"})
+        child.add_node(
+            "ask",
+            lambda state: {"value": state["value"] + lg.interrupt("delta")},
+        )
+        child.set_entry_point("ask")
+        child.set_finish_point("ask")
+        parent = lg.StateGraph({"value": "last_value"})
+        parent.add_subgraph("child", child.compile())
+        parent.set_entry_point("child")
+        parent.set_finish_point("child")
+        compiled = parent.compile(
+            checkpointer=lg.LangGraphSqliteSaver(str(path))
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="subgraph")
+
+        def child_langgraph(state):
+            return {"value": state["value"] + interrupt("delta")}
+
+        graph_child = StateGraph(dict)
+        graph_child.add_node("ask", child_langgraph)
+        graph_child.add_edge(START, "ask")
+        graph_child.add_edge("ask", END)
+        graph_parent = StateGraph(dict)
+        graph_parent.add_node("child", graph_child.compile())
+        graph_parent.add_edge(START, "child")
+        graph_parent.add_edge("child", END)
+        compiled_langgraph = graph_parent.compile(
+            checkpointer=SqliteSaver(
+                sqlite3.connect(path, check_same_thread=False)
+            )
+        )
+        config = {"configurable": {"thread_id": "subgraph"}}
+        self.assertEqual(
+            compiled_langgraph.invoke(Command(resume=5), config)["value"],
+            5,
+        )
+
     def test_langgraph_resumes_send_fanout(self):
         try:
             import sqlite3
