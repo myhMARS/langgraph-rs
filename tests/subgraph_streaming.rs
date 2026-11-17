@@ -61,7 +61,12 @@ fn subgraph_streaming_forwards_namespaced_chunks() {
     let child_chunks: Vec<&StreamChunk> = chunks
         .iter()
         .filter(|chunk| chunk.matches_modes(&[]))
-        .filter(|chunk| chunk.namespace() == Some("child"))
+        .filter(|chunk| {
+            chunk
+                .namespace()
+                .map(|namespace| namespace.starts_with("child"))
+                .unwrap_or(false)
+        })
         .collect();
     assert!(
         !child_chunks.is_empty(),
@@ -165,9 +170,10 @@ async fn async_subgraph_streaming_forwards_chunks() {
         .unwrap();
     assert_eq!(output.value, 11);
     assert!(
-        chunks
-            .iter()
-            .any(|chunk| chunk.namespace() == Some("child")),
+        chunks.iter().any(|chunk| chunk
+            .namespace()
+            .map(|namespace| namespace.starts_with("child"))
+            .unwrap_or(false)),
         "expected child chunks, got {chunks:?}"
     );
 }

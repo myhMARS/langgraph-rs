@@ -124,8 +124,12 @@ fn nested_interrupt_pauses_parent_and_resumes_child() {
         Some(json!({ "question": "delta?" }))
     );
 
-    // The child checkpoint lives in the derived namespace, the parent in the root one.
-    let child_state = child.get_state_in("nested", "child").unwrap().unwrap();
+    // The child checkpoint lives in a derived namespace, the parent in the root one.
+    let child_states = child.subgraph_states("nested").unwrap();
+    let child_state = child_states
+        .iter()
+        .find(|state| state.checkpoint_ns.starts_with("child:"))
+        .expect("child namespace checkpoint");
     assert!(child_state.interrupted);
     assert_eq!(child_state.values.x, 100);
     let parent_state = parent.get_state("nested").unwrap().unwrap();
@@ -135,11 +139,11 @@ fn nested_interrupt_pauses_parent_and_resumes_child() {
     assert_eq!(resumed.value, 107);
     assert!(!parent.get_state("nested").unwrap().unwrap().interrupted);
     assert!(
-        !child
-            .get_state_in("nested", "child")
+        child
+            .subgraph_states("nested")
             .unwrap()
-            .unwrap()
-            .interrupted
+            .iter()
+            .all(|state| !state.interrupted)
     );
 }
 
@@ -173,12 +177,12 @@ fn nested_subgraph_checkpoints_are_isolated_by_namespace() {
     for snapshot in parent.get_state_history("nested-ns").unwrap() {
         assert!(snapshot.checkpoint_ns.is_empty());
     }
-    let child_snapshots = child.get_state_history_in("nested-ns", "child").unwrap();
+    let child_snapshots = child.subgraph_states("nested-ns").unwrap();
     assert!(!child_snapshots.is_empty());
     assert!(
         child_snapshots
             .iter()
-            .all(|snapshot| snapshot.checkpoint_ns == "child")
+            .all(|snapshot| snapshot.checkpoint_ns.starts_with("child:"))
     );
 
     parent.resume("nested-ns", json!(2)).unwrap();
