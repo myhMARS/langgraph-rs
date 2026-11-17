@@ -20,7 +20,16 @@ The following areas have dedicated behavior + benchmark scenarios in
 - async execution, interrupt/resume, multi-interrupt, nested subgraph interrupt
 - update_state (including `task_id`), checkpoint history, snapshot metadata (source/next/step), time travel
 - pending writes in parallel branches
-- cross-language resume: LangGraph SqliteSaver reads a DB written by LangGraphSqliteSaver and resumes the interrupt
+- cross-language resume: LangGraph SqliteSaver reads a DB written by LangGraphSqliteSaver and resumes a single pending interrupt for dict (root-channel) state
+
+## Cross-language compatibility scope
+
+Verified so far: LangGraph reads a binding-written SQLite database, sees the pending
+`Interrupt`, and resumes a single pending PULL task for dict/root-channel state.
+
+Not yet verified: LangGraph graphs using typed channel schemas against the same
+database, and parallel pending interrupts where LangGraph itself requires reducers
+for the root channel.
 
 ## Non-blocking differences
 
