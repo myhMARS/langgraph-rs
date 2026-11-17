@@ -194,9 +194,18 @@ impl LangGraphSqliteSaver {
             root.insert("__interrupt__".to_string(), Value::Array(interrupts));
         }
         let mut channel_values = Map::new();
-        channel_values.insert("__root__".to_string(), Value::Object(root));
+        channel_values.insert("__root__".to_string(), Value::Object(root.clone()));
+        // Typed LangGraph schemas read individual channels, dict schemas read `__root__`.
+        for (channel, value) in &root {
+            channel_values.insert(channel.clone(), value.clone());
+        }
         let mut versions = checkpoint.channel_versions.clone();
         let version = Value::String(crate::kernel::checkpoint::version_string(checkpoint.step));
+        for channel in root.keys() {
+            versions
+                .entry(channel.clone())
+                .or_insert_with(|| version.clone());
+        }
         for task in &checkpoint.next {
             channel_values.insert(format!("branch:to:{}", task.node), Value::Null);
             versions.insert(format!("branch:to:{}", task.node), version.clone());

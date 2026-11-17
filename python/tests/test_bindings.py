@@ -1814,6 +1814,57 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertEqual(state.values["value"], 42)
 
 
+    def test_langgraph_typed_schema_reads_binding_database(self):
+        try:
+            import sqlite3
+            import tempfile
+            from pathlib import Path
+            from typing import TypedDict
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            from langgraph.graph import END, START, StateGraph
+            from langgraph.types import Command, interrupt
+        except ImportError:
+            self.skipTest("langgraph sqlite saver is not installed")
+
+        path = Path(tempfile.mkdtemp()) / "typed.sqlite"
+
+        def ask(state):
+            return {"value": lg.interrupt("question")}
+
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.set_entry_point("ask")
+        graph.set_finish_point("ask")
+        compiled = graph.compile(
+            checkpointer=lg.LangGraphSqliteSaver(str(path))
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke({"value": 0}, thread_id="typed")
+
+        class TypedState(TypedDict):
+            value: int
+
+        def ask_langgraph(state):
+            return {"value": interrupt("question")}
+
+        graph_langgraph = StateGraph(TypedState)
+        graph_langgraph.add_node("ask", ask_langgraph)
+        graph_langgraph.add_edge(START, "ask")
+        graph_langgraph.add_edge("ask", END)
+        compiled_langgraph = graph_langgraph.compile(
+            checkpointer=SqliteSaver(
+                sqlite3.connect(path, check_same_thread=False)
+            )
+        )
+        self.assertEqual(
+            compiled_langgraph.invoke(
+                Command(resume=9),
+                {"configurable": {"thread_id": "typed"}},
+            )["value"],
+            9,
+        )
+
     def test_langgraph_resumes_database_written_by_binding(self):
         try:
             import sqlite3

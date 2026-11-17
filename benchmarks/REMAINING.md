@@ -25,11 +25,11 @@ The following areas have dedicated behavior + benchmark scenarios in
 ## Cross-language compatibility scope
 
 Verified so far: LangGraph reads a binding-written SQLite database, sees the pending
-`Interrupt`, and resumes a single pending PULL task for dict/root-channel state.
+`Interrupt`, and resumes a single pending PULL task for both dict/root-channel state
+and typed channel schemas (individual channels are exported next to `__root__`).
 
-Not yet verified: LangGraph graphs using typed channel schemas against the same
-database, and parallel pending interrupts where LangGraph itself requires reducers
-for the root channel.
+Not yet verified: parallel pending interrupts where LangGraph itself requires
+reducers for the root channel, and multiple sequential interrupts across languages.
 
 ## Non-blocking differences
 
