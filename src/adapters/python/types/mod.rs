@@ -262,7 +262,7 @@ impl PyCommand {
                 return Ok((names, sends));
             }
         }
-        push_item(&goto)?;
+        push_item(goto)?;
         Ok((names, sends))
     }
 
