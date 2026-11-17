@@ -1747,6 +1747,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         futures::executor::block_on(self.saver_history(thread_id))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn save_checkpoint(
         &self,
         thread_id: Option<&str>,
