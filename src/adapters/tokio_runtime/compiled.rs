@@ -1517,12 +1517,18 @@ impl<S: State> AsyncCompiledGraph<S> {
         let mut last_error: Option<String> = None;
 
         for attempt in 1..=max_attempts {
+            let timeout_policy = self.timeout_of(&task.node).cloned().unwrap_or_default();
+            let run_timeout = task
+                .timeout_millis
+                .map(Duration::from_millis)
+                .or_else(|| timeout_policy.run_timeout());
             let context = AsyncContext::new(
                 task.node.clone(),
                 step,
                 task.error.clone(),
                 task.resume_history.clone(),
             )
+            .with_run_timeout(run_timeout)
             .with_run_info(
                 run.thread_id.clone(),
                 run.namespace.clone(),
@@ -1531,11 +1537,6 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.collector.clone(),
             );
             let future: BoxNodeFuture = (node.as_ref())(input.clone(), context.clone());
-            let timeout_policy = self.timeout_of(&task.node).cloned().unwrap_or_default();
-            let run_timeout = task
-                .timeout_millis
-                .map(Duration::from_millis)
-                .or_else(|| timeout_policy.run_timeout());
             let idle_timeout = timeout_policy.idle_timeout();
             let result = if let Some(timeout) = run_timeout {
                 match tokio::time::timeout(timeout, future).await {

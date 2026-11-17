@@ -55,6 +55,7 @@ fn async_node_from_python(
                 let py_state =
                     json_state_to_py(py, &state).map_err(|error| pyerr_to_error(py, error))?;
                 let resume = context.take_resume();
+                let run_timeout = context.run_timeout();
                 let node_name = name.as_ref().clone();
                 let (result, custom, messages, usage) = crate::kernel::context::with_task(
                     TaskContext::new(node_name, resume),
@@ -71,6 +72,16 @@ fn async_node_from_python(
                             .hasattr("__await__")
                             .map_err(|error| pyerr_to_error(py, error))?
                         {
+                            let value = match run_timeout {
+                                Some(timeout) => py
+                                    .import("asyncio")
+                                    .and_then(|asyncio| asyncio.getattr("wait_for"))
+                                    .and_then(|wait_for| {
+                                        wait_for.call1((&value, timeout.as_secs_f64()))
+                                    })
+                                    .map_err(|error| pyerr_to_error(py, error))?,
+                                None => value,
+                            };
                             py.import("asyncio")
                                 .and_then(|asyncio| asyncio.getattr("run"))
                                 .and_then(|run| run.call1((&value,)))

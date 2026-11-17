@@ -29,6 +29,7 @@ pub struct AsyncContext {
     thread_id: Option<String>,
     namespace: String,
     store: Option<Arc<dyn BaseStore>>,
+    run_timeout: Option<std::time::Duration>,
     context: Option<Value>,
     collector: Option<Arc<Mutex<Vec<StreamChunk>>>>,
     progress: Arc<std::sync::atomic::AtomicU64>,
@@ -57,6 +58,7 @@ impl AsyncContext {
             thread_id: None,
             namespace: String::new(),
             store: None,
+            run_timeout: None,
             context: None,
             collector: None,
             progress: Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -91,6 +93,16 @@ impl AsyncContext {
     }
 
     /// Long-term memory store attached to the run.
+    /// Effective run timeout for this attempt, when one is configured.
+    pub fn run_timeout(&self) -> Option<std::time::Duration> {
+        self.run_timeout
+    }
+
+    pub(crate) fn with_run_timeout(mut self, timeout: Option<std::time::Duration>) -> Self {
+        self.run_timeout = timeout;
+        self
+    }
+
     pub fn store(&self) -> Option<Arc<dyn BaseStore>> {
         self.store.clone()
     }

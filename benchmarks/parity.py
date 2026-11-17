@@ -615,6 +615,25 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Send(timeout=...) on async workers.
+    lg_failed, lg_message = run_lg_send_timeout()
+    rs_failed, rs_message = run_rs_send_timeout()
+    results.append(
+        {
+            "scenario": "send_timeout",
+            "rs": {"failed": rs_failed, "contains_timeout": timeout_marker(rs_message)},
+            "lg": {"failed": lg_failed, "contains_timeout": timeout_marker(lg_message)},
+            "equivalent": (
+                lg_failed == rs_failed
+                and timeout_marker(lg_message) == timeout_marker(rs_message)
+            ),
+            "bench": {
+                "rs": measure_async(run_rs_send_timeout_async),
+                "lg": measure_async(run_lg_send_timeout_async),
+            },
+        }
+    )
+
     # Two sequential interrupts in one node, resumed with two values.
     lg_value = lg_multi_interrupt()
     rs_value = rs_multi_interrupt()
@@ -883,6 +902,58 @@ def rs_graph_export():
         [node["id"] for node in view["nodes"]],
         [(edge["source"], edge["target"]) for edge in view["edges"]],
     )
+
+
+def run_lg_send_timeout():
+    return asyncio.run(run_lg_send_timeout_async())
+
+
+async def run_lg_send_timeout_async():
+    async def worker(state):
+        await asyncio.sleep(0.2)
+        return {"log": [1]}
+
+    def route(state):
+        return [LgSend("worker", {"value": 1}, timeout=0.01)]
+
+    graph = LgStateGraph(dict)
+    graph.add_node("dispatch", lambda state: {})
+    graph.add_node("worker", worker)
+    graph.add_conditional_edges("dispatch", route)
+    graph.add_edge(START, "dispatch")
+    graph.set_finish_point("worker")
+    compiled = graph.compile()
+    try:
+        await compiled.ainvoke({"log": []})
+        return False, ""
+    except Exception as exc:  # noqa: BLE001
+        return True, str(exc)
+
+
+def run_rs_send_timeout():
+    return asyncio.run(run_rs_send_timeout_async())
+
+
+async def run_rs_send_timeout_async():
+    async def worker(state):
+        await asyncio.sleep(0.2)
+        return {"log": [1]}
+
+    def route(state):
+        return [rs.Send("worker", {"value": 1}, timeout=0.01)]
+
+    graph = rs.AsyncStateGraph({"log": "append"})
+    graph.add_node("dispatch", lambda state: {})
+    graph.add_node("worker", worker)
+    graph.add_conditional_edges("dispatch", route)
+    graph.set_entry_point("dispatch")
+    graph.set_finish_point("worker")
+    compiled = graph.compile()
+    try:
+        await compiled.ainvoke({"log": []})
+        return False, ""
+    except Exception as exc:  # noqa: BLE001
+        return True, str(exc)
 
 
 _multi_counter = [0]
