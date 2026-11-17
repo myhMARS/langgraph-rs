@@ -178,6 +178,26 @@ class HumanInTheLoopTests(unittest.TestCase):
         filtered = compiled.get_state_history("patch", before=before)
         self.assertNotIn(before, [item["checkpoint_id"] for item in filtered])
 
+    def test_resume_from_checkpoint(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        compiled = graph.compile(checkpointer=lg.InMemorySaver())
+        compiled.invoke({"value": 0}, thread_id="time-travel")
+        compiled.invoke({"value": 10}, thread_id="time-travel")
+        target = next(
+            snapshot
+            for snapshot in compiled.get_state_history("time-travel")
+            if snapshot["values"].get("value") == 10 and snapshot["next"]
+        )
+        self.assertEqual(
+            compiled.resume_from(
+                "time-travel", target["checkpoint_id"], None
+            )["value"],
+            11,
+        )
+
     def test_thread_delete_and_copy(self):
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("a", lambda state: {"value": state["value"] + 1})

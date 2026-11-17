@@ -486,6 +486,26 @@ impl PyCompiledGraph {
         }
     }
 
+    /// Replay a thread from a specific checkpoint id.
+    #[pyo3(signature = (thread_id, checkpoint_id, value=None))]
+    fn resume_from(
+        &self,
+        py: Python<'_>,
+        thread_id: String,
+        checkpoint_id: String,
+        value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = match value {
+            Some(value) => py_to_value(value)?,
+            None => Value::Null,
+        };
+        let result = py.detach(|| self.graph.resume_from(&thread_id, &checkpoint_id, value));
+        match result {
+            Ok(state) => json_state_to_py(py, &state),
+            Err(error) => Err(to_pyerr(py, error)),
+        }
+    }
+
     /// Resume an interrupted thread after applying state updates.
     #[pyo3(signature = (thread_id, value, updates=None))]
     fn resume_with_updates(

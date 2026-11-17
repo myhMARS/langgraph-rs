@@ -580,6 +580,22 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Time travel: replay from an earlier checkpoint.
+    lg_value = lg_time_travel()
+    rs_value = rs_time_travel()
+    results.append(
+        {
+            "scenario": "time_travel",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_time_travel),
+                "lg": measure(lg_time_travel),
+            },
+        }
+    )
+
     # Send fan-out.
     lg_graph = lg_send_graph()
     rs_graph = rs_send_graph()
@@ -765,6 +781,42 @@ def rs_graph_export():
     return _normalize_export(
         [node["id"] for node in view["nodes"]],
         [(edge["source"], edge["target"]) for edge in view["edges"]],
+    )
+
+
+def lg_time_travel():
+    graph = LgStateGraph(dict)
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.add_edge(START, "inc")
+    graph.add_edge("inc", END)
+    saver = LgInMemorySaver()
+    compiled = graph.compile(checkpointer=saver)
+    config = {"configurable": {"thread_id": "parity-lg-time-travel"}}
+    compiled.invoke({"value": 0}, config)
+    compiled.invoke({"value": 10}, config)
+    target = next(
+        snapshot
+        for snapshot in compiled.get_state_history(config)
+        if snapshot.values.get("value") == 10 and snapshot.next
+    )
+    return compiled.invoke(None, target.config)
+
+
+def rs_time_travel():
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+    graph.set_entry_point("inc")
+    graph.set_finish_point("inc")
+    compiled = graph.compile(checkpointer=rs.InMemorySaver())
+    compiled.invoke({"value": 0}, thread_id="parity-rs-time-travel")
+    compiled.invoke({"value": 10}, thread_id="parity-rs-time-travel")
+    target = next(
+        snapshot
+        for snapshot in compiled.get_state_history("parity-rs-time-travel")
+        if snapshot["values"].get("value") == 10 and snapshot["next"]
+    )
+    return compiled.resume_from(
+        "parity-rs-time-travel", target["checkpoint_id"], None
     )
 
 
