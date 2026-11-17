@@ -205,14 +205,14 @@ impl PyAsyncStateGraph {
     /// Register a Python callable as an async node.
     #[pyo3(signature = (name, function, timeout=None))]
     fn add_node(
-        &mut self,
+        mut slf: PyRefMut<'_, Self>,
         py: Python<'_>,
         name: String,
         function: Py<PyAny>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Py<Self>> {
         let builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
         // Python coroutines are driven by a private asyncio loop, so a Tokio
@@ -227,61 +227,71 @@ impl PyAsyncStateGraph {
         if let Some(policy) = timeout {
             builder = builder.set_timeout(name, policy.to_policy());
         }
-        self.inner = builder;
-        Ok(())
+        slf.inner = builder;
+        Ok(slf.into())
     }
 
-    fn set_entry_point(&mut self, node: String) {
+    fn set_entry_point(mut slf: PyRefMut<'_, Self>, node: String) -> Py<Self> {
         let builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
-        self.inner = builder.set_entry_point(normalize_node(&node));
+        slf.inner = builder.set_entry_point(normalize_node(&node));
+        slf.into()
     }
 
-    fn set_finish_point(&mut self, node: String) {
+    fn set_finish_point(mut slf: PyRefMut<'_, Self>, node: String) -> Py<Self> {
         let builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
-        self.inner = builder.set_finish_point(normalize_node(&node));
+        slf.inner = builder.set_finish_point(normalize_node(&node));
+        slf.into()
     }
 
-    fn add_edge(&mut self, from: String, to: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn add_edge(
+        mut slf: PyRefMut<'_, Self>,
+        from: String,
+        to: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<Self>> {
         let targets = targets_from_py(to)?;
         let mut builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
         for target in targets {
             builder = builder.add_edge(normalize_node(&from), normalize_node(&target));
         }
-        self.inner = builder;
-        Ok(())
+        slf.inner = builder;
+        Ok(slf.into())
     }
 
     /// Embed a compiled async graph as a node (child checkpoint namespace).
     fn add_subgraph(
-        &mut self,
+        mut slf: PyRefMut<'_, Self>,
         name: String,
         subgraph: PyRef<'_, PyAsyncCompiledGraph>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Py<Self>> {
         let child = subgraph.graph.clone();
         let builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
-        self.inner = builder.add_subgraph(name, child);
-        Ok(())
+        slf.inner = builder.add_subgraph(name, child);
+        Ok(slf.into())
     }
 
-    fn add_conditional_edges(&mut self, from: String, router: Py<PyAny>) -> PyResult<()> {
+    fn add_conditional_edges(
+        mut slf: PyRefMut<'_, Self>,
+        from: String,
+        router: Py<PyAny>,
+    ) -> PyResult<Py<Self>> {
         let builder = std::mem::replace(
-            &mut self.inner,
+            &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
         let router = Arc::new(router);
-        self.inner =
+        slf.inner =
             builder.add_conditional_edges(normalize_node(&from), move |state: &JsonState| {
                 Python::attach(|py| -> crate::Result<Route> {
                     let py_state =
@@ -294,7 +304,7 @@ impl PyAsyncStateGraph {
                     route_from_py(&value).map_err(|error| pyerr_to_error(py, error))
                 })
             });
-        Ok(())
+        Ok(slf.into())
     }
 
     #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None))]
@@ -427,7 +437,7 @@ impl PyAsyncCompiledGraph {
         &self,
         py: Python<'py>,
         input: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<String>,
+        thread_id: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
         stream_mode: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
@@ -443,32 +453,28 @@ impl PyAsyncCompiledGraph {
             }
         };
         let state = state_from_py(input)?;
-        let mut config = run_config(thread_id);
+        let (_, mut config) = super::convert::config_from_py(py, thread_id)?;
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
         if subgraphs {
             config = config.with_stream_subgraphs(true);
         }
-        let modes = super::graph::stream_modes_from_py(stream_mode)?;
+        let requested = super::graph::stream_modes_from_py(stream_mode)?
+            .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         let graph = self.graph.clone();
         let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut collected: Vec<StreamChunk> = Vec::new();
-            let result = match &modes {
-                Some(modes) => {
-                    graph
-                        .stream_modes_with(&state, &config, modes, |chunk| collected.push(chunk))
-                        .await
-                }
-                None => {
-                    graph
-                        .stream_with(&state, &config, |chunk| collected.push(chunk))
-                        .await
-                }
-            };
+            let result = graph
+                .stream_modes_with(&state, &config, &requested, |chunk| collected.push(chunk))
+                .await;
             if let Err(error) = result {
                 return Python::attach(|py| Err(to_pyerr(py, error)));
             }
+            collected.retain(|chunk| {
+                matches!(chunk, StreamChunk::Interrupt { .. })
+                    || chunk.matches_modes_strict(&requested)
+            });
             Python::attach(|py| {
                 let list = PyList::empty(py);
                 for chunk in &collected {

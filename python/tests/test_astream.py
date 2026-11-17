@@ -22,6 +22,21 @@ class AsyncStreamTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_async_builder_chains_and_astream_defaults_to_updates(self):
+        async def scenario():
+            graph = (
+                lg.AsyncStateGraph({"value": "last_value"})
+                .add_node("inc", lambda state: {"value": state["value"] + 1})
+                .set_entry_point("inc")
+                .set_finish_point("inc")
+            )
+            compiled = graph.compile()
+            chunks = await compiled.astream({"value": 0})
+            self.assertTrue(chunks)
+            self.assertEqual({chunk.get("type") for chunk in chunks}, {"updates"})
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()
