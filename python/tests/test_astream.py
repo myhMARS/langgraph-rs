@@ -55,6 +55,20 @@ class AsyncStreamTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_v2_debug_payload_shape(self):
+        graph = lg.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.set_entry_point("inc")
+        graph.set_finish_point("inc")
+        chunks = graph.compile().stream(
+            {"value": 0}, stream_mode=["debug"], version="v2"
+        )
+        debug = [chunk for chunk in chunks if chunk["type"] == "debug"]
+        self.assertTrue(debug)
+        self.assertEqual(debug[0]["data"]["type"], "checkpoint")
+        self.assertIn("payload", debug[0]["data"])
+        self.assertIn("timestamp", debug[0]["data"])
+
 
 if __name__ == "__main__":
     unittest.main()

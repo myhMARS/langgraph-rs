@@ -132,9 +132,14 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             data.append(metadata)?;
             dict.set_item("data", data)?;
         }
-        StreamChunk::Debug { payload, .. } => {
+        StreamChunk::Debug { step, payload } => {
             dict.set_item("type", "debug")?;
-            dict.set_item("data", value_to_py(py, payload)?)?;
+            let data = PyDict::new(py);
+            data.set_item("type", "checkpoint")?;
+            data.set_item("timestamp", crate::kernel::checkpoint::now_millis())?;
+            data.set_item("step", step)?;
+            data.set_item("payload", value_to_py(py, payload)?)?;
+            dict.set_item("data", data)?;
         }
         StreamChunk::Task {
             node,
