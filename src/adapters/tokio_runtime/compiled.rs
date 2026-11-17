@@ -13,9 +13,7 @@ use super::{AsyncNodeFn, BoxNodeFuture};
 use crate::kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::executor::outcome::{
-    ProcessedResults, TaskFailure, TaskOutcome, TaskResult, merge_usage,
-};
+use crate::kernel::executor::outcome::{ProcessedResults, TaskFailure, TaskOutcome, TaskResult};
 use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -27,7 +25,7 @@ use crate::kernel::state::{
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::timeout::TimeoutPolicy;
-use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+use crate::kernel::usage::{RunOutcome, RunReport, Usage};
 use crate::{END, START};
 
 /// Where a run starts from.
@@ -1637,210 +1635,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         report: &mut RunReport,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<ProcessedResults> {
-        let mut channel_updates: Vec<ChannelUpdate> = Vec::new();
-        let mut replacements: Vec<(String, Value)> = Vec::new();
-        let mut next_tasks: Vec<Task> = Vec::new();
-        let mut goto_targets: Vec<(String, String)> = Vec::new();
-        let mut executed: Vec<String> = Vec::new();
-        let mut goto_nodes: HashSet<String> = HashSet::new();
-        let mut routed_handlers: HashSet<String> = HashSet::new();
-
-        for outcome in outcomes {
-            match outcome {
-                TaskOutcome::Interrupted(_) => unreachable!("handled before processing"),
-                TaskOutcome::Failed(failure) => {
-                    let failure = *failure;
-                    let execution = NodeExecution {
-                        node: failure.failure.node.clone(),
-                        step,
-                        duration_millis: failure.duration_millis,
-                        attempts: failure.failure.attempts,
-                        cached: false,
-                        error: Some(failure.failure.message.clone()),
-                        usage: merge_usage(failure.usage),
-                    };
-                    sink(StreamChunk::Usage {
-                        execution: execution.clone(),
-                    });
-                    for trace_sink in &self.trace_sinks {
-                        trace_sink.record(&execution);
-                    }
-                    report.record(execution);
-
-                    sink(StreamChunk::Task {
-                        step,
-                        node: failure.failure.node.clone(),
-                        input: failure.input,
-                        result: None,
-                        error: Some(failure.failure.clone()),
-                    });
-
-                    match self.error_edges.get(&failure.failure.node) {
-                        Some(handler) if routed_handlers.insert(handler.clone()) => {
-                            next_tasks.push(Task {
-                                id: crate::kernel::node::new_task_id(handler.as_str()),
-                                node: handler.clone(),
-                                input: None,
-                                resume: None,
-                                resume_history: Vec::new(),
-                                error: Some(failure.failure),
-                                timeout_millis: None,
-                            });
-                        }
-                        Some(_) => {}
-                        None => {
-                            return Err(Error::Node {
-                                node: failure.failure.node.clone(),
-                                message: format!(
-                                    "{} (failed after {} attempt(s))",
-                                    failure.failure.message, failure.failure.attempts
-                                ),
-                            });
-                        }
-                    }
-                }
-                TaskOutcome::Ok(result) => {
-                    let result = *result;
-                    executed.push(result.node.clone());
-                    for value in result.custom {
-                        sink(StreamChunk::Custom {
-                            node: result.node.clone(),
-                            value,
-                        });
-                    }
-                    for message in result.messages {
-                        sink(StreamChunk::Message {
-                            node: result.node.clone(),
-                            message,
-                        });
-                    }
-                    let execution = NodeExecution {
-                        node: result.node.clone(),
-                        step,
-                        duration_millis: result.duration_millis,
-                        attempts: result.attempts,
-                        cached: result.cached,
-                        error: None,
-                        usage: merge_usage(result.usage),
-                    };
-                    sink(StreamChunk::Usage {
-                        execution: execution.clone(),
-                    });
-                    for trace_sink in &self.trace_sinks {
-                        trace_sink.record(&execution);
-                    }
-                    report.record(execution);
-
-                    let task_result = {
-                        let updates = result.output.updates_map();
-                        if updates.is_empty() {
-                            None
-                        } else {
-                            Some(Value::Object(
-                                updates
-                                    .iter()
-                                    .map(|(channel, value)| (channel.clone(), value.clone()))
-                                    .collect(),
-                            ))
-                        }
-                    };
-                    sink(StreamChunk::Task {
-                        step,
-                        node: result.node.clone(),
-                        input: result.input,
-                        result: task_result,
-                        error: None,
-                    });
-                    if result.output.is_parent() {
-                        let (updates, replaces, goto, _sends) = result.output.into_parts();
-                        let mut parent_updates: Vec<(String, Value)> =
-                            updates.into_iter().collect();
-                        parent_updates.extend(replaces);
-                        if !super::context::record_parent_command(parent_updates, goto) {
-                            return Err(Error::other(
-                                "Command(graph=PARENT) must be returned inside a subgraph",
-                            ));
-                        }
-                        continue;
-                    }
-                    let (updates, replaces, goto, sends) = result.output.into_parts();
-                    if !updates.is_empty() {
-                        let update = Value::Object(
-                            updates
-                                .iter()
-                                .map(|(channel, value)| (channel.clone(), value.clone()))
-                                .collect(),
-                        );
-                        sink(StreamChunk::Updates {
-                            step,
-                            node: result.node.clone(),
-                            update,
-                        });
-                        for (channel, value) in updates {
-                            channel_updates.push(ChannelUpdate {
-                                channel,
-                                value,
-                                node: result.node.clone(),
-                            });
-                        }
-                    }
-                    for (channel, value) in replaces {
-                        replacements.push((channel, value));
-                    }
-                    for target in goto {
-                        goto_nodes.insert(result.node.clone());
-                        goto_targets.push((target, result.node.clone()));
-                    }
-                    for send in sends {
-                        let input = match send.arg {
-                            None | Some(Value::Null) => None,
-                            Some(Value::Object(map)) => Some(map),
-                            Some(other) => {
-                                return Err(Error::routing(
-                                    &result.node,
-                                    format!(
-                                        "Send toward `{}` needs a JSON object, found `{other}`",
-                                        send.node
-                                    ),
-                                ));
-                            }
-                        };
-                        if !self.nodes.contains_key(&send.node) {
-                            return Err(Error::routing(
-                                &result.node,
-                                format!("Send targets unknown node `{}`", send.node),
-                            ));
-                        }
-                        if let Some(allowed) = self.destinations_of(&result.node) {
-                            if !allowed.iter().any(|candidate| candidate == &send.node) {
-                                return Err(Error::routing(
-                                    &result.node,
-                                    format!("`{}` is not a declared destination", send.node),
-                                ));
-                            }
-                        }
-                        next_tasks.push(Task {
-                            id: crate::kernel::node::new_task_id(send.node.as_str()),
-                            node: send.node,
-                            input,
-                            resume: None,
-                            resume_history: Vec::new(),
-                            error: None,
-                            timeout_millis: send.timeout_millis,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(ProcessedResults {
-            channel_updates,
-            replacements,
-            next_tasks,
-            goto_targets,
-            executed,
-            goto_nodes,
-        })
+        crate::kernel::executor::outcome::process_outcomes(self, outcomes, step, report, sink)
     }
 
     async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {

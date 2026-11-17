@@ -265,6 +265,7 @@ where
 }
 
 /// Record a `Command(graph=PARENT)` inside the current async subgraph scope.
+#[allow(dead_code)]
 pub(crate) fn record_parent_command(updates: Vec<(String, Value)>, goto: Vec<String>) -> bool {
     PARENT_COMMAND
         .try_with(|slot| {
