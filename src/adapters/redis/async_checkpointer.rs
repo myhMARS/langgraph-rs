@@ -45,6 +45,29 @@ impl AsyncRedisSaver {
     }
 }
 
+async fn load_many(
+    connection: &mut redis::aio::ConnectionManager,
+    thread_id: &str,
+    ids: Vec<String>,
+) -> Result<Vec<Checkpoint>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut command = redis::cmd("MGET");
+    for id in &ids {
+        command.arg(checkpoint_key(thread_id, id));
+    }
+    let payloads: Vec<Option<String>> = command
+        .query_async(connection)
+        .await
+        .map_err(|error| Error::Checkpoint(format!("async redis: history: {error}")))?;
+    let mut checkpoints = Vec::with_capacity(payloads.len());
+    for payload in payloads.into_iter().flatten() {
+        checkpoints.push(AsyncRedisSaver::decode(payload)?);
+    }
+    Ok(checkpoints)
+}
+
 impl AsyncCheckpointer for AsyncRedisSaver {
     fn put(&self, checkpoint: Checkpoint) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
@@ -114,19 +137,7 @@ impl AsyncCheckpointer for AsyncRedisSaver {
                 .zrevrange(index_key(&thread_id), 0, -1)
                 .await
                 .map_err(|error| Error::Checkpoint(format!("async redis: history ids: {error}")))?;
-            let mut checkpoints = Vec::new();
-            for id in ids {
-                let payload: Option<String> = connection
-                    .get(checkpoint_key(&thread_id, &id))
-                    .await
-                    .map_err(|error| {
-                        Error::Checkpoint(format!("async redis: history get: {error}"))
-                    })?;
-                if let Some(payload) = payload {
-                    checkpoints.push(Self::decode(payload)?);
-                }
-            }
-            Ok(checkpoints)
+            load_many(&mut connection, &thread_id, ids).await
         })
     }
 
@@ -178,32 +189,9 @@ impl AsyncCheckpointer for AsyncRedisSaver {
                 .map_err(|error| {
                     Error::Checkpoint(format!("async redis: history_in ids: {error}"))
                 })?;
-            let mut checkpoints = Vec::new();
-            for id in ids {
-                let payload: Option<String> = connection
-                    .get(checkpoint_key(&thread_id, &id))
-                    .await
-                    .map_err(|error| {
-                        Error::Checkpoint(format!("async redis: history_in get: {error}"))
-                    })?;
-                if let Some(payload) = payload {
-                    let checkpoint = Self::decode(payload)?;
-                    if checkpoint.namespace == namespace {
-                        checkpoints.push(checkpoint);
-                    }
-                }
-            }
+            let mut checkpoints = load_many(&mut connection, &thread_id, ids).await?;
+            checkpoints.retain(|checkpoint| checkpoint.namespace == namespace);
             Ok(checkpoints)
-        })
-    }
-
-    fn threads(&self) -> BoxFuture<'_, Result<Vec<String>>> {
-        Box::pin(async move {
-            let mut connection = self.connection.clone();
-            connection
-                .smembers(THREADS_KEY)
-                .await
-                .map_err(|error| Error::Checkpoint(format!("async redis: threads: {error}")))
         })
     }
 

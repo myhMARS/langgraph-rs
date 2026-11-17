@@ -65,6 +65,31 @@ impl RedisSaver {
     }
 }
 
+fn load_many(
+    connection: &mut redis::Connection,
+    thread_id: &str,
+    ids: Vec<String>,
+) -> Result<Vec<Checkpoint>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut command = redis::cmd("MGET");
+    for id in &ids {
+        command.arg(checkpoint_key(thread_id, id));
+    }
+    let payloads: Vec<Option<String>> = command
+        .query(connection)
+        .map_err(|error| Error::Checkpoint(format!("redis: read history: {error}")))?;
+    let mut checkpoints = Vec::with_capacity(payloads.len());
+    for payload in payloads.into_iter().flatten() {
+        checkpoints.push(
+            serde_json::from_str(&payload)
+                .map_err(|error| Error::Checkpoint(format!("redis: decode: {error}")))?,
+        );
+    }
+    Ok(checkpoints)
+}
+
 impl Checkpointer for RedisSaver {
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         let payload = serde_json::to_string(&checkpoint)
@@ -109,14 +134,7 @@ impl Checkpointer for RedisSaver {
         let ids: Vec<String> = connection
             .zrevrange(index_key(thread_id), 0, -1)
             .map_err(|error| Error::Checkpoint(format!("redis: read history ids: {error}")))?;
-        let mut checkpoints = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(checkpoint) = Self::load(&mut connection, &checkpoint_key(thread_id, &id))?
-            {
-                checkpoints.push(checkpoint);
-            }
-        }
-        Ok(checkpoints)
+        load_many(&mut connection, thread_id, ids)
     }
 
     fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
@@ -140,15 +158,8 @@ impl Checkpointer for RedisSaver {
         let ids: Vec<String> = connection
             .zrevrange(index_key(thread_id), 0, -1)
             .map_err(|error| Error::Checkpoint(format!("redis: read history ids: {error}")))?;
-        let mut checkpoints = Vec::new();
-        for id in ids {
-            if let Some(checkpoint) = Self::load(&mut connection, &checkpoint_key(thread_id, &id))?
-            {
-                if checkpoint.namespace == namespace {
-                    checkpoints.push(checkpoint);
-                }
-            }
-        }
+        let mut checkpoints = load_many(&mut connection, thread_id, ids)?;
+        checkpoints.retain(|checkpoint| checkpoint.namespace == namespace);
         Ok(checkpoints)
     }
 
