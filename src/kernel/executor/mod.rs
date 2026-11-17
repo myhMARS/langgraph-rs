@@ -21,8 +21,8 @@ use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{
-    TaskOutcome, collect_pending_writes, finish, interrupts_from, merge_interrupted_tasks,
-    process_outcomes,
+    TaskOutcome, apply_processed_updates, collect_pending_writes, finish, interrupts_from,
+    merge_interrupted_tasks, process_outcomes,
 };
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
@@ -391,19 +391,13 @@ pub(crate) fn execute<S: State>(
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                 .collect();
             let processed = process_outcomes(graph, successful, step, &mut report, sink)?;
-            let mut immediate = Vec::with_capacity(processed.channel_updates.len());
-            for update in processed.channel_updates {
-                if graph.schema().is_finish_value(&update.channel) {
-                    finish_updates.insert(update.channel, update.value);
-                } else {
-                    immediate.push(update);
-                }
-            }
-            apply_updates(graph.schema(), &mut values, immediate)?;
-            for (channel, value) in processed.replacements {
-                graph.schema().resolve(&channel)?;
-                values.insert(channel, value);
-            }
+            apply_processed_updates(
+                graph.schema(),
+                &mut values,
+                processed.channel_updates,
+                processed.replacements,
+                &mut finish_updates,
+            )?;
             sink(StreamChunk::Values {
                 step,
                 values: Value::Object(values.clone()),
@@ -449,21 +443,15 @@ pub(crate) fn execute<S: State>(
         let executed = processed.executed;
         let goto_nodes = processed.goto_nodes;
 
-        let mut immediate_updates = Vec::with_capacity(channel_updates.len());
-        for update in channel_updates {
-            if graph.schema().is_finish_value(&update.channel) {
-                finish_updates.insert(update.channel, update.value);
-            } else {
-                immediate_updates.push(update);
-            }
-        }
-        apply_updates(graph.schema(), &mut values, immediate_updates)?;
         // Direct replacements (subgraph outputs) bypass reducers but must still target
         // a declared channel when the schema is strict.
-        for (channel, value) in replacements {
-            graph.schema().resolve(&channel)?;
-            values.insert(channel, value);
-        }
+        apply_processed_updates(
+            graph.schema(),
+            &mut values,
+            channel_updates,
+            replacements,
+            &mut finish_updates,
+        )?;
         state = values_to_state::<S>(&values)?;
         sink(StreamChunk::Values {
             step,

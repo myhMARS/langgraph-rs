@@ -409,3 +409,27 @@ pub(crate) fn merge_interrupted_tasks(
     }
     merged
 }
+
+/// Apply processed channel updates and direct replacements to a working value map.
+pub(crate) fn apply_processed_updates(
+    schema: &crate::kernel::state::StateSchema,
+    values: &mut serde_json::Map<String, Value>,
+    channel_updates: Vec<ChannelUpdate>,
+    replacements: Vec<(String, Value)>,
+    finish_updates: &mut std::collections::HashMap<String, Value>,
+) -> Result<()> {
+    let mut immediate = Vec::with_capacity(channel_updates.len());
+    for update in channel_updates {
+        if schema.is_finish_value(&update.channel) {
+            finish_updates.insert(update.channel, update.value);
+        } else {
+            immediate.push(update);
+        }
+    }
+    crate::kernel::state::apply_updates(schema, values, immediate)?;
+    for (channel, value) in replacements {
+        schema.resolve(&channel)?;
+        values.insert(channel, value);
+    }
+    Ok(())
+}
