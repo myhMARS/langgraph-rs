@@ -11,54 +11,14 @@ pub mod python;
 #[cfg(feature = "async")]
 pub mod tokio_runtime;
 
-/// SQLite checkpoint persistence (feature `sqlite`).
+/// SQLite checkpoint, store, cache and LangGraph-compatible adapters.
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-/// SQLite long-term memory store (feature `sqlite`).
-#[cfg(feature = "sqlite")]
-pub mod sqlite_store;
-
-/// SQLite node cache (feature `sqlite`).
-#[cfg(feature = "sqlite")]
-pub mod sqlite_cache;
-
-/// Read-only LangGraph SQLite checkpoint reader (feature `sqlite`).
-#[cfg(feature = "sqlite")]
-pub mod langgraph_sqlite;
-
-/// LangGraph-schema SQLite saver (feature `sqlite`).
-#[cfg(feature = "sqlite")]
-pub mod langgraph_sqlite_saver;
-
-/// Redis checkpoint persistence (feature `redis`).
+/// Redis checkpoint, store, cache and async checkpointer adapters.
 #[cfg(feature = "redis")]
 pub mod redis;
 
-/// Redis long-term memory store (feature `redis`).
-#[cfg(feature = "redis")]
-pub mod redis_store;
-
-/// Redis node cache (feature `redis`).
-#[cfg(feature = "redis")]
-pub mod redis_cache;
-
-/// Native async Postgres checkpointer (features `async` + `postgres`).
-#[cfg(all(feature = "async", feature = "postgres"))]
-pub mod async_postgres;
-
-/// Native async Redis checkpointer (features `async` + `redis`).
-#[cfg(all(feature = "async", feature = "redis"))]
-pub mod async_redis;
-
-/// Postgres checkpoint persistence (feature `postgres`).
+/// Postgres checkpoint, store, cache and async checkpointer adapters.
 #[cfg(feature = "postgres")]
 pub mod postgres;
-
-/// Postgres long-term memory store (feature `postgres`).
-#[cfg(feature = "postgres")]
-pub mod postgres_store;
-
-/// Postgres node cache (feature `postgres`).
-#[cfg(feature = "postgres")]
-pub mod postgres_cache;

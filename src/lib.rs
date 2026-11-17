@@ -116,19 +116,19 @@ pub use adapters::sqlite::SqliteSaver;
 
 #[cfg(feature = "sqlite")]
 /// SQLite-backed long-term memory store.
-pub use adapters::sqlite_store::SqliteStore;
+pub use adapters::sqlite::SqliteStore;
 
 #[cfg(feature = "sqlite")]
 /// SQLite-backed node cache.
-pub use adapters::sqlite_cache::SqliteCache;
+pub use adapters::sqlite::SqliteCache;
 
 #[cfg(feature = "sqlite")]
 /// Read-only reader for LangGraph SQLite checkpoint databases.
-pub use adapters::langgraph_sqlite::LangGraphSqliteReader;
+pub use adapters::sqlite::LangGraphSqliteReader;
 
 #[cfg(feature = "sqlite")]
 /// Checkpointer writing LangGraph's SQLite table layout.
-pub use adapters::langgraph_sqlite_saver::LangGraphSqliteSaver;
+pub use adapters::sqlite::LangGraphSqliteSaver;
 
 /// Alias for [`InMemorySaver`] used from async graphs (same synchronous implementation).
 #[cfg(feature = "async")]
@@ -139,33 +139,33 @@ pub type AsyncSqliteSaver = SqliteSaver;
 /// Alias for [`PostgresSaver`] used from async graphs (same synchronous implementation).
 #[cfg(all(feature = "async", feature = "postgres"))]
 /// Native async Postgres checkpointer.
-pub use adapters::async_postgres::AsyncPostgresSaver;
+pub use adapters::postgres::AsyncPostgresSaver;
 /// Alias for [`RedisSaver`] used from async graphs (same synchronous implementation).
 #[cfg(all(feature = "async", feature = "redis"))]
 /// Native async Redis checkpointer.
-pub use adapters::async_redis::AsyncRedisSaver;
+pub use adapters::redis::AsyncRedisSaver;
 
 #[cfg(feature = "redis")]
 pub use adapters::redis::RedisSaver;
 
 #[cfg(feature = "redis")]
 /// Redis-backed long-term memory store.
-pub use adapters::redis_store::RedisStore;
+pub use adapters::redis::RedisStore;
 
 #[cfg(feature = "redis")]
 /// Redis-backed node cache.
-pub use adapters::redis_cache::RedisCache;
+pub use adapters::redis::RedisCache;
 
 #[cfg(feature = "postgres")]
 pub use adapters::postgres::PostgresSaver;
 
 #[cfg(feature = "postgres")]
 /// Postgres-backed long-term memory store.
-pub use adapters::postgres_store::PostgresStore;
+pub use adapters::postgres::PostgresStore;
 
 #[cfg(feature = "postgres")]
 /// Postgres-backed node cache.
-pub use adapters::postgres_cache::PostgresCache;
+pub use adapters::postgres::PostgresCache;
 pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
 pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
 pub use kernel::checkpoint::Checkpoint;

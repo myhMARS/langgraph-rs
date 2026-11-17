@@ -89,7 +89,7 @@ impl LangGraphSqliteSaver {
         connection: &Connection,
         sql: &str,
         parameters: &[&dyn rusqlite::ToSql],
-    ) -> Result<Option<crate::adapters::langgraph_sqlite::CheckpointRow>> {
+    ) -> Result<Option<super::langgraph::CheckpointRow>> {
         connection
             .query_row(sql, parameters, |row| {
                 Ok((
@@ -109,7 +109,7 @@ impl LangGraphSqliteSaver {
         connection: &Connection,
         sql: &str,
         parameters: &[&dyn rusqlite::ToSql],
-    ) -> Result<Vec<crate::adapters::langgraph_sqlite::CheckpointRow>> {
+    ) -> Result<Vec<super::langgraph::CheckpointRow>> {
         let mut statement = connection.prepare(sql).map_err(|error| {
             Error::Checkpoint(format!("langgraph sqlite saver: history: {error}"))
         })?;
@@ -142,7 +142,7 @@ impl LangGraphSqliteSaver {
         parameters: &[&dyn rusqlite::ToSql],
     ) -> Result<Option<Checkpoint>> {
         Self::row(connection, sql, parameters)?
-            .map(crate::adapters::langgraph_sqlite::LangGraphSqliteReader::convert_row)
+            .map(super::langgraph::LangGraphSqliteReader::convert_row)
             .transpose()
     }
 
@@ -535,7 +535,7 @@ impl Checkpointer for LangGraphSqliteSaver {
             &[&thread_id, &namespace],
         )?;
         if let Some(checkpoint) = &mut checkpoint {
-            let _ = crate::adapters::langgraph_sqlite::enrich_with(&connection, checkpoint);
+            let _ = super::langgraph::enrich_with(&connection, checkpoint);
         }
         Ok(checkpoint)
     }
@@ -552,9 +552,8 @@ impl Checkpointer for LangGraphSqliteSaver {
         )?;
         let mut checkpoints = Vec::with_capacity(rows.len());
         for row in rows {
-            let mut checkpoint =
-                crate::adapters::langgraph_sqlite::LangGraphSqliteReader::convert_row(row)?;
-            let _ = crate::adapters::langgraph_sqlite::enrich_with(&connection, &mut checkpoint);
+            let mut checkpoint = super::langgraph::LangGraphSqliteReader::convert_row(row)?;
+            let _ = super::langgraph::enrich_with(&connection, &mut checkpoint);
             checkpoints.push(checkpoint);
         }
         Ok(checkpoints)
