@@ -218,3 +218,57 @@ pub(crate) fn persist_checkpoint(
         None => checkpointer.put(checkpoint),
     }
 }
+
+/// Shared checkpoint save used by the unified Pregel loop.
+#[allow(clippy::too_many_arguments, dead_code)]
+pub(crate) async fn save_checkpoint_via<
+    S: State,
+    B: crate::kernel::executor::backend::PregelBackend<S>,
+>(
+    backend: &B,
+    thread_id: Option<&str>,
+    namespace: &str,
+    parent: &mut Option<String>,
+    values: &Map<String, Value>,
+    next: &[Task],
+    step: usize,
+    interrupted: bool,
+    paused_before: bool,
+    interrupts: Vec<Interrupt>,
+    pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    executed: &[String],
+    sink: &mut dyn FnMut(StreamChunk),
+) -> Result<()> {
+    let Some(thread_id) = thread_id else {
+        return Ok(());
+    };
+    let id = new_checkpoint_id(thread_id, step);
+    let persisted_values = backend.schema().persisted_values(values);
+    let previous = match parent.as_deref() {
+        Some(parent_id) => {
+            backend
+                .load_checkpoint(thread_id, Some(parent_id), namespace)
+                .await?
+        }
+        None => None,
+    };
+    let checkpoint = build_checkpoint(CheckpointDraft {
+        thread_id,
+        namespace,
+        id: id.clone(),
+        parent: parent.clone(),
+        values: persisted_values,
+        next,
+        step,
+        interrupted,
+        paused_before,
+        interrupts,
+        pending_writes,
+        executed,
+        previous: previous.as_ref(),
+        task_results: crate::kernel::context::snapshot_task_results(),
+    });
+    backend.persist_checkpoint(checkpoint).await?;
+    checkpoint_committed(parent, &id, sink);
+    Ok(())
+}
