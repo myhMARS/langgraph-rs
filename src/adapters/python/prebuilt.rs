@@ -28,15 +28,35 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
         })?;
         for (index, item) in items.enumerate() {
             let item = item?;
-            if !item.is_callable() {
-                return Err(PyTypeError::new_err("every tool must be callable"));
+            if item.is_callable() {
+                let name = item
+                    .getattr("__name__")
+                    .ok()
+                    .and_then(|name| name.extract::<String>().ok())
+                    .unwrap_or_else(|| format!("tool_{index}"));
+                entries.push((name, item.unbind()));
+                continue;
             }
+            // LangChain BaseTool objects expose `name` and `invoke` instead of
+            // being directly callable.
             let name = item
-                .getattr("__name__")
+                .getattr("name")
                 .ok()
                 .and_then(|name| name.extract::<String>().ok())
-                .unwrap_or_else(|| format!("tool_{index}"));
-            entries.push((name, item.unbind()));
+                .ok_or_else(|| {
+                    PyTypeError::new_err(
+                        "every tool must be callable or expose `name` and `invoke`",
+                    )
+                })?;
+            let invoke = item.getattr("invoke").map_err(|_| {
+                PyTypeError::new_err(format!("tool `{name}` must expose an `invoke` method"))
+            })?;
+            if !invoke.is_callable() {
+                return Err(PyTypeError::new_err(format!(
+                    "tool `{name}` invoke attribute is not callable"
+                )));
+            }
+            entries.push((name, invoke.unbind()));
         }
     }
     Ok(entries
