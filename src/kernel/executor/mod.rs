@@ -21,8 +21,9 @@ use serde_json::{Map, Value, json};
 
 use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{
-    TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes, finish,
-    interrupt_after_node, interrupts_from, merge_interrupted_tasks, process_outcomes,
+    TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
+    debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
+    process_outcomes, values_chunk,
 };
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
@@ -433,10 +434,7 @@ pub(crate) fn execute<S: State>(
             &mut finish_updates,
         )?;
         state = values_to_state::<S>(&values)?;
-        sink(StreamChunk::Values {
-            step,
-            values: Value::Object(values.clone()),
-        });
+        sink(values_chunk(step, &values));
         // `Command(graph=PARENT)` aborts this (sub)graph; the embedding subgraph node
         // forwards the writes and targets into the parent graph.
         if crate::kernel::context::has_parent_command() {
@@ -464,14 +462,7 @@ pub(crate) fn execute<S: State>(
         )?;
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
-        sink(StreamChunk::Debug {
-            step,
-            payload: json!({
-                "step": step,
-                "executed": executed,
-                "next": scheduled,
-            }),
-        });
+        sink(debug_chunk(step, &executed, &scheduled));
 
         step += 1;
         let interrupt_after = interrupt_after_node(&executed, |node| graph.interrupts_after(node));

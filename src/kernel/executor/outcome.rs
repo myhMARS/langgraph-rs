@@ -451,3 +451,23 @@ pub(crate) fn apply_finish_updates(
         values.insert(channel, value);
     }
 }
+
+/// Stream chunk carrying the current channel values.
+pub(crate) fn values_chunk(step: usize, values: &serde_json::Map<String, Value>) -> StreamChunk {
+    StreamChunk::Values {
+        step,
+        values: Value::Object(values.clone()),
+    }
+}
+
+/// Stream chunk reporting which nodes ran and which are scheduled next.
+pub(crate) fn debug_chunk(step: usize, executed: &[String], scheduled: &[String]) -> StreamChunk {
+    StreamChunk::Debug {
+        step,
+        payload: serde_json::json!({
+            "step": step,
+            "executed": executed,
+            "next": scheduled,
+        }),
+    }
+}

@@ -1236,10 +1236,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                     processed.replacements,
                     &mut finish_updates,
                 )?;
-                sink(StreamChunk::Values {
-                    step,
-                    values: Value::Object(values.clone()),
-                });
+                sink(crate::kernel::executor::outcome::values_chunk(
+                    step, &values,
+                ));
                 let next_tasks = crate::kernel::executor::outcome::merge_interrupted_tasks(
                     &tasks,
                     |task| interrupted_nodes.contains(&task.node),
@@ -1288,10 +1287,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 &mut finish_updates,
             )?;
             state = values_to_state::<S>(&values)?;
-            sink(StreamChunk::Values {
-                step,
-                values: Value::Object(values.clone()),
-            });
+            sink(crate::kernel::executor::outcome::values_chunk(
+                step, &values,
+            ));
             if super::context::has_parent_command() {
                 return finish(state, &self.schema, report, started);
             }
