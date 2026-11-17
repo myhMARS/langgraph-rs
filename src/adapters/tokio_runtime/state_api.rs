@@ -104,12 +104,12 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Vec<StateSnapshot<S>>> {
         let all = futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
         let total = all.len() as i64;
-        let step_by_id: std::collections::HashMap<&str, usize> = all
+        let step_by_id: std::collections::HashMap<String, usize> = all
             .iter()
             .enumerate()
-            .map(|(index, checkpoint)| (checkpoint.id.as_str(), index))
+            .map(|(index, checkpoint)| (checkpoint.id.clone(), index))
             .collect();
-        let mut checkpoints = all.clone();
+        let mut checkpoints = all;
         if let Some(before) = before {
             match checkpoints
                 .iter()
@@ -128,7 +128,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .into_iter()
             .map(|checkpoint| {
                 let step = step_by_id
-                    .get(checkpoint.id.as_str())
+                    .get(&checkpoint.id)
                     .map(|index| total - 2 - *index as i64)
                     .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;

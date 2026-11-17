@@ -7,7 +7,7 @@ use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::executor::{self, StartInput};
 use crate::kernel::graph::options::RunConfig;
-use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values, values_to_state};
+use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values};
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;
 
@@ -54,7 +54,6 @@ impl<S: State> CompiledGraph<S> {
                 })
                 .collect(),
         )?;
-        let _state: S = values_to_state(&values)?;
         let mut config = config.clone();
         config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
