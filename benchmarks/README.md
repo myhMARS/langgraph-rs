@@ -109,7 +109,7 @@ Postgres/Redis scenarios are opt-in because they need live databases:
 ```bash
 export PARITY_POSTGRES_URL="postgresql://postgres:postgres@127.0.0.1:55001/langgraph_rs"
 export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
-python python/benchmarks/parity.py
+python benchmarks/parity.py
 ```
 
 Latest remote results: Postgres ~0.76x, Redis ~2.17x versus LangGraph. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.
