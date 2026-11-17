@@ -52,6 +52,28 @@ struct AsyncRunInfo {
     collector: Option<Arc<std::sync::Mutex<Vec<StreamChunk>>>>,
 }
 
+impl<S: State> crate::kernel::executor::outcome::OutcomeGraph for AsyncCompiledGraph<S> {
+    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
+        &self.trace_sinks
+    }
+
+    fn error_handler(&self, node: &str) -> Option<&str> {
+        self.error_edges.get(node).map(String::as_str)
+    }
+
+    fn has_node(&self, node: &str) -> bool {
+        self.nodes.contains_key(node)
+    }
+
+    fn destinations_of(&self, node: &str) -> Option<&[String]> {
+        self.destinations.get(node).map(Vec::as_slice)
+    }
+
+    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
+        super::context::record_parent_command(updates, goto);
+    }
+}
+
 /// A compiled async graph.
 ///
 /// Build one with [`AsyncStateGraph::compile`](crate::tokio_runtime::AsyncStateGraph::compile).

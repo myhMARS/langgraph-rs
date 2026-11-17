@@ -72,6 +72,7 @@ pub(crate) trait OutcomeGraph {
     fn error_handler(&self, node: &str) -> Option<&str>;
     fn has_node(&self, node: &str) -> bool;
     fn destinations_of(&self, node: &str) -> Option<&[String]>;
+    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>);
 }
 
 impl<S: crate::kernel::state::State> OutcomeGraph for crate::kernel::graph::CompiledGraph<S> {
@@ -90,25 +91,9 @@ impl<S: crate::kernel::state::State> OutcomeGraph for crate::kernel::graph::Comp
     fn destinations_of(&self, node: &str) -> Option<&[String]> {
         self.destinations_of(node)
     }
-}
 
-impl<S: crate::kernel::state::State> OutcomeGraph
-    for crate::adapters::tokio_runtime::AsyncCompiledGraph<S>
-{
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn TraceSink>] {
-        &self.trace_sinks
-    }
-
-    fn error_handler(&self, node: &str) -> Option<&str> {
-        self.error_edges.get(node).map(String::as_str)
-    }
-
-    fn has_node(&self, node: &str) -> bool {
-        self.nodes.contains_key(node)
-    }
-
-    fn destinations_of(&self, node: &str) -> Option<&[String]> {
-        self.destinations.get(node).map(Vec::as_slice)
+    fn record_parent_command(&self, updates: Vec<(String, Value)>, goto: Vec<String>) {
+        crate::kernel::context::record_parent_command(updates, goto);
     }
 }
 
@@ -255,7 +240,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     let (updates, replaces, goto, _sends) = output.into_parts();
                     let mut parent_updates: Vec<(String, Value)> = updates.into_iter().collect();
                     parent_updates.extend(replaces);
-                    crate::kernel::context::record_parent_command(parent_updates, goto);
+                    graph.record_parent_command(parent_updates, goto);
                     continue;
                 }
                 let (updates, replaces, goto, sends) = output.into_parts();
