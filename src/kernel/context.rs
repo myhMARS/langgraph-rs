@@ -43,6 +43,8 @@ pub(crate) trait AsyncTaskOps: Send + Sync {
     fn push_message(&self, value: Value) -> Result<()>;
     fn record_usage(&self, usage: crate::kernel::usage::Usage) -> Result<()>;
     fn last_error(&self) -> Option<crate::kernel::error::NodeFailure>;
+    fn resume_value(&self) -> Option<Value>;
+    fn resume_last(&self) -> Option<Value>;
 }
 
 /// Scope a node future with the async task operations used by the free helpers.
@@ -332,6 +334,12 @@ pub fn current_namespace() -> String {
 
 /// Resume value stamped onto the current task, when replaying an interrupt.
 pub fn current_resume() -> Option<Value> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(value) = ASYNC_TASK.try_with(|ops| ops.resume_value())
+    {
+        return value;
+    }
     CURRENT_TASK.with(|slot| {
         slot.borrow()
             .as_ref()
@@ -341,6 +349,12 @@ pub fn current_resume() -> Option<Value> {
 
 /// Latest resume value stamped onto the current task (subgraph propagation).
 pub(crate) fn current_resume_last() -> Option<Value> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(value) = ASYNC_TASK.try_with(|ops| ops.resume_last())
+    {
+        return value;
+    }
     CURRENT_TASK.with(|slot| {
         slot.borrow()
             .as_ref()

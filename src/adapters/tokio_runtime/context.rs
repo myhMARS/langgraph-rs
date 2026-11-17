@@ -34,6 +34,22 @@ impl crate::kernel::context::AsyncTaskOps for AsyncContext {
     fn last_error(&self) -> Option<NodeFailure> {
         self.last_error().cloned()
     }
+
+    fn resume_value(&self) -> Option<Value> {
+        let slot = self
+            .resume
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.0.get(slot.1).cloned()
+    }
+
+    fn resume_last(&self) -> Option<Value> {
+        let slot = self
+            .resume
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        slot.0.last().cloned()
+    }
 }
 
 /// Per-node execution context for async nodes.

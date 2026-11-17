@@ -55,7 +55,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
             let nodes = nodes.clone();
             // `Command(goto=...)` values are state updates, not run input.
             for node in &nodes {
-                if !node_exists(node) {
+                if node != crate::END && !node_exists(node) {
                     return Err(crate::kernel::error::Error::validation(format!(
                         "Command(goto=...): `{node}` is not a registered node"
                     )));
@@ -64,6 +64,9 @@ pub(crate) fn resolve_fresh_start<S: State>(
             let state = values_to_state::<S>(&values)?;
             let mut tasks = entry_tasks(&state)?;
             for node in crate::kernel::executor::scheduling::dedupe(nodes) {
+                if node == crate::END {
+                    continue;
+                }
                 if !tasks.iter().any(|task| task.node == node) {
                     tasks.push(crate::kernel::node::Task::new(node));
                 }
