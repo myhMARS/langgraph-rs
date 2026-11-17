@@ -6,8 +6,7 @@
 //! awaits it.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
+
 use std::time::Instant;
 
 use serde_json::Value;
@@ -556,61 +555,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     }
 }
 
-/// Drive a future to completion, parking the current thread while it is pending.
-///
-/// Unlike `futures::executor::block_on` this supports nested runs (a subgraph executes
-/// another graph on the same thread).
-pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    struct ThreadWake(std::thread::Thread);
-    impl Wake for ThreadWake {
-        fn wake(self: Arc<Self>) {
-            self.0.unpark();
-        }
-        fn wake_by_ref(self: &Arc<Self>) {
-            self.0.unpark();
-        }
-    }
-    let waker = Waker::from(Arc::new(ThreadWake(std::thread::current())));
-    let mut context = Context::from_waker(&waker);
-    let mut future = std::pin::pin!(future);
-    loop {
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => return value,
-            Poll::Pending => std::thread::park(),
-        }
-    }
-}
-
-fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
-    backend: &B,
-    setup: &step::RunSetup,
-    sink: &mut F,
-) {
-    if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
-        let chunks: Vec<StreamChunk> = collector
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .drain(..)
-            .collect();
-        for chunk in chunks {
-            sink(chunk);
-        }
-    }
-}
-
-fn finish_pending(
-    finish_updates: &HashMap<String, Value>,
-    schema: &crate::kernel::state::StateSchema,
-) -> Vec<crate::kernel::checkpoint::PendingWrite> {
-    finish_updates
-        .iter()
-        .filter(|(channel, _)| schema.persists(channel))
-        .map(|(channel, value)| crate::kernel::checkpoint::PendingWrite {
-            task_id: "__finish__".to_string(),
-            node: "__finish__".to_string(),
-            channel: channel.clone(),
-            value: value.clone(),
-            replace: false,
-        })
-        .collect()
-}
+#[path = "pregel_support.rs"]
+mod pregel_support;
+pub(crate) use pregel_support::*;
