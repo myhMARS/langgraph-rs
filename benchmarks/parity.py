@@ -24,6 +24,7 @@ from langgraph.checkpoint.memory import InMemorySaver as LgInMemorySaver
 from langgraph.graph import END, START, StateGraph as LgStateGraph
 from langgraph.cache.memory import InMemoryCache as LgCache
 from langgraph.config import get_store as lg_get_store
+from langgraph.func import entrypoint as lg_entrypoint, task as lg_task
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
 from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
@@ -553,6 +554,24 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # Functional API (@entrypoint / @task).
+    lg_graph = lg_functional_graph()
+    rs_graph = rs_functional_graph()
+    lg_value = lg_graph.invoke({"value": 1})
+    rs_value = rs_graph.invoke({"value": 1})
+    results.append(
+        {
+            "scenario": "functional_api",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"value": 1})),
+                "lg": measure(lambda: lg_graph.invoke({"value": 1})),
+            },
+        }
+    )
+
     # In-memory store round trip
     lg_value = lg_store_graph().invoke({})
     rs_value = rs_store_graph().invoke({})
@@ -646,6 +665,25 @@ def rs_message_tokens():
         for chunk in chunks
         if chunk.get("type") == "messages"
     )
+
+
+def lg_functional_graph():
+    @lg_task
+    def add(x):
+        return x + 1
+
+    @lg_entrypoint()
+    def workflow(state):
+        return {"value": add(state["value"]).result()}
+
+    return workflow
+
+
+def rs_functional_graph():
+    add = rs.task(lambda x: x + 1, name="add")
+    return rs.entrypoint(
+        lambda state: {"value": add(state["value"])}
+    ).compile()
 
 
 def lg_store_graph():
