@@ -356,7 +356,7 @@ impl Checkpointer for LangGraphSqliteSaver {
                     checkpoint.thread_id,
                     checkpoint.namespace,
                     checkpoint_id,
-                    langgraph_task_id(&checkpoint_id, &task.node, checkpoint.step),
+                    "00000000-0000-0000-0000-000000000000",
                     format!("~__pregel_pull, {}", task.node),
                     index as i64 + 1,
                     format!("branch:to:{}", task.node),
