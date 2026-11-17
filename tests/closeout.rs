@@ -176,7 +176,7 @@ fn update_state_with_task_id_infers_the_pending_node() {
         .update_state_with_task("task-id", [("value", json!(5))], None, Some(&task.id))
         .unwrap();
     assert_eq!(updated.values.get("value"), Some(&json!(5)));
-    assert!(updated.next.contains(&"finish".to_string()));
+    assert!(updated.next.contains(&"ask".to_string()));
     assert!(
         graph
             .update_state_with_task("task-id", [("value", json!(6))], None, Some("missing-task"),)

@@ -838,7 +838,13 @@ impl<S: State> CompiledGraph<S> {
     {
         let resolved = self.resolve_task_node(thread_id, "", task_id)?;
         let as_node = as_node.map(str::to_owned).or(resolved);
-        self.update_state_in(thread_id, "", updates, as_node.as_deref())
+        self.update_state_inner(
+            thread_id,
+            "",
+            updates,
+            as_node.as_deref(),
+            task_id.is_some(),
+        )
     }
 
     fn resolve_task_node(
@@ -882,6 +888,21 @@ impl<S: State> CompiledGraph<S> {
         I: IntoIterator<Item = (K, Value)>,
         K: Into<String>,
     {
+        self.update_state_inner(thread_id, namespace, updates, as_node, false)
+    }
+
+    fn update_state_inner<I, K>(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        updates: I,
+        as_node: Option<&str>,
+        preserve_next: bool,
+    ) -> Result<StateSnapshot<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("update_state"))?;
@@ -907,31 +928,35 @@ impl<S: State> CompiledGraph<S> {
         apply_updates(&self.schema, &mut values, updates)?;
         let state = values_to_state::<S>(&values)?;
 
-        let next = match as_node {
-            Some(node) => {
-                if !self.nodes.contains_key(node) {
-                    return Err(Error::validation(format!(
-                        "update_state: `{node}` is not a registered node"
-                    )));
+        let next = if preserve_next {
+            checkpoint.next.clone()
+        } else {
+            match as_node {
+                Some(node) => {
+                    if !self.nodes.contains_key(node) {
+                        return Err(Error::validation(format!(
+                            "update_state: `{node}` is not a registered node"
+                        )));
+                    }
+                    let executed = vec![node.to_string()];
+                    let (targets, router_sends) = collect_next_nodes(
+                        &state,
+                        &executed,
+                        &HashSet::new(),
+                        &[],
+                        |candidate| self.edges_of(candidate),
+                        |candidate| self.conditional_of(candidate),
+                        |candidate| self.nodes.contains_key(candidate),
+                        |candidate| self.destinations_of(candidate),
+                    )?;
+                    let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
+                    for (source, send) in router_sends {
+                        tasks.push(send_task(&source, send)?);
+                    }
+                    tasks
                 }
-                let executed = vec![node.to_string()];
-                let (targets, router_sends) = collect_next_nodes(
-                    &state,
-                    &executed,
-                    &HashSet::new(),
-                    &[],
-                    |candidate| self.edges_of(candidate),
-                    |candidate| self.conditional_of(candidate),
-                    |candidate| self.nodes.contains_key(candidate),
-                    |candidate| self.destinations_of(candidate),
-                )?;
-                let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
-                for (source, send) in router_sends {
-                    tasks.push(send_task(&source, send)?);
-                }
-                tasks
+                None => checkpoint.next.clone(),
             }
-            None => checkpoint.next.clone(),
         };
 
         let id = new_checkpoint_id(thread_id, checkpoint.step);

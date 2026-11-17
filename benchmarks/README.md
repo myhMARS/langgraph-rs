@@ -97,8 +97,8 @@ Python callable dispatch on every node execution).
 `langgraph-rs` Python bindings, compares observable results, and writes
 `benchmarks/parity_results.json` plus `benchmarks/PARITY.md`.
 
-The latest run covers 35 scenarios: linear execution, conditional branches, loops, batch,
-managed values, v1/v2 streaming, messages/token streaming, functional API, Send fan-out, deferred nodes, graph export, time travel, pending writes, snapshot metadata, multi-interrupt resumes, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache (memory + SQLite), store round trips, SQLite/Postgres/Redis persistence, async
+The latest run covers 37 scenarios: linear execution, conditional branches, loops, batch,
+managed values, v1/v2 streaming, messages/token streaming, functional API, Send fan-out, deferred nodes, graph export, time travel, pending writes, snapshot metadata, multi-interrupt resumes, Command(update/goto/PARENT), retry policies, error handling/propagation, node timeout, node cache (memory + SQLite), store round trips (memory + SQLite), SQLite/Postgres/Redis persistence, async
 execution, interrupt/resume, nested subgraph interrupt/resume, `update_state`, checkpoint
 history, and subgraphs. Every scenario records behavior equivalence plus per-scenario latency
 for both engines. The SQLite saver runs in WAL/NORMAL mode and reuses a cached insert statement,
@@ -112,5 +112,5 @@ export PARITY_REDIS_URL="redis://127.0.0.1:55000/"
 python benchmarks/parity.py
 ```
 
-Latest remote results: Postgres ~1.06x, Redis ~2.24x versus LangGraph. Postgres writes now reuse a prepared statement and SQLite cache/saver writes reuse cached
+Latest remote results: Postgres ~1.14x, Redis ~2.38x versus LangGraph. Postgres writes now reuse a prepared statement and SQLite cache/saver writes reuse cached
 statements (WAL enabled), reducing parse and fsync overhead. `node_timeout` compares async cancellation on both engines (both fail with a timeout error). `messages_stream` notes that LangGraph captures chat-model callbacks automatically while the binding needs an explicit `langchain_callback_handler`.

@@ -1433,7 +1433,7 @@ class AsyncPythonTests(unittest.TestCase):
             "py-task-id", {"value": 5}, task_id=task["id"]
         )
         self.assertEqual(updated["values"]["value"], 5)
-        self.assertIn("finish", updated["next"])
+        self.assertIn("ask", updated["next"])
         with self.assertRaises(Exception):
             compiled.update_state("py-task-id", {"value": 6}, task_id="missing")
 

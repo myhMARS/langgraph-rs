@@ -735,6 +735,38 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
+    # update_state addressed to a specific pending task.
+    lg_value = lg_update_state_task()
+    rs_value = rs_update_state_task()
+    results.append(
+        {
+            "scenario": "update_state_task",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(rs_update_state_task),
+                "lg": measure(lg_update_state_task),
+            },
+        }
+    )
+
+    # SQLite-backed long-term store round trip.
+    lg_store_value = lg_sqlite_store_invoke()
+    rs_store_value = rs_sqlite_store_invoke()
+    results.append(
+        {
+            "scenario": "store_sqlite",
+            "rs": rs_store_value,
+            "lg": lg_store_value,
+            "equivalent": rs_store_value == lg_store_value,
+            "bench": {
+                "rs": measure(rs_sqlite_store_invoke),
+                "lg": measure(lg_sqlite_store_invoke),
+            },
+        }
+    )
+
     # SQLite persistence round trip
     lg_value, rs_value, persistence_bench = persistence_values()
     results.append(
@@ -1092,6 +1124,99 @@ def rs_functional_graph():
     return rs.entrypoint(
         lambda state: {"value": add(state["value"])}
     ).compile()
+
+
+def lg_update_state_task():
+    def ask(state):
+        lg_interrupt({"question": "value?"})
+        return {}
+
+    def finish(state):
+        return {}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("ask", ask)
+    graph.add_node("finish", finish)
+    graph.add_edge(START, "ask")
+    graph.add_edge("ask", "finish")
+    graph.add_edge("finish", END)
+    compiled = graph.compile(checkpointer=LgInMemorySaver())
+    config = {"configurable": {"thread_id": "parity-lg-task-update"}}
+    try:
+        compiled.invoke({}, config)
+    except Exception:  # noqa: BLE001
+        pass
+    task = compiled.get_state(config).tasks[0]
+    compiled.update_state(config, {"value": 5}, task_id=task.id)
+    snapshot = compiled.get_state(config)
+    return {"value": snapshot.values.get("value"), "next": list(snapshot.next)}
+
+
+def rs_update_state_task():
+    def ask(state):
+        rs.interrupt({"question": "value?"})
+        return {}
+
+    def finish(state):
+        return {}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("ask", ask)
+    graph.add_node("finish", finish)
+    graph.set_entry_point("ask")
+    graph.add_edge("ask", "finish")
+    graph.set_finish_point("finish")
+    compiled = graph.compile(checkpointer=rs.InMemorySaver())
+    try:
+        compiled.invoke({}, thread_id="parity-rs-task-update")
+    except Exception:  # noqa: BLE001
+        pass
+    task = compiled.get_state("parity-rs-task-update")["tasks"][0]
+    compiled.update_state(
+        "parity-rs-task-update", {"value": 5}, task_id=task["id"]
+    )
+    snapshot = compiled.get_state("parity-rs-task-update")
+    return {"value": snapshot["values"].get("value"), "next": list(snapshot["next"])}
+
+
+def lg_sqlite_store_invoke():
+    import sqlite3
+
+    from langgraph.store.sqlite import SqliteStore
+
+    directory = Path(tempfile.mkdtemp())
+    connection = sqlite3.connect(
+        directory / "store.sqlite", check_same_thread=False, isolation_level=None
+    )
+    store = SqliteStore(connection)
+    store.setup()
+
+    def write(state):
+        store = lg_get_store()
+        store.put(("parity",), "key", {"value": 7})
+        return {"value": store.get(("parity",), "key").value["value"]}
+
+    graph = LgStateGraph(dict)
+    graph.add_node("write", write)
+    graph.add_edge(START, "write")
+    graph.add_edge("write", END)
+    return graph.compile(store=store).invoke({})
+
+
+def rs_sqlite_store_invoke():
+    directory = Path(tempfile.mkdtemp())
+    store = rs.SqliteStore(str(directory / "store.sqlite"))
+
+    def write(state):
+        store = rs.get_store()
+        store.put(("parity",), "key", {"value": 7})
+        return {"value": store.get(("parity",), "key")["value"]}
+
+    graph = rs.StateGraph({"value": "last_value"})
+    graph.add_node("write", write)
+    graph.set_entry_point("write")
+    graph.set_finish_point("write")
+    return graph.compile(store=store).invoke({})
 
 
 def lg_store_graph():
