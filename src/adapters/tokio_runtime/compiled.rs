@@ -1319,7 +1319,10 @@ impl<S: State> AsyncCompiledGraph<S> {
                 crate::kernel::executor::outcome::interrupt_after_node(&executed, |node| {
                     self.interrupt_after.contains(node)
                 });
-            if config.durability != crate::Durability::Exit || interrupt_after.is_some() {
+            if crate::kernel::executor::outcome::should_save_after_step(
+                config.durability,
+                interrupt_after.is_some(),
+            ) {
                 self.save_checkpoint(
                     thread_id.as_deref(),
                     &namespace,
@@ -1355,7 +1358,10 @@ impl<S: State> AsyncCompiledGraph<S> {
                     );
                     state = values_to_state::<S>(&values)?;
                 }
-                if config.durability == crate::Durability::Exit && thread_id.is_some() {
+                if crate::kernel::executor::outcome::should_save_terminal(
+                    config.durability,
+                    thread_id.is_some(),
+                ) {
                     self.save_checkpoint(
                         thread_id.as_deref(),
                         &namespace,

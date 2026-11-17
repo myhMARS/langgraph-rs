@@ -23,7 +23,7 @@ use self::checkpointing::{CheckpointWriter, save_checkpoint};
 use self::outcome::{
     TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
     debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
-    process_outcomes, values_chunk,
+    process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
 };
 use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
 use self::superstep::run_superstep;
@@ -466,7 +466,7 @@ pub(crate) fn execute<S: State>(
 
         step += 1;
         let interrupt_after = interrupt_after_node(&executed, |node| graph.interrupts_after(node));
-        if durability != Durability::Exit || interrupt_after.is_some() {
+        if should_save_after_step(durability, interrupt_after.is_some()) {
             save_checkpoint(
                 graph,
                 thread_id.as_deref(),
@@ -500,7 +500,7 @@ pub(crate) fn execute<S: State>(
                 apply_finish_updates(&mut values, &mut finish_updates);
                 state = values_to_state::<S>(&values)?;
             }
-            if durability == Durability::Exit && thread_id.is_some() {
+            if should_save_terminal(durability, thread_id.is_some()) {
                 save_checkpoint(
                     graph,
                     thread_id.as_deref(),
