@@ -184,5 +184,26 @@ class ReactAgentModelTests(unittest.TestCase):
         self.assertEqual(len(output["messages"]), 3)
 
 
+    def test_stream_can_resume_thread(self):
+        graph = lg.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node("a", lambda state: {"value": 1, "log": ["a"]})
+        graph.add_node("b", lambda state: {"value": 2, "log": ["b"]})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        compiled = graph.compile(
+            checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
+        )
+        with self.assertRaises(lg.GraphInterrupt):
+            compiled.invoke(
+                {"value": 0, "log": []}, thread_id="stream-resume"
+            )
+        chunks = compiled.stream(None, thread_id="stream-resume")
+        self.assertTrue(chunks)
+        self.assertEqual(
+            compiled.get_state("stream-resume")["values"]["log"], ["a", "b"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

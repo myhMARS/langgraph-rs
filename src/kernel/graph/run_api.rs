@@ -160,6 +160,44 @@ impl<S: State> CompiledGraph<S> {
             .map(|outcome| outcome.state)
     }
 
+    /// Stream a resume/continue run for an existing thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stream_thread_with<F>(
+        &self,
+        thread_id: &str,
+        resume: Option<Value>,
+        updates: Option<Map<String, Value>>,
+        goto: Vec<String>,
+        config: &RunConfig,
+        modes: &[StreamMode],
+        mut sink: F,
+    ) -> Result<S>
+    where
+        F: FnMut(StreamChunk),
+    {
+        let requested = modes.to_vec();
+        let mut filtered = |chunk: StreamChunk| {
+            if matches!(chunk, StreamChunk::Interrupt { .. })
+                || chunk.matches_modes_strict(&requested)
+            {
+                sink(chunk);
+            }
+        };
+        executor::execute(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: config.checkpoint_id.clone(),
+                resume,
+                updates,
+                goto,
+            },
+            config,
+            &mut filtered,
+        )
+        .map(|outcome| outcome.state)
+    }
+
     /// Invoke the graph over several inputs, respecting `RunConfig::max_concurrency`.
     ///
     /// Results are returned in input order; a failed invocation does not abort the batch.
@@ -522,6 +560,116 @@ impl<S: State> CompiledGraph<S> {
         .map(|outcome| outcome.state)
     }
 
+    /// Continue a thread using an explicit per-run config.
+    pub fn continue_thread_with_config(&self, thread_id: &str, config: &RunConfig) -> Result<S> {
+        self.resume_inner(thread_id, None, None, None, None, Some(config))
+    }
+
+    /// Resume with updates using an explicit per-run config.
+    pub fn resume_with_updates_config<I, K>(
+        &self,
+        thread_id: &str,
+        value: Value,
+        updates: I,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        self.resume_inner(
+            thread_id,
+            None,
+            Some(value),
+            Some(updates),
+            config.checkpoint_ns.as_deref(),
+            Some(config),
+        )
+    }
+
+    /// Resume with updates and explicit goto targets using a per-run config.
+    pub fn resume_with_updates_and_goto_config<I, K>(
+        &self,
+        thread_id: &str,
+        value: Value,
+        updates: I,
+        goto: Vec<String>,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        for node in &goto {
+            if node != crate::END && !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "Command(goto=...): `{node}` is not a registered node"
+                )));
+            }
+        }
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute_quiet(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: None,
+                resume: Some(value),
+                updates: Some(updates),
+                goto,
+            },
+            config,
+            &mut sink,
+        )
+        .map(|outcome| outcome.state)
+    }
+
+    /// Continue with goto targets and no resume value using a per-run config.
+    pub fn resume_continue_with_goto_config<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        goto: Vec<String>,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        for node in &goto {
+            if node != crate::END && !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "Command(goto=...): `{node}` is not a registered node"
+                )));
+            }
+        }
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        let mut sink = |_chunk: StreamChunk| {};
+        executor::execute_quiet(
+            self,
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: None,
+                resume: None,
+                updates: Some(updates),
+                goto,
+            },
+            config,
+            &mut sink,
+        )
+        .map(|outcome| outcome.state)
+    }
+
     pub fn resume_command(&self, thread_id: &str, command: Command) -> Result<S> {
         let updates = command
             .update
@@ -549,13 +697,10 @@ impl<S: State> CompiledGraph<S> {
         namespace: Option<&str>,
         overrides: Option<&RunConfig>,
     ) -> Result<S> {
-        let mut config = RunConfig::new().with_thread(thread_id);
+        let mut config = overrides.cloned().unwrap_or_default();
+        config.thread_id = Some(thread_id.to_string());
         if let Some(namespace) = namespace {
             config = config.with_checkpoint_ns(namespace);
-        }
-        if let Some(overrides) = overrides {
-            config.store = overrides.store.clone();
-            config.context = overrides.context.clone();
         }
         let mut sink = |_chunk: StreamChunk| {};
         executor::execute_quiet(

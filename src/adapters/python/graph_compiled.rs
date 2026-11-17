@@ -44,20 +44,22 @@ impl PyCompiledGraph {
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, base_config) =
             crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
-        let base_config = base_config;
-        let control = control.map(|control| control.inner.clone());
+        let mut invoke_config = base_config.clone();
+        if let Some(namespace) = checkpoint_ns.clone() {
+            invoke_config = invoke_config.with_checkpoint_ns(namespace);
+        }
+        if let Some(control) = control.as_ref() {
+            invoke_config = invoke_config.with_control(control.inner.clone());
+        }
+        if let Some(context) = context {
+            invoke_config = invoke_config.with_context(py_to_value(context)?);
+        }
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
                 let targets = command.goto_targets(py)?;
                 if !targets.is_empty() && command.resume.is_none() {
                     let updates = command.to_update_map(py)?;
-                    let mut config = base_config.clone();
-                    if let Some(control) = control.clone() {
-                        config = config.with_control(control);
-                    }
-                    if let Some(context) = context {
-                        config = config.with_context(py_to_value(context)?);
-                    }
+                    let config = invoke_config.clone();
                     let thread = thread_id.clone();
                     let command = crate::Command {
                         resume: None,
@@ -97,10 +99,7 @@ impl PyCompiledGraph {
                         goto: Vec::new(),
                         parent: false,
                     };
-                    let mut config = base_config.clone();
-                    if let Some(control) = control.clone() {
-                        config = config.with_control(control);
-                    }
+                    let config = invoke_config.clone();
                     let result = py.detach(|| self.graph.run_command(command, &config));
                     return match result {
                         Ok(outcome) => json_state_to_py(py, &outcome.state),
@@ -112,21 +111,26 @@ impl PyCompiledGraph {
                 })?;
                 let (resume, updates) = command.to_resume_command(py)?;
                 let goto = command.goto_targets(py)?;
+                let resume_config = invoke_config.clone();
                 let result = py.detach(|| match resume {
-                    Some(value) if goto.is_empty() => {
-                        self.graph.resume_with_updates(thread, value, updates)
-                    }
-                    Some(value) => self
-                        .graph
-                        .resume_with_updates_and_goto(thread, value, updates, goto),
-                    None => self.graph.resume_command(
+                    Some(value) if goto.is_empty() => self.graph.resume_with_updates_config(
                         thread,
-                        crate::Command {
-                            resume: None,
-                            update: Some(updates),
-                            goto,
-                            parent: false,
-                        },
+                        value,
+                        updates,
+                        &resume_config,
+                    ),
+                    Some(value) => self.graph.resume_with_updates_and_goto_config(
+                        thread,
+                        value,
+                        updates,
+                        goto,
+                        &resume_config,
+                    ),
+                    None => self.graph.resume_continue_with_goto_config(
+                        thread,
+                        updates,
+                        goto,
+                        &resume_config,
                     ),
                 });
                 return match result {
@@ -135,20 +139,11 @@ impl PyCompiledGraph {
                 };
             }
         }
-        let mut config = base_config.clone();
-        if let Some(namespace) = checkpoint_ns {
-            config = config.with_checkpoint_ns(namespace);
-        }
-        if let Some(control) = control {
-            config = config.with_control(control);
-        }
-        if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
-        }
+        let config = invoke_config;
         let input_is_none = input.map(|value| value.is_none()).unwrap_or(true);
         if input_is_none {
             if let Some(thread) = thread_id.as_deref() {
-                let result = py.detach(|| self.graph.continue_thread(thread));
+                let result = py.detach(|| self.graph.continue_thread_with_config(thread, &config));
                 return match result {
                     Ok(state) => json_state_to_py(py, &state),
                     Err(error) => Err(to_pyerr(py, error)),
@@ -234,8 +229,7 @@ impl PyCompiledGraph {
                 )));
             }
         };
-        let state = state_from_py(input)?;
-        let (_, mut config) = config_from_py(py, config.or(thread_id))?;
+        let (thread, mut config) = config_from_py(py, config.or(thread_id))?;
         if let Some(control) = control {
             config = config.with_control(control.inner.clone());
         }
@@ -247,15 +241,61 @@ impl PyCompiledGraph {
         }
         let requested =
             stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Updates]);
-        let chunks = py
-            .detach(|| self.graph.stream_modes(&state, &config, &requested))
-            .map_err(|error| to_pyerr(py, error))?
-            .into_iter()
-            .filter(|chunk| {
-                matches!(chunk, crate::StreamChunk::Interrupt { .. })
-                    || chunk.matches_modes_strict(&requested)
-            })
-            .collect::<Vec<_>>();
+        let mut streamed = Vec::new();
+        let mut handled = false;
+        if let Some(obj) = input {
+            if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+                let thread = thread.as_deref().ok_or_else(|| {
+                    PyTypeError::new_err("stream(Command(...)) requires thread_id")
+                })?;
+                let (resume, updates) = command.to_resume_command(py)?;
+                let goto = command.goto_targets(py)?;
+                let updates = Some(updates.into_iter().collect());
+                py.detach(|| {
+                    self.graph.stream_thread_with(
+                        thread,
+                        resume,
+                        updates,
+                        goto,
+                        &config,
+                        &requested,
+                        |chunk| streamed.push(chunk),
+                    )
+                })
+                .map_err(|error| to_pyerr(py, error))?;
+                handled = true;
+            }
+        }
+        if !handled && input.is_none_or(|value| value.is_none()) {
+            if let Some(thread) = thread.as_deref() {
+                py.detach(|| {
+                    self.graph.stream_thread_with(
+                        thread,
+                        None,
+                        None,
+                        Vec::new(),
+                        &config,
+                        &requested,
+                        |chunk| streamed.push(chunk),
+                    )
+                })
+                .map_err(|error| to_pyerr(py, error))?;
+                handled = true;
+            }
+        }
+        let chunks = if handled {
+            streamed
+        } else {
+            let state = state_from_py(input)?;
+            py.detach(|| self.graph.stream_modes(&state, &config, &requested))
+                .map_err(|error| to_pyerr(py, error))?
+                .into_iter()
+                .filter(|chunk| {
+                    matches!(chunk, crate::StreamChunk::Interrupt { .. })
+                        || chunk.matches_modes_strict(&requested)
+                })
+                .collect::<Vec<_>>()
+        };
         chunks
             .iter()
             .map(|chunk| {
