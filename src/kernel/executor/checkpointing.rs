@@ -156,12 +156,52 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
 /// Record a persisted checkpoint as the new parent and emit its stream event.
 pub(crate) fn checkpoint_committed(
     parent: &mut Option<String>,
-    id: &str,
+    checkpoint: &Checkpoint,
     sink: &mut dyn FnMut(StreamChunk),
 ) {
-    *parent = Some(id.to_string());
+    *parent = Some(checkpoint.id.clone());
+    let config = serde_json::json!({
+        "configurable": {
+            "thread_id": checkpoint.thread_id,
+            "checkpoint_ns": checkpoint.namespace,
+            "checkpoint_id": checkpoint.id,
+        }
+    });
+    let parent_config = checkpoint.parent_id.as_ref().map(|parent_id| {
+        serde_json::json!({
+            "configurable": {
+                "thread_id": checkpoint.thread_id,
+                "checkpoint_ns": checkpoint.namespace,
+                "checkpoint_id": parent_id,
+            }
+        })
+    });
+    let tasks: Vec<serde_json::Value> = checkpoint
+        .next
+        .iter()
+        .map(|task| {
+            serde_json::json!({
+                "id": task.id,
+                "name": task.node,
+                "interrupts": [],
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "config": config,
+        "metadata": {
+            "step": checkpoint.step,
+            "source": checkpoint.metadata.get("source"),
+            "parents": {},
+        },
+        "values": checkpoint.values,
+        "next": checkpoint.next.iter().map(|task| task.node.clone()).collect::<Vec<_>>(),
+        "parent_config": parent_config,
+        "tasks": tasks,
+    });
     sink(StreamChunk::Checkpoint {
-        checkpoint_id: id.to_string(),
+        checkpoint_id: checkpoint.id.clone(),
+        payload,
     });
 }
 
@@ -223,7 +263,7 @@ pub(crate) async fn save_checkpoint_via<
         task_results: crate::kernel::context::snapshot_task_results(),
     });
     backend.persist_checkpoint(checkpoint.clone()).await?;
-    checkpoint_committed(parent, &id, sink);
+    checkpoint_committed(parent, &checkpoint, sink);
     *previous = Some(checkpoint);
     Ok(())
 }

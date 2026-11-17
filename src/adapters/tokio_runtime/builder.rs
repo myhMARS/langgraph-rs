@@ -376,7 +376,12 @@ impl<S: State> AsyncStateGraph<S> {
     }
 
     fn add_conditional_edge(mut self, from: impl Into<String>, edge: ConditionalEdge<S>) -> Self {
-        self.conditional.entry(from.into()).or_default().push(edge);
+        let from = from.into();
+        if from == START {
+            self.conditional_entry = Some(edge);
+        } else {
+            self.conditional.entry(from).or_default().push(edge);
+        }
         self
     }
 
@@ -534,6 +539,21 @@ impl<S: State> AsyncStateGraph<S> {
                 self.require_target(source, target)?;
             }
         }
+        if let Some(edge) = &self.conditional_entry
+            && let Some(path_map) = &edge.path_map
+        {
+            for (key, targets) in path_map.entries() {
+                for target in targets {
+                    if target == START {
+                        return Err(Error::validation(format!(
+                            "conditional entry point maps key `{key}` to `{START}`, which is not a valid destination"
+                        )));
+                    }
+                    self.require_target(START, target)?;
+                }
+            }
+        }
+
         for (source, edges) in &self.conditional {
             self.require_node("conditional edge source", source)?;
             for edge in edges {

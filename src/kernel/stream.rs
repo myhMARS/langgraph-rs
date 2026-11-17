@@ -52,6 +52,8 @@ pub enum StreamChunk {
     Checkpoint {
         /// Checkpoint id.
         checkpoint_id: String,
+        /// LangGraph v2 `CheckpointPayload` shape.
+        payload: Value,
     },
     /// A streamed message emitted with [`message`](crate::message) inside a node
     /// (`stream_mode="messages"`).
@@ -143,7 +145,7 @@ impl StreamChunk {
     /// Checkpoint id when this chunk reports a persisted checkpoint.
     pub fn checkpoint_id(&self) -> Option<&str> {
         match self {
-            StreamChunk::Checkpoint { checkpoint_id } => Some(checkpoint_id),
+            StreamChunk::Checkpoint { checkpoint_id, .. } => Some(checkpoint_id),
             StreamChunk::Subgraph { chunk, .. } => chunk.checkpoint_id(),
             _ => None,
         }

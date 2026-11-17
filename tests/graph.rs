@@ -483,3 +483,31 @@ fn checkpointer_records_thread_history() {
     assert_eq!(history[0].checkpoint_id, snapshot.checkpoint_id);
     assert_eq!(history[2].step, 0);
 }
+
+#[test]
+fn conditional_edges_from_start_work() {
+    let graph = StateGraph::<WorkState>::new()
+        .add_node("a", log_node("a"))
+        .add_node("b", log_node("b"))
+        .add_conditional_edges(langgraph_rs::START, |state: &WorkState| {
+            Ok(if state.value > 0 {
+                Route::node("a")
+            } else {
+                Route::node("b")
+            })
+        })
+        .set_finish_point("a")
+        .set_finish_point("b")
+        .compile()
+        .unwrap();
+
+    let mut positive = WorkState::default();
+    positive.value = 1;
+    let output = graph.invoke(&positive, &RunConfig::new()).unwrap();
+    assert_eq!(output.log, vec!["a"]);
+
+    let output = graph
+        .invoke(&WorkState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.log, vec!["b"]);
+}

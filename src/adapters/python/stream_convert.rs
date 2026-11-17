@@ -1,7 +1,7 @@
 //! Snapshot and stream-chunk conversion helpers.
 
 use pyo3::exceptions::PyTypeError;
-use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
 use serde_json::Value;
 
 use super::*;
@@ -75,6 +75,34 @@ pub(crate) fn snapshot_to_py(
     .into_any())
 }
 
+fn iso_timestamp(millis: i64) -> String {
+    let seconds = millis.div_euclid(1000);
+    let millis_part = millis.rem_euclid(1000);
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = day_seconds / 3_600;
+    let minute = (day_seconds % 3_600) / 60;
+    let second = day_seconds % 60;
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}Z")
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    if month <= 2 {
+        year += 1;
+    }
+    (year, month, day)
+}
+
 /// LangGraph v2 stream-part shape: `{type, ns, data}`.
 pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
@@ -93,6 +121,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
         StreamChunk::Values { values, .. } => {
             dict.set_item("type", "values")?;
             dict.set_item("data", value_to_py(py, values)?)?;
+            dict.set_item("interrupts", PyTuple::new(py, Vec::<Py<PyAny>>::new())?)?;
         }
         StreamChunk::Updates { node, update, .. } => {
             dict.set_item("type", "updates")?;
@@ -129,14 +158,18 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
                 }
             }
             metadata.set_item("tags", tags)?;
-            data.append(metadata)?;
-            dict.set_item("data", data)?;
+            let message = data.get_item(0)?;
+            let tuple = PyTuple::new(py, [message, metadata.into_any()])?;
+            dict.set_item("data", tuple)?;
         }
         StreamChunk::Debug { step, payload } => {
             dict.set_item("type", "debug")?;
             let data = PyDict::new(py);
             data.set_item("type", "checkpoint")?;
-            data.set_item("timestamp", crate::kernel::checkpoint::now_millis())?;
+            data.set_item(
+                "timestamp",
+                iso_timestamp(crate::kernel::checkpoint::now_millis() as i64),
+            )?;
             data.set_item("step", step)?;
             data.set_item("payload", value_to_py(py, payload)?)?;
             dict.set_item("data", data)?;
@@ -153,6 +186,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             data.set_item("node", node)?;
             data.set_item("name", node)?;
             data.set_item("path", Vec::<String>::new())?;
+            data.set_item("triggers", Vec::<String>::new())?;
             data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
             if let Some(input) = input {
                 data.set_item("input", value_to_py(py, input)?)?;
@@ -167,11 +201,9 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             }
             dict.set_item("data", data)?;
         }
-        StreamChunk::Checkpoint { checkpoint_id } => {
+        StreamChunk::Checkpoint { payload, .. } => {
             dict.set_item("type", "checkpoints")?;
-            let data = PyDict::new(py);
-            data.set_item("checkpoint_id", checkpoint_id)?;
-            dict.set_item("data", data)?;
+            dict.set_item("data", value_to_py(py, payload)?)?;
         }
         StreamChunk::Interrupt { node, value } => {
             dict.set_item("type", "interrupt")?;
@@ -231,7 +263,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             dict.set_item("node", node.clone())?;
             dict.set_item("value", value_to_py(py, value)?)?;
         }
-        StreamChunk::Checkpoint { checkpoint_id } => {
+        StreamChunk::Checkpoint { checkpoint_id, .. } => {
             dict.set_item("type", "checkpoint")?;
             dict.set_item("checkpoint_id", checkpoint_id.clone())?;
         }

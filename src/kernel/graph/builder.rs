@@ -445,7 +445,12 @@ impl<S: State> StateGraph<S> {
     }
 
     fn add_conditional_edge(mut self, from: impl Into<String>, edge: ConditionalEdge<S>) -> Self {
-        self.conditional.entry(from.into()).or_default().push(edge);
+        let from = from.into();
+        if from == START {
+            self.conditional_entry = Some(edge);
+        } else {
+            self.conditional.entry(from).or_default().push(edge);
+        }
         self
     }
 

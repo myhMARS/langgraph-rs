@@ -151,6 +151,21 @@ impl<S: State> StateGraph<S> {
             }
         }
 
+        if let Some(edge) = &self.conditional_entry
+            && let Some(path_map) = &edge.path_map
+        {
+            for (key, targets) in path_map.entries() {
+                for target in targets {
+                    if target == START {
+                        return Err(Error::validation(format!(
+                            "conditional entry point maps key `{key}` to `{START}`, which is not a valid destination"
+                        )));
+                    }
+                    self.require_target(START, target)?;
+                }
+            }
+        }
+
         for (source, edges) in &self.conditional {
             self.require_node("conditional edge source", source)?;
             for edge in edges {
