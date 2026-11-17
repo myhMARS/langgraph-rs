@@ -17,6 +17,23 @@ pub(crate) mod visualize;
 
 use crate::kernel::node::ConditionalEdge;
 
+/// Checkpoint namespace for a child graph.
+///
+/// LangGraph nests child namespaces as `<parent>|<node>:<task_id>`. The task id is
+/// optional so the async adapter (which does not carry a task id yet) can share the
+/// same namespace construction while the sync Pregel loop passes the executing task.
+pub fn subgraph_namespace(parent: &str, name: &str, task_id: Option<&str>) -> String {
+    let base = if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}|{name}")
+    };
+    match task_id {
+        Some(task_id) => format!("{base}:{task_id}"),
+        None => base,
+    }
+}
+
 pub use builder::StateGraph;
 pub use compiled::CompiledGraph;
 pub use options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, Targets};

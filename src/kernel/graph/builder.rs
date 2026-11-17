@@ -694,15 +694,8 @@ impl<S: State> Default for StateGraph<S> {
 
 /// Child checkpoint namespace of a subgraph node.
 fn child_namespace(parent: &str, name: &str) -> String {
-    let base = if parent.is_empty() {
-        name.to_string()
-    } else {
-        format!("{parent}|{name}")
-    };
-    match crate::kernel::context::current_task_id() {
-        Some(task_id) => format!("{base}:{task_id}"),
-        None => base,
-    }
+    let task_id = crate::kernel::context::current_task_id();
+    super::subgraph_namespace(parent, name, task_id.as_deref())
 }
 
 /// Run a subgraph with parent thread/namespace propagation and resume support.

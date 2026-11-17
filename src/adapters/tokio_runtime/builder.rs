@@ -550,11 +550,7 @@ impl<S: State> AsyncStateGraph<S> {
 }
 
 fn child_namespace(parent: &str, name: &str) -> String {
-    if parent.is_empty() {
-        name.to_string()
-    } else {
-        format!("{parent}|{name}")
-    }
+    crate::kernel::graph::subgraph_namespace(parent, name, None)
 }
 
 async fn run_async_subgraph<S: State>(
