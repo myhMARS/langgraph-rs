@@ -256,6 +256,40 @@ fn encode_interrupt_ext(interrupt: &crate::kernel::error::Interrupt) -> Vec<u8> 
     bytes
 }
 
+fn langgraph_task_id(checkpoint_id: &str, node: &str, step: usize) -> String {
+    use sha1::{Digest, Sha1};
+    let bytes: Vec<u8> = checkpoint_id
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
+        .collect();
+    let mut hasher = Sha1::new();
+    hasher.update(&bytes);
+    let trigger = format!("branch:to:{node}");
+    hasher.update(node.as_bytes());
+    hasher.update((step + 1).to_string().as_bytes());
+    hasher.update(node.as_bytes());
+    hasher.update(b"__pregel_pull");
+    hasher.update(trigger.as_bytes());
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
 impl Checkpointer for LangGraphSqliteSaver {
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         let (checkpoint_blob, metadata_blob) = Self::langgraph_payload(&checkpoint)?;
@@ -322,7 +356,7 @@ impl Checkpointer for LangGraphSqliteSaver {
                     checkpoint.thread_id,
                     checkpoint.namespace,
                     checkpoint_id,
-                    task.id,
+                    langgraph_task_id(&checkpoint_id, &task.node, checkpoint.step),
                     format!("~__pregel_pull, {}", task.node),
                     index as i64 + 1,
                     format!("branch:to:{}", task.node),
@@ -334,12 +368,7 @@ impl Checkpointer for LangGraphSqliteSaver {
                 })?;
         }
         for interrupt in &checkpoint.interrupts {
-            let task_id = checkpoint
-                .next
-                .iter()
-                .find(|task| task.node == interrupt.node)
-                .map(|task| task.id.clone())
-                .unwrap_or_else(|| interrupt.id.clone());
+            let task_id = langgraph_task_id(&checkpoint_id, &interrupt.node, checkpoint.step);
             let value = encode_interrupt_ext(interrupt);
             statement
                 .execute(params![
