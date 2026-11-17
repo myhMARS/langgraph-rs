@@ -1,8 +1,8 @@
 #![cfg(feature = "async")]
 
-use std::time::Duration;
 use langgraph_rs::tokio_runtime::AsyncStateGraph;
 use langgraph_rs::{NodeOutput, RunConfig, State, StateSchema, TimeoutPolicy};
+use std::time::Duration;
 
 #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct TState {
