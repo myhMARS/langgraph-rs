@@ -239,22 +239,29 @@ impl Checkpointer for LangGraphSqliteSaver {
             .prepare(
                 "INSERT OR REPLACE INTO writes
                     (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, idx, channel, type, value)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'json', ?8)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'msgpack', ?8)",
             )
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite saver: writes: {error}")))?;
-        for (idx, write) in checkpoint.pending_writes.iter().enumerate() {
-            let value = serde_json::to_vec(&write.value).map_err(|error| {
-                Error::Checkpoint(format!("langgraph sqlite saver: write value: {error}"))
-            })?;
+        // Group writes per task and publish them as one LangGraph `__root__` write.
+        let mut grouped: std::collections::BTreeMap<String, (String, Map<String, Value>)> =
+            std::collections::BTreeMap::new();
+        for write in &checkpoint.pending_writes {
+            let entry = grouped
+                .entry(write.task_id.clone())
+                .or_insert_with(|| (write.node.clone(), Map::new()));
+            entry.1.insert(write.channel.clone(), write.value.clone());
+        }
+        for (task_id, (node, writes)) in grouped {
+            let value = crate::interop::msgpack::encode(&Value::Object(writes));
             statement
                 .execute(params![
                     checkpoint.thread_id,
                     checkpoint.namespace,
                     checkpoint_id,
-                    write.task_id,
-                    write.node,
-                    idx as i64,
-                    write.channel,
+                    task_id,
+                    format!("~__pregel_pull, {node}"),
+                    0i64,
+                    "__root__",
                     value,
                 ])
                 .map_err(|error| {
