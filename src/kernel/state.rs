@@ -426,6 +426,22 @@ pub(crate) fn apply_updates(
     for (channel, (incoming, nodes)) in grouped {
         match schema.resolve(&channel)? {
             Some(definition) => {
+                // Accumulating topics append in place instead of cloning the whole
+                // accumulated array on every merge.
+                if let Channel::Topic { accumulate: true } = definition {
+                    let mut accumulated = match values.remove(&channel) {
+                        Some(Value::Array(items)) => items,
+                        _ => Vec::new(),
+                    };
+                    for value in incoming {
+                        match value {
+                            Value::Array(items) => accumulated.extend(items),
+                            other => accumulated.push(other),
+                        }
+                    }
+                    values.insert(channel, Value::Array(accumulated));
+                    continue;
+                }
                 if matches!(
                     definition,
                     Channel::LastValue | Channel::EphemeralValue | Channel::UntrackedValue
