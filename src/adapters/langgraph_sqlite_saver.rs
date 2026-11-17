@@ -175,16 +175,34 @@ impl LangGraphSqliteSaver {
             "id".to_string(),
             Value::String(Self::langgraph_id(checkpoint)),
         );
-        // LangGraph's root (dict) state lives in `__root__`.
-        object.insert(
-            "channel_values".to_string(),
-            json!({ "__root__": checkpoint.values }),
-        );
+        // LangGraph's root (dict) state lives in `__root__`; pending branch channels
+        // and interrupts must be visible for its scheduler and resume logic.
+        let mut root = checkpoint.values.clone();
+        if !checkpoint.interrupts.is_empty() {
+            let interrupts = checkpoint
+                .interrupts
+                .iter()
+                .map(|interrupt| {
+                    json!({
+                        "__langgraph_type__": "Interrupt",
+                        "value": interrupt.value,
+                        "id": interrupt.id,
+                        "response_schema": interrupt.response_schema,
+                    })
+                })
+                .collect::<Vec<_>>();
+            root.insert("__interrupt__".to_string(), Value::Array(interrupts));
+        }
+        let mut channel_values = Map::new();
+        channel_values.insert("__root__".to_string(), Value::Object(root));
         let mut versions = checkpoint.channel_versions.clone();
-        versions.insert(
-            "__root__".to_string(),
-            Value::String(crate::kernel::checkpoint::version_string(checkpoint.step)),
-        );
+        let version = Value::String(crate::kernel::checkpoint::version_string(checkpoint.step));
+        for task in &checkpoint.next {
+            channel_values.insert(format!("branch:to:{}", task.node), Value::Null);
+            versions.insert(format!("branch:to:{}", task.node), version.clone());
+        }
+        versions.insert("__root__".to_string(), version);
+        object.insert("channel_values".to_string(), Value::Object(channel_values));
         object.insert("channel_versions".to_string(), Value::Object(versions));
         let checkpoint_blob = crate::interop::msgpack::encode(&Value::Object(object));
 

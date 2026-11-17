@@ -58,6 +58,37 @@ fn write_map_len(output: &mut Vec<u8>, len: usize) {
 }
 
 fn write_value(output: &mut Vec<u8>, value: &Value) {
+    if let Value::Object(object) = value
+        && let Some(class) = object.get("__langgraph_type__").and_then(Value::as_str)
+    {
+        let mut payload = object.clone();
+        payload.remove("__langgraph_type__");
+        let body = {
+            let mut nested = Vec::new();
+            write_value(
+                &mut nested,
+                &Value::Array(vec![
+                    Value::String("langgraph.types".to_string()),
+                    Value::String(class.to_string()),
+                    Value::Object(payload),
+                ]),
+            );
+            nested
+        };
+        if body.len() <= u8::MAX as usize {
+            output.extend_from_slice(&[0xc7, body.len() as u8, 0x02]);
+        } else if body.len() <= u16::MAX as usize {
+            output.push(0xc8);
+            output.extend_from_slice(&(body.len() as u16).to_be_bytes());
+            output.push(0x02);
+        } else {
+            output.push(0xc9);
+            output.extend_from_slice(&(body.len() as u32).to_be_bytes());
+            output.push(0x02);
+        }
+        output.extend_from_slice(&body);
+        return;
+    }
     match value {
         Value::Null => output.push(0xc0),
         Value::Bool(false) => output.push(0xc2),
