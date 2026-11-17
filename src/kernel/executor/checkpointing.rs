@@ -137,7 +137,10 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
             Some(map) => checkpoint
                 .interrupts
                 .iter()
-                .find(|interrupt| interrupt.node == task.node)
+                .find(|interrupt| match &interrupt.task_id {
+                    Some(task_id) => task_id.as_ref() == task.id.as_str(),
+                    None => interrupt.node == task.node,
+                })
                 .and_then(|interrupt| interrupt.resume_from(map)),
             None => resume.clone(),
         };

@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["langgraph", "graph", "agent", "orchestration", "workflow"]
 categories = ["asynchronous", "data-structures"]
 
+[lints.clippy]
+result_large_err = "allow"
+
 [lib]
 name = "langgraph_rs"
 crate-type = ["rlib", "cdylib"]

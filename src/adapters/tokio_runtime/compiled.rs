@@ -1078,6 +1078,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         node: task.node.clone(),
                         value: interrupt.value,
                         response_schema: interrupt.response_schema,
+                        task_id: Some(task.id.clone().into_boxed_str()),
                     });
                 }
                 Err(error) => {

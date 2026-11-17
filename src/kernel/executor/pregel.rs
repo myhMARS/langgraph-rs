@@ -323,8 +323,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 });
                 return Err(Error::Interrupt(interrupted));
             }
-            let interrupted_nodes: HashSet<String> =
-                interrupts.iter().map(|i| i.node.clone()).collect();
             let interrupted_task_ids: HashSet<String> = tasks
                 .iter()
                 .zip(&outcomes)
@@ -371,9 +369,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             )?;
             let mut next_tasks = merge_interrupted_tasks(
                 &tasks,
-                |task| interrupted_nodes.contains(&task.node),
+                |task| interrupted_task_ids.contains(&task.id),
                 scheduled,
-                false,
+                true,
             );
             for task in &mut next_tasks {
                 if interrupted_task_ids.contains(&task.id) {

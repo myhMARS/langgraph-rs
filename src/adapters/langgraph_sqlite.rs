@@ -435,6 +435,7 @@ fn extract_interrupts(channel_values: &Map<String, Value>) -> Vec<Interrupt> {
                 value: payload,
                 id,
                 response_schema,
+                task_id: None,
             })
         })
         .collect()

@@ -91,6 +91,9 @@
 //! of mutating state, which is what makes checkpointing, resuming and time travel
 //! possible.
 
+// Interrupts carry their payload inline (public API); keeping the error small enough for clippy would require boxing it.
+#![allow(clippy::result_large_err)]
+
 mod adapters;
 pub mod functional;
 pub mod interop;

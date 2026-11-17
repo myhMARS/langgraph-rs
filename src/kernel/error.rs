@@ -23,6 +23,9 @@ pub struct Interrupt {
     /// Optional JSON schema the resume value must satisfy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<Value>,
+    /// Task that raised this interrupt, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<Box<str>>,
 }
 
 impl Interrupt {
@@ -34,6 +37,7 @@ impl Interrupt {
             node,
             value,
             response_schema: None,
+            task_id: None,
         }
     }
 
