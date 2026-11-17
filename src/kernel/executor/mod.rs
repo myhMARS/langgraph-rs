@@ -12,6 +12,7 @@
 pub(crate) mod checkpointing;
 pub(crate) mod outcome;
 pub(crate) mod scheduling;
+pub(crate) mod start;
 mod superstep;
 
 use std::collections::HashSet;
@@ -25,7 +26,7 @@ use self::outcome::{
     debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
     process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
 };
-use self::scheduling::{collect_next_nodes, dedupe, schedule_next_tasks};
+use self::scheduling::{collect_next_nodes, schedule_next_tasks};
 use self::superstep::run_superstep;
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
@@ -108,91 +109,39 @@ pub(crate) fn execute<S: State>(
     let mut parent: Option<String> = None;
     let mut skip_interrupt_before = false;
 
-    let (mut values, mut state, mut tasks, mut step) = match start {
-        StartInput::Values(values) => {
-            let values = graph.schema().filter_input(values);
-            let state = values_to_state::<S>(&values)?;
-            let tasks = graph.entry_tasks(&state)?;
-            (values, state, tasks, 0usize)
-        }
-        StartInput::Updates(updates) => {
-            let mut values = Map::new();
-            apply_updates(
-                graph.schema(),
-                &mut values,
-                updates
-                    .into_iter()
-                    .map(|(channel, value)| ChannelUpdate {
-                        channel,
-                        value,
-                        node: "<input>".to_string(),
-                    })
-                    .collect(),
-            )?;
-            let state = values_to_state::<S>(&values)?;
-            let tasks = graph.entry_tasks(&state)?;
-            (values, state, tasks, 0usize)
-        }
-        StartInput::Gateways { values, nodes } => {
-            // `Command(goto=...)` values are state updates, not run input.
-            for node in &nodes {
-                if graph.node(node).is_none() {
-                    return Err(Error::validation(format!(
-                        "Command(goto=...): `{node}` is not a registered node"
-                    )));
-                }
-            }
-            let state = values_to_state::<S>(&values)?;
-            // LangGraph runs the normal entry points as well as the explicit goto nodes.
-            let mut tasks = graph.entry_tasks(&state)?;
-            for node in dedupe(nodes) {
-                if !tasks.iter().any(|task| task.node == node) {
-                    tasks.push(Task::new(node));
-                }
-            }
-            (values, state, tasks, 0usize)
-        }
-        StartInput::Resume {
+    let (mut values, mut state, mut tasks, mut step) = if let Some((values, state, tasks)) =
+        start::resolve_fresh_start(
+            &start,
+            graph.schema(),
+            |node| graph.node(node).is_some(),
+            |state| graph.entry_tasks(state),
+        )? {
+        (values, state, tasks, 0usize)
+    } else {
+        let StartInput::Resume {
             thread_id: resume_thread,
             checkpoint_id,
             resume,
             updates,
-        } => {
-            let checkpointer = graph
-                .checkpointer()
-                .ok_or(Error::MissingCheckpointer("resume"))?;
-            let checkpoint = match checkpoint_id {
-                Some(id) => checkpointer.get(&resume_thread, &id)?,
-                None => checkpointer.latest_in(&resume_thread, &namespace)?,
-            }
-            .ok_or_else(|| {
-                Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
-            })?;
-            crate::kernel::context::load_task_results(&checkpoint.task_results);
-
-            parent = Some(checkpoint.id.clone());
-            skip_interrupt_before = checkpoint.paused_before;
-            let mut values = checkpoint.values.clone();
-            apply_pending_writes(graph.schema(), &mut values, &checkpoint.pending_writes)?;
-            if let Some(updates) = updates {
-                apply_updates(
-                    graph.schema(),
-                    &mut values,
-                    updates
-                        .into_iter()
-                        .map(|(channel, value)| ChannelUpdate {
-                            channel,
-                            value,
-                            node: "<resume>".to_string(),
-                        })
-                        .collect(),
-                )?;
-            }
-            let state = values_to_state::<S>(&values)?;
-            let tasks =
-                crate::kernel::executor::checkpointing::prepare_resume_tasks(&checkpoint, &resume);
-            (values, state, tasks, checkpoint.step)
+        } = start
+        else {
+            unreachable!("fresh start inputs were resolved above");
+        };
+        let checkpointer = graph
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("resume"))?;
+        let checkpoint = match checkpoint_id {
+            Some(id) => checkpointer.get(&resume_thread, &id)?,
+            None => checkpointer.latest_in(&resume_thread, &namespace)?,
         }
+        .ok_or_else(|| {
+            Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
+        })?;
+        parent = Some(checkpoint.id.clone());
+        skip_interrupt_before = checkpoint.paused_before;
+        let (values, state, tasks) =
+            start::resolve_resume_start(&checkpoint, &resume, updates, graph.schema())?;
+        (values, state, tasks, checkpoint.step)
     };
 
     if tasks.is_empty() {
