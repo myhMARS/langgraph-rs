@@ -66,3 +66,14 @@ report: `benchmarks/RESULTS.md`.
 | mt_8x_linear_10 | 7.18 µs | 7.35 µs |
 
 Rust native is now ~78-108x faster than Python LangGraph on these scenarios.
+
+## Latest benchmark (after adapter/refactor + Topic/caching)
+
+| Scenario | Rust native | Python LangGraph | Speedup |
+| --- | ---: | ---: | ---: |
+| linear_10 | 27.15 µs | 2,054.22 µs | 75.7x |
+| loop_50 | 129.82 µs | 12,377.14 µs | 95.3x |
+| fanout_4 | 233.34 µs | 2,440.71 µs | 10.5x |
+| checkpoint_5 | 49.97 µs | 3,926.57 µs | 78.6x |
+| scale_100 | 255.21 µs | 18,210.23 µs | 71.4x |
+| mt_8x_linear_10 | 6.17 µs | 2,015.58 µs | 326.8x |
