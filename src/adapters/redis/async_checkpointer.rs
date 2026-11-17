@@ -58,18 +58,14 @@ impl AsyncCheckpointer for AsyncRedisSaver {
                 checkpoint.step as f64
             };
             let mut connection = self.connection.clone();
-            let _: () = connection
+            redis::pipe()
+                .atomic()
                 .set(&key, payload)
+                .zadd(&index, &checkpoint.id, score)
+                .sadd(THREADS_KEY, &checkpoint.thread_id)
+                .query_async::<()>(&mut connection)
                 .await
                 .map_err(|error| Error::Checkpoint(format!("async redis: put: {error}")))?;
-            let _: () = connection
-                .zadd(&index, &checkpoint.id, score)
-                .await
-                .map_err(|error| Error::Checkpoint(format!("async redis: index: {error}")))?;
-            let _: () = connection
-                .sadd(THREADS_KEY, &checkpoint.thread_id)
-                .await
-                .map_err(|error| Error::Checkpoint(format!("async redis: threads: {error}")))?;
             Ok(())
         })
     }
