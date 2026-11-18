@@ -468,11 +468,6 @@ pub(crate) struct PauseDraft<'a> {
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
 }
 
-/// Whether a pause can be attached to the previous checkpoint in place.
-pub(crate) fn can_pause_in_place(previous: &Option<crate::checkpoint::Checkpoint>) -> bool {
-    previous.is_some()
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn persist_pause<S, B, F>(
     backend: &B,
