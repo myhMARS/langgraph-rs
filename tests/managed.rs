@@ -40,11 +40,11 @@ fn remaining_steps_counts_down_across_supersteps() {
     let output = graph
         .invoke(&StepsState::default(), &RunConfig::new())
         .unwrap();
-    assert_eq!(output.log, vec![2, 1]);
+    assert_eq!(output.log, vec![4, 3]);
 }
 
 #[test]
-fn is_last_step_is_true_on_the_final_superstep() {
+fn is_last_step_matches_langgraph_stop_semantics() {
     let graph = StateGraph::<StepsState>::new()
         .add_node("only", |_state: &StepsState| {
             Ok(NodeOutput::new().set("value", i64::from(is_last_step())))
@@ -57,7 +57,7 @@ fn is_last_step_is_true_on_the_final_superstep() {
     let output = graph
         .invoke(&StepsState::default(), &RunConfig::new())
         .unwrap();
-    assert_eq!(output.value, 1);
+    assert_eq!(output.value, 0);
 }
 
 #[test]
@@ -185,11 +185,11 @@ fn managed_values_are_injected_as_private_state_channels() {
                 .with_recursion_limit(5),
         )
         .unwrap();
-    assert_eq!(output.state.get("seen"), Some(&json!("4/false")));
+    assert_eq!(output.state.get("seen"), Some(&json!("6/false")));
     assert_eq!(output.state.get("remaining_steps"), None);
     let snapshot = graph.get_state("managed-injected").unwrap().unwrap();
     assert_eq!(snapshot.values.get("remaining_steps"), None);
-    assert_eq!(snapshot.values.get("seen"), Some(&json!("4/false")));
+    assert_eq!(snapshot.values.get("seen"), Some(&json!("6/false")));
 }
 
 #[cfg(feature = "async")]

@@ -304,11 +304,11 @@ pub fn remaining_steps() -> Option<usize> {
         let limit = run
             .recursion_limit
             .load(std::sync::atomic::Ordering::Relaxed);
-        return Some(limit.saturating_sub(step + 1));
+        return Some(limit.saturating_add(1).saturating_sub(step));
     }
     CURRENT_STEP.with(|slot| {
         slot.borrow()
-            .map(|(step, recursion_limit)| recursion_limit.saturating_sub(step + 1))
+            .map(|(step, recursion_limit)| recursion_limit.saturating_add(1).saturating_sub(step))
     })
 }
 

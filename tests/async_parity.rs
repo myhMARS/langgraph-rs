@@ -308,7 +308,7 @@ async fn async_run_context_survives_task_migration() {
                 Some("async-migrate")
             );
             assert!(langgraph_rs::current_runtime().is_some());
-            assert_eq!(langgraph_rs::remaining_steps(), Some(24));
+            assert_eq!(langgraph_rs::remaining_steps(), Some(26));
             assert_eq!(langgraph_rs::current_step(), Some(0));
             assert_eq!(langgraph_rs::current_node().as_deref(), Some("check"));
             assert!(langgraph_rs::current_task_id().is_some());
