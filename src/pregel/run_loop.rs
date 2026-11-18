@@ -73,6 +73,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut parent: Option<String> = None;
     let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
+    let mut time_travel = false;
     let raw_input = match &start {
         StartInput::Values(map) => Some(map.clone()),
         // LangGraph writes an input checkpoint for an update-start run too.
@@ -126,6 +127,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         parent = Some(checkpoint.id.clone());
         previous_checkpoint = Some(checkpoint.clone());
         skip_interrupt_before = checkpoint.paused_before;
+        time_travel = checkpoint_id.is_some();
         let (values, state, tasks, finish_writes, update_writes, replayed) =
             start::resolve_resume_start(
                 &checkpoint,
@@ -181,6 +183,33 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         return Err(Error::other("run aborted by RunControl"));
     }
 
+    // LangGraph writes a `source="fork"` checkpoint before replaying from an addressed
+    // checkpoint, so the replayed branch has its own head instead of rewriting history.
+    if time_travel {
+        step += 1;
+        save_checkpoint_via(
+            backend,
+            thread_id.as_deref(),
+            &namespace,
+            &mut parent,
+            &mut previous_checkpoint,
+            &values,
+            &tasks,
+            step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "fork",
+            &std::collections::HashMap::new(),
+            None,
+            checkpoint_emit,
+            sink,
+        )
+        .await?;
+    }
     let mut pause_force_new = false;
     if fresh {
         context::clear_task_results();
