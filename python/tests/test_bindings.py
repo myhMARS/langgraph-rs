@@ -627,9 +627,10 @@ class PythonParityRound2Tests(unittest.TestCase):
         output = graph.compile(recursion_limit=2).invoke(
             {"value": 0, "last": 0}
         )
-        expected_remaining = 3
+        # LangGraph reports "limit - 1" on the first superstep (limit 2 -> 1).
+        expected_remaining = 1
         self.assertEqual(output["value"], expected_remaining)
-        self.assertEqual(output["last"], 0)
+        # One superstep before the limit: Python reports is_last_step=True here.\n        self.assertEqual(output["last"], 1)
 
 
     def test_node_timeout(self):

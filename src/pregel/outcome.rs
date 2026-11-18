@@ -157,6 +157,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                             interrupted: false,
                             triggers: Vec::new(),
                             push_index: None,
+                            push: false,
                         });
                     }
                     Some(_) => {}
@@ -321,6 +322,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         interrupted: false,
                         triggers: Vec::new(),
                         push_index: None,
+                        push: true,
                     });
                 }
             }

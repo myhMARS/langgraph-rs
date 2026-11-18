@@ -225,8 +225,22 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
             collect_channel_interrupts(entries);
         }
     }
-    let mut values = raw_values;
-    values.retain(|channel, _| !channel.starts_with("__"));
+    // `__root__` holds the whole state for root-schema graphs: flatten it instead of
+    // dropping it, then strip the remaining control channels.
+    let mut values = Map::new();
+    if let Some(root) = raw_values.get("__root__").and_then(Value::as_object) {
+        for (channel, value) in root {
+            if !channel.starts_with("__") {
+                values.insert(channel.clone(), value.clone());
+            }
+        }
+    }
+    for (channel, value) in raw_values {
+        if channel == "__root__" || channel.starts_with("__") {
+            continue;
+        }
+        values.insert(channel, value);
+    }
     let parent_id = object
         .get("parent_config")
         .and_then(|parent| parent.get("configurable"))

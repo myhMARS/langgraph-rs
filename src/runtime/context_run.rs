@@ -229,11 +229,11 @@ pub fn remaining_steps() -> Option<usize> {
         let limit = run
             .recursion_limit
             .load(std::sync::atomic::Ordering::Relaxed);
-        return Some(limit.saturating_add(1).saturating_sub(step));
+        return Some(limit.saturating_sub(step.saturating_add(1)));
     }
     CURRENT_STEP.with(|slot| {
         slot.borrow()
-            .map(|(_, managed, limit)| limit.saturating_add(1).saturating_sub(managed))
+            .map(|(_, managed, limit)| limit.saturating_sub(managed.saturating_add(1)))
     })
 }
 
@@ -242,7 +242,5 @@ pub fn remaining_steps() -> Option<usize> {
 /// Mirrors LangGraph's `IsLastStep` managed value: `true` when at most one superstep is
 /// left (`remaining_steps() <= 1`).
 pub fn is_last_step() -> bool {
-    remaining_steps()
-        .map(|remaining| remaining <= 1)
-        .unwrap_or(false)
+    remaining_steps() == Some(1)
 }

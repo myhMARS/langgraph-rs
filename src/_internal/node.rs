@@ -555,6 +555,9 @@ pub struct Task {
     /// Position of this task in the superstep's `Send` list (LangGraph `PUSH` tasks).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub push_index: Option<usize>,
+    /// `true` when the task came from a `Send` (LangGraph `PUSH` task).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub push: bool,
 }
 
 impl Task {
@@ -572,6 +575,7 @@ impl Task {
             interrupted: false,
             triggers: Vec::new(),
             push_index: None,
+            push: false,
         }
     }
 
@@ -589,6 +593,7 @@ impl Task {
             interrupted: false,
             triggers: Vec::new(),
             push_index: None,
+            push: false,
         }
     }
 }

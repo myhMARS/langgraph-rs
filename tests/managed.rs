@@ -40,7 +40,8 @@ fn remaining_steps_counts_down_across_supersteps() {
     let output = graph
         .invoke(&StepsState::default(), &RunConfig::new())
         .unwrap();
-    assert_eq!(output.log, vec![4, 3]);
+    // Python reports `limit - 1` on the first superstep (limit 3 -> 2, 1).
+    assert_eq!(output.log, vec![2, 1]);
 }
 
 #[test]

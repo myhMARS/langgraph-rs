@@ -111,7 +111,8 @@ pub(crate) fn apply_managed_values<S: State>(
     // first superstep (our 0-based `managed_step`) leaves `limit - 1`.
     let remaining = recursion_limit.saturating_sub(managed_step.saturating_add(1));
     values.insert("remaining_steps".to_string(), json!(remaining));
-    values.insert("is_last_step".to_string(), json!(remaining <= 1));
+    // LangGraph: `is_last_step` is exactly one superstep before the limit.
+    values.insert("is_last_step".to_string(), json!(remaining == 1));
     *state = values_to_state::<S>(values)?;
     Ok(())
 }
