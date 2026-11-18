@@ -539,3 +539,36 @@ pub(crate) fn interrupt_before_pause(task: &Task) -> (Interrupt, StreamChunk) {
     };
     (interrupt, chunk)
 }
+
+/// `task_result` stream event for a task that paused on an interrupt.
+///
+/// Shared by the single-interrupt, multi-interrupt and `interrupt_after` paths so the
+/// payload shape cannot drift between them.
+pub(crate) fn interrupted_task_chunk(
+    step: usize,
+    tasks: &[Task],
+    interrupt: &Interrupt,
+) -> StreamChunk {
+    let id = interrupt
+        .task_id
+        .as_deref()
+        .map(str::to_owned)
+        .or_else(|| {
+            tasks
+                .iter()
+                .find(|task| task.node == interrupt.node)
+                .map(|task| task.id.clone())
+        })
+        .unwrap_or_else(|| interrupt.node.clone());
+    StreamChunk::Task {
+        step,
+        id,
+        node: interrupt.node.clone(),
+        input: None,
+        result: None,
+        error: None,
+        started: false,
+        interrupts: vec![interrupt.clone()],
+        triggers: Vec::new(),
+    }
+}

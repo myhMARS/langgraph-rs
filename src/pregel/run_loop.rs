@@ -389,28 +389,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     });
                 }
                 if emit {
-                    let id = interrupted
-                        .task_id
-                        .as_deref()
-                        .map(str::to_owned)
-                        .or_else(|| {
-                            tasks
-                                .iter()
-                                .find(|task| task.node == interrupted.node)
-                                .map(|task| task.id.clone())
-                        })
-                        .unwrap_or_else(|| interrupted.node.clone());
-                    sink(StreamChunk::Task {
+                    sink(crate::pregel::outcome::interrupted_task_chunk(
                         step,
-                        id,
-                        node: interrupted.node.clone(),
-                        input: None,
-                        result: None,
-                        error: None,
-                        started: false,
-                        interrupts: vec![interrupted.clone()],
-                        triggers: Vec::new(),
-                    });
+                        &tasks,
+                        &interrupted,
+                    ));
                 }
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
@@ -513,28 +496,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     });
                 }
                 if emit {
-                    let id = interrupt
-                        .task_id
-                        .as_deref()
-                        .map(str::to_owned)
-                        .or_else(|| {
-                            tasks
-                                .iter()
-                                .find(|task| task.node == interrupt.node)
-                                .map(|task| task.id.clone())
-                        })
-                        .unwrap_or_else(|| interrupt.node.clone());
-                    sink(StreamChunk::Task {
-                        step,
-                        id,
-                        node: interrupt.node.clone(),
-                        input: None,
-                        result: None,
-                        error: None,
-                        started: false,
-                        interrupts: vec![interrupt.clone()],
-                        triggers: Vec::new(),
-                    });
+                    sink(crate::pregel::outcome::interrupted_task_chunk(
+                        step, &tasks, interrupt,
+                    ));
                 }
                 sink(StreamChunk::Interrupt {
                     node: interrupt.node.clone(),
@@ -659,28 +623,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 });
             }
             if emit {
-                let id = interrupt
-                    .task_id
-                    .as_deref()
-                    .map(str::to_owned)
-                    .or_else(|| {
-                        tasks
-                            .iter()
-                            .find(|task| task.node == interrupt.node)
-                            .map(|task| task.id.clone())
-                    })
-                    .unwrap_or_else(|| interrupt.node.clone());
-                sink(StreamChunk::Task {
-                    step,
-                    id,
-                    node: interrupt.node.clone(),
-                    input: None,
-                    result: None,
-                    error: None,
-                    started: false,
-                    interrupts: vec![interrupt.clone()],
-                    triggers: Vec::new(),
-                });
+                sink(crate::pregel::outcome::interrupted_task_chunk(
+                    step, &tasks, &interrupt,
+                ));
             }
             sink(StreamChunk::Interrupt {
                 node: interrupt.node.clone(),
