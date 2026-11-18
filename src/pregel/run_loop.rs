@@ -76,7 +76,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut skip_interrupt_before = false;
     let raw_input = match &start {
         StartInput::Values(map) => Some(map.clone()),
-        _ => None,
+        // LangGraph writes an input checkpoint for an update-start run too.
+        StartInput::Updates(map) => Some(map.clone()),
+        StartInput::Gateways { values, .. } => Some(values.clone()),
+        StartInput::Resume { .. } => None,
     };
     let (mut values, mut state, mut tasks, mut step, mut resume_deferred, resume_finish) =
         if let Some((values, state, tasks)) = start::resolve_fresh_start(
