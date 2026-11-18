@@ -59,8 +59,31 @@ pub(crate) fn snapshot_to_py(
             item.set_item("id", task.id.clone())?;
             item.set_item("node", task.node.clone())?;
             item.set_item("name", task.node.clone())?;
-            item.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+            let task_interrupts: Vec<Py<PyAny>> = task
+                .interrupts
+                .iter()
+                .map(|interrupt| {
+                    Py::new(
+                        py,
+                        crate::adapters::python::types::PyInterrupt {
+                            id: interrupt.id.clone(),
+                            value: value_to_py(py, &interrupt.value)?,
+                            node: Some(interrupt.node.clone()),
+                            resumable: true,
+                            response_schema: match &interrupt.response_schema {
+                                Some(schema) => Some(value_to_py(py, schema)?),
+                                None => None,
+                            },
+                        },
+                    )
+                    .map(|interrupt| interrupt.into_any())
+                })
+                .collect::<PyResult<Vec<_>>>()?;
+            item.set_item("interrupts", task_interrupts)?;
             item.set_item("state", py.None())?;
+            if let Some(result) = &task.result {
+                item.set_item("result", value_to_py(py, result)?)?;
+            }
             if let Some(error) = &task.error {
                 let failure = PyDict::new(py);
                 failure.set_item("node", error.node.clone())?;

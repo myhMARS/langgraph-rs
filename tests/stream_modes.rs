@@ -143,16 +143,10 @@ fn stream_modes_filter_chunks() {
             .iter()
             .any(|chunk| matches!(chunk, StreamChunk::Debug { .. }))
     );
-    assert!(
-        debug
-            .iter()
-            .all(|chunk| matches!(
-                chunk,
-                StreamChunk::Debug { .. }
-                    | StreamChunk::Usage { .. }
-                    | StreamChunk::Interrupt { .. }
-            ))
-    );
+    assert!(debug.iter().all(|chunk| matches!(
+        chunk,
+        StreamChunk::Debug { .. } | StreamChunk::Usage { .. } | StreamChunk::Interrupt { .. }
+    )));
     assert!(
         !debug
             .iter()

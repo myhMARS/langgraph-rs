@@ -17,6 +17,10 @@ pub struct StateTask {
     pub error: Option<NodeFailure>,
     /// Resume value stamped onto the task (for interrupts).
     pub resume: Option<Value>,
+    /// Channel writes produced by this task, when it already ran.
+    pub result: Option<Value>,
+    /// Interrupts attributed to this task.
+    pub interrupts: Vec<Interrupt>,
 }
 
 /// A point-in-time view of a checkpointed thread.
@@ -64,6 +68,13 @@ impl<S: State> StateSnapshot<S> {
                 node: task.node.clone(),
                 error: task.error.clone(),
                 resume: task.resume.clone(),
+                result: checkpoint.task_results.get(&task.id).cloned(),
+                interrupts: checkpoint
+                    .interrupts
+                    .iter()
+                    .filter(|interrupt| interrupt.task_id.as_deref() == Some(task.id.as_str()))
+                    .cloned()
+                    .collect(),
             })
             .collect();
         let config = serde_json::json!({
