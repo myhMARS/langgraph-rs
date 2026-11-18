@@ -103,6 +103,7 @@ pub(crate) struct RunContext {
     pub(crate) store: Option<std::sync::Arc<dyn BaseStore>>,
     pub(crate) context: Option<Value>,
     step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    managed_step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     recursion_limit: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     step_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -135,6 +136,7 @@ pub(crate) fn install_run(
             store,
             context,
             step: Default::default(),
+            managed_step: Default::default(),
             recursion_limit: Default::default(),
             step_active: Default::default(),
         })
@@ -156,6 +158,7 @@ pub(crate) fn run_context(
         store,
         context,
         step: Default::default(),
+        managed_step: Default::default(),
         recursion_limit: Default::default(),
         step_active: Default::default(),
     }
@@ -235,7 +238,9 @@ pub(crate) fn capture_step_context() -> Option<(usize, usize)> {
 type AsyncStepPrevious = (
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
     std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
     std::sync::Arc<std::sync::atomic::AtomicBool>,
+    usize,
     usize,
     usize,
     bool,
@@ -252,10 +257,11 @@ impl Drop for StepGuard {
         CURRENT_STEP.with(|slot| {
             *slot.borrow_mut() = previous;
         });
-        if let Some((step, limit, active, old_step, old_limit, old_active)) =
+        if let Some((step, managed, limit, active, old_step, old_managed, old_limit, old_active)) =
             self.async_previous.take()
         {
             step.store(old_step, std::sync::atomic::Ordering::Relaxed);
+            managed.store(old_managed, std::sync::atomic::Ordering::Relaxed);
             limit.store(old_limit, std::sync::atomic::Ordering::Relaxed);
             active.store(old_active, std::sync::atomic::Ordering::Relaxed);
         }
@@ -263,27 +269,32 @@ impl Drop for StepGuard {
 }
 
 /// Install the current superstep number and recursion limit for managed values.
-pub(crate) fn install_step(step: usize, recursion_limit: usize) -> StepGuard {
+pub(crate) fn install_step(step: usize, managed_step: usize, recursion_limit: usize) -> StepGuard {
     let previous = CURRENT_STEP.with(|slot| slot.borrow_mut().replace((step, recursion_limit)));
     let async_previous = current_run().map(|run| {
         let old = (
             run.step.load(std::sync::atomic::Ordering::Relaxed),
+            run.managed_step.load(std::sync::atomic::Ordering::Relaxed),
             run.recursion_limit
                 .load(std::sync::atomic::Ordering::Relaxed),
             run.step_active.load(std::sync::atomic::Ordering::Relaxed),
         );
         run.step.store(step, std::sync::atomic::Ordering::Relaxed);
+        run.managed_step
+            .store(managed_step, std::sync::atomic::Ordering::Relaxed);
         run.recursion_limit
             .store(recursion_limit, std::sync::atomic::Ordering::Relaxed);
         run.step_active
             .store(true, std::sync::atomic::Ordering::Relaxed);
         (
             run.step,
+            run.managed_step,
             run.recursion_limit,
             run.step_active,
             old.0,
             old.1,
             old.2,
+            old.3,
         )
     });
     StepGuard {
@@ -300,7 +311,7 @@ pub fn remaining_steps() -> Option<usize> {
     if let Some(run) = current_run()
         && run.step_active.load(std::sync::atomic::Ordering::Relaxed)
     {
-        let step = run.step.load(std::sync::atomic::Ordering::Relaxed);
+        let step = run.managed_step.load(std::sync::atomic::Ordering::Relaxed);
         let limit = run
             .recursion_limit
             .load(std::sync::atomic::Ordering::Relaxed);

@@ -32,11 +32,17 @@ pub(crate) fn begin_step<S: State>(
     if control.is_some_and(RunControl::is_aborted) {
         return Err(Error::other("run aborted by RunControl"));
     }
-    crate::application::pregel::apply_managed_values(schema, values, state, step, recursion_limit)?;
+    crate::application::pregel::apply_managed_values(
+        schema,
+        values,
+        state,
+        iteration,
+        recursion_limit,
+    )?;
     if iteration >= recursion_limit {
         return Err(Error::RecursionLimit(recursion_limit));
     }
-    let guard = crate::application::context::install_step(step, recursion_limit);
+    let guard = crate::application::context::install_step(step, iteration, recursion_limit);
     let paused = if skip_interrupt_before {
         None
     } else {

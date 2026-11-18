@@ -52,7 +52,7 @@ pub(super) fn run_superstep<S: State>(
                 scope.spawn(move || {
                     let _run_guard = run.map(crate::application::context::install_run_context);
                     let _step_guard = step.map(|(step, limit)| {
-                        crate::application::context::install_step(step, limit)
+                        crate::application::context::install_step(step, step, limit)
                     });
                     let _collector_guard =
                         collector.map(crate::application::context::install_subgraph_collector);
@@ -279,7 +279,7 @@ fn run_node_timed<S: State>(
     std::thread::spawn(move || {
         let _run_guard = run.map(crate::application::context::install_run_context);
         let _step_guard =
-            step.map(|(step, limit)| crate::application::context::install_step(step, limit));
+            step.map(|(step, limit)| crate::application::context::install_step(step, step, limit));
         let _collector_guard =
             collector.map(crate::application::context::install_subgraph_collector);
         let context = TaskContext::new(node_name.clone(), resume)
