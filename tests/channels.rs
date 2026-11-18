@@ -216,6 +216,39 @@ fn named_barrier_is_consumed_after_use() {
 }
 
 #[test]
+fn non_accumulating_topic_does_not_leak_into_the_next_superstep() {
+    #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+    struct StepTopicState {
+        log: Vec<String>,
+    }
+
+    impl State for StepTopicState {
+        fn schema() -> StateSchema {
+            StateSchema::new().topic("log")
+        }
+    }
+
+    let graph = StateGraph::<StepTopicState>::new()
+        .add_node("write", |_state: &StepTopicState| {
+            Ok(NodeOutput::new().set("log", "first"))
+        })
+        .add_node("read", |state: &StepTopicState| {
+            // The step-scoped topic is cleared before the next superstep runs.
+            Ok(NodeOutput::new().set("log", format!("seen:{}", state.log.len())))
+        })
+        .set_entry_point("write")
+        .add_edge("write", "read")
+        .set_finish_point("read")
+        .compile()
+        .unwrap();
+
+    let output = graph
+        .invoke(&StepTopicState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.log, vec!["seen:0".to_string()]);
+}
+
+#[test]
 fn overwrite_bypasses_the_reducer() {
     let graph = StateGraph::<LogState>::new()
         .add_node("rewrite", |_state: &LogState| {

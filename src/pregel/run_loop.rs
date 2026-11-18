@@ -185,6 +185,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         .collect();
     let mut iteration = 0usize;
     loop {
+        // Non-accumulating topics only expose the previous superstep's writes.
+        if step > 0 && backend.schema().clear_step_topics(&mut values) {
+            state = values_to_state::<S>(&values)?;
+        }
         // Barriers already open before this superstep are consumed by it (LangGraph
         // consumes a named barrier when the value is read).
         let armed_barriers = step::open_named_barriers(backend.schema(), &values);

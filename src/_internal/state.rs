@@ -217,6 +217,24 @@ impl StateSchema {
         changed
     }
 
+    /// Drop non-accumulating topic values between supersteps.
+    ///
+    /// LangGraph's `Topic(accumulate=False)` only holds the writes of the current
+    /// superstep, so values left over from the previous one must not leak forward.
+    pub(crate) fn clear_step_topics(&self, values: &mut Map<String, Value>) -> bool {
+        let mut changed = false;
+        for (name, channel) in &self.channels {
+            if matches!(
+                channel,
+                crate::channels::Channel::Topic { accumulate: false }
+            ) && values.remove(name).is_some()
+            {
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Clone of `values` without untracked/ephemeral channels (for checkpoints).
     pub(crate) fn persisted_values(&self, values: &Map<String, Value>) -> Map<String, Value> {
         values

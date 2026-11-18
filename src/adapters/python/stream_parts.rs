@@ -84,6 +84,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             result,
             error,
             started,
+            interrupts,
             ..
         } => {
             dict.set_item("type", "tasks")?;
@@ -109,7 +110,14 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
                         None => py.None(),
                     },
                 )?;
-                data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+                let interrupt_values: Vec<serde_json::Value> = interrupts
+                    .iter()
+                    .filter_map(|interrupt| serde_json::to_value(interrupt).ok())
+                    .collect();
+                data.set_item(
+                    "interrupts",
+                    value_to_py(py, &serde_json::Value::Array(interrupt_values))?,
+                )?;
                 data.set_item(
                     "result",
                     match result {
