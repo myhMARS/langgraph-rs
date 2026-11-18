@@ -91,6 +91,34 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
     assert_eq!(reexported["pending_writes"][0]["channel"], json!("extra"));
 }
 
+#[test]
+fn imports_a_foreign_interrupted_checkpoint_with_resumable_tasks() {
+    let graph = graph();
+    let document = json!({
+        "config": { "configurable": { "thread_id": "lg-int", "checkpoint_ns": "", "checkpoint_id": "cp-i" } },
+        "checkpoint": {
+            "v": 1,
+            "id": "cp-i",
+            "channel_values": { "value": 5 },
+            "channel_versions": { "value": "1.0.1" },
+            "versions_seen": {},
+            "updated_channels": ["value"]
+        },
+        "metadata": { "source": "loop", "step": 1 },
+        "parent_config": null,
+        "pending_writes": [
+            { "task_id": "task-9", "node": "inc", "channel": "value", "value": 6, "replace": false }
+        ],
+        "metadata_extra": null
+    });
+    graph.import_checkpoint("lg-int", &document).unwrap();
+    let snapshot = graph.get_state("lg-int").unwrap().unwrap();
+    // Without a `next` sidecar the pending task is rebuilt from the pending writes, so a
+    // resume does not silently finish.
+    assert!(snapshot.interrupted);
+    assert_eq!(snapshot.next, vec!["inc".to_string()]);
+}
+
 #[cfg(feature = "msgpack")]
 #[test]
 fn drops_reserved_control_writes_in_tuple_form() {

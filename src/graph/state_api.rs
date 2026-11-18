@@ -284,7 +284,7 @@ impl<S: State> CompiledGraph<S> {
         let inferred = if preserve_next || as_node.is_some() {
             None
         } else {
-            infer_as_node(&checkpoint)?
+            infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
         };
         let next = if preserve_next {
             checkpoint.next.clone()

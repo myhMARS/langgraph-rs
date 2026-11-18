@@ -232,9 +232,17 @@ pub(crate) fn versions_for(
 /// the top as ambiguous. Our `versions_seen` records all current versions per executed
 /// node (an approximation of per-trigger reads), so a tie is common; `None` therefore means
 /// "cannot infer" and callers keep the pending tasks instead of failing.
-pub(crate) fn infer_as_node(checkpoint: &Checkpoint) -> Result<Option<String>> {
+pub(crate) fn infer_as_node(
+    checkpoint: &Checkpoint,
+    is_node: impl Fn(&str) -> bool,
+) -> Result<Option<String>> {
     let mut pairs: Vec<(String, String)> = Vec::new();
     for (node, seen) in &checkpoint.versions_seen {
+        // LangGraph skips its internal snapshot-bump bookkeeping and nodes that no longer
+        // exist in this graph.
+        if node == "__snapshot_bumps__" || !is_node(node) {
+            continue;
+        }
         let Some(seen) = seen.as_object() else {
             continue;
         };

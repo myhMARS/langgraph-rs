@@ -220,26 +220,142 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
             .map_err(|error| Error::other(format!("invalid next tasks: {error}")))?,
         None => Vec::new(),
     };
-    let interrupts = match extra.and_then(|extra| extra.get("interrupts")) {
-        Some(interrupts) => serde_json::from_value(interrupts.clone())
-            .map_err(|error| Error::other(format!("invalid interrupts: {error}")))?,
-        None => Vec::new(),
-    };
+    let interrupts: Vec<crate::_internal::error::Interrupt> =
+        match extra.and_then(|extra| extra.get("interrupts")) {
+            Some(interrupts) => serde_json::from_value(interrupts.clone())
+                .map_err(|error| Error::other(format!("invalid interrupts: {error}")))?,
+            None => Vec::new(),
+        };
     let task_results = extra
         .and_then(|extra| extra.get("task_results"))
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    // Hints for rebuilding pending tasks: LangGraph stores interrupts as `__interrupt__`
+    // writes, which the state filter below drops, so collect task id -> node first.
+    let mut task_hints: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if let Some(writes) = object.get("pending_writes").and_then(Value::as_array) {
+        for write in writes {
+            if let Some(write) = write.as_object() {
+                if let (Some(task_id), Some(node)) = (
+                    write.get("task_id").and_then(Value::as_str),
+                    write.get("node").and_then(Value::as_str),
+                ) && !node.is_empty()
+                {
+                    task_hints.insert(task_id.to_string(), node.to_string());
+                }
+            } else if let Some(tuple) = write.as_array()
+                && let Some(task_id) = tuple.first().and_then(Value::as_str)
+                && let Some(node) = tuple.get(3).and_then(Value::as_str)
+                && !node.is_empty()
+            {
+                task_hints.insert(task_id.to_string(), node.to_string());
+            }
+        }
+    }
+    let pending_writes: Vec<crate::checkpoint::PendingWrite> = object
+        .get("pending_writes")
+        .and_then(Value::as_array)
+        .map(|writes| {
+            writes
+                .iter()
+                .filter_map(|write| {
+                    if let Some(write) = write.as_object() {
+                        let task_id = write.get("task_id")?.as_str()?.to_string();
+                        let node = write
+                            .get("node")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        let channel = write.get("channel")?.as_str()?.to_string();
+                        // LangGraph reserves `__`-prefixed control channels (RESUME,
+                        // INTERRUPT, ERROR, NULL_TASK_ID writes). They drive the source
+                        // engine's own loop and are not state, so replaying them as
+                        // updates would either fail or pollute the imported state.
+                        if channel.starts_with("__") {
+                            return None;
+                        }
+                        let value = write.get("value").cloned().unwrap_or(Value::Null);
+                        let replace = write
+                            .get("replace")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        Some(crate::checkpoint::PendingWrite {
+                            task_id,
+                            node,
+                            channel,
+                            value,
+                            replace,
+                        })
+                    } else {
+                        let tuple = write.as_array()?;
+                        let task_id = tuple.first()?.as_str()?.to_string();
+                        let channel = tuple.get(1)?.as_str()?.to_string();
+                        // LangGraph's real `PendingWrite` is a tuple; reserved control
+                        // channels must be dropped here too, not only in the object branch.
+                        if channel.starts_with("__") {
+                            return None;
+                        }
+                        let value = tuple.get(2).cloned().unwrap_or(Value::Null);
+                        Some(crate::checkpoint::PendingWrite {
+                            task_id,
+                            node: String::new(),
+                            channel,
+                            value,
+                            replace: false,
+                        })
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Real LangGraph checkpoints carry no `next`; the pending tasks must be reconstructed
+    // from the interrupts and pending writes, otherwise a resume would silently finish.
+    let mut next = next;
+    if next.is_empty() && (!interrupts.is_empty() || !pending_writes.is_empty()) {
+        let mut seen = std::collections::HashSet::new();
+        for interrupt in &interrupts {
+            let node = interrupt.node.clone();
+            let id = interrupt
+                .task_id
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| crate::_internal::node::new_task_id(&node));
+            if seen.insert(id.clone()) {
+                let mut task = crate::_internal::node::Task::new(node);
+                task.id = id;
+                task.interrupted = true;
+                next.push(task);
+            }
+        }
+        for write in &pending_writes {
+            let node = if write.node.is_empty() {
+                task_hints.get(&write.task_id).cloned().unwrap_or_default()
+            } else {
+                write.node.clone()
+            };
+            if node.is_empty() || !seen.insert(write.task_id.clone()) {
+                continue;
+            }
+            let mut task = crate::_internal::node::Task::new(node);
+            task.id = write.task_id.clone();
+            task.interrupted = true;
+            next.push(task);
+        }
+    }
+    let interrupted = extra
+        .and_then(|extra| extra.get("interrupted"))
+        .and_then(Value::as_bool)
+        .unwrap_or(!interrupts.is_empty())
+        || next.iter().any(|task| task.interrupted);
     Ok(Checkpoint {
         id,
         thread_id,
         step,
         values,
         next,
-        interrupted: extra
-            .and_then(|extra| extra.get("interrupted"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        interrupted,
         paused_before: extra
             .and_then(|extra| extra.get("paused_before"))
             .and_then(Value::as_bool)
@@ -281,62 +397,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                     .collect()
             })
             .unwrap_or_default(),
-        pending_writes: object
-            .get("pending_writes")
-            .and_then(Value::as_array)
-            .map(|writes| {
-                writes
-                    .iter()
-                    .filter_map(|write| {
-                        if let Some(write) = write.as_object() {
-                            let task_id = write.get("task_id")?.as_str()?.to_string();
-                            let node = write
-                                .get("node")
-                                .and_then(Value::as_str)
-                                .unwrap_or_default()
-                                .to_string();
-                            let channel = write.get("channel")?.as_str()?.to_string();
-                            // LangGraph reserves `__`-prefixed control channels (RESUME,
-                            // INTERRUPT, ERROR, NULL_TASK_ID writes). They drive the source
-                            // engine's own loop and are not state, so replaying them as
-                            // updates would either fail or pollute the imported state.
-                            if channel.starts_with("__") {
-                                return None;
-                            }
-                            let value = write.get("value").cloned().unwrap_or(Value::Null);
-                            let replace = write
-                                .get("replace")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false);
-                            Some(crate::checkpoint::PendingWrite {
-                                task_id,
-                                node,
-                                channel,
-                                value,
-                                replace,
-                            })
-                        } else {
-                            let tuple = write.as_array()?;
-                            let task_id = tuple.first()?.as_str()?.to_string();
-                            let channel = tuple.get(1)?.as_str()?.to_string();
-                            // LangGraph's real `PendingWrite` is a tuple; reserved control
-                            // channels must be dropped here too, not only in the object branch.
-                            if channel.starts_with("__") {
-                                return None;
-                            }
-                            let value = tuple.get(2).cloned().unwrap_or(Value::Null);
-                            Some(crate::checkpoint::PendingWrite {
-                                task_id,
-                                node: String::new(),
-                                channel,
-                                value,
-                                replace: false,
-                            })
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+        pending_writes,
         deferred: object
             .get("deferred")
             .cloned()

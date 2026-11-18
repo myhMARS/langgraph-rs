@@ -260,7 +260,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
         let inferred = if as_node.is_none() {
-            infer_as_node(&checkpoint)?
+            infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
         } else {
             None
         };
