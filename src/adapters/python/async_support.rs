@@ -3,7 +3,6 @@
 use pyo3::types::PyAny;
 
 use super::*;
-use crate::adapters::python::convert::snapshot_to_py;
 
 pub(crate) fn wrap_async_timeout(
     py: Python<'_>,
@@ -25,49 +24,6 @@ wrapper = _timeout_wrapper",
         .get_item("wrapper")?
         .map(|value| value.unbind())
         .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("timeout wrapper missing"))
-}
-
-pub(crate) fn global_step_for(
-    history: &[crate::StateSnapshot<crate::JsonState>],
-    checkpoint_id: &str,
-) -> Option<i64> {
-    let total = history.len() as i64;
-    let index = history
-        .iter()
-        .position(|snapshot| snapshot.checkpoint_id == checkpoint_id)? as i64;
-    Some(total - 2 - index)
-}
-
-pub(crate) fn snapshot_to_py_with_step(
-    py: Python<'_>,
-    snapshot: &crate::StateSnapshot<crate::JsonState>,
-    step: Option<i64>,
-) -> PyResult<Py<PyAny>> {
-    let value = snapshot_to_py(py, snapshot)?;
-    let Some(step) = step else {
-        return Ok(value);
-    };
-    if let Ok(snapshot) = value
-        .bind(py)
-        .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
-    {
-        let dict = snapshot.dict(py);
-        dict.set_item("step", step)?;
-        if let Some(metadata) = dict.get_item("metadata")? {
-            if let Ok(metadata) = metadata.cast::<pyo3::types::PyDict>() {
-                metadata.set_item("step", step)?;
-            }
-        }
-        return Ok(value);
-    }
-    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
-    dict.set_item("step", step)?;
-    if let Some(metadata) = dict.get_item("metadata")? {
-        if let Ok(metadata) = metadata.cast::<pyo3::types::PyDict>() {
-            metadata.set_item("step", step)?;
-        }
-    }
-    Ok(value)
 }
 
 pub(crate) fn run_timed_awaitable<'py>(

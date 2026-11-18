@@ -462,19 +462,7 @@ impl PyCompiledGraph {
         }
         .map_err(|error| to_pyerr(py, error))?;
         match snapshot {
-            Some(snapshot) => {
-                if checkpoint_ns.is_none() {
-                    // Root snapshots already carry the LangGraph global step.
-                    snapshot_to_py(py, &snapshot)
-                } else {
-                    let history = self
-                        .graph
-                        .get_state_history(&thread_id)
-                        .map_err(|error| to_pyerr(py, error))?;
-                    let global_step = global_step_for(&history, &snapshot.checkpoint_id);
-                    snapshot_to_py_with_step(py, &snapshot, global_step)
-                }
-            }
+            Some(snapshot) => snapshot_to_py(py, &snapshot),
             None => empty_snapshot_to_py(py, Some(&thread_id)),
         }
     }
@@ -549,16 +537,9 @@ impl PyCompiledGraph {
                 .map(|snapshot| snapshot_to_py(py, snapshot))
                 .collect();
         }
-        let full_history = self
-            .graph
-            .get_state_history(&thread_id)
-            .map_err(|error| to_pyerr(py, error))?;
         history
             .iter()
-            .map(|snapshot| {
-                let global_step = global_step_for(&full_history, &snapshot.checkpoint_id);
-                snapshot_to_py_with_step(py, snapshot, global_step)
-            })
+            .map(|snapshot| snapshot_to_py(py, snapshot))
             .collect()
     }
 

@@ -1,53 +1,10 @@
 //! Shared graph-description and stream-mode helpers.
 
-use pyo3::types::{PyAny, PyDict};
+use pyo3::types::PyAny;
 use serde_json::Value;
 
 use super::*;
 use crate::adapters::python::convert::value_to_py;
-
-pub(crate) fn global_step_for(
-    history: &[crate::StateSnapshot<crate::JsonState>],
-    checkpoint_id: &str,
-) -> Option<i64> {
-    let total = history.len() as i64;
-    let index = history
-        .iter()
-        .position(|snapshot| snapshot.checkpoint_id == checkpoint_id)? as i64;
-    Some(total - 2 - index)
-}
-
-pub(crate) fn snapshot_to_py_with_step(
-    py: Python<'_>,
-    snapshot: &crate::StateSnapshot<crate::JsonState>,
-    step: Option<i64>,
-) -> PyResult<Py<PyAny>> {
-    let value = snapshot_to_py(py, snapshot)?;
-    let Some(step) = step else {
-        return Ok(value);
-    };
-    if let Ok(snapshot) = value
-        .bind(py)
-        .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
-    {
-        let dict = snapshot.dict(py);
-        dict.set_item("step", step)?;
-        if let Some(metadata) = dict.get_item("metadata")? {
-            if let Ok(metadata) = metadata.cast::<PyDict>() {
-                metadata.set_item("step", step)?;
-            }
-        }
-        return Ok(value);
-    }
-    let dict = value.bind(py).cast::<PyDict>()?;
-    dict.set_item("step", step)?;
-    if let Some(metadata) = dict.get_item("metadata")? {
-        if let Ok(metadata) = metadata.cast::<PyDict>() {
-            metadata.set_item("step", step)?;
-        }
-    }
-    Ok(value)
-}
 
 /// Attach child subgraph snapshots to the root snapshot's tasks (`subgraphs=True`).
 ///
