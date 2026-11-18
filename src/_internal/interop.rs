@@ -238,6 +238,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
     // Real LangGraph checkpoints persist interrupts as `__interrupt__` pending writes, so
     // they are decoded here before the state filter drops the control channel.
     let mut foreign_interrupts: Vec<crate::_internal::error::Interrupt> = Vec::new();
+    let mut foreign_errors: Vec<(String, String, String)> = Vec::new();
     if let Some(writes) = object.get("pending_writes").and_then(Value::as_array) {
         for write in writes {
             let (task_id, node, channel, value, replace) = if let Some(write) = write.as_object() {
@@ -269,6 +270,24 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                 task_hints.insert(task_id.to_string(), node.to_string());
             }
             let _ = replace;
+            if channel == Some("__error__") {
+                let message = match value {
+                    Some(Value::Object(map)) => map
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| Value::Object(map).to_string()),
+                    Some(Value::String(text)) => text,
+                    Some(other) => other.to_string(),
+                    None => String::new(),
+                };
+                foreign_errors.push((
+                    task_id.to_string(),
+                    node.unwrap_or_default().to_string(),
+                    message,
+                ));
+                continue;
+            }
             if channel != Some("__interrupt__") {
                 continue;
             }
@@ -364,7 +383,9 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
     // Real LangGraph checkpoints carry no `next`; the pending tasks must be reconstructed
     // from the interrupts and pending writes, otherwise a resume would silently finish.
     let mut next = next;
-    if next.is_empty() && (!interrupts.is_empty() || !pending_writes.is_empty()) {
+    if next.is_empty()
+        && (!interrupts.is_empty() || !pending_writes.is_empty() || !foreign_errors.is_empty())
+    {
         let mut seen = std::collections::HashSet::new();
         for interrupt in &interrupts {
             let node = interrupt.node.clone();
@@ -406,6 +427,25 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
             let mut task = crate::_internal::node::Task::new(node);
             task.id = id;
             task.interrupted = true;
+            next.push(task);
+        }
+        // A failed task keeps its slot so the error handler can resume it.
+        for (task_id, node, message) in &foreign_errors {
+            let node = if node.is_empty() {
+                task_hints.get(task_id).cloned().unwrap_or_default()
+            } else {
+                node.clone()
+            };
+            if node.is_empty() || !seen.insert(task_id.clone()) {
+                continue;
+            }
+            let mut task = crate::_internal::node::Task::new(node.clone());
+            task.id = task_id.clone();
+            task.error = Some(crate::_internal::error::NodeFailure {
+                node,
+                message: message.clone(),
+                attempts: 1,
+            });
             next.push(task);
         }
     }

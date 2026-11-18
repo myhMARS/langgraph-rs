@@ -155,6 +155,40 @@ fn imports_interrupts_recorded_as_control_writes() {
     assert_eq!(snapshot.interrupts[0].node, "inc");
 }
 
+#[test]
+fn imports_failed_tasks_from_error_writes() {
+    let graph = graph();
+    let document = json!({
+        "config": { "configurable": { "thread_id": "lg-err", "checkpoint_ns": "", "checkpoint_id": "cp-e" } },
+        "checkpoint": {
+            "v": 1,
+            "id": "cp-e",
+            "channel_values": { "value": 5 },
+            "channel_versions": { "value": "1.0.1" },
+            "versions_seen": {},
+            "updated_channels": ["value"]
+        },
+        "metadata": { "source": "loop", "step": 1 },
+        "parent_config": null,
+        "pending_writes": [
+            {
+                "task_id": "task-3",
+                "node": "inc",
+                "channel": "__error__",
+                "value": { "message": "boom" },
+                "replace": false
+            }
+        ],
+        "metadata_extra": null
+    });
+    graph.import_checkpoint("lg-err", &document).unwrap();
+    let snapshot = graph.get_state("lg-err").unwrap().unwrap();
+    assert_eq!(snapshot.next, vec!["inc".to_string()]);
+    let task = &snapshot.tasks[0];
+    let error = task.error.as_ref().expect("error rebuilt");
+    assert_eq!(error.message, "boom");
+}
+
 #[cfg(feature = "msgpack")]
 #[test]
 fn drops_reserved_control_writes_in_tuple_form() {
