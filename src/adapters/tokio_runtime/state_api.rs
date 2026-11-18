@@ -307,7 +307,6 @@ impl<S: State> AsyncCompiledGraph<S> {
                     }
                     tasks
                 }
-                None => checkpoint.next.clone(),
             }
         };
         let step = checkpoint.step + 1;

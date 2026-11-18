@@ -334,7 +334,6 @@ impl<S: State> CompiledGraph<S> {
                     }
                     tasks
                 }
-                None => checkpoint.next.clone(),
             }
         };
 
