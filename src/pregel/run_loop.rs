@@ -187,8 +187,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     }
     // A replay addressed at the raw-input checkpoint stores `__start__` as its pending
     // task; that pseudo node is not a real node, so it expands to the entry tasks.
+    let mut expanded_entry = false;
     if tasks.iter().any(|task| task.node == crate::START) {
         tasks = backend.entry_tasks(&state)?;
+        expanded_entry = true;
     }
     if config
         .control
@@ -211,6 +213,33 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &values,
             &tasks,
             step,
+            checkpoint_emit,
+            sink,
+        )
+        .await?;
+    }
+    if expanded_entry {
+        // LangGraph stores the input-merge checkpoint before the first loop tick, so a
+        // replay from the raw-input checkpoint gains it too.
+        step += 1;
+        save_checkpoint_via(
+            backend,
+            thread_id.as_deref(),
+            &namespace,
+            &mut parent,
+            &mut previous_checkpoint,
+            &values,
+            &tasks,
+            step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "loop",
+            &std::collections::HashMap::new(),
+            None,
             checkpoint_emit,
             sink,
         )
