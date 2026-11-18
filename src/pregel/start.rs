@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::_internal::error::Result;
+use crate::_internal::error::{Error, Result};
 use crate::_internal::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
 use crate::pregel::{StartInput, apply_pending_writes};
 
@@ -123,6 +123,15 @@ pub(crate) fn resolve_resume_start<S: State>(
         )?;
     }
     let state = values_to_state::<S>(&values)?;
+    // LangGraph refuses an unkeyed resume while several interrupts are pending.
+    if resume.is_some()
+        && checkpoint.interrupts.len() > 1
+        && !matches!(resume, Some(crate::Value::Object(_)))
+    {
+        return Err(Error::validation(
+            "multiple pending interrupts; resume must be keyed by interrupt id",
+        ));
+    }
     let mut tasks = crate::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume);
     for node in goto {
         if node == crate::END {
