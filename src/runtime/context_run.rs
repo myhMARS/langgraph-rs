@@ -1,0 +1,241 @@
+//! Run and superstep context: thread-local guards, managed values, recursion.
+
+use super::*;
+
+/// Execution context of the current run.
+#[derive(Clone, Default)]
+pub(crate) struct RunContext {
+    pub(crate) thread_id: Option<String>,
+    pub(crate) namespace: String,
+    pub(crate) store: Option<std::sync::Arc<dyn BaseStore>>,
+    pub(crate) context: Option<Value>,
+    pub(crate) step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) managed_step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) recursion_limit: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) step_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// RAII guard restoring the previous run context when the engine returns.
+pub(crate) struct RunGuard {
+    previous: Option<RunContext>,
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_RUN.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+/// Install the run context for the duration of a graph execution.
+pub(crate) fn install_run(
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<std::sync::Arc<dyn BaseStore>>,
+    context: Option<Value>,
+) -> RunGuard {
+    let previous = CURRENT_RUN.with(|slot| {
+        slot.borrow_mut().replace(RunContext {
+            thread_id,
+            namespace,
+            store,
+            context,
+            step: Default::default(),
+            managed_step: Default::default(),
+            recursion_limit: Default::default(),
+            step_active: Default::default(),
+        })
+    });
+    RunGuard { previous }
+}
+
+/// Build a run context value for task-local scoping.
+#[cfg(feature = "async")]
+pub(crate) fn run_context(
+    thread_id: Option<String>,
+    namespace: String,
+    store: Option<std::sync::Arc<dyn BaseStore>>,
+    context: Option<Value>,
+) -> RunContext {
+    RunContext {
+        thread_id,
+        namespace,
+        store,
+        context,
+        step: Default::default(),
+        managed_step: Default::default(),
+        recursion_limit: Default::default(),
+        step_active: Default::default(),
+    }
+}
+
+/// Scope an async run with a task-local copy of its run context.
+#[cfg(feature = "async")]
+pub(crate) async fn with_async_run<F: std::future::Future>(
+    run: RunContext,
+    future: F,
+) -> F::Output {
+    let results = RefCell::new(Map::new());
+    ASYNC_TASK_RESULTS
+        .scope(results, ASYNC_RUN.scope(run, future))
+        .await
+}
+
+/// Scope an async node future with its task identity for context accessors.
+#[cfg(feature = "async")]
+pub(crate) async fn with_async_node<F: std::future::Future>(
+    node: String,
+    task_id: Option<String>,
+    future: F,
+) -> F::Output {
+    ASYNC_NODE.scope((node, task_id), future).await
+}
+
+pub(crate) fn current_run() -> Option<RunContext> {
+    #[cfg(feature = "async")]
+    if let Ok(run) = ASYNC_RUN.try_with(|run| run.clone()) {
+        return Some(run);
+    }
+    CURRENT_RUN.with(|slot| slot.borrow().clone())
+}
+
+/// Long-term memory store of the current run, when the graph was compiled with one.
+pub fn get_store() -> Option<std::sync::Arc<dyn BaseStore>> {
+    current_run().and_then(|run| run.store.clone())
+}
+
+/// User context passed to the current run via `RunConfig::with_context`.
+pub fn current_context() -> Option<Value> {
+    current_run().and_then(|run| run.context.clone())
+}
+
+/// Runtime information (thread, namespace, store, context) of the current run.
+pub fn current_runtime() -> Option<Runtime> {
+    current_run().map(|run| Runtime {
+        thread_id: run.thread_id.clone(),
+        namespace: run.namespace.clone(),
+        store: run.store.clone(),
+        context: run.context.clone(),
+    })
+}
+
+pub(crate) fn has_sync_task() -> bool {
+    CURRENT_TASK.with(|slot| slot.borrow().is_some())
+}
+
+/// Capture the current run context for a scoped worker thread.
+pub(crate) fn capture_run_context() -> Option<RunContext> {
+    current_run()
+}
+
+/// Install a captured run context on the current thread.
+pub(crate) fn install_run_context(run: RunContext) -> RunGuard {
+    let previous = CURRENT_RUN.with(|slot| slot.borrow_mut().replace(run));
+    RunGuard { previous }
+}
+
+/// Current superstep context `(step, recursion_limit)`, when inside a step.
+pub(crate) fn capture_step_context() -> Option<(usize, usize)> {
+    CURRENT_STEP.with(|slot| *slot.borrow())
+}
+
+/// RAII guard restoring the previous step context.
+type AsyncStepPrevious = (
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+    usize,
+    usize,
+    usize,
+    bool,
+);
+
+pub(crate) struct StepGuard {
+    previous: Option<(usize, usize)>,
+    async_previous: Option<AsyncStepPrevious>,
+}
+
+impl Drop for StepGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_STEP.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+        if let Some((step, managed, limit, active, old_step, old_managed, old_limit, old_active)) =
+            self.async_previous.take()
+        {
+            step.store(old_step, std::sync::atomic::Ordering::Relaxed);
+            managed.store(old_managed, std::sync::atomic::Ordering::Relaxed);
+            limit.store(old_limit, std::sync::atomic::Ordering::Relaxed);
+            active.store(old_active, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+/// Install the current superstep number and recursion limit for managed values.
+pub(crate) fn install_step(step: usize, managed_step: usize, recursion_limit: usize) -> StepGuard {
+    let previous = CURRENT_STEP.with(|slot| slot.borrow_mut().replace((step, recursion_limit)));
+    let async_previous = current_run().map(|run| {
+        let old = (
+            run.step.load(std::sync::atomic::Ordering::Relaxed),
+            run.managed_step.load(std::sync::atomic::Ordering::Relaxed),
+            run.recursion_limit
+                .load(std::sync::atomic::Ordering::Relaxed),
+            run.step_active.load(std::sync::atomic::Ordering::Relaxed),
+        );
+        run.step.store(step, std::sync::atomic::Ordering::Relaxed);
+        run.managed_step
+            .store(managed_step, std::sync::atomic::Ordering::Relaxed);
+        run.recursion_limit
+            .store(recursion_limit, std::sync::atomic::Ordering::Relaxed);
+        run.step_active
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        (
+            run.step,
+            run.managed_step,
+            run.recursion_limit,
+            run.step_active,
+            old.0,
+            old.1,
+            old.2,
+            old.3,
+        )
+    });
+    StepGuard {
+        previous,
+        async_previous,
+    }
+}
+
+/// Remaining supersteps before the recursion limit (LangGraph `RemainingSteps`).
+///
+/// Returns `None` outside a run. The value is `recursion_limit - step`, so the first
+/// superstep of a graph compiled with a limit of 25 reports 24.
+pub fn remaining_steps() -> Option<usize> {
+    if let Some(run) = current_run()
+        && run.step_active.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        let step = run.managed_step.load(std::sync::atomic::Ordering::Relaxed);
+        let limit = run
+            .recursion_limit
+            .load(std::sync::atomic::Ordering::Relaxed);
+        return Some(limit.saturating_add(1).saturating_sub(step));
+    }
+    CURRENT_STEP.with(|slot| {
+        slot.borrow()
+            .map(|(step, recursion_limit)| recursion_limit.saturating_add(1).saturating_sub(step))
+    })
+}
+
+/// Whether the current superstep is the last one before the recursion limit.
+///
+/// Mirrors LangGraph's `IsLastStep` managed value: `true` when at most one superstep is
+/// left (`remaining_steps() <= 1`).
+pub fn is_last_step() -> bool {
+    remaining_steps()
+        .map(|remaining| remaining <= 1)
+        .unwrap_or(false)
+}
