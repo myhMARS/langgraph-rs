@@ -163,9 +163,39 @@ where
 {
     let tool_node = ToolNode::new(tools);
     StateGraph::<JsonState>::with_schema(
-        StateSchema::dynamic().with_reducer("messages", reducers::messages()),
+        StateSchema::dynamic()
+            .with_reducer("messages", reducers::messages())
+            .with_managed_values(),
     )
-    .add_node("agent", move |state: &JsonState| model(state))
+    .add_node("agent", move |state: &JsonState| {
+        let output = model(state)?;
+        if crate::remaining_steps().is_some_and(|remaining| remaining <= 2) {
+            let calls_tools = output
+                .updates_map()
+                .get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| messages.last())
+                .and_then(|message| message.get("tool_calls"))
+                .and_then(Value::as_array)
+                .is_some_and(|calls| !calls.is_empty());
+            if calls_tools {
+                let mut guarded = NodeOutput::new();
+                for (channel, value) in output.updates_map() {
+                    if channel != "messages" {
+                        guarded = guarded.update(channel.clone(), value.clone());
+                    }
+                }
+                return Ok(guarded.update(
+                    "messages",
+                    json!([{
+                        "role": "assistant",
+                        "content": "Sorry, need more steps to process this request.",
+                    }]),
+                ));
+            }
+        }
+        Ok(output)
+    })
     .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
     .set_entry_point("agent")
     .add_conditional_edges("agent", |state: &JsonState| Ok(tools_condition(state)))

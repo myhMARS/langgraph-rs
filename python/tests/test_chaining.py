@@ -237,5 +237,24 @@ class ReactAgentModelTests(unittest.TestCase):
         self.assertIn("__interrupt__", updates[0]["data"])
 
 
+class ReactAgentGuardTests(unittest.TestCase):
+    def test_agent_stops_with_tool_calls_near_recursion_limit(self):
+        def model(state):
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"name": "noop", "args": {}, "id": "1"}],
+                    }
+                ]
+            }
+
+        graph = lg.create_react_agent(model, {"noop": lambda args: "ok"})
+        output = graph.invoke({"messages": []}, config={"recursion_limit": 3})
+        last = output["messages"][-1]
+        self.assertIn("Sorry, need more steps", last.get("content", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

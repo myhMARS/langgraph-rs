@@ -162,6 +162,36 @@ fn runnable_model_node(
     }
 }
 
+fn guard_react_output(messages_key: &str, output: NodeOutput) -> NodeOutput {
+    if !crate::remaining_steps().is_some_and(|remaining| remaining <= 2) {
+        return output;
+    }
+    let calls_tools = output
+        .updates_map()
+        .get(messages_key)
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.last())
+        .and_then(|message| message.get("tool_calls"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|calls| !calls.is_empty());
+    if !calls_tools {
+        return output;
+    }
+    let mut guarded = NodeOutput::new();
+    for (channel, value) in output.updates_map() {
+        if channel != messages_key {
+            guarded = guarded.update(channel.clone(), value.clone());
+        }
+    }
+    guarded.update(
+        messages_key,
+        serde_json::json!([{
+            "role": "assistant",
+            "content": "Sorry, need more steps to process this request.",
+        }]),
+    )
+}
+
 /// Build a minimal ReAct agent from a Python model callable and tools.
 #[pyfunction]
 #[pyo3(signature = (model, tools, messages_key=None, checkpointer=None))]
@@ -178,16 +208,26 @@ pub(super) fn create_react_agent(
     }
     let messages_key = messages_key.unwrap_or_else(|| "messages".to_string());
     let condition_key = messages_key.clone();
-    let schema = StateSchema::dynamic().with_reducer(&messages_key, reducers::messages());
+    let schema = StateSchema::dynamic()
+        .with_reducer(&messages_key, reducers::messages())
+        .with_managed_values();
     let builder = StateGraph::<JsonState>::with_schema(schema);
     let inner = if model.bind(py).hasattr("bind_tools")? {
         let bound = model
             .bind(py)
             .call_method1("bind_tools", (tools,))?
             .unbind();
-        builder.add_node("agent", runnable_model_node(bound, messages_key.clone()))
+        let node = runnable_model_node(bound, messages_key.clone());
+        let key = messages_key.clone();
+        builder.add_node("agent", move |state: &JsonState| {
+            Ok(guard_react_output(&key, node(state)?))
+        })
     } else {
-        builder.add_node("agent", node_from_python("agent".to_string(), model))
+        let node = node_from_python("agent".to_string(), model);
+        let key = messages_key.clone();
+        builder.add_node("agent", move |state: &JsonState| {
+            Ok(guard_react_output(&key, node(state)?))
+        })
     }
     .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
     .set_entry_point("agent")
