@@ -79,6 +79,28 @@ impl<S: State> CompiledGraph<S> {
                 ));
             };
             if let Some(thread) = config.thread_id.as_deref() {
+                // LangGraph treats `Command(update=...)` as a resume: a paused thread runs
+                // its pending tasks, a finished one stores the update as pending writes.
+                // Entry points are not re-run.
+                let latest = match self.checkpointer() {
+                    Some(checkpointer) => checkpointer
+                        .latest_in(thread, config.checkpoint_ns.as_deref().unwrap_or(""))?,
+                    None => None,
+                };
+                if latest.is_some() {
+                    let updates: Map<String, Value> = updates.into_iter().collect();
+                    let state = self.resume_with_updates_config(
+                        thread,
+                        Value::Null,
+                        updates,
+                        Vec::new(),
+                        config,
+                    )?;
+                    return Ok(crate::RunOutcome {
+                        state,
+                        report: crate::RunReport::default(),
+                    });
+                }
                 return self.run_on_thread(thread, updates, config);
             }
             return pregel::execute_quiet(
