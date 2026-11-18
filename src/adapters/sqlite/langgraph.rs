@@ -295,7 +295,9 @@ impl LangGraphSqliteReader {
                 return Ok(checkpoint);
             }
         }
-        // This table stores our internal step (see the saver), so no offset is applied.
+        // No offset: the saver stores our internal step for the rows it writes, and the
+        // task ids beside those rows depend on it. (Foreign rows are converted by
+        // `interop::checkpoint_from_langgraph`, which does add one.)
         let step = metadata
             .get("step")
             .and_then(Value::as_i64)

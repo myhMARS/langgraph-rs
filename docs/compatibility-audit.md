@@ -94,3 +94,54 @@ differences**.
 - Python get_state/get_state_history return a StateSnapshot object that also supports mapping access (snapshot['values']) and attribute access (snapshot.values, snapshot.next, snapshot.config).
 - Python stream returns an AsyncStream that supports both wait (returns the chunk list) and sync for; covered by python/tests/test_astream.py.
 - MessagesState is now a real Python class; subclasses with __annotations__ are accepted as a schema (Annotated reducers map to channel specs), covering class MyState(MessagesState).
+
+## Status after rounds 84-118 (sections above are historical)
+
+The findings above were re-audited against Python LangGraph 1.2.22 source and live
+behaviour; these are now implemented and covered by tests:
+
+- **Checkpoint layout and step numbering.** A fresh run writes a raw-input checkpoint
+  (`source="input"`, `next=["__start__"]`) followed by the post-input checkpoint and one
+  checkpoint per superstep, and steps are thread-cumulative across turns. Exported/streamed
+  `metadata.step` is the internal counter minus one, matching `get_state().metadata.step`.
+- **Interrupts.** Interrupt checkpoints are saved at the post-increment step (verified:
+  metadata step `0`, history `[0, -1]`, resume step `1`), and the interrupted superstep's
+  nodes are recorded in `versions_seen`.
+- **Static breakpoints.** `interrupt_before`/`interrupt_after` pause without raising in
+  `invoke`/`ainvoke`/`resume*`; snapshots expose no interrupts for them; `updates` streams
+  emit `{'__interrupt__': ()}` and `values` streams emit nothing.
+- **Step-scoped topics.** `Topic(accumulate=False)` is cleared after a superstep's writes,
+  and only for channels that superstep did not write (values remain readable in the next
+  step, matching `_algo.apply_writes`).
+- **`update_state`.** Applies the checkpoint's pending writes first, advances the step,
+  recomputes channel versions without touching `versions_seen`, preserves pending `next` and
+  `paused_before`, and behaves identically in the async runtime.
+- **Interrupt ids.** Node-scoped namespace (`{ns}|{node}:{task_id}`) plus `|{answered}` for
+  repeated interrupts; the SQLite saver uses the same separator.
+- **Cross-engine import.** JSON/msgpack and SQLite readers decode `__interrupt__` control
+  writes into interrupts, rebuild `next` only from interrupted/failed tasks, and keep plain
+  state writes out of the pending set.
+- **Streaming.** The starting state is emitted before the first superstep, v1 task payloads
+  carry `triggers`, and `StateTask.state` is only populated for subgraph tasks.
+- **Robustness.** An unkeyed resume with several pending interrupts is rejected; the entire
+  feature matrix (none/async/sqlite/redis/postgres/msgpack/python/python-async) builds
+  without warnings.
+
+Still open, in rough priority order:
+
+1. **Checkpoint v4 task ids.** Python derives task ids as
+   `xxh3_128(checkpoint_id_bytes + ns + step + name + PULL + triggers)`; this crate uses
+   time-based ids. Consequences: cross-engine pending-task identity, resume maps keyed by
+   LangGraph ids, and the LangGraph-schema SQLite table (which stores internal steps because
+   its stored ids were derived from that counter) are not interchangeable.
+2. **Debug stream.** The input-checkpoint record is not emitted, `config.checkpoint_id` is
+   `null` on debug checkpoint records, and debug/checkpoint task entries use the `Send` input
+   as `state`.
+3. **Trigger-accurate bookkeeping.** `versions_seen` approximates per-trigger reads, named
+   barriers are consumed even when the superstep did not read them, and `NamedBarrierValue`
+   re-arms where Python keeps the barrier open.
+4. **Interop edge cases.** Tuple-form `pending_writes` carry no node, `__error__` writes are
+   not rebuilt into a routable failure, and the JSON importer does not decode
+   `channel_values.__interrupt__` (the SQLite reader does).
+5. **Python binding breadth** (unchanged from the historical section): drop-in
+   `RunnableConfig` API surface, streaming iteration semantics, and v2 payload details.
