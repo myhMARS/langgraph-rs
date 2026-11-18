@@ -428,16 +428,48 @@ impl PyAsyncCompiledGraph {
                     || chunk.matches_modes_strict(&requested)
             });
             Python::attach(|py| {
-                let list = PyList::empty(py);
                 let multi_mode = requested.len() > 1;
+                let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(collected.len());
+                let mut values_indices = Vec::new();
                 for chunk in &collected {
-                    if v2 {
-                        for item in chunk_to_py_v2_parts(py, chunk)? {
-                            list.append(item)?;
-                        }
-                    } else {
-                        list.append(chunk_to_py_v1(py, chunk, multi_mode)?)?;
+                    if matches!(chunk, StreamChunk::Values { .. }) {
+                        values_indices.push(converted.len());
                     }
+                    if v2 {
+                        converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+                    } else {
+                        converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
+                    }
+                }
+                let interrupts = converted.iter().rev().find_map(|item| {
+                    let dict = item.bind(py).cast::<PyDict>().ok()?;
+                    if v2 {
+                        dict.get_item("data")
+                            .ok()
+                            .flatten()
+                            .and_then(|data| data.cast_into::<PyDict>().ok())
+                            .and_then(|data| data.get_item("__interrupt__").ok().flatten())
+                            .map(|value| value.unbind())
+                    } else {
+                        dict.get_item("__interrupt__")
+                            .ok()
+                            .flatten()
+                            .map(|value| value.unbind())
+                    }
+                });
+                if let Some(interrupts) = interrupts {
+                    if let Some(index) = values_indices.last().copied() {
+                        if let Some(item) = converted.get_mut(index) {
+                            if let Ok(dict) = item.bind(py).cast::<PyDict>() {
+                                let key = if v2 { "interrupts" } else { "__interrupt__" };
+                                dict.set_item(key, interrupts.bind(py))?;
+                            }
+                        }
+                    }
+                }
+                let list = PyList::empty(py);
+                for item in converted {
+                    list.append(item)?;
                 }
                 Ok(list.into_any().unbind())
             })
