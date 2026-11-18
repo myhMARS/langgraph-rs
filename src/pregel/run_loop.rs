@@ -261,6 +261,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &interrupted,
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
+                raw_input.as_ref(),
                 sink,
             )
             .await?;
@@ -373,6 +374,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         values: Some(&values),
                         next_tasks: &next_tasks,
                         writes_by_node: &std::collections::HashMap::new(),
+                        raw_input: raw_input.as_ref(),
                     },
                     pause_force_new,
                     "loop",
@@ -498,6 +500,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     values: Some(&values),
                     next_tasks: &next_tasks,
                     writes_by_node: &writes_by_node,
+                    raw_input: raw_input.as_ref(),
                 },
                 pause_force_new,
                 "loop",

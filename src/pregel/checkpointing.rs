@@ -466,6 +466,8 @@ pub(crate) struct PauseDraft<'a> {
     pub(crate) next_tasks: &'a [crate::_internal::node::Task],
     /// Channels each executed node wrote, for `versions_seen`.
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
+    /// Raw input of this turn, used to flush the deferred `Durability::Exit` checkpoints.
+    pub(crate) raw_input: Option<&'a Map<String, Value>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -490,9 +492,56 @@ where
     F: FnMut(StreamChunk),
 {
     let _ = next;
-    // Durability::Exit can skip this turn's checkpoints; the pause must not then rewrite
-    // the previous turn's checkpoint, so force a new one.
-    let in_place = !force_new && previous.is_some();
+    // Durability::Exit defers this turn's input/post checkpoints; when the run pauses they
+    // are flushed first, and the pause then attaches to the post checkpoint in place.
+    if force_new && let Some(raw) = draft.raw_input {
+        let start_tasks = vec![crate::_internal::node::Task::new(crate::START)];
+        save_checkpoint_via(
+            backend,
+            thread_id,
+            namespace,
+            parent,
+            previous,
+            raw,
+            &start_tasks,
+            step.saturating_sub(1),
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "input",
+            &std::collections::HashMap::new(),
+            None,
+            emit,
+            sink,
+        )
+        .await?;
+        save_checkpoint_via(
+            backend,
+            thread_id,
+            namespace,
+            parent,
+            previous,
+            draft.values.unwrap_or(values),
+            draft.next_tasks,
+            step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "loop",
+            &std::collections::HashMap::new(),
+            None,
+            emit,
+            sink,
+        )
+        .await?;
+    }
+    let in_place = previous.is_some() && (!force_new || draft.raw_input.is_some());
     let Some(mut checkpoint) = previous.take().filter(|_| in_place) else {
         // Durability::Exit skips the input checkpoints, so a pause needs to be written
         // explicitly or it would be lost.

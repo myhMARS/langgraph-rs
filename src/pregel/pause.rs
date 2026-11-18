@@ -37,6 +37,7 @@ pub(crate) async fn pause_before<S, B, F>(
     interrupted: &Task,
     pending_writes: Vec<crate::checkpoint::PendingWrite>,
     deferred: Vec<Task>,
+    raw_input: Option<&serde_json::Map<String, Value>>,
     sink: &mut F,
 ) -> Result<Interrupt>
 where
@@ -78,6 +79,7 @@ where
             values: Some(values),
             next_tasks: &paused_tasks,
             writes_by_node: &std::collections::HashMap::new(),
+            raw_input,
         },
         context.force_new,
         "loop",
