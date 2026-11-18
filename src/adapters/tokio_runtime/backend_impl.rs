@@ -8,7 +8,7 @@ use crate::_internal::state::State;
 use crate::_internal::stream::StreamChunk;
 use crate::checkpoint::Checkpoint;
 use crate::pregel::outcome::TaskOutcome;
-use futures::future::join_all;
+use futures::stream::StreamExt;
 use serde_json::Value;
 
 impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a, S> {
@@ -79,31 +79,28 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
         step: usize,
         control: Option<&crate::RunControl>,
     ) -> Result<Vec<TaskOutcome>> {
+        let limit = self
+            .run
+            .max_concurrency
+            .filter(|limit| *limit > 0)
+            .unwrap_or_else(|| tasks.len().max(1));
         let run = async {
-            match self.run.max_concurrency.filter(|limit| *limit > 0) {
-                Some(limit) if tasks.len() > limit => {
-                    let mut outcomes = Vec::with_capacity(tasks.len());
-                    for chunk in tasks.chunks(limit) {
-                        outcomes.extend(
-                            join_all(
-                                chunk
-                                    .iter()
-                                    .map(|task| self.graph.run_task(task, state, step, self.run)),
-                            )
-                            .await,
-                        );
-                    }
-                    outcomes
-                }
-                _ => {
-                    join_all(
-                        tasks
-                            .iter()
-                            .map(|task| self.graph.run_task(task, state, step, self.run)),
-                    )
-                    .await
+            let mut pending = futures::stream::FuturesUnordered::new();
+            let mut remaining = tasks.iter();
+            for _ in 0..limit {
+                match remaining.next() {
+                    Some(task) => pending.push(self.graph.run_task(task, state, step, self.run)),
+                    None => break,
                 }
             }
+            let mut outcomes = Vec::with_capacity(tasks.len());
+            while let Some(outcome) = pending.next().await {
+                outcomes.push(outcome);
+                if let Some(task) = remaining.next() {
+                    pending.push(self.graph.run_task(task, state, step, self.run));
+                }
+            }
+            outcomes
         };
         match control {
             Some(control) => tokio::select! {
