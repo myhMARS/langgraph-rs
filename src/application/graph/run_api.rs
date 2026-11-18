@@ -483,14 +483,17 @@ impl<S: State> CompiledGraph<S> {
             ));
         }
         let mut sink = |_chunk: StreamChunk| {};
-        if command.goto.is_empty() {
+        if command.goto.is_empty() && command.sends.is_empty() {
             // LangGraph starts a Command without `goto` at the normal entry points,
-            // applying `update` first.
+            // applying `update` first (over the latest checkpoint when thread-bound).
             let Some(updates) = command.update else {
                 return Err(Error::validation(
                     "Command requires either `goto` or `update`",
                 ));
             };
+            if let Some(thread) = config.thread_id.as_deref() {
+                return self.run_on_thread(thread, updates, config);
+            }
             return pregel::execute_quiet(
                 self,
                 pregel::StartInput::Updates(updates.into_iter().collect()),
@@ -498,7 +501,25 @@ impl<S: State> CompiledGraph<S> {
                 &mut sink,
             );
         }
-        let mut values = Map::new();
+        // Seed from the latest checkpoint when the Command targets an existing
+        // thread, matching LangGraph's `invoke(Command(goto=...), config)`.
+        let mut values = match (config.thread_id.as_deref(), self.checkpointer()) {
+            (Some(thread), Some(checkpointer)) => {
+                let checkpoint = match &config.checkpoint_id {
+                    Some(id) => checkpointer.get(thread, id),
+                    None => checkpointer
+                        .latest_in(thread, config.checkpoint_ns.as_deref().unwrap_or("")),
+                };
+                checkpoint
+                    .map(|checkpoint| {
+                        checkpoint
+                            .map(|checkpoint| checkpoint.values)
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            }
+            _ => Map::new(),
+        };
         if let Some(updates) = command.update {
             apply_updates(
                 &self.schema,
