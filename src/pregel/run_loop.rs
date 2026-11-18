@@ -561,7 +561,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         // Nodes replayed from pending writes still contribute their outgoing routes, but
         // only for the tick that replays them.
         let mut routing_executed = executed.clone();
-        routing_executed.extend(replayed_nodes.drain(..));
+        routing_executed.append(&mut replayed_nodes);
         let (next_nodes, router_sends) = collect_next_nodes(
             &state,
             &routing_executed,
