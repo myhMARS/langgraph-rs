@@ -120,7 +120,13 @@ pub(crate) fn next_interrupt_id(context: &mut TaskContext) -> String {
         .task_id
         .clone()
         .unwrap_or_else(|| context.node.clone());
-    let task_namespace = format!("{namespace}:{task}");
+    // LangGraph's checkpoint namespace for a task includes the executing node.
+    let node_ns = if namespace.is_empty() {
+        context.node.clone()
+    } else {
+        format!("{namespace}|{}", context.node)
+    };
+    let task_namespace = format!("{node_ns}:{task}");
     let seed = if context.interrupt_calls == 0 {
         task_namespace
     } else {

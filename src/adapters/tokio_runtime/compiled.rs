@@ -154,7 +154,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             if let Some(checkpoint) =
                 futures::executor::block_on(self.saver_latest_in(thread_id, &namespace))?
             {
-                states.push(StateSnapshot::from_checkpoint(checkpoint)?);
+                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
+                snapshot.step = snapshot.step.saturating_sub(1);
+                states.push(snapshot);
             }
         }
         Ok(states)

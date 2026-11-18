@@ -203,7 +203,12 @@ impl AsyncContext {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let task = crate::runtime::context::current_task_id().unwrap_or_else(|| self.node.clone());
-        let task_namespace = format!("{}:{}", self.namespace, task);
+        let node_ns = if self.namespace.is_empty() {
+            self.node.clone()
+        } else {
+            format!("{}|{}", self.namespace, self.node)
+        };
+        let task_namespace = format!("{node_ns}:{task}");
         let seed = if slot.1 == 0 {
             task_namespace
         } else {

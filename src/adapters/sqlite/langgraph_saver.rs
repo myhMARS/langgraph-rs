@@ -327,7 +327,8 @@ fn langgraph_interrupt_entries(
             let key = if count == 0 {
                 namespace
             } else {
-                format!("{namespace}:{count}")
+                // LangGraph separates the answered index with `|` (NS_SEP), not `:`.
+                format!("{namespace}|{count}")
             };
             let id = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()));
             let path = format!("~__pregel_pull, {}", interrupt.node);

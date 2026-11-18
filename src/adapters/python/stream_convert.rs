@@ -26,10 +26,10 @@ pub(crate) fn snapshot_to_py(
         snapshot.parent_checkpoint_id.clone(),
     )?;
     dict.set_item("checkpoint_ns", snapshot.checkpoint_ns.clone())?;
-    dict.set_item(
-        "metadata",
-        value_to_py(py, &Value::Object(snapshot.metadata.clone()))?,
-    )?;
+    // LangGraph exposes the checkpoint metadata (including `step`) on `StateSnapshot`.
+    let mut metadata = snapshot.metadata.clone();
+    metadata.insert("step".to_string(), Value::from(snapshot.step));
+    dict.set_item("metadata", value_to_py(py, &Value::Object(metadata))?)?;
     let interrupts = snapshot
         .interrupts
         .iter()

@@ -85,6 +85,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             error,
             started,
             interrupts,
+            triggers,
             ..
         } => {
             dict.set_item("type", "tasks")?;
@@ -99,7 +100,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
                         None => py.None(),
                     },
                 )?;
-                data.set_item("triggers", Vec::<String>::new())?;
+                data.set_item("triggers", triggers)?;
             } else {
                 data.set_item(
                     "error",
