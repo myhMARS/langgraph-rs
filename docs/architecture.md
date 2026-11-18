@@ -10,6 +10,12 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 
 | Module | Responsibility |
 | --- | --- |
+> The module names below are the historical `kernel::*` layout. The current tree is:
+> `kernel::error` → `src/_internal/error.rs`, `kernel::state` → `src/_internal/state.rs`,
+> `kernel::node` → `src/_internal/node.rs`, `kernel::channel` → `src/channels.rs`,
+> `kernel::checkpoint` → `src/checkpoint.rs`, `kernel::store` → `src/store.rs`,
+> `kernel::graph::*` → `src/graph/`, `kernel::executor::*` → `src/pregel/`,
+> `adapters::*` → `src/adapters/`.
 | `kernel::error` | `Error`, `Interrupt`, `Result`. `Interrupt` is a `#[from]` variant and not a failure: the engine checkpoints and unwinds. |
 | `kernel::channel` | `Channel` (`LastValue` / `Topic` / `Reducer`), the `Reducer` wrapper and `reducers::{append, add, messages}`. Owns merge policy. |
 | `kernel::state` | `State`, `StateSchema` (strict or `dynamic`), `JsonState`, `ChannelUpdate`, `apply_updates` — the single point where writes become values. |
