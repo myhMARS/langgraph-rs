@@ -5,8 +5,8 @@ use std::sync::{Mutex, MutexGuard};
 use redis::Commands;
 use serde_json::Value;
 
-use crate::kernel::error::{Error, Result};
-use crate::kernel::store::{BaseStore, StoreItem, item_matches, namespace_matches};
+use crate::_internal::error::{Error, Result};
+use crate::store::{BaseStore, StoreItem, item_matches, namespace_matches};
 
 const NAMESPACES_KEY: &str = "langgraph_rs:store:namespaces";
 
@@ -105,7 +105,7 @@ impl BaseStore for RedisStore {
     }
 
     fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
-        let now = crate::kernel::checkpoint::now_millis();
+        let now = crate::checkpoint::now_millis();
         let stored = serde_json::json!({
             "value": value,
             "_created_at": now,

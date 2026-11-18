@@ -8,16 +8,16 @@ use indexmap::IndexMap;
 use super::Entry;
 use super::compiled::CompiledGraph;
 use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
-use crate::kernel::cache::{CachePolicy, NodeCache};
-use crate::kernel::command::Command;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
-use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::state_to_values;
-use crate::kernel::state::{State, StateSchema};
-use crate::kernel::store::BaseStore;
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::timeout::TimeoutPolicy;
+use crate::_internal::cache::{CachePolicy, NodeCache};
+use crate::_internal::command::Command;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route};
+use crate::_internal::retry::RetryPolicy;
+use crate::_internal::state::state_to_values;
+use crate::_internal::state::{State, StateSchema};
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::timeout::TimeoutPolicy;
+use crate::store::BaseStore;
 use crate::{END, START};
 use serde_json::{Map, Value};
 
@@ -290,9 +290,9 @@ impl<S: State> StateGraph<S> {
         let schema = self.schema.clone();
         self.add_node(name.clone(), move |state: &S| {
             let before = state_to_values(state)?;
-            crate::application::context::clear_parent_command();
+            crate::runtime::context::clear_parent_command();
             let output = run_subgraph(&subgraph, state, &name)?;
-            if let Some(command) = crate::application::context::take_parent_command() {
+            if let Some(command) = crate::runtime::context::take_parent_command() {
                 return super::parent_command_output(command, &schema);
             }
             let after = state_to_values(&output)?;
@@ -328,9 +328,9 @@ impl<S: State> StateGraph<S> {
         let schema = self.schema.clone();
         self.add_node(name.clone(), move |state: &S| {
             let sub_state = input(state)?;
-            crate::application::context::clear_parent_command();
+            crate::runtime::context::clear_parent_command();
             let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
-            if let Some(command) = crate::application::context::take_parent_command() {
+            if let Some(command) = crate::runtime::context::take_parent_command() {
                 return super::parent_command_output(command, &schema);
             }
             output(&sub_output, state)
@@ -362,7 +362,7 @@ impl<S: State> StateGraph<S> {
     /// function when the sequence contains different closures (`NodeFn` is a type alias).
     pub fn add_sequence<I, N>(mut self, nodes: I) -> Self
     where
-        I: IntoIterator<Item = (N, crate::kernel::node::NodeFn<S>)>,
+        I: IntoIterator<Item = (N, crate::_internal::node::NodeFn<S>)>,
         N: Into<String>,
     {
         let mut previous: Option<String> = None;
@@ -486,23 +486,23 @@ impl<S: State> Default for StateGraph<S> {
 
 /// Child checkpoint namespace of a subgraph node.
 fn child_namespace(parent: &str, name: &str) -> String {
-    let task_id = crate::application::context::current_task_id();
+    let task_id = crate::runtime::context::current_task_id();
     super::subgraph_namespace(parent, name, task_id.as_deref())
 }
 
 /// Run a subgraph with parent thread/namespace propagation and resume support.
 fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
-    let thread = crate::application::context::current_thread_id();
-    let namespace = child_namespace(&crate::application::context::current_namespace(), name);
-    let resume = crate::application::context::current_resume_last();
+    let thread = crate::runtime::context::current_thread_id();
+    let namespace = child_namespace(&crate::runtime::context::current_namespace(), name);
+    let resume = crate::runtime::context::current_resume_last();
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
-    if let Some(store) = crate::application::context::get_store() {
+    if let Some(store) = crate::runtime::context::get_store() {
         config = config.with_store(store);
     }
-    if let Some(context) = crate::application::context::current_context() {
+    if let Some(context) = crate::runtime::context::current_context() {
         config = config.with_context(context);
     }
-    let collector = crate::application::context::current_subgraph_collector();
+    let collector = crate::runtime::context::current_subgraph_collector();
     if let Some(collector) = collector {
         config = config.with_stream_subgraphs(true);
         let chunk_namespace = namespace.clone();

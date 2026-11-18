@@ -18,7 +18,7 @@ pub struct Command {
     /// Nodes to schedule after the command (LangGraph `Command(goto=...)`).
     pub goto: Vec<String>,
     /// Dynamic `Send` tasks scheduled by `Command(goto=Send(...))`.
-    pub sends: Vec<crate::kernel::node::Send>,
+    pub sends: Vec<crate::_internal::node::Send>,
     /// Route to the parent graph instead of this one (`Command(graph=PARENT)`).
     pub parent: bool,
 }
@@ -54,7 +54,7 @@ impl Command {
     }
 
     /// Schedule a dynamic `Send` task.
-    pub fn send(mut self, send: crate::kernel::node::Send) -> Self {
+    pub fn send(mut self, send: crate::_internal::node::Send) -> Self {
         self.sends.push(send);
         self
     }
@@ -73,9 +73,9 @@ impl Command {
     }
 }
 
-impl From<Command> for crate::kernel::node::NodeOutput {
+impl From<Command> for crate::_internal::node::NodeOutput {
     fn from(command: Command) -> Self {
-        let mut output = crate::kernel::node::NodeOutput::new();
+        let mut output = crate::_internal::node::NodeOutput::new();
         if let Some(updates) = command.update {
             for (channel, value) in updates {
                 output = output.update(channel, value);

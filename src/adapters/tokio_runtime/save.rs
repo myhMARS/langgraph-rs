@@ -2,9 +2,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::AsyncCompiledGraph;
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::state::State;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::state::State;
+use crate::checkpoint::Checkpoint;
 
 impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {

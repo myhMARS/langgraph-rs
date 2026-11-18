@@ -95,8 +95,6 @@
 #![allow(clippy::result_large_err)]
 
 mod adapters;
-mod application;
-mod kernel;
 
 pub mod _internal;
 pub mod channels;
@@ -178,40 +176,40 @@ pub use adapters::postgres::PostgresSaver;
 /// Postgres-backed long-term memory store.
 pub use adapters::postgres::PostgresStore;
 
+pub use _internal::cache::{CachePolicy, CachedOutput, NodeCache};
+pub use _internal::command::Command;
+pub use _internal::error::{Error, Interrupt, NodeFailure, Result};
 #[cfg(feature = "postgres")]
 /// Postgres-backed node cache.
 pub use adapters::postgres::PostgresCache;
-pub use application::context::{
+pub use channels::{Channel, Reducer, RemoveMessage, reducers};
+pub use checkpoint::Checkpoint;
+pub use runtime::context::{
     current_context, current_namespace, current_node, current_resume, current_runtime,
     current_step, current_task_id, current_thread_id, custom, get_config, get_store,
     get_stream_writer, interrupt, interrupt_with_schema, is_last_step, last_error, message,
     push_custom, push_message, record_tokens, record_usage, remaining_steps,
 };
-pub use application::control::RunControl;
-pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
-pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
-pub use kernel::checkpoint::Checkpoint;
-pub use kernel::command::Command;
-pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
+pub use runtime::control::RunControl;
 /// Convenience graph whose state is [`MessagesState`] (LangGraph `MessageGraph`).
 pub type MessageGraph = StateGraph<MessagesState>;
 
-pub use application::graph::{
+pub use _internal::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
+pub use _internal::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
+/// Async checkpoint storage port (feature `async`).
+#[cfg(feature = "async")]
+pub use _internal::ports::AsyncCheckpointer;
+pub use _internal::ports::{Checkpointer, TraceSink};
+pub use _internal::retry::RetryPolicy;
+pub use _internal::state::{JsonState, MessagesState, State, StateSchema};
+pub use _internal::stream::{StreamChunk, StreamMode};
+pub use _internal::timeout::TimeoutPolicy;
+pub use _internal::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+pub use graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, StateGraph,
     StateSnapshot, Targets,
 };
-pub use kernel::node::{ConditionalEdge, NodeFn, NodeOutput, PathMap, Route, Send, Task};
-pub use kernel::plugin::{BuiltinChannels, ChannelFactory, Kernel, KernelBuilder, Plugin};
-/// Async checkpoint storage port (feature `async`).
-#[cfg(feature = "async")]
-pub use kernel::ports::AsyncCheckpointer;
-pub use kernel::ports::{Checkpointer, TraceSink};
-pub use kernel::retry::RetryPolicy;
-pub use kernel::state::{JsonState, MessagesState, State, StateSchema};
-pub use kernel::store::{BaseStore, Namespace, Runtime, StoreItem};
-pub use kernel::stream::{StreamChunk, StreamMode};
-pub use kernel::timeout::TimeoutPolicy;
-pub use kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+pub use store::{BaseStore, Namespace, Runtime, StoreItem};
 
 pub use indexmap::IndexMap;
 pub use serde_json::{Value, json};

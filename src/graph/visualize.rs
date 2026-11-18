@@ -11,9 +11,9 @@ use std::process::{Command, Stdio};
 use indexmap::IndexMap;
 
 use super::Entry;
-use crate::kernel::node::ConditionalEdge;
-use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::State;
+use crate::_internal::node::ConditionalEdge;
+use crate::_internal::retry::RetryPolicy;
+use crate::_internal::state::State;
 use crate::{END, START};
 
 /// Everything the renderer needs from a compiled graph.
@@ -312,7 +312,7 @@ pub(crate) fn render_dot<S: State>(layout: GraphLayout<'_, S>) -> String {
 }
 
 /// Run Graphviz `dot -Tpng` over a DOT document.
-pub(crate) fn dot_to_png(dot: &str) -> crate::kernel::error::Result<Vec<u8>> {
+pub(crate) fn dot_to_png(dot: &str) -> crate::_internal::error::Result<Vec<u8>> {
     let mut child = Command::new("dot")
         .arg("-Tpng")
         .stdin(Stdio::piped())
@@ -320,20 +320,20 @@ pub(crate) fn dot_to_png(dot: &str) -> crate::kernel::error::Result<Vec<u8>> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| {
-            crate::kernel::error::Error::other(format!(
+            crate::_internal::error::Error::other(format!(
                 "draw_png requires Graphviz `dot` on PATH: {error}"
             ))
         })?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(dot.as_bytes()).map_err(|error| {
-            crate::kernel::error::Error::other(format!("graphviz stdin: {error}"))
+            crate::_internal::error::Error::other(format!("graphviz stdin: {error}"))
         })?;
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| crate::kernel::error::Error::other(format!("graphviz wait: {error}")))?;
+    let output = child.wait_with_output().map_err(|error| {
+        crate::_internal::error::Error::other(format!("graphviz wait: {error}"))
+    })?;
     if !output.status.success() {
-        return Err(crate::kernel::error::Error::other(format!(
+        return Err(crate::_internal::error::Error::other(format!(
             "graphviz `dot` failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         )));
@@ -344,9 +344,9 @@ pub(crate) fn dot_to_png(dot: &str) -> crate::kernel::error::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::graph::StateGraph;
-    use crate::kernel::node::{NodeOutput, PathMap, Route};
-    use crate::kernel::state::StateSchema;
+    use crate::_internal::node::{NodeOutput, PathMap, Route};
+    use crate::_internal::state::StateSchema;
+    use crate::graph::StateGraph;
 
     #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
     struct DemoState {
@@ -376,9 +376,7 @@ mod tests {
                 "work",
                 RetryPolicy::new(3).with_max_backoff(std::time::Duration::from_millis(1)),
             )
-            .compile_with(
-                crate::application::graph::CompileOptions::new().interrupt_before(["work"]),
-            )
+            .compile_with(crate::graph::CompileOptions::new().interrupt_before(["work"]))
             .unwrap();
 
         let mermaid = graph.to_mermaid();

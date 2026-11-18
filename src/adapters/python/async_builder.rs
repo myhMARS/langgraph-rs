@@ -5,9 +5,9 @@ use std::sync::Arc;
 use pyo3::types::PyAny;
 
 use super::*;
+use crate::_internal::state::StateSchema;
 use crate::Route;
-use crate::application::context::TaskContext;
-use crate::kernel::state::StateSchema;
+use crate::runtime::context::TaskContext;
 use crate::tokio_runtime::AsyncStateGraph;
 
 fn async_node_from_python(
@@ -34,7 +34,7 @@ fn async_node_from_python(
                 let run_timeout = context.run_timeout();
                 let node_name = name.as_ref().clone();
                 let callback_guard = install_langchain_callbacks(py);
-                let (result, custom, messages, usage) = crate::application::context::with_task(
+                let (result, custom, messages, usage) = crate::runtime::context::with_task(
                     TaskContext::new(node_name, resume),
                     || -> crate::Result<NodeOutput> {
                         let value = function

@@ -9,10 +9,10 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
 
-use crate::kernel::error::NodeFailure;
-use crate::kernel::store::{BaseStore, Runtime};
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::Usage;
+use crate::_internal::error::NodeFailure;
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::usage::Usage;
+use crate::store::{BaseStore, Runtime};
 use crate::{Error, Interrupt, Result};
 
 thread_local! {
@@ -41,8 +41,8 @@ pub(crate) trait AsyncTaskOps: Send + Sync {
     fn interrupt_value(&self, value: Value, schema: Option<Value>) -> Result<Value>;
     fn push_custom(&self, value: Value) -> Result<()>;
     fn push_message(&self, value: Value) -> Result<()>;
-    fn record_usage(&self, usage: crate::kernel::usage::Usage) -> Result<()>;
-    fn last_error(&self) -> Option<crate::kernel::error::NodeFailure>;
+    fn record_usage(&self, usage: crate::_internal::usage::Usage) -> Result<()>;
+    fn last_error(&self) -> Option<crate::_internal::error::NodeFailure>;
     fn resume_value(&self) -> Option<Value>;
     fn resume_last(&self) -> Option<Value>;
 }

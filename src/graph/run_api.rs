@@ -3,13 +3,13 @@
 use serde_json::Value;
 
 use super::*;
-use crate::application::graph::options::RunConfig;
-use crate::application::pregel::{self, StartInput};
-use crate::kernel::command::Command;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values};
-use crate::kernel::stream::{StreamChunk, StreamMode};
-use crate::kernel::usage::RunOutcome;
+use crate::_internal::command::Command;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::state::{ChannelUpdate, State, apply_updates, state_to_values};
+use crate::_internal::stream::{StreamChunk, StreamMode};
+use crate::_internal::usage::RunOutcome;
+use crate::graph::options::RunConfig;
+use crate::pregel::{self, StartInput};
 
 impl<S: State> CompiledGraph<S> {
     pub fn invoke(&self, input: &S, config: &RunConfig) -> Result<S> {
@@ -604,7 +604,7 @@ impl<S: State> CompiledGraph<S> {
         thread_id: &str,
         value: Value,
         updates: I,
-        _sends: Vec<crate::kernel::node::Send>,
+        _sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -632,7 +632,7 @@ impl<S: State> CompiledGraph<S> {
         value: Value,
         updates: I,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -675,7 +675,7 @@ impl<S: State> CompiledGraph<S> {
         thread_id: &str,
         updates: I,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where

@@ -11,23 +11,23 @@ use std::time::Instant;
 
 use serde_json::Value;
 
-use crate::application::context;
-use crate::application::graph::RunConfig;
-use crate::application::pregel::backend::PregelBackend;
-use crate::application::pregel::checkpointing::save_checkpoint_via;
-use crate::application::pregel::outcome::{
+use crate::_internal::error::{Error, Interrupt, Result};
+use crate::_internal::node::Task;
+use crate::_internal::state::{State, values_to_state};
+use crate::_internal::stream::{StreamChunk, StreamMode};
+use crate::_internal::usage::RunOutcome;
+use crate::graph::RunConfig;
+use crate::pregel::backend::PregelBackend;
+use crate::pregel::checkpointing::save_checkpoint_via;
+use crate::pregel::outcome::{
     TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
     debug_chunk, finish, interrupt_after_node, interrupt_before_pause, interrupts_from,
     merge_interrupted_tasks, process_outcomes, should_save_after_step, should_save_terminal,
     values_chunk,
 };
-use crate::application::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
-use crate::application::pregel::{StartInput, apply_pending_writes, start, step};
-use crate::kernel::error::{Error, Interrupt, Result};
-use crate::kernel::node::Task;
-use crate::kernel::state::{State, values_to_state};
-use crate::kernel::stream::{StreamChunk, StreamMode};
-use crate::kernel::usage::RunOutcome;
+use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
+use crate::pregel::{StartInput, apply_pending_writes, start, step};
+use crate::runtime::context;
 
 /// Execute a graph through the shared Pregel loop.
 pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
@@ -45,7 +45,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         modes.contains(&StreamMode::Checkpoints) || modes.contains(&StreamMode::Debug)
     });
     let checkpoint_emit = emit && checkpoints_enabled;
-    let mut report = crate::kernel::usage::RunReport::new();
+    let mut report = crate::_internal::usage::RunReport::new();
     let recursion_limit = config
         .recursion_limit
         .unwrap_or_else(|| backend.recursion_limit());
@@ -72,7 +72,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
     );
     let mut parent: Option<String> = None;
-    let mut previous_checkpoint: Option<crate::kernel::checkpoint::Checkpoint> = None;
+    let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
     let (mut values, mut state, mut tasks, mut step, mut resume_deferred, resume_finish) =
         if let Some((values, state, tasks)) = start::resolve_fresh_start(

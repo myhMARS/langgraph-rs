@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use tokio_postgres::NoTls;
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::{AsyncCheckpointer, BoxFuture};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::{AsyncCheckpointer, BoxFuture};
+use crate::checkpoint::Checkpoint;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_checkpoints (

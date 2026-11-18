@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use postgres::NoTls;
 
-use crate::kernel::cache::{CachedOutput, NodeCache};
-use crate::kernel::error::{Error, Result};
+use crate::_internal::cache::{CachedOutput, NodeCache};
+use crate::_internal::error::{Error, Result};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_cache (
@@ -69,7 +69,7 @@ impl PostgresCache {
 }
 
 fn now_millis() -> i64 {
-    crate::kernel::checkpoint::now_millis() as i64
+    crate::checkpoint::now_millis() as i64
 }
 
 impl NodeCache for PostgresCache {

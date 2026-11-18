@@ -5,9 +5,9 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::Checkpointer;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::Checkpointer;
+use crate::checkpoint::Checkpoint;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_checkpoints (

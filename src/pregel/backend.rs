@@ -6,12 +6,12 @@
 
 use serde_json::Value;
 
-use crate::application::graph::CompiledGraph;
-use crate::application::pregel::outcome::TaskOutcome;
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::Result;
-use crate::kernel::node::{ConditionalEdge, Task};
-use crate::kernel::state::{State, StateSchema};
+use crate::_internal::error::Result;
+use crate::_internal::node::{ConditionalEdge, Task};
+use crate::_internal::state::{State, StateSchema};
+use crate::checkpoint::Checkpoint;
+use crate::graph::CompiledGraph;
+use crate::pregel::outcome::TaskOutcome;
 
 /// Runtime-specific half of the shared Pregel loop.
 pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
@@ -26,12 +26,12 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     fn interrupts_after(&self, node: &str) -> bool;
     fn is_deferred(&self, node: &str) -> bool;
     fn context_schema(&self) -> Option<&Value>;
-    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>>;
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::store::BaseStore>>;
     fn has_checkpointer(&self) -> bool;
     fn clear_ephemeral(&self, values: &mut serde_json::Map<String, Value>) -> bool;
     fn collector(
         &self,
-    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>;
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::stream::StreamChunk>>>>;
     fn run_superstep(
         &self,
         state: &S,
@@ -54,7 +54,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 /// Sync backend: scoped OS threads and a blocking checkpointer.
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
-    pub(crate) writer: Option<&'a crate::application::pregel::checkpointing::CheckpointWriter>,
+    pub(crate) writer: Option<&'a crate::pregel::checkpointing::CheckpointWriter>,
     pub(crate) max_concurrency: Option<usize>,
 }
 
@@ -103,7 +103,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         self.graph.context_schema()
     }
 
-    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>> {
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::store::BaseStore>> {
         self.graph.store().cloned()
     }
 
@@ -117,7 +117,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
 
     fn collector(
         &self,
-    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>> {
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::stream::StreamChunk>>>> {
         None
     }
 
@@ -155,7 +155,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         let Some(checkpointer) = self.graph.checkpointer() else {
             return Ok(());
         };
-        crate::application::pregel::checkpointing::persist_checkpoint(
+        crate::pregel::checkpointing::persist_checkpoint(
             checkpointer.as_ref(),
             checkpoint,
             self.writer,
@@ -164,7 +164,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
 }
 
 impl<'a, S: State> super::outcome::OutcomeGraph for SyncBackend<'a, S> {
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
+    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::_internal::ports::TraceSink>] {
         self.graph.trace_sinks()
     }
 
@@ -186,10 +186,10 @@ impl<'a, S: State> super::outcome::OutcomeGraph for SyncBackend<'a, S> {
         replaces: Vec<(String, Value)>,
         goto: Vec<String>,
     ) {
-        crate::application::context::record_parent_command(updates, replaces, goto);
+        crate::runtime::context::record_parent_command(updates, replaces, goto);
     }
 
     fn has_parent_command(&self) -> bool {
-        crate::application::context::has_parent_command()
+        crate::runtime::context::has_parent_command()
     }
 }

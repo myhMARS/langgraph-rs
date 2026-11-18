@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::{AsyncCheckpointer, BoxFuture, Checkpointer};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::{AsyncCheckpointer, BoxFuture, Checkpointer};
+use crate::checkpoint::Checkpoint;
 
 /// Wraps any synchronous checkpointer into an [`AsyncCheckpointer`].
 ///

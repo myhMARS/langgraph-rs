@@ -6,9 +6,9 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use serde_json::Value;
 
-use crate::application::pregel::backend::PregelBackend;
-use crate::kernel::state::State;
-use crate::kernel::stream::StreamChunk;
+use crate::_internal::state::State;
+use crate::_internal::stream::StreamChunk;
+use crate::pregel::backend::PregelBackend;
 
 pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
     struct ThreadWake(std::thread::Thread);
@@ -33,7 +33,7 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 
 pub(crate) fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
     backend: &B,
-    setup: &crate::application::pregel::step::RunSetup,
+    setup: &crate::pregel::step::RunSetup,
     sink: &mut F,
 ) {
     if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {
@@ -50,12 +50,12 @@ pub(crate) fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChun
 
 pub(crate) fn finish_pending(
     finish_updates: &HashMap<String, Value>,
-    schema: &crate::kernel::state::StateSchema,
-) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+    schema: &crate::_internal::state::StateSchema,
+) -> Vec<crate::checkpoint::PendingWrite> {
     finish_updates
         .iter()
         .filter(|(channel, _)| schema.persists(channel))
-        .map(|(channel, value)| crate::kernel::checkpoint::PendingWrite {
+        .map(|(channel, value)| crate::checkpoint::PendingWrite {
             task_id: "__finish__".to_string(),
             node: "__finish__".to_string(),
             channel: channel.clone(),

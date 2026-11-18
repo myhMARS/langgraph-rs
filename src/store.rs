@@ -8,8 +8,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::kernel::checkpoint::now_millis;
-use crate::kernel::error::Result;
+use crate::_internal::error::Result;
+use crate::checkpoint::now_millis;
 
 /// Hierarchical namespace of a stored item (`("users", "42")`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

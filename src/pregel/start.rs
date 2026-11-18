@@ -2,18 +2,18 @@
 
 use serde_json::{Map, Value};
 
-use crate::application::pregel::{StartInput, apply_pending_writes};
-use crate::kernel::error::Result;
-use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
+use crate::_internal::error::Result;
+use crate::_internal::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
+use crate::pregel::{StartInput, apply_pending_writes};
 
 /// Resolved channel values, state and tasks for a run start.
-pub(crate) type FreshStart<S> = Option<(Map<String, Value>, S, Vec<crate::kernel::node::Task>)>;
+pub(crate) type FreshStart<S> = Option<(Map<String, Value>, S, Vec<crate::_internal::node::Task>)>;
 
 pub(crate) type ResumeStart<S> = (
     Map<String, Value>,
     S,
-    Vec<crate::kernel::node::Task>,
-    Vec<crate::kernel::checkpoint::PendingWrite>,
+    Vec<crate::_internal::node::Task>,
+    Vec<crate::checkpoint::PendingWrite>,
 );
 
 /// Resolve the three non-resume start inputs into initial channel values, state and
@@ -22,7 +22,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
     input: &StartInput,
     schema: &StateSchema,
     node_exists: impl Fn(&str) -> bool,
-    entry_tasks: impl Fn(&S) -> Result<Vec<crate::kernel::node::Task>>,
+    entry_tasks: impl Fn(&S) -> Result<Vec<crate::_internal::node::Task>>,
 ) -> Result<FreshStart<S>> {
     match input {
         StartInput::Values(values) => {
@@ -61,7 +61,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
             // `Command(goto=...)` values are state updates, not run input.
             for node in &nodes {
                 if node != crate::END && !node_exists(node) {
-                    return Err(crate::kernel::error::Error::validation(format!(
+                    return Err(crate::_internal::error::Error::validation(format!(
                         "Command(goto=...): `{node}` is not a registered node"
                     )));
                 }
@@ -69,20 +69,17 @@ pub(crate) fn resolve_fresh_start<S: State>(
             let state = values_to_state::<S>(&values)?;
             // A fresh `Command(goto=...)` writes branch targets only; LangGraph does not
             // write the START trigger, so the entry points are not scheduled.
-            let mut tasks: Vec<crate::kernel::node::Task> = Vec::new();
-            for node in crate::application::pregel::scheduling::dedupe(nodes) {
+            let mut tasks: Vec<crate::_internal::node::Task> = Vec::new();
+            for node in crate::pregel::scheduling::dedupe(nodes) {
                 if node == crate::END {
                     continue;
                 }
                 if !tasks.iter().any(|task| task.node == node) {
-                    tasks.push(crate::kernel::node::Task::new(node));
+                    tasks.push(crate::_internal::node::Task::new(node));
                 }
             }
             for send in sends {
-                tasks.push(crate::application::pregel::scheduling::send_task(
-                    "<command>",
-                    send,
-                )?);
+                tasks.push(crate::pregel::scheduling::send_task("<command>", send)?);
             }
             Ok(Some((values, state, tasks)))
         }
@@ -92,14 +89,14 @@ pub(crate) fn resolve_fresh_start<S: State>(
 
 /// Resolve a resume against an already-loaded checkpoint.
 pub(crate) fn resolve_resume_start<S: State>(
-    checkpoint: &crate::kernel::checkpoint::Checkpoint,
+    checkpoint: &crate::checkpoint::Checkpoint,
     resume: &Option<Value>,
     updates: Option<Map<String, Value>>,
     goto: &[String],
-    sends: &[crate::kernel::node::Send],
+    sends: &[crate::_internal::node::Send],
     schema: &StateSchema,
 ) -> Result<ResumeStart<S>> {
-    crate::application::context::load_task_results(&checkpoint.task_results);
+    crate::runtime::context::load_task_results(&checkpoint.task_results);
     let mut values = checkpoint.values.clone();
     let mut finish_writes = Vec::new();
     let mut regular_writes = Vec::new();
@@ -126,18 +123,17 @@ pub(crate) fn resolve_resume_start<S: State>(
         )?;
     }
     let state = values_to_state::<S>(&values)?;
-    let mut tasks =
-        crate::application::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume);
+    let mut tasks = crate::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume);
     for node in goto {
         if node == crate::END {
             continue;
         }
         if !tasks.iter().any(|task| &task.node == node) {
-            tasks.push(crate::kernel::node::Task::new(node.clone()));
+            tasks.push(crate::_internal::node::Task::new(node.clone()));
         }
     }
     for send in sends {
-        tasks.push(crate::application::pregel::scheduling::send_task(
+        tasks.push(crate::pregel::scheduling::send_task(
             "<command>",
             send.clone(),
         )?);

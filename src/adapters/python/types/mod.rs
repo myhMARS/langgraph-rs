@@ -11,8 +11,8 @@ use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
 
 use super::convert::{normalize_node, py_to_value, to_pyerr};
-use crate::kernel::node::{NodeOutput, Send};
-use crate::kernel::retry::RetryPolicy;
+use crate::_internal::node::{NodeOutput, Send};
+use crate::_internal::retry::RetryPolicy;
 
 /// A dynamic fan-out task, mirroring `langgraph.types.Send`.
 #[pyclass(name = "Send")]
@@ -415,8 +415,8 @@ impl PyCachePolicy {
 }
 
 impl PyCachePolicy {
-    pub(super) fn to_policy(&self) -> crate::kernel::cache::CachePolicy {
-        let policy = crate::kernel::cache::CachePolicy::new();
+    pub(super) fn to_policy(&self) -> crate::_internal::cache::CachePolicy {
+        let policy = crate::_internal::cache::CachePolicy::new();
         match self.ttl {
             Some(ttl) => policy.with_ttl(Duration::from_secs(ttl)),
             None => policy,
@@ -447,8 +447,8 @@ impl PyTimeoutPolicy {
 }
 
 impl PyTimeoutPolicy {
-    pub(super) fn to_policy(&self) -> crate::kernel::timeout::TimeoutPolicy {
-        let mut policy = crate::kernel::timeout::TimeoutPolicy::new();
+    pub(super) fn to_policy(&self) -> crate::_internal::timeout::TimeoutPolicy {
+        let mut policy = crate::_internal::timeout::TimeoutPolicy::new();
         if let Some(seconds) = self.run_timeout {
             policy = policy.with_run_timeout(Duration::from_secs_f64(seconds.max(0.0)));
         }

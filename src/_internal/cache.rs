@@ -13,9 +13,9 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::kernel::error::Result;
-use crate::kernel::node::Send as GraphSend;
-use crate::kernel::usage::Usage;
+use crate::_internal::error::Result;
+use crate::_internal::node::Send as GraphSend;
+use crate::_internal::usage::Usage;
 
 /// A node output as stored in a cache.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

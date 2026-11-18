@@ -6,8 +6,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
-use crate::kernel::node::NodeOutput;
-use crate::kernel::state::{JsonState, StateSchema};
+use crate::_internal::node::NodeOutput;
+use crate::_internal::state::{JsonState, StateSchema};
 use crate::prebuilt::{
     TOOLS, ToolDefinition, ToolNode, tools_condition as rust_tools_condition,
     tools_condition_with as rust_tools_condition_with,

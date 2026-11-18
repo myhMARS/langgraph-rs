@@ -10,9 +10,9 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::Checkpointer;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::Checkpointer;
+use crate::checkpoint::Checkpoint;
 
 /// A [`Checkpointer`] backed by LangGraph's SQLite table layout.
 pub struct LangGraphSqliteSaver {
@@ -203,7 +203,7 @@ impl LangGraphSqliteSaver {
             channel_values.insert(channel.clone(), value.clone());
         }
         let mut versions = checkpoint.channel_versions.clone();
-        let version = Value::String(crate::kernel::checkpoint::version_string(checkpoint.step));
+        let version = Value::String(crate::checkpoint::version_string(checkpoint.step));
         for channel in root.keys() {
             versions
                 .entry(channel.clone())
@@ -289,7 +289,7 @@ fn send_task_id(checkpoint_id: &str, node: &str, step: usize, index: usize) -> S
 
 fn langgraph_interrupt_entries(
     checkpoint_id: &str,
-    checkpoint: &crate::kernel::checkpoint::Checkpoint,
+    checkpoint: &crate::checkpoint::Checkpoint,
 ) -> Vec<(String, String, String)> {
     let mut send_queues: std::collections::BTreeMap<
         String,
@@ -336,7 +336,7 @@ fn langgraph_interrupt_entries(
         .collect()
 }
 
-fn encode_interrupt_ext(interrupt: &crate::kernel::error::Interrupt, id: &str) -> Vec<u8> {
+fn encode_interrupt_ext(interrupt: &crate::_internal::error::Interrupt, id: &str) -> Vec<u8> {
     let mut payload = Map::new();
     payload.insert("value".to_string(), interrupt.value.clone());
     payload.insert("id".to_string(), Value::String(id.to_string()));

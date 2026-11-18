@@ -3,9 +3,9 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::kernel::plugin::Kernel;
-use crate::kernel::ports::Checkpointer;
-use crate::kernel::store::BaseStore;
+use crate::_internal::plugin::Kernel;
+use crate::_internal::ports::Checkpointer;
+use crate::store::BaseStore;
 use serde_json::Value;
 
 /// Default number of supersteps a single graph run may execute.

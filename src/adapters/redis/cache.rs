@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use redis::Commands;
 
-use crate::kernel::cache::{CachedOutput, NodeCache};
-use crate::kernel::error::{Error, Result};
+use crate::_internal::cache::{CachedOutput, NodeCache};
+use crate::_internal::error::{Error, Result};
 
 const PREFIX: &str = "langgraph_rs:cache:";
 

@@ -2,8 +2,8 @@
 
 use serde_json::Value;
 
-use crate::kernel::error::NodeFailure;
-use crate::kernel::usage::NodeExecution;
+use crate::_internal::error::NodeFailure;
+use crate::_internal::usage::NodeExecution;
 
 /// One event in a graph run.
 ///

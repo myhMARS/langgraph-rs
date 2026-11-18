@@ -17,14 +17,14 @@ mod state_api;
 mod threads;
 pub(crate) mod visualize;
 
-use crate::kernel::node::ConditionalEdge;
+use crate::_internal::node::ConditionalEdge;
 
 /// Convert a recorded parent command into a node output, folding repeated reducer
 /// writes through the parent schema instead of collapsing them in an `IndexMap`.
 pub(crate) fn parent_command_output(
-    command: crate::application::context::ParentCommand,
-    schema: &crate::kernel::state::StateSchema,
-) -> crate::Result<crate::kernel::node::NodeOutput> {
+    command: crate::runtime::context::ParentCommand,
+    schema: &crate::_internal::state::StateSchema,
+) -> crate::Result<crate::_internal::node::NodeOutput> {
     // Preserve ordered command writes. A channel written by several child nodes is
     // folded through a reducer against an empty map, producing a delta that still
     // folds with sibling writes when the parent applies the output.
@@ -33,22 +33,22 @@ pub(crate) fn parent_command_output(
     for (channel, value) in &command.updates {
         grouped.entry(channel).or_default().push(value.clone());
     }
-    let mut result = crate::kernel::node::NodeOutput::new();
+    let mut result = crate::_internal::node::NodeOutput::new();
     for (channel, values) in grouped {
         if values.len() == 1 {
             result = result.update(channel.clone(), values.into_iter().next().unwrap());
             continue;
         }
-        let updates: Vec<crate::kernel::state::ChannelUpdate> = values
+        let updates: Vec<crate::_internal::state::ChannelUpdate> = values
             .into_iter()
-            .map(|value| crate::kernel::state::ChannelUpdate {
+            .map(|value| crate::_internal::state::ChannelUpdate {
                 channel: channel.clone(),
                 value,
                 node: "<parent>".to_string(),
             })
             .collect();
         let mut folded = serde_json::Map::new();
-        crate::kernel::state::apply_updates(schema, &mut folded, updates)?;
+        crate::_internal::state::apply_updates(schema, &mut folded, updates)?;
         if let Some(value) = folded.get(channel) {
             result = result.update(channel.clone(), value.clone());
         }

@@ -9,10 +9,10 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::kernel::checkpoint::{Checkpoint, now_millis};
+use crate::checkpoint::{Checkpoint, now_millis};
 
 pub mod msgpack;
-use crate::kernel::error::{Error, Result};
+use crate::_internal::error::{Error, Result};
 
 fn generated_version(checkpoint: &Checkpoint, channel: &str) -> String {
     use std::hash::{Hash, Hasher};
@@ -177,7 +177,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                 .and_then(Value::as_str)
         })
         .map(str::to_owned)
-        .unwrap_or_else(|| crate::kernel::checkpoint::new_checkpoint_id(&thread_id, step));
+        .unwrap_or_else(|| crate::checkpoint::new_checkpoint_id(&thread_id, step));
     let values = checkpoint
         .get("channel_values")
         .or_else(|| checkpoint.get("values"))
@@ -295,7 +295,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                                 .get("replace")
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false);
-                            Some(crate::kernel::checkpoint::PendingWrite {
+                            Some(crate::checkpoint::PendingWrite {
                                 task_id,
                                 node,
                                 channel,
@@ -307,7 +307,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                             let task_id = tuple.first()?.as_str()?.to_string();
                             let channel = tuple.get(1)?.as_str()?.to_string();
                             let value = tuple.get(2).cloned().unwrap_or(Value::Null);
-                            Some(crate::kernel::checkpoint::PendingWrite {
+                            Some(crate::checkpoint::PendingWrite {
                                 task_id,
                                 node: String::new(),
                                 channel,

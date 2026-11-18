@@ -8,13 +8,13 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use crate::kernel::error::{Error, Result};
-use crate::kernel::error::{Interrupt, NodeFailure};
-use crate::kernel::node::{NodeOutput, Task};
-use crate::kernel::ports::TraceSink;
-use crate::kernel::state::ChannelUpdate;
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::{NodeExecution, RunOutcome, RunReport, Usage};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::error::{Interrupt, NodeFailure};
+use crate::_internal::node::{NodeOutput, Task};
+use crate::_internal::ports::TraceSink;
+use crate::_internal::state::ChannelUpdate;
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::usage::{NodeExecution, RunOutcome, RunReport, Usage};
 
 /// Everything one superstep's node outcomes contribute to the run.
 #[derive(Debug, Default)]
@@ -144,7 +144,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 match graph.error_handler(&failure.node) {
                     Some(handler) if routed_handlers.insert(handler.to_string()) => {
                         next_tasks.push(Task {
-                            id: crate::kernel::node::new_task_id(handler),
+                            id: crate::_internal::node::new_task_id(handler),
                             node: handler.to_string(),
                             input: None,
                             resume: None,
@@ -303,7 +303,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         }
                     }
                     next_tasks.push(Task {
-                        id: crate::kernel::node::new_task_id(send.node.as_str()),
+                        id: crate::_internal::node::new_task_id(send.node.as_str()),
                         node: send.node,
                         input,
                         resume: None,
@@ -331,14 +331,14 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
 pub(crate) fn collect_pending_writes(
     tasks: &[Task],
     outcomes: &[TaskOutcome],
-) -> Vec<crate::kernel::checkpoint::PendingWrite> {
+) -> Vec<crate::checkpoint::PendingWrite> {
     let mut writes = Vec::new();
     for (task, outcome) in tasks.iter().zip(outcomes) {
         let TaskOutcome::Ok(result) = outcome else {
             continue;
         };
         for (channel, value) in result.output.updates_map() {
-            writes.push(crate::kernel::checkpoint::PendingWrite {
+            writes.push(crate::checkpoint::PendingWrite {
                 task_id: task.id.clone(),
                 node: task.node.clone(),
                 channel: channel.clone(),
@@ -347,7 +347,7 @@ pub(crate) fn collect_pending_writes(
             });
         }
         for (channel, value) in result.output.replaces_map() {
-            writes.push(crate::kernel::checkpoint::PendingWrite {
+            writes.push(crate::checkpoint::PendingWrite {
                 task_id: task.id.clone(),
                 node: task.node.clone(),
                 channel: channel.clone(),
@@ -361,16 +361,16 @@ pub(crate) fn collect_pending_writes(
 
 /// Convert the working state into the run outcome, applying the output filter and
 /// stamping the total duration.
-pub(crate) fn finish<S: crate::kernel::state::State>(
+pub(crate) fn finish<S: crate::_internal::state::State>(
     state: S,
-    schema: &crate::kernel::state::StateSchema,
+    schema: &crate::_internal::state::StateSchema,
     mut report: RunReport,
     started: std::time::Instant,
 ) -> Result<RunOutcome<S>> {
     report.total_duration_millis = started.elapsed().as_millis() as u64;
     let state = if schema.has_output_filter() {
-        let values = crate::kernel::state::state_to_values(&state)?;
-        crate::kernel::state::values_to_state::<S>(&schema.output_values(&values))?
+        let values = crate::_internal::state::state_to_values(&state)?;
+        crate::_internal::state::values_to_state::<S>(&schema.output_values(&values))?
     } else {
         state
     };
@@ -407,7 +407,7 @@ pub(crate) fn merge_interrupted_tasks(
 
 /// Apply processed channel updates and direct replacements to a working value map.
 pub(crate) fn apply_processed_updates(
-    schema: &crate::kernel::state::StateSchema,
+    schema: &crate::_internal::state::StateSchema,
     values: &mut serde_json::Map<String, Value>,
     channel_updates: Vec<ChannelUpdate>,
     replacements: Vec<(String, Value)>,
@@ -421,7 +421,7 @@ pub(crate) fn apply_processed_updates(
             immediate.push(update);
         }
     }
-    crate::kernel::state::apply_updates(schema, values, immediate)?;
+    crate::_internal::state::apply_updates(schema, values, immediate)?;
     for (channel, value) in replacements {
         schema.resolve(&channel)?;
         values.insert(channel, value);
@@ -507,18 +507,15 @@ pub(crate) fn debug_chunk(
 
 /// Whether a regular superstep checkpoint should be persisted.
 pub(crate) fn should_save_after_step(
-    durability: crate::application::graph::Durability,
+    durability: crate::graph::Durability,
     has_interrupt: bool,
 ) -> bool {
-    durability != crate::application::graph::Durability::Exit || has_interrupt
+    durability != crate::graph::Durability::Exit || has_interrupt
 }
 
 /// Whether the terminal checkpoint should be persisted.
-pub(crate) fn should_save_terminal(
-    durability: crate::application::graph::Durability,
-    has_thread: bool,
-) -> bool {
-    durability == crate::application::graph::Durability::Exit && has_thread
+pub(crate) fn should_save_terminal(durability: crate::graph::Durability, has_thread: bool) -> bool {
+    durability == crate::graph::Durability::Exit && has_thread
 }
 
 /// Interrupt raised by an `interrupt_before` hook and its stream event.

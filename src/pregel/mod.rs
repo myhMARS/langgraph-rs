@@ -21,11 +21,11 @@ mod superstep;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::CheckpointWriter;
-use crate::application::graph::{CompiledGraph, Durability, RunConfig};
-use crate::kernel::error::Result;
-use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::RunOutcome;
+use crate::_internal::error::Result;
+use crate::_internal::state::{ChannelUpdate, State, apply_updates, values_to_state};
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::usage::RunOutcome;
+use crate::graph::{CompiledGraph, Durability, RunConfig};
 
 /// Where a run starts from.
 pub(crate) enum StartInput {
@@ -36,7 +36,7 @@ pub(crate) enum StartInput {
     Gateways {
         values: Map<String, Value>,
         nodes: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
     },
     /// Partial writes applied over the default state.
     Updates(Map<String, Value>),
@@ -47,7 +47,7 @@ pub(crate) enum StartInput {
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
     },
 }
 
@@ -98,7 +98,7 @@ fn execute_with_emit<S: State>(
 
 /// Inject managed values (`remaining_steps`, `is_last_step`) before a superstep.
 pub(crate) fn apply_managed_values<S: State>(
-    schema: &crate::kernel::state::StateSchema,
+    schema: &crate::_internal::state::StateSchema,
     values: &mut Map<String, Value>,
     state: &mut S,
     managed_step: usize,
@@ -117,9 +117,9 @@ pub(crate) fn apply_managed_values<S: State>(
 }
 
 pub(crate) fn apply_pending_writes(
-    schema: &crate::kernel::state::StateSchema,
+    schema: &crate::_internal::state::StateSchema,
     values: &mut Map<String, Value>,
-    writes: &[crate::kernel::checkpoint::PendingWrite],
+    writes: &[crate::checkpoint::PendingWrite],
 ) -> Result<()> {
     if writes.is_empty() {
         return Ok(());

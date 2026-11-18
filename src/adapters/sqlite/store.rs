@@ -5,8 +5,8 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
-use crate::kernel::error::{Error, Result};
-use crate::kernel::store::{BaseStore, StoreItem, item_matches, namespace_matches};
+use crate::_internal::error::{Error, Result};
+use crate::store::{BaseStore, StoreItem, item_matches, namespace_matches};
 
 /// Long-term memory store persisted in SQLite.
 pub struct SqliteStore {
@@ -93,7 +93,7 @@ impl BaseStore for SqliteStore {
     fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
         let payload = serde_json::to_string(&value)
             .map_err(|error| Error::Checkpoint(format!("sqlite store: encode: {error}")))?;
-        let now = crate::kernel::store::store_now() as i64;
+        let now = crate::store::store_now() as i64;
         self.lock()
             .execute(
                 "INSERT INTO langgraph_rs_store (namespace, key, value, created_at, updated_at)

@@ -8,9 +8,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use redis::Commands;
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::Checkpointer;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::Checkpointer;
+use crate::checkpoint::Checkpoint;
 
 const THREADS_KEY: &str = "langgraph_rs:threads";
 

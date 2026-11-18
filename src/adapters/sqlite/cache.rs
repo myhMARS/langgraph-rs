@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::kernel::cache::{CachedOutput, NodeCache};
-use crate::kernel::error::{Error, Result};
+use crate::_internal::cache::{CachedOutput, NodeCache};
+use crate::_internal::error::{Error, Result};
 
 /// Node cache persisted in SQLite.
 pub struct SqliteCache {
@@ -88,7 +88,7 @@ fn decode(payload: &str) -> Result<CachedOutput> {
 }
 
 fn now_millis() -> i64 {
-    crate::kernel::checkpoint::now_millis() as i64
+    crate::checkpoint::now_millis() as i64
 }
 
 impl NodeCache for SqliteCache {

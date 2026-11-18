@@ -2,8 +2,8 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::CompiledGraph;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::state::State;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::state::State;
 
 impl<S: State> CompiledGraph<S> {
     pub fn threads(&self) -> Result<Vec<String>> {

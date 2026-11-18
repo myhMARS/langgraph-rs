@@ -2,9 +2,9 @@
 
 use redis::AsyncCommands;
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::{AsyncCheckpointer, BoxFuture};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::{AsyncCheckpointer, BoxFuture};
+use crate::checkpoint::Checkpoint;
 
 const THREADS_KEY: &str = "langgraph_rs:threads";
 

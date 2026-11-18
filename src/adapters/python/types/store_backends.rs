@@ -6,8 +6,8 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::types::PyAny;
 
 use super::*;
-use crate::kernel::cache::NodeCache;
-use crate::kernel::store::BaseStore;
+use crate::_internal::cache::NodeCache;
+use crate::store::BaseStore;
 
 #[cfg(feature = "redis")]
 #[pyclass(name = "RedisStore")]
@@ -208,7 +208,7 @@ impl PyPostgresCache {
 /// Resolve a Python `cache=` object into a kernel node cache.
 pub(crate) fn cache_from_py(
     obj: &Bound<'_, PyAny>,
-) -> Option<Arc<dyn crate::kernel::cache::NodeCache>> {
+) -> Option<Arc<dyn crate::_internal::cache::NodeCache>> {
     if let Ok(cache) = obj.extract::<PyRef<'_, PyInMemoryCache>>() {
         return Some(cache.inner.clone());
     }

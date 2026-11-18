@@ -5,8 +5,8 @@ use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
 use serde_json::Value;
 
 use super::*;
+use crate::_internal::stream::StreamChunk;
 use crate::JsonState;
-use crate::kernel::stream::StreamChunk;
 
 pub(crate) fn snapshot_to_py(
     py: Python<'_>,
@@ -172,7 +172,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             data.set_item("type", "checkpoint")?;
             data.set_item(
                 "timestamp",
-                crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis()),
+                crate::checkpoint::iso_timestamp(crate::checkpoint::now_millis()),
             )?;
             data.set_item("step", step)?;
             data.set_item("payload", value_to_py(py, payload)?)?;
@@ -369,8 +369,7 @@ pub(crate) fn task_debug_parts(
     else {
         return Ok(Vec::new());
     };
-    let timestamp =
-        crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis());
+    let timestamp = crate::checkpoint::iso_timestamp(crate::checkpoint::now_millis());
     let start_payload = serde_json::json!({
         "id": id,
         "name": node,
@@ -636,7 +635,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             dict.set_item("type", "checkpoint")?;
             dict.set_item(
                 "timestamp",
-                crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis()),
+                crate::checkpoint::iso_timestamp(crate::checkpoint::now_millis()),
             )?;
             dict.set_item("step", *step)?;
             dict.set_item("payload", value_to_py(py, payload)?)?;

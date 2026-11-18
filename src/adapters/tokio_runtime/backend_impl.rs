@@ -2,17 +2,17 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::AsyncBackend;
-use crate::application::pregel::outcome::TaskOutcome;
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::{ConditionalEdge, Task};
-use crate::kernel::state::State;
-use crate::kernel::stream::StreamChunk;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::{ConditionalEdge, Task};
+use crate::_internal::state::State;
+use crate::_internal::stream::StreamChunk;
+use crate::checkpoint::Checkpoint;
+use crate::pregel::outcome::TaskOutcome;
 use futures::future::join_all;
 use serde_json::Value;
 
-impl<'a, S: State> crate::application::pregel::backend::PregelBackend<S> for AsyncBackend<'a, S> {
-    fn schema(&self) -> &crate::kernel::state::StateSchema {
+impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a, S> {
+    fn schema(&self) -> &crate::_internal::state::StateSchema {
         &self.graph.schema
     }
 
@@ -56,7 +56,7 @@ impl<'a, S: State> crate::application::pregel::backend::PregelBackend<S> for Asy
         self.graph.context_schema()
     }
 
-    fn store(&self) -> Option<std::sync::Arc<dyn crate::kernel::store::BaseStore>> {
+    fn store(&self) -> Option<std::sync::Arc<dyn crate::store::BaseStore>> {
         self.graph.store.clone()
     }
 
@@ -138,11 +138,7 @@ impl<'a, S: State> crate::application::pregel::backend::PregelBackend<S> for Asy
         if let Some(async_saver) = &self.graph.async_checkpointer {
             async_saver.put(checkpoint).await?;
         } else if let Some(saver) = &self.graph.checkpointer {
-            crate::application::pregel::checkpointing::persist_checkpoint(
-                saver.as_ref(),
-                checkpoint,
-                None,
-            )?;
+            crate::pregel::checkpointing::persist_checkpoint(saver.as_ref(), checkpoint, None)?;
         } else {
             return Err(Error::MissingCheckpointer("persist_checkpoint"));
         }
@@ -150,8 +146,8 @@ impl<'a, S: State> crate::application::pregel::backend::PregelBackend<S> for Asy
     }
 }
 
-impl<'a, S: State> crate::application::pregel::outcome::OutcomeGraph for AsyncBackend<'a, S> {
-    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
+impl<'a, S: State> crate::pregel::outcome::OutcomeGraph for AsyncBackend<'a, S> {
+    fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::_internal::ports::TraceSink>] {
         &self.graph.trace_sinks
     }
 

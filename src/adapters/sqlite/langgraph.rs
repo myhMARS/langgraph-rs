@@ -11,10 +11,10 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Map, Value};
 
-use crate::kernel::checkpoint::{Checkpoint, PendingWrite};
-use crate::kernel::error::Interrupt;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::Task;
+use crate::_internal::error::Interrupt;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::Task;
+use crate::checkpoint::{Checkpoint, PendingWrite};
 
 pub(crate) type CheckpointRow = (
     String,

@@ -8,19 +8,19 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use super::{AsyncNodeFn, BoxNodeFuture};
-use crate::application::graph::{Entry, RunConfig, StateSnapshot};
-use crate::application::pregel::StartInput;
-use crate::kernel::cache::{CachePolicy, NodeCache};
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::ConditionalEdge;
-use crate::kernel::ports::{AsyncCheckpointer, Checkpointer, TraceSink};
-use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, state_to_values};
-use crate::kernel::store::BaseStore;
-use crate::kernel::stream::{StreamChunk, StreamMode};
-use crate::kernel::timeout::TimeoutPolicy;
-use crate::kernel::usage::RunOutcome;
+use crate::_internal::cache::{CachePolicy, NodeCache};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::ConditionalEdge;
+use crate::_internal::ports::{AsyncCheckpointer, Checkpointer, TraceSink};
+use crate::_internal::retry::RetryPolicy;
+use crate::_internal::state::{ChannelUpdate, State, StateSchema, apply_updates, state_to_values};
+use crate::_internal::stream::{StreamChunk, StreamMode};
+use crate::_internal::timeout::TimeoutPolicy;
+use crate::_internal::usage::RunOutcome;
+use crate::checkpoint::Checkpoint;
+use crate::graph::{Entry, RunConfig, StateSnapshot};
+use crate::pregel::StartInput;
+use crate::store::BaseStore;
 
 pub struct AsyncCompiledGraph<S: State> {
     pub(crate) schema: StateSchema,
@@ -106,39 +106,35 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Render the graph as a Mermaid `graph TD` diagram.
     pub fn to_mermaid(&self) -> String {
-        crate::application::graph::visualize::render_mermaid(
-            crate::application::graph::visualize::GraphLayout {
-                nodes: self.nodes.keys().map(String::as_str).collect(),
-                edges: &self.edges,
-                conditional: &self.conditional,
-                entry: &self.entry,
-                retries: &self.retries,
-                error_edges: &self.error_edges,
-                interrupt_before: &self.interrupt_before,
-                interrupt_after: &self.interrupt_after,
-            },
-        )
+        crate::graph::visualize::render_mermaid(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     /// Render the graph as a Graphviz DOT document.
     pub fn to_dot(&self) -> String {
-        crate::application::graph::visualize::render_dot(
-            crate::application::graph::visualize::GraphLayout {
-                nodes: self.nodes.keys().map(String::as_str).collect(),
-                edges: &self.edges,
-                conditional: &self.conditional,
-                entry: &self.entry,
-                retries: &self.retries,
-                error_edges: &self.error_edges,
-                interrupt_before: &self.interrupt_before,
-                interrupt_after: &self.interrupt_after,
-            },
-        )
+        crate::graph::visualize::render_dot(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     /// Render the graph as a PNG image using Graphviz `dot`.
     pub fn draw_png(&self) -> Result<Vec<u8>> {
-        crate::application::graph::visualize::dot_to_png(&self.to_dot())
+        crate::graph::visualize::dot_to_png(&self.to_dot())
     }
 
     /// Graph name configured with `with_name`.
@@ -531,7 +527,7 @@ async fn run_with_idle_timeout(
     idle: Duration,
     progress: Arc<std::sync::atomic::AtomicU64>,
     node: String,
-) -> Result<crate::kernel::node::NodeOutput> {
+) -> Result<crate::_internal::node::NodeOutput> {
     loop {
         let seen = progress.load(std::sync::atomic::Ordering::Relaxed);
         tokio::select! {

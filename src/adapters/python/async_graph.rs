@@ -9,10 +9,10 @@ use pyo3::types::{PyAny, PyDict, PyList};
 use super::convert::install_langchain_callbacks;
 use super::convert::*;
 use super::types::{PyCommand, PyTimeoutPolicy, checkpointer_from_py, store_from_py};
+use crate::_internal::node::NodeOutput;
+use crate::_internal::stream::StreamChunk;
 use crate::BlockingSaver;
 use crate::JsonState;
-use crate::kernel::node::NodeOutput;
-use crate::kernel::stream::StreamChunk;
 use crate::tokio_runtime::{AsyncCompiledGraph, AsyncContext};
 use crate::*;
 

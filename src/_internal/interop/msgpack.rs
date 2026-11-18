@@ -6,7 +6,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::kernel::error::{Error, Result};
+use crate::_internal::error::{Error, Result};
 
 /// Encode a JSON value as MessagePack.
 pub fn encode(value: &Value) -> Vec<u8> {

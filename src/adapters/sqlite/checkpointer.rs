@@ -7,9 +7,9 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::ports::Checkpointer;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::ports::Checkpointer;
+use crate::checkpoint::Checkpoint;
 use rusqlite::{Connection, OptionalExtension, params};
 
 const SCHEMA: &str = "

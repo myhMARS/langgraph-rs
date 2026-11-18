@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::kernel::cache::{CachedOutput, NodeCache};
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::Result;
-use crate::kernel::ports::Checkpointer;
-use crate::kernel::store::{BaseStore, StoreItem, item_matches, namespace_matches, store_now};
+use crate::_internal::cache::{CachedOutput, NodeCache};
+use crate::_internal::error::Result;
+use crate::_internal::ports::Checkpointer;
+use crate::checkpoint::Checkpoint;
+use crate::store::{BaseStore, StoreItem, item_matches, namespace_matches, store_now};
 
 /// In-memory checkpointer, useful for tests, notebooks and short-lived services.
 #[derive(Debug, Default)]

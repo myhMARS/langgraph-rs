@@ -8,16 +8,16 @@ use serde_json::{Map, Value};
 use super::super::BoxNodeFuture;
 use super::super::context::AsyncContext;
 use super::{AsyncBackend, AsyncCompiledGraph, AsyncRunInfo, run_with_idle_timeout};
+use crate::_internal::cache::CachedOutput;
+use crate::_internal::error::{Error, Interrupt, NodeFailure, Result};
+use crate::_internal::node::Task;
+use crate::_internal::state::{State, state_to_values, values_to_state};
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::usage::{RunOutcome, Usage};
 use crate::RunConfig;
-use crate::application::pregel::StartInput;
-use crate::application::pregel::outcome::{TaskFailure, TaskOutcome, TaskResult};
-use crate::kernel::cache::CachedOutput;
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::node::Task;
-use crate::kernel::state::{State, state_to_values, values_to_state};
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::usage::{RunOutcome, Usage};
+use crate::checkpoint::Checkpoint;
+use crate::pregel::StartInput;
+use crate::pregel::outcome::{TaskFailure, TaskOutcome, TaskResult};
 
 impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) async fn resume_inner(
@@ -79,7 +79,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         value: Value,
         updates: I,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -107,7 +107,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         updates: I,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -129,7 +129,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         value: Value,
         updates: I,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -150,7 +150,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
         goto: Vec<String>,
-        sends: Vec<crate::kernel::node::Send>,
+        sends: Vec<crate::_internal::node::Send>,
         config: &RunConfig,
     ) -> Result<S> {
         for node in &goto {
@@ -257,21 +257,19 @@ impl<S: State> AsyncCompiledGraph<S> {
             writer,
             run: &run,
         };
-        let run_context = crate::application::context::run_context(
+        let run_context = crate::runtime::context::run_context(
             run.thread_id.clone(),
             run.namespace.clone(),
             run.store.clone(),
             run.context.clone(),
         );
         let mut adapt = |chunk| sink(chunk);
-        let future = crate::application::pregel::run_loop::run_loop(
-            &backend, start, config, &mut adapt, emit,
-        );
-        crate::application::context::with_async_run(run_context, future).await
+        let future = crate::pregel::run_loop::run_loop(&backend, start, config, &mut adapt, emit);
+        crate::runtime::context::with_async_run(run_context, future).await
     }
 
     pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        crate::application::pregel::scheduling::entry_tasks(&self.entry, state)
+        crate::pregel::scheduling::entry_tasks(&self.entry, state)
     }
 
     pub(crate) async fn run_task(
@@ -330,7 +328,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     return TaskOutcome::Ok(Box::new(TaskResult {
                         id: task.id.clone(),
                         node: task.node.clone(),
-                        output: crate::kernel::node::NodeOutput::from_cached(cached),
+                        output: crate::_internal::node::NodeOutput::from_cached(cached),
                         custom: Vec::new(),
                         messages: Vec::new(),
                         usage,
@@ -385,11 +383,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.context.clone(),
                 run.collector.clone(),
             );
-            let task_ops: std::sync::Arc<dyn crate::application::context::AsyncTaskOps> =
+            let task_ops: std::sync::Arc<dyn crate::runtime::context::AsyncTaskOps> =
                 std::sync::Arc::new(context.clone());
-            let future: BoxNodeFuture = Box::pin(crate::application::context::with_async_task(
+            let future: BoxNodeFuture = Box::pin(crate::runtime::context::with_async_task(
                 task_ops,
-                crate::application::context::with_async_node(
+                crate::runtime::context::with_async_node(
                     task.node.clone(),
                     Some(task.id.clone()),
                     (node.as_ref())(input.clone(), context.clone()),

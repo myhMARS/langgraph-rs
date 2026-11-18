@@ -7,14 +7,14 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use super::Entry;
-use crate::kernel::cache::{CachePolicy, NodeCache};
-use crate::kernel::error::Result;
-use crate::kernel::node::{ConditionalEdge, NodeFn, Task};
-use crate::kernel::ports::{Checkpointer, TraceSink};
-use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{State, StateSchema};
-use crate::kernel::store::BaseStore;
-use crate::kernel::timeout::TimeoutPolicy;
+use crate::_internal::cache::{CachePolicy, NodeCache};
+use crate::_internal::error::Result;
+use crate::_internal::node::{ConditionalEdge, NodeFn, Task};
+use crate::_internal::ports::{Checkpointer, TraceSink};
+use crate::_internal::retry::RetryPolicy;
+use crate::_internal::state::{State, StateSchema};
+use crate::_internal::timeout::TimeoutPolicy;
+use crate::store::BaseStore;
 
 /// A graph that is ready to run.
 ///
@@ -208,54 +208,48 @@ impl<S: State> CompiledGraph<S> {
     /// ```
     /// Render the graph as a compact ASCII map.
     pub fn to_ascii(&self) -> String {
-        crate::application::graph::visualize::render_ascii(
-            crate::application::graph::visualize::GraphLayout {
-                nodes: self.nodes.keys().map(String::as_str).collect(),
-                edges: &self.edges,
-                conditional: &self.conditional,
-                entry: &self.entry,
-                retries: &self.retries,
-                error_edges: &self.error_edges,
-                interrupt_before: &self.interrupt_before,
-                interrupt_after: &self.interrupt_after,
-            },
-        )
+        crate::graph::visualize::render_ascii(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     pub fn to_mermaid(&self) -> String {
-        crate::application::graph::visualize::render_mermaid(
-            crate::application::graph::visualize::GraphLayout {
-                nodes: self.nodes.keys().map(String::as_str).collect(),
-                edges: &self.edges,
-                conditional: &self.conditional,
-                entry: &self.entry,
-                retries: &self.retries,
-                error_edges: &self.error_edges,
-                interrupt_before: &self.interrupt_before,
-                interrupt_after: &self.interrupt_after,
-            },
-        )
+        crate::graph::visualize::render_mermaid(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     /// Render the graph as a Graphviz DOT document.
     pub fn to_dot(&self) -> String {
-        crate::application::graph::visualize::render_dot(
-            crate::application::graph::visualize::GraphLayout {
-                nodes: self.nodes.keys().map(String::as_str).collect(),
-                edges: &self.edges,
-                conditional: &self.conditional,
-                entry: &self.entry,
-                retries: &self.retries,
-                error_edges: &self.error_edges,
-                interrupt_before: &self.interrupt_before,
-                interrupt_after: &self.interrupt_after,
-            },
-        )
+        crate::graph::visualize::render_dot(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     /// Render the graph as a PNG image using Graphviz `dot`.
     pub fn draw_png(&self) -> Result<Vec<u8>> {
-        crate::application::graph::visualize::dot_to_png(&self.to_dot())
+        crate::graph::visualize::dot_to_png(&self.to_dot())
     }
 
     /// Run the graph to completion and return the final typed state.
@@ -346,7 +340,7 @@ impl<S: State> CompiledGraph<S> {
     }
 
     pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        crate::application::pregel::scheduling::entry_tasks(&self.entry, state)
+        crate::pregel::scheduling::entry_tasks(&self.entry, state)
     }
 }
 

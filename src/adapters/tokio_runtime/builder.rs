@@ -8,19 +8,19 @@ use indexmap::IndexMap;
 
 use super::compiled::AsyncCompiledGraph;
 use super::{AsyncContext, AsyncNodeFn, BoxNodeFuture};
-use crate::application::graph::Entry;
-use crate::application::graph::RunConfig;
-use crate::kernel::cache::{CachePolicy, NodeCache};
-use crate::kernel::command::Command;
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::{ConditionalEdge, NodeOutput, PathMap, Route};
-use crate::kernel::plugin::Kernel;
-use crate::kernel::ports::{AsyncCheckpointer, Checkpointer};
-use crate::kernel::retry::RetryPolicy;
-use crate::kernel::state::{State, StateSchema, state_to_values};
-use crate::kernel::store::BaseStore;
-use crate::kernel::stream::StreamChunk;
-use crate::kernel::timeout::TimeoutPolicy;
+use crate::_internal::cache::{CachePolicy, NodeCache};
+use crate::_internal::command::Command;
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::{ConditionalEdge, NodeOutput, PathMap, Route};
+use crate::_internal::plugin::Kernel;
+use crate::_internal::ports::{AsyncCheckpointer, Checkpointer};
+use crate::_internal::retry::RetryPolicy;
+use crate::_internal::state::{State, StateSchema, state_to_values};
+use crate::_internal::stream::StreamChunk;
+use crate::_internal::timeout::TimeoutPolicy;
+use crate::graph::Entry;
+use crate::graph::RunConfig;
+use crate::store::BaseStore;
 use crate::{END, START};
 
 /// Builder for an async graph.
@@ -619,10 +619,10 @@ impl<S: State> AsyncStateGraph<S> {
 }
 
 fn child_namespace(parent: &str, name: &str) -> String {
-    crate::application::graph::subgraph_namespace(
+    crate::graph::subgraph_namespace(
         parent,
         name,
-        crate::application::context::current_task_id().as_deref(),
+        crate::runtime::context::current_task_id().as_deref(),
     )
 }
 
@@ -631,7 +631,7 @@ async fn run_async_subgraph<S: State>(
     state: S,
     name: String,
     context: AsyncContext,
-    schema: &crate::kernel::state::StateSchema,
+    schema: &crate::_internal::state::StateSchema,
 ) -> Result<NodeOutput> {
     let before = state_to_values(&state)?;
     let thread = context.thread_id().map(str::to_string);
@@ -705,7 +705,7 @@ async fn run_async_subgraph<S: State>(
     // Propagate a child failure even if another task recorded a parent command.
     let output = output?;
     if let Some(command) = parent_command {
-        return crate::application::graph::parent_command_output(command, schema);
+        return crate::graph::parent_command_output(command, schema);
     }
     let after = state_to_values(&output)?;
     let mut result = NodeOutput::new();

@@ -5,12 +5,12 @@ use std::collections::HashSet;
 use serde_json::{Map, Value};
 
 use super::AsyncCompiledGraph;
-use crate::application::graph::StateSnapshot;
-use crate::application::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
-use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::Task;
-use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::Task;
+use crate::_internal::state::{ChannelUpdate, State, apply_updates, values_to_state};
+use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::graph::StateSnapshot;
+use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 
 impl<S: State> AsyncCompiledGraph<S> {
     pub fn get_state(&self, thread_id: &str) -> Result<Option<StateSnapshot<S>>> {

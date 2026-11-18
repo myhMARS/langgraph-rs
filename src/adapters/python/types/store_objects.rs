@@ -6,10 +6,10 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::types::{PyAny, PyDict};
 
 use super::*;
+use crate::_internal::cache::NodeCache;
 use crate::InMemoryStore;
 use crate::adapters::python::convert::{py_to_value, value_to_py};
-use crate::kernel::cache::NodeCache;
-use crate::kernel::store::BaseStore;
+use crate::store::BaseStore;
 
 #[pyclass(name = "Store", from_py_object)]
 #[derive(Clone)]

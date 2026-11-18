@@ -7,9 +7,9 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::_internal::error::NodeFailure;
+use crate::_internal::usage::Usage;
 use crate::Result;
-use crate::kernel::error::NodeFailure;
-use crate::kernel::usage::Usage;
 
 /// Execution function of a graph node.
 pub type NodeFn<S> = Arc<dyn Fn(&S) -> Result<NodeOutput> + std::marker::Send + std::marker::Sync>;
@@ -170,7 +170,7 @@ impl NodeOutput {
     }
 
     /// Rebuild an output from a cached node output.
-    pub(crate) fn from_cached(cached: crate::kernel::cache::CachedOutput) -> Self {
+    pub(crate) fn from_cached(cached: crate::_internal::cache::CachedOutput) -> Self {
         let mut output = NodeOutput::new().updates(cached.updates);
         for (channel, value) in cached.replaces {
             output = output.replace(channel, value);

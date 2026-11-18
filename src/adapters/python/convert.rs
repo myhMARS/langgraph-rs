@@ -179,7 +179,7 @@ pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
             .and_then(|args| args.get_item(1).ok())
             .filter(|schema| !schema.is_none())
             .and_then(|schema| py_to_value(&schema).ok());
-        let node = crate::application::context::current_node().unwrap_or_default();
+        let node = crate::runtime::context::current_node().unwrap_or_default();
         let id = args
             .as_ref()
             .and_then(|args| args.get_item(2).ok())
@@ -486,8 +486,8 @@ pub(crate) use stream_convert::*;
 pub(crate) fn config_from_py(
     _py: Python<'_>,
     value: Option<&Bound<'_, PyAny>>,
-) -> PyResult<(Option<String>, crate::application::graph::RunConfig)> {
-    let mut config = crate::application::graph::RunConfig::new();
+) -> PyResult<(Option<String>, crate::graph::RunConfig)> {
+    let mut config = crate::graph::RunConfig::new();
     let Some(value) = value else {
         return Ok((None, config));
     };

@@ -5,13 +5,13 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::application::context::TaskContext;
-use crate::application::graph::CompiledGraph;
-use crate::kernel::cache::CachedOutput;
-use crate::kernel::error::{Error, Interrupt, NodeFailure};
-use crate::kernel::node::{NodeFn, NodeOutput, Task};
-use crate::kernel::state::{State, state_to_values, values_to_state};
-use crate::kernel::usage::Usage;
+use crate::_internal::cache::CachedOutput;
+use crate::_internal::error::{Error, Interrupt, NodeFailure};
+use crate::_internal::node::{NodeFn, NodeOutput, Task};
+use crate::_internal::state::{State, state_to_values, values_to_state};
+use crate::_internal::usage::Usage;
+use crate::graph::CompiledGraph;
+use crate::runtime::context::TaskContext;
 
 use super::outcome::{TaskFailure, TaskOutcome, TaskResult};
 
@@ -40,9 +40,9 @@ pub(super) fn run_superstep<S: State>(
             .collect();
     }
 
-    let run = crate::application::context::capture_run_context();
-    let step = crate::application::context::capture_step_context();
-    let collector = crate::application::context::current_subgraph_collector();
+    let run = crate::runtime::context::capture_run_context();
+    let step = crate::runtime::context::capture_step_context();
+    let collector = crate::runtime::context::current_subgraph_collector();
     std::thread::scope(|scope| {
         let handles: Vec<_> = tasks
             .iter()
@@ -50,12 +50,12 @@ pub(super) fn run_superstep<S: State>(
                 let run = run.clone();
                 let collector = collector.clone();
                 scope.spawn(move || {
-                    let _run_guard = run.map(crate::application::context::install_run_context);
+                    let _run_guard = run.map(crate::runtime::context::install_run_context);
                     let _step_guard = step.map(|(step, limit)| {
-                        crate::application::context::install_step(step, step, limit)
+                        crate::runtime::context::install_step(step, step, limit)
                     });
                     let _collector_guard =
-                        collector.map(crate::application::context::install_subgraph_collector);
+                        collector.map(crate::runtime::context::install_subgraph_collector);
                     run_task(graph, state, task)
                 })
             })
@@ -159,7 +159,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
                     .with_task_id(task.id.clone())
                     .with_error(task.error.clone());
-                crate::application::context::with_task(context, || node(&node_state))
+                crate::runtime::context::with_task(context, || node(&node_state))
             }
         };
         usage.append(&mut reported);
@@ -273,19 +273,18 @@ fn run_node_timed<S: State>(
     let resume = task.resume_history.clone();
     let task_id = task.id.clone();
     let error = task.error.clone();
-    let run = crate::application::context::capture_run_context();
-    let step = crate::application::context::capture_step_context();
-    let collector = crate::application::context::current_subgraph_collector();
+    let run = crate::runtime::context::capture_run_context();
+    let step = crate::runtime::context::capture_step_context();
+    let collector = crate::runtime::context::current_subgraph_collector();
     std::thread::spawn(move || {
-        let _run_guard = run.map(crate::application::context::install_run_context);
+        let _run_guard = run.map(crate::runtime::context::install_run_context);
         let _step_guard =
-            step.map(|(step, limit)| crate::application::context::install_step(step, step, limit));
-        let _collector_guard =
-            collector.map(crate::application::context::install_subgraph_collector);
+            step.map(|(step, limit)| crate::runtime::context::install_step(step, step, limit));
+        let _collector_guard = collector.map(crate::runtime::context::install_subgraph_collector);
         let context = TaskContext::new(node_name.clone(), resume)
             .with_task_id(task_id)
             .with_error(error);
-        let outcome = crate::application::context::with_task(context, || node(&node_state));
+        let outcome = crate::runtime::context::with_task(context, || node(&node_state));
         let _ = sender.send(outcome);
     });
     match receiver.recv_timeout(timeout) {

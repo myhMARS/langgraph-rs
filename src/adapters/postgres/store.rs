@@ -5,8 +5,8 @@ use std::sync::{Mutex, MutexGuard};
 use postgres::NoTls;
 use serde_json::Value;
 
-use crate::kernel::error::{Error, Result};
-use crate::kernel::store::{BaseStore, StoreItem, item_matches, namespace_matches};
+use crate::_internal::error::{Error, Result};
+use crate::store::{BaseStore, StoreItem, item_matches, namespace_matches};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS langgraph_rs_store (
@@ -87,7 +87,7 @@ impl BaseStore for PostgresStore {
     fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
         let payload = serde_json::to_string(&value)
             .map_err(|error| Error::Checkpoint(format!("postgres store: encode: {error}")))?;
-        let now = crate::kernel::checkpoint::now_millis() as i64;
+        let now = crate::checkpoint::now_millis() as i64;
         self.lock()
             .execute(
                 "INSERT INTO langgraph_rs_store (namespace, key, value, created_at, updated_at)

@@ -5,13 +5,13 @@ use std::sync::mpsc;
 
 use serde_json::{Map, Value};
 
+use crate::_internal::error::Interrupt;
+use crate::_internal::node::Task;
+use crate::_internal::ports::Checkpointer;
+use crate::_internal::state::State;
+use crate::_internal::stream::StreamChunk;
 use crate::Result;
-use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
-use crate::kernel::error::Interrupt;
-use crate::kernel::node::Task;
-use crate::kernel::ports::Checkpointer;
-use crate::kernel::state::State;
-use crate::kernel::stream::StreamChunk;
+use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 
 /// Background checkpoint writer used by [`Durability::Async`](crate::Durability::Async).
 ///
@@ -38,12 +38,14 @@ impl CheckpointWriter {
 
     fn submit(&self, checkpoint: Checkpoint) -> Result<()> {
         let Some(sender) = &self.sender else {
-            return Err(crate::kernel::error::Error::Checkpoint(
+            return Err(crate::_internal::error::Error::Checkpoint(
                 "checkpoint writer is already closed".to_string(),
             ));
         };
         sender.send(checkpoint).map_err(|_| {
-            crate::kernel::error::Error::Checkpoint("checkpoint writer thread stopped".to_string())
+            crate::_internal::error::Error::Checkpoint(
+                "checkpoint writer thread stopped".to_string(),
+            )
         })
     }
 
@@ -73,7 +75,7 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) interrupted: bool,
     pub(crate) paused_before: bool,
     pub(crate) interrupts: Vec<Interrupt>,
-    pub(crate) pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    pub(crate) pending_writes: Vec<crate::checkpoint::PendingWrite>,
     pub(crate) deferred: Vec<Task>,
     pub(crate) executed: &'a [String],
     pub(crate) previous: Option<&'a Checkpoint>,
@@ -83,12 +85,7 @@ pub(crate) struct CheckpointDraft<'a> {
 /// Build a checkpoint with the version metadata used by both runtimes.
 pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
     let (channel_versions, versions_seen, updated_channels) =
-        crate::kernel::checkpoint::versions_for(
-            draft.previous,
-            &draft.values,
-            draft.step,
-            draft.executed,
-        );
+        crate::checkpoint::versions_for(draft.previous, &draft.values, draft.step, draft.executed);
     Checkpoint {
         id: draft.id,
         thread_id: draft.thread_id.to_string(),
@@ -236,7 +233,7 @@ pub(crate) fn persist_checkpoint(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn save_checkpoint_via<
     S: State,
-    B: crate::application::pregel::backend::PregelBackend<S>,
+    B: crate::pregel::backend::PregelBackend<S>,
     F: FnMut(StreamChunk),
 >(
     backend: &B,
@@ -250,7 +247,7 @@ pub(crate) async fn save_checkpoint_via<
     interrupted: bool,
     paused_before: bool,
     interrupts: Vec<Interrupt>,
-    pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
+    pending_writes: Vec<crate::checkpoint::PendingWrite>,
     deferred: Vec<Task>,
     executed: &[String],
     emit: bool,
@@ -276,7 +273,7 @@ pub(crate) async fn save_checkpoint_via<
         deferred,
         executed,
         previous: previous.as_ref(),
-        task_results: crate::application::context::snapshot_task_results(),
+        task_results: crate::runtime::context::snapshot_task_results(),
     });
     backend.persist_checkpoint(checkpoint.clone()).await?;
     checkpoint_committed(parent, &checkpoint, sink, emit);

@@ -2,9 +2,9 @@
 
 use serde_json::{Map, Value};
 
-use crate::kernel::checkpoint::Checkpoint;
-use crate::kernel::error::{Interrupt, NodeFailure, Result};
-use crate::kernel::state::{State, values_to_state};
+use crate::_internal::error::{Interrupt, NodeFailure, Result};
+use crate::_internal::state::{State, values_to_state};
+use crate::checkpoint::Checkpoint;
 
 /// A task that is scheduled after a snapshot.
 #[derive(Clone, Debug, PartialEq)]
@@ -63,7 +63,7 @@ impl<S: State> StateSnapshot<S> {
     /// as task results, matching LangGraph's `get_state` (`live=True`).
     pub(crate) fn from_checkpoint_live(
         checkpoint: Checkpoint,
-        schema: &crate::kernel::state::StateSchema,
+        schema: &crate::_internal::state::StateSchema,
     ) -> Result<Self> {
         let mut values = checkpoint.values.clone();
         let mut regular = Vec::new();
@@ -80,14 +80,14 @@ impl<S: State> StateSnapshot<S> {
             if write.replace {
                 values.insert(write.channel.clone(), write.value.clone());
             } else {
-                regular.push(crate::kernel::state::ChannelUpdate {
+                regular.push(crate::_internal::state::ChannelUpdate {
                     channel: write.channel.clone(),
                     value: write.value.clone(),
                     node: write.node.clone(),
                 });
             }
         }
-        crate::kernel::state::apply_updates(schema, &mut values, regular)?;
+        crate::_internal::state::apply_updates(schema, &mut values, regular)?;
         let mut checkpoint = checkpoint;
         checkpoint.values = values;
         let mut snapshot = Self::from_checkpoint(checkpoint)?;
@@ -135,7 +135,7 @@ impl<S: State> StateSnapshot<S> {
                 }
             })
         });
-        let created_at = crate::kernel::checkpoint::iso_timestamp(checkpoint.created_at_millis);
+        let created_at = crate::checkpoint::iso_timestamp(checkpoint.created_at_millis);
         Ok(Self {
             values: values_to_state::<S>(&checkpoint.values)?,
             next: checkpoint.next_nodes(),

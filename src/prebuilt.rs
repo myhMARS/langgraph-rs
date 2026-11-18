@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use crate::kernel::node::{NodeFn, NodeOutput};
-use crate::kernel::state::{JsonState, StateSchema};
+use crate::_internal::node::{NodeFn, NodeOutput};
+use crate::_internal::state::{JsonState, StateSchema};
 use crate::{END, Result, Route, StateGraph, reducers};
 
 /// Node name used by [`tools_condition`] and [`create_react_agent`] for the tool executor.

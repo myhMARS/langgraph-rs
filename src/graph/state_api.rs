@@ -2,14 +2,14 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::CompiledGraph;
-use crate::application::graph::StateSnapshot;
-use crate::application::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
-use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
-use crate::kernel::error::{Error, Result};
-use crate::kernel::node::Task;
-use crate::kernel::state::ChannelUpdate;
-use crate::kernel::state::apply_updates;
-use crate::kernel::state::{State, values_to_state};
+use crate::_internal::error::{Error, Result};
+use crate::_internal::node::Task;
+use crate::_internal::state::ChannelUpdate;
+use crate::_internal::state::apply_updates;
+use crate::_internal::state::{State, values_to_state};
+use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::graph::StateSnapshot;
+use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
