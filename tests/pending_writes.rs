@@ -39,8 +39,10 @@ fn single_interrupt_defers_successful_writes_to_pending_writes() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     let snapshot = graph.get_state("pending-writes").unwrap().unwrap();
-    assert_eq!(snapshot.tasks.len(), 1);
-    assert_eq!(snapshot.tasks[0].node, "ask");
+    // LangGraph reports the pending task together with the sibling that already finished.
+    assert_eq!(snapshot.tasks.len(), 2);
+    assert!(snapshot.tasks.iter().any(|task| task.node == "ask"));
+    assert!(snapshot.tasks.iter().any(|task| task.node == "ok"));
 
     let document = graph
         .export_checkpoint("pending-writes")

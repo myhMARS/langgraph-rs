@@ -500,6 +500,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     raw_input: raw_input.as_ref(),
                     scheduled_after: Vec::new(),
                     resume_tasks: Vec::new(),
+                    completed_tasks: Vec::new(),
                 },
                 pause_force_new,
                 "loop",

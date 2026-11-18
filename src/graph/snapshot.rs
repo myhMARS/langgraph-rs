@@ -124,6 +124,22 @@ impl<S: State> StateSnapshot<S> {
                     .collect(),
             })
             .collect();
+        // Siblings that finished before the interrupt are reported as completed tasks.
+        let mut tasks: Vec<StateTask> = tasks;
+        for task in &checkpoint.completed_tasks {
+            if tasks.iter().any(|known| known.id == task.id) {
+                continue;
+            }
+            tasks.push(StateTask {
+                id: task.id.clone(),
+                node: task.node.clone(),
+                state: None,
+                error: None,
+                resume: None,
+                result: checkpoint.task_results.get(&task.id).cloned(),
+                interrupts: Vec::new(),
+            });
+        }
         let config = serde_json::json!({
             "configurable": {
                 "thread_id": checkpoint.thread_id,

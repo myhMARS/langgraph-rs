@@ -82,6 +82,7 @@ where
             raw_input,
             scheduled_after: Vec::new(),
             resume_tasks: Vec::new(),
+            completed_tasks: Vec::new(),
         },
         context.force_new,
         "loop",
@@ -251,6 +252,11 @@ where
             raw_input: context.raw_input,
             scheduled_after: resume_seeds,
             resume_tasks,
+            completed_tasks: tasks
+                .iter()
+                .filter(|task| !interrupted_ids.contains(&task.id))
+                .cloned()
+                .collect(),
         },
         context.force_new,
         "loop",

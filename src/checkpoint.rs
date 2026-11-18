@@ -47,6 +47,10 @@ pub struct Checkpoint {
     /// `goto`/`Send` targets the successful siblings scheduled before the interrupt.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resume_tasks: Vec<Task>,
+    /// Tasks of the interrupted superstep that already completed (LangGraph reports them
+    /// in `get_state().tasks` next to the pending ones).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub completed_tasks: Vec<Task>,
     /// `true` when the graph stopped because of a human-in-the-loop interrupt.
     #[serde(default)]
     pub interrupted: bool,
@@ -107,6 +111,7 @@ impl Checkpoint {
             next: Vec::new(),
             deferred_routes: Vec::new(),
             resume_tasks: Vec::new(),
+            completed_tasks: Vec::new(),
             interrupted: false,
             paused_before: false,
             parent_id: None,
