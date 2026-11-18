@@ -96,10 +96,10 @@
 
 mod adapters;
 pub mod application;
-pub mod functional;
+pub mod domain;
 pub mod interop;
-mod kernel;
-pub mod prebuilt;
+pub use application::{functional, prebuilt};
+pub use domain as kernel;
 
 #[cfg(feature = "python")]
 pub use adapters::python;
@@ -167,22 +167,22 @@ pub use adapters::postgres::PostgresStore;
 #[cfg(feature = "postgres")]
 /// Postgres-backed node cache.
 pub use adapters::postgres::PostgresCache;
-pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
-pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
-pub use kernel::checkpoint::Checkpoint;
-pub use kernel::command::Command;
-pub use kernel::context::{
+pub use application::context::{
     current_context, current_namespace, current_node, current_resume, current_runtime,
     current_step, current_task_id, current_thread_id, custom, get_config, get_store,
     get_stream_writer, interrupt, interrupt_with_schema, is_last_step, last_error, message,
     push_custom, push_message, record_tokens, record_usage, remaining_steps,
 };
-pub use kernel::control::RunControl;
+pub use application::control::RunControl;
+pub use kernel::cache::{CachePolicy, CachedOutput, NodeCache};
+pub use kernel::channel::{Channel, Reducer, RemoveMessage, reducers};
+pub use kernel::checkpoint::Checkpoint;
+pub use kernel::command::Command;
 pub use kernel::error::{Error, Interrupt, NodeFailure, Result};
 /// Convenience graph whose state is [`MessagesState`] (LangGraph `MessageGraph`).
 pub type MessageGraph = StateGraph<MessagesState>;
 
-pub use kernel::graph::{
+pub use application::graph::{
     CompileOptions, CompiledGraph, DEFAULT_RECURSION_LIMIT, Durability, RunConfig, StateGraph,
     StateSnapshot, Targets,
 };

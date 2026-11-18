@@ -225,7 +225,7 @@ pub(crate) fn persist_checkpoint(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn save_checkpoint_via<
     S: State,
-    B: crate::kernel::executor::backend::PregelBackend<S>,
+    B: crate::application::executor::backend::PregelBackend<S>,
     F: FnMut(StreamChunk),
 >(
     backend: &B,
@@ -265,7 +265,7 @@ pub(crate) async fn save_checkpoint_via<
         deferred,
         executed,
         previous: previous.as_ref(),
-        task_results: crate::kernel::context::snapshot_task_results(),
+        task_results: crate::application::context::snapshot_task_results(),
     });
     backend.persist_checkpoint(checkpoint.clone()).await?;
     checkpoint_committed(parent, &checkpoint, sink, emit);

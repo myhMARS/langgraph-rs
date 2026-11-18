@@ -22,7 +22,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::kernel::graph::StateGraph;
+use crate::application::graph::StateGraph;
 use crate::kernel::node::NodeOutput;
 use crate::kernel::state::{State, state_to_values};
 use crate::{Result, get_store};
@@ -56,7 +56,7 @@ where
     pub fn call(&self, input: I) -> Result<O> {
         let key = task_cache_key(&input)?;
         let cache_key = format!("{}:{}", self.name, key);
-        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+        if let Some(cached) = crate::application::context::task_result_get(&cache_key) {
             return Ok(serde_json::from_value(cached)?);
         }
         let store = get_store();
@@ -68,7 +68,7 @@ where
         }
         let output = (self.run)(input)?;
         let value = serde_json::to_value(&output)?;
-        crate::kernel::context::task_result_put(cache_key, value.clone());
+        crate::application::context::task_result_put(cache_key, value.clone());
         if let Some(store) = store {
             store.put(&namespace, &key, value)?;
         }
@@ -150,7 +150,7 @@ where
     pub async fn call(&self, input: I) -> Result<O> {
         let key = task_cache_key(&input)?;
         let cache_key = format!("{}:{}", self.name, key);
-        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+        if let Some(cached) = crate::application::context::task_result_get(&cache_key) {
             return Ok(serde_json::from_value(cached)?);
         }
         let store = get_store();
@@ -162,7 +162,7 @@ where
         }
         let output = (self.run)(input).await?;
         let value = serde_json::to_value(&output)?;
-        crate::kernel::context::task_result_put(cache_key, value.clone());
+        crate::application::context::task_result_put(cache_key, value.clone());
         if let Some(store) = store {
             store.put(&namespace, &key, value)?;
         }

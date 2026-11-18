@@ -1,4 +1,4 @@
-//! Kernel: the domain core (hexagonal architecture).
+//! Domain layer: state, channels, checkpoints, tasks, ports and commands.
 //!
 //! Everything in this module is independent of concrete adapters: persistence,
 //! tracing sinks, language bindings and other infrastructure live in
@@ -8,9 +8,7 @@ pub mod cache;
 pub mod channel;
 pub mod checkpoint;
 pub mod command;
-pub use crate::application::{context, control};
 pub mod error;
-pub use crate::application::{executor, graph};
 pub mod node;
 pub mod plugin;
 pub mod ports;

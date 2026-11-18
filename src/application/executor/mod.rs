@@ -21,8 +21,8 @@ mod superstep;
 use serde_json::{Map, Value, json};
 
 use self::checkpointing::CheckpointWriter;
+use crate::application::graph::{CompiledGraph, Durability, RunConfig};
 use crate::kernel::error::Result;
-use crate::kernel::graph::{CompiledGraph, Durability, RunConfig};
 use crate::kernel::state::{ChannelUpdate, State, apply_updates, values_to_state};
 use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::RunOutcome;

@@ -6,4 +6,6 @@
 pub mod context;
 pub mod control;
 pub mod executor;
+pub mod functional;
 pub mod graph;
+pub mod prebuilt;

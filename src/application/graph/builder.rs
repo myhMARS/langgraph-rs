@@ -290,9 +290,9 @@ impl<S: State> StateGraph<S> {
         let schema = self.schema.clone();
         self.add_node(name.clone(), move |state: &S| {
             let before = state_to_values(state)?;
-            crate::kernel::context::clear_parent_command();
+            crate::application::context::clear_parent_command();
             let output = run_subgraph(&subgraph, state, &name)?;
-            if let Some(command) = crate::kernel::context::take_parent_command() {
+            if let Some(command) = crate::application::context::take_parent_command() {
                 return super::parent_command_output(command, &schema);
             }
             let after = state_to_values(&output)?;
@@ -328,9 +328,9 @@ impl<S: State> StateGraph<S> {
         let schema = self.schema.clone();
         self.add_node(name.clone(), move |state: &S| {
             let sub_state = input(state)?;
-            crate::kernel::context::clear_parent_command();
+            crate::application::context::clear_parent_command();
             let sub_output = run_subgraph(&subgraph, &sub_state, &name)?;
-            if let Some(command) = crate::kernel::context::take_parent_command() {
+            if let Some(command) = crate::application::context::take_parent_command() {
                 return super::parent_command_output(command, &schema);
             }
             output(&sub_output, state)
@@ -486,23 +486,23 @@ impl<S: State> Default for StateGraph<S> {
 
 /// Child checkpoint namespace of a subgraph node.
 fn child_namespace(parent: &str, name: &str) -> String {
-    let task_id = crate::kernel::context::current_task_id();
+    let task_id = crate::application::context::current_task_id();
     super::subgraph_namespace(parent, name, task_id.as_deref())
 }
 
 /// Run a subgraph with parent thread/namespace propagation and resume support.
 fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
-    let thread = crate::kernel::context::current_thread_id();
-    let namespace = child_namespace(&crate::kernel::context::current_namespace(), name);
-    let resume = crate::kernel::context::current_resume_last();
+    let thread = crate::application::context::current_thread_id();
+    let namespace = child_namespace(&crate::application::context::current_namespace(), name);
+    let resume = crate::application::context::current_resume_last();
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
-    if let Some(store) = crate::kernel::context::get_store() {
+    if let Some(store) = crate::application::context::get_store() {
         config = config.with_store(store);
     }
-    if let Some(context) = crate::kernel::context::current_context() {
+    if let Some(context) = crate::application::context::current_context() {
         config = config.with_context(context);
     }
-    let collector = crate::kernel::context::current_subgraph_collector();
+    let collector = crate::application::context::current_subgraph_collector();
     if let Some(collector) = collector {
         config = config.with_stream_subgraphs(true);
         let chunk_namespace = namespace.clone();

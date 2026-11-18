@@ -7,13 +7,13 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::kernel::context::ParentCommand;
+use crate::application::context::ParentCommand;
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
 use crate::kernel::store::BaseStore;
 use crate::kernel::stream::StreamChunk;
 use crate::kernel::usage::Usage;
 
-impl crate::kernel::context::AsyncTaskOps for AsyncContext {
+impl crate::application::context::AsyncTaskOps for AsyncContext {
     fn interrupt_value(&self, value: Value, schema: Option<Value>) -> Result<Value> {
         self.interrupt_with_schema(value, schema)
     }
@@ -205,7 +205,7 @@ impl AsyncContext {
         if slot.1 < slot.0.len() {
             let resume = slot.0[slot.1].clone();
             slot.1 += 1;
-            crate::kernel::context::validate_response(&resume, response_schema.as_ref())?;
+            crate::application::context::validate_response(&resume, response_schema.as_ref())?;
             return Ok(resume);
         }
         Err(Error::Interrupt(Interrupt::with_schema(

@@ -6,7 +6,7 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use serde_json::Value;
 
-use crate::kernel::executor::backend::PregelBackend;
+use crate::application::executor::backend::PregelBackend;
 use crate::kernel::state::State;
 use crate::kernel::stream::StreamChunk;
 
@@ -33,7 +33,7 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 
 pub(crate) fn drain_collector<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
     backend: &B,
-    setup: &crate::kernel::executor::step::RunSetup,
+    setup: &crate::application::executor::step::RunSetup,
     sink: &mut F,
 ) {
     if let Some(collector) = backend.collector().or_else(|| setup.collector().cloned()) {

@@ -8,11 +8,11 @@ use indexmap::IndexMap;
 
 use super::compiled::AsyncCompiledGraph;
 use super::{AsyncContext, AsyncNodeFn, BoxNodeFuture};
+use crate::application::graph::Entry;
+use crate::application::graph::RunConfig;
 use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
-use crate::kernel::graph::Entry;
-use crate::kernel::graph::RunConfig;
 use crate::kernel::node::{ConditionalEdge, NodeOutput, PathMap, Route};
 use crate::kernel::plugin::Kernel;
 use crate::kernel::ports::{AsyncCheckpointer, Checkpointer};
@@ -619,10 +619,10 @@ impl<S: State> AsyncStateGraph<S> {
 }
 
 fn child_namespace(parent: &str, name: &str) -> String {
-    crate::kernel::graph::subgraph_namespace(
+    crate::application::graph::subgraph_namespace(
         parent,
         name,
-        crate::kernel::context::current_task_id().as_deref(),
+        crate::application::context::current_task_id().as_deref(),
     )
 }
 
@@ -705,7 +705,7 @@ async fn run_async_subgraph<S: State>(
     // Propagate a child failure even if another task recorded a parent command.
     let output = output?;
     if let Some(command) = parent_command {
-        return crate::kernel::graph::parent_command_output(command, schema);
+        return crate::application::graph::parent_command_output(command, schema);
     }
     let after = state_to_values(&output)?;
     let mut result = NodeOutput::new();

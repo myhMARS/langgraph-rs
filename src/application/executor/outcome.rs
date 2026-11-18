@@ -507,18 +507,18 @@ pub(crate) fn debug_chunk(
 
 /// Whether a regular superstep checkpoint should be persisted.
 pub(crate) fn should_save_after_step(
-    durability: crate::kernel::graph::Durability,
+    durability: crate::application::graph::Durability,
     has_interrupt: bool,
 ) -> bool {
-    durability != crate::kernel::graph::Durability::Exit || has_interrupt
+    durability != crate::application::graph::Durability::Exit || has_interrupt
 }
 
 /// Whether the terminal checkpoint should be persisted.
 pub(crate) fn should_save_terminal(
-    durability: crate::kernel::graph::Durability,
+    durability: crate::application::graph::Durability,
     has_thread: bool,
 ) -> bool {
-    durability == crate::kernel::graph::Durability::Exit && has_thread
+    durability == crate::application::graph::Durability::Exit && has_thread
 }
 
 /// Interrupt raised by an `interrupt_before` hook and its stream event.

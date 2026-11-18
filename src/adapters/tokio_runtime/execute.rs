@@ -9,11 +9,11 @@ use super::super::BoxNodeFuture;
 use super::super::context::AsyncContext;
 use super::{AsyncBackend, AsyncCompiledGraph, AsyncRunInfo, run_with_idle_timeout};
 use crate::RunConfig;
+use crate::application::executor::StartInput;
+use crate::application::executor::outcome::{TaskFailure, TaskOutcome, TaskResult};
 use crate::kernel::cache::CachedOutput;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
-use crate::kernel::executor::StartInput;
-use crate::kernel::executor::outcome::{TaskFailure, TaskOutcome, TaskResult};
 use crate::kernel::node::Task;
 use crate::kernel::state::{State, state_to_values, values_to_state};
 use crate::kernel::stream::StreamChunk;
@@ -243,20 +243,21 @@ impl<S: State> AsyncCompiledGraph<S> {
             writer,
             run: &run,
         };
-        let run_context = crate::kernel::context::run_context(
+        let run_context = crate::application::context::run_context(
             run.thread_id.clone(),
             run.namespace.clone(),
             run.store.clone(),
             run.context.clone(),
         );
         let mut adapt = |chunk| sink(chunk);
-        let future =
-            crate::kernel::executor::pregel::run_loop(&backend, start, config, &mut adapt, emit);
-        crate::kernel::context::with_async_run(run_context, future).await
+        let future = crate::application::executor::pregel::run_loop(
+            &backend, start, config, &mut adapt, emit,
+        );
+        crate::application::context::with_async_run(run_context, future).await
     }
 
     pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        crate::kernel::executor::scheduling::entry_tasks(&self.entry, state)
+        crate::application::executor::scheduling::entry_tasks(&self.entry, state)
     }
 
     pub(crate) async fn run_task(
@@ -370,11 +371,11 @@ impl<S: State> AsyncCompiledGraph<S> {
                 run.context.clone(),
                 run.collector.clone(),
             );
-            let task_ops: std::sync::Arc<dyn crate::kernel::context::AsyncTaskOps> =
+            let task_ops: std::sync::Arc<dyn crate::application::context::AsyncTaskOps> =
                 std::sync::Arc::new(context.clone());
-            let future: BoxNodeFuture = Box::pin(crate::kernel::context::with_async_task(
+            let future: BoxNodeFuture = Box::pin(crate::application::context::with_async_task(
                 task_ops,
-                crate::kernel::context::with_async_node(
+                crate::application::context::with_async_node(
                     task.node.clone(),
                     Some(task.id.clone()),
                     (node.as_ref())(input.clone(), context.clone()),

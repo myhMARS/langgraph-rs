@@ -185,7 +185,7 @@ impl PyTask {
         value.to_string().hash(&mut hasher);
         let key = format!("{:x}", hasher.finish());
         let cache_key = format!("{}:{}", self.name, key);
-        if let Some(cached) = crate::kernel::context::task_result_get(&cache_key) {
+        if let Some(cached) = crate::application::context::task_result_get(&cache_key) {
             return value_to_py(py, &cached);
         }
         let store = crate::get_store();
@@ -199,7 +199,7 @@ impl PyTask {
         }
         let result = self.function.call1(py, (input,))?;
         let stored = py_to_value(result.bind(py))?;
-        crate::kernel::context::task_result_put(cache_key, stored.clone());
+        crate::application::context::task_result_put(cache_key, stored.clone());
         if let Some(store) = store {
             store
                 .put(&namespace, &key, stored)

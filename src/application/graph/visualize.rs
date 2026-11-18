@@ -344,7 +344,7 @@ pub(crate) fn dot_to_png(dot: &str) -> crate::kernel::error::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::graph::StateGraph;
+    use crate::application::graph::StateGraph;
     use crate::kernel::node::{NodeOutput, PathMap, Route};
     use crate::kernel::state::StateSchema;
 
@@ -376,7 +376,9 @@ mod tests {
                 "work",
                 RetryPolicy::new(3).with_max_backoff(std::time::Duration::from_millis(1)),
             )
-            .compile_with(crate::kernel::graph::CompileOptions::new().interrupt_before(["work"]))
+            .compile_with(
+                crate::application::graph::CompileOptions::new().interrupt_before(["work"]),
+            )
             .unwrap();
 
         let mermaid = graph.to_mermaid();

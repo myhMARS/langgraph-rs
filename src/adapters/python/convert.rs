@@ -474,8 +474,8 @@ pub(crate) use stream_convert::*;
 pub(crate) fn config_from_py(
     _py: Python<'_>,
     value: Option<&Bound<'_, PyAny>>,
-) -> PyResult<(Option<String>, crate::kernel::graph::RunConfig)> {
-    let mut config = crate::kernel::graph::RunConfig::new();
+) -> PyResult<(Option<String>, crate::application::graph::RunConfig)> {
+    let mut config = crate::application::graph::RunConfig::new();
     let Some(value) = value else {
         return Ok((None, config));
     };

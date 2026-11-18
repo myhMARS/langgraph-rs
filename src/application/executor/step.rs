@@ -11,7 +11,7 @@ use crate::kernel::state::{State, StateSchema};
 pub(crate) struct StepStart {
     pub(crate) iteration: usize,
     pub(crate) paused: Option<Task>,
-    pub(crate) guard: crate::kernel::context::StepGuard,
+    pub(crate) guard: crate::application::context::StepGuard,
 }
 
 /// Apply abort/recursion/step-context/managed-value handling and find an
@@ -32,11 +32,17 @@ pub(crate) fn begin_step<S: State>(
     if control.is_some_and(RunControl::is_aborted) {
         return Err(Error::other("run aborted by RunControl"));
     }
-    crate::kernel::executor::apply_managed_values(schema, values, state, step, recursion_limit)?;
+    crate::application::executor::apply_managed_values(
+        schema,
+        values,
+        state,
+        step,
+        recursion_limit,
+    )?;
     if iteration >= recursion_limit {
         return Err(Error::RecursionLimit(recursion_limit));
     }
-    let guard = crate::kernel::context::install_step(step, recursion_limit);
+    let guard = crate::application::context::install_step(step, recursion_limit);
     let paused = if skip_interrupt_before {
         None
     } else {
@@ -51,9 +57,9 @@ pub(crate) fn begin_step<S: State>(
 
 /// Guards and shared buffers that scope one run.
 pub(crate) struct RunSetup {
-    _run: crate::kernel::context::RunGuard,
+    _run: crate::application::context::RunGuard,
     collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>,
-    _collector: Option<crate::kernel::context::CollectorGuard>,
+    _collector: Option<crate::application::context::CollectorGuard>,
 }
 
 impl RunSetup {
@@ -75,19 +81,19 @@ pub(crate) fn begin_run(
     collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::kernel::stream::StreamChunk>>>>,
 ) -> Result<RunSetup> {
     // A new run must not inherit a parent command left by an unconsumed goto_parent.
-    crate::kernel::context::clear_parent_command();
+    crate::application::context::clear_parent_command();
     if let (Some(schema), Some(context)) = (context_schema, context.as_ref()) {
-        crate::kernel::context::validate_response(context, Some(schema)).map_err(|error| {
+        crate::application::context::validate_response(context, Some(schema)).map_err(|error| {
             Error::validation(format!("context does not match context_schema: {error}"))
         })?;
     }
-    let run = crate::kernel::context::install_run(thread_id, namespace, store, context);
+    let run = crate::application::context::install_run(thread_id, namespace, store, context);
     let collector = collector.or_else(|| {
         stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
     });
-    let collector_guard = collector
-        .as_ref()
-        .map(|collector| crate::kernel::context::install_subgraph_collector(collector.clone()));
+    let collector_guard = collector.as_ref().map(|collector| {
+        crate::application::context::install_subgraph_collector(collector.clone())
+    });
     Ok(RunSetup {
         _run: run,
         collector,

@@ -3,10 +3,10 @@
 use serde_json::Value;
 
 use super::*;
+use crate::application::executor::{self, StartInput};
+use crate::application::graph::options::RunConfig;
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
-use crate::kernel::executor::{self, StartInput};
-use crate::kernel::graph::options::RunConfig;
 use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values};
 use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;

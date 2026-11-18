@@ -195,7 +195,7 @@ fn interrupt(
         Some(schema) => Some(py_to_value(schema)?),
         None => None,
     };
-    match crate::kernel::context::interrupt_with_schema(value, response_schema) {
+    match crate::application::context::interrupt_with_schema(value, response_schema) {
         Ok(resume) => value_to_py(py, &resume),
         Err(crate::Error::Interrupt(interrupt)) => {
             let payload = value_to_py(py, &interrupt.value)?;

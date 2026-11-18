@@ -2,10 +2,10 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::CompiledGraph;
+use crate::application::executor::scheduling::{collect_next_nodes, dedupe, send_task};
+use crate::application::graph::StateSnapshot;
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Result};
-use crate::kernel::executor::scheduling::{collect_next_nodes, dedupe, send_task};
-use crate::kernel::graph::StateSnapshot;
 use crate::kernel::node::Task;
 use crate::kernel::state::ChannelUpdate;
 use crate::kernel::state::apply_updates;

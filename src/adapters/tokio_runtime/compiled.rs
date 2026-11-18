@@ -8,11 +8,11 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use super::{AsyncNodeFn, BoxNodeFuture};
+use crate::application::executor::StartInput;
+use crate::application::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::{Error, Result};
-use crate::kernel::executor::StartInput;
-use crate::kernel::graph::{Entry, RunConfig, StateSnapshot};
 use crate::kernel::node::ConditionalEdge;
 use crate::kernel::ports::{AsyncCheckpointer, Checkpointer, TraceSink};
 use crate::kernel::retry::RetryPolicy;
@@ -106,8 +106,8 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Render the graph as a Mermaid `graph TD` diagram.
     pub fn to_mermaid(&self) -> String {
-        crate::kernel::graph::visualize::render_mermaid(
-            crate::kernel::graph::visualize::GraphLayout {
+        crate::application::graph::visualize::render_mermaid(
+            crate::application::graph::visualize::GraphLayout {
                 nodes: self.nodes.keys().map(String::as_str).collect(),
                 edges: &self.edges,
                 conditional: &self.conditional,
@@ -122,21 +122,23 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Render the graph as a Graphviz DOT document.
     pub fn to_dot(&self) -> String {
-        crate::kernel::graph::visualize::render_dot(crate::kernel::graph::visualize::GraphLayout {
-            nodes: self.nodes.keys().map(String::as_str).collect(),
-            edges: &self.edges,
-            conditional: &self.conditional,
-            entry: &self.entry,
-            retries: &self.retries,
-            error_edges: &self.error_edges,
-            interrupt_before: &self.interrupt_before,
-            interrupt_after: &self.interrupt_after,
-        })
+        crate::application::graph::visualize::render_dot(
+            crate::application::graph::visualize::GraphLayout {
+                nodes: self.nodes.keys().map(String::as_str).collect(),
+                edges: &self.edges,
+                conditional: &self.conditional,
+                entry: &self.entry,
+                retries: &self.retries,
+                error_edges: &self.error_edges,
+                interrupt_before: &self.interrupt_before,
+                interrupt_after: &self.interrupt_after,
+            },
+        )
     }
 
     /// Render the graph as a PNG image using Graphviz `dot`.
     pub fn draw_png(&self) -> Result<Vec<u8>> {
-        crate::kernel::graph::visualize::dot_to_png(&self.to_dot())
+        crate::application::graph::visualize::dot_to_png(&self.to_dot())
     }
 
     /// Graph name configured with `with_name`.

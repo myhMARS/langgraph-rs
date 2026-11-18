@@ -6,10 +6,10 @@
 
 use serde_json::Value;
 
+use crate::application::executor::outcome::TaskOutcome;
+use crate::application::graph::CompiledGraph;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::Result;
-use crate::kernel::executor::outcome::TaskOutcome;
-use crate::kernel::graph::CompiledGraph;
 use crate::kernel::node::{ConditionalEdge, Task};
 use crate::kernel::state::{State, StateSchema};
 
@@ -54,7 +54,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 /// Sync backend: scoped OS threads and a blocking checkpointer.
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
-    pub(crate) writer: Option<&'a crate::kernel::executor::checkpointing::CheckpointWriter>,
+    pub(crate) writer: Option<&'a crate::application::executor::checkpointing::CheckpointWriter>,
     pub(crate) max_concurrency: Option<usize>,
 }
 
@@ -155,7 +155,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         let Some(checkpointer) = self.graph.checkpointer() else {
             return Ok(());
         };
-        crate::kernel::executor::checkpointing::persist_checkpoint(
+        crate::application::executor::checkpointing::persist_checkpoint(
             checkpointer.as_ref(),
             checkpoint,
             self.writer,
@@ -186,10 +186,10 @@ impl<'a, S: State> super::outcome::OutcomeGraph for SyncBackend<'a, S> {
         replaces: Vec<(String, Value)>,
         goto: Vec<String>,
     ) {
-        crate::kernel::context::record_parent_command(updates, replaces, goto);
+        crate::application::context::record_parent_command(updates, replaces, goto);
     }
 
     fn has_parent_command(&self) -> bool {
-        crate::kernel::context::has_parent_command()
+        crate::application::context::has_parent_command()
     }
 }

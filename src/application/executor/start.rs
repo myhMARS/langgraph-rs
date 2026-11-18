@@ -2,8 +2,8 @@
 
 use serde_json::{Map, Value};
 
+use crate::application::executor::{StartInput, apply_pending_writes};
 use crate::kernel::error::Result;
-use crate::kernel::executor::{StartInput, apply_pending_writes};
 use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
 
 /// Resolved channel values, state and tasks for a run start.
@@ -70,7 +70,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
             // A fresh `Command(goto=...)` writes branch targets only; LangGraph does not
             // write the START trigger, so the entry points are not scheduled.
             let mut tasks: Vec<crate::kernel::node::Task> = Vec::new();
-            for node in crate::kernel::executor::scheduling::dedupe(nodes) {
+            for node in crate::application::executor::scheduling::dedupe(nodes) {
                 if node == crate::END {
                     continue;
                 }
@@ -79,7 +79,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
                 }
             }
             for send in sends {
-                tasks.push(crate::kernel::executor::scheduling::send_task(
+                tasks.push(crate::application::executor::scheduling::send_task(
                     "<command>",
                     send,
                 )?);
@@ -98,7 +98,7 @@ pub(crate) fn resolve_resume_start<S: State>(
     goto: &[String],
     schema: &StateSchema,
 ) -> Result<ResumeStart<S>> {
-    crate::kernel::context::load_task_results(&checkpoint.task_results);
+    crate::application::context::load_task_results(&checkpoint.task_results);
     let mut values = checkpoint.values.clone();
     let mut finish_writes = Vec::new();
     let mut regular_writes = Vec::new();
@@ -126,7 +126,7 @@ pub(crate) fn resolve_resume_start<S: State>(
     }
     let state = values_to_state::<S>(&values)?;
     let mut tasks =
-        crate::kernel::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
+        crate::application::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
     for node in goto {
         if node == crate::END {
             continue;
