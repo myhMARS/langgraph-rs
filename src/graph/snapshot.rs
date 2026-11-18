@@ -110,10 +110,9 @@ impl<S: State> StateSnapshot<S> {
             .map(|task| StateTask {
                 id: task.id.clone(),
                 node: task.node.clone(),
-                state: task
-                    .input
-                    .as_ref()
-                    .map(|input| Value::Object(input.clone())),
+                // LangGraph only fills `state` for subgraph tasks; `embed_subgraph_states`
+                // replaces it with the child snapshot when applicable.
+                state: None,
                 error: task.error.clone(),
                 resume: task.resume.clone(),
                 result: checkpoint.task_results.get(&task.id).cloned(),
