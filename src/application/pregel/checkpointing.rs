@@ -128,10 +128,7 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
             || (key.len() >= 32 && key.chars().all(|ch| ch.is_ascii_hexdigit() || ch == '-'))
     };
     let interrupt_map = match resume {
-        Some(Value::Object(map)) if map.keys().any(|key| looks_like_id(key)) => Some(map.clone()),
-        Some(Value::Object(map))
-            if checkpoint.interrupts.len() > 1 && map.keys().all(|key| looks_like_id(key)) =>
-        {
+        Some(Value::Object(map)) if !map.is_empty() && map.keys().all(|key| looks_like_id(key)) => {
             Some(map.clone())
         }
         _ => None,

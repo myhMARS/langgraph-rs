@@ -1,6 +1,5 @@
 //! Adapters (hexagonal architecture): concrete implementations of kernel ports.
 
-pub mod interop;
 pub mod memory;
 
 #[cfg(feature = "async")]

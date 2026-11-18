@@ -99,7 +99,7 @@ pub mod application;
 pub mod config;
 pub mod constants;
 pub mod domain;
-pub use adapters::interop;
+pub use domain::interop;
 pub mod managed;
 pub mod runtime;
 pub mod types;

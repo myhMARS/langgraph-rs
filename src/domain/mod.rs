@@ -10,6 +10,7 @@ pub use channel as channels;
 pub mod checkpoint;
 pub mod command;
 pub mod error;
+pub mod interop;
 pub use error as errors;
 pub mod node;
 pub mod plugin;
