@@ -161,13 +161,22 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut parent,
             &mut previous_checkpoint,
             &values,
-            &tasks,
+            &mut tasks,
             raw_input.as_ref(),
             checkpoint_emit,
             sink,
         )
         .await?;
     }
+    // Task ids are hashed from the checkpoint the tick starts from (LangGraph v4 scheme).
+    crate::pregel::scheduling::assign_v4_ids(
+        &mut tasks,
+        previous_checkpoint
+            .as_ref()
+            .map(|checkpoint| checkpoint.id.as_str()),
+        &namespace,
+        step,
+    );
     let mut pending_deferred: Vec<Task> = resume_deferred;
     let mut finish_updates: HashMap<String, Value> = resume_finish
         .into_iter()
@@ -208,6 +217,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     task
                 })
                 .collect();
+
             crate::pregel::checkpointing::persist_pause(
                 backend,
                 &mut previous_checkpoint,
@@ -359,6 +369,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 // Consume named barriers here too; the single-interrupt path returns
                 // before the shared post-step consumption.
                 step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
+
                 crate::pregel::checkpointing::persist_pause(
                     backend,
                     &mut previous_checkpoint,
@@ -587,6 +598,16 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         }
 
         step += 1;
+        // Next tick's task ids hash the checkpoint they will be stored in.
+        let next_checkpoint_id = thread_id
+            .as_deref()
+            .map(|thread| crate::checkpoint::new_checkpoint_id(thread, step));
+        crate::pregel::scheduling::assign_v4_ids(
+            &mut next_tasks,
+            next_checkpoint_id.as_deref(),
+            &namespace,
+            step,
+        );
         let interrupt_after =
             interrupt_after_node(&executed, |node| backend.interrupts_after(node)).map(|node| {
                 let mut interrupt = Interrupt::new(node, Value::Null);
@@ -616,6 +637,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 pending_deferred.clone(),
                 &executed,
                 "loop",
+                next_checkpoint_id.clone(),
                 checkpoint_emit,
                 sink,
             )
@@ -665,6 +687,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     pending_deferred.clone(),
                     &executed,
                     "loop",
+                    None,
                     checkpoint_emit,
                     sink,
                 )

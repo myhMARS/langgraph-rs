@@ -281,13 +281,14 @@ pub(crate) async fn save_checkpoint_via<
     deferred: Vec<Task>,
     executed: &[String],
     source: &str,
+    id: Option<String>,
     emit: bool,
     sink: &mut F,
 ) -> Result<()> {
     let Some(thread_id) = thread_id else {
         return Ok(());
     };
-    let id = new_checkpoint_id(thread_id, step);
+    let id = id.unwrap_or_else(|| new_checkpoint_id(thread_id, step));
     let persisted_values = backend.schema().persisted_values(values);
     let checkpoint = build_checkpoint(CheckpointDraft {
         thread_id,
@@ -326,7 +327,7 @@ pub(crate) async fn save_fresh_start<S, B, F>(
     parent: &mut Option<String>,
     previous: &mut Option<Checkpoint>,
     values: &Map<String, Value>,
-    tasks: &[Task],
+    tasks: &mut [Task],
     raw_input: Option<&Map<String, Value>>,
     emit: bool,
     sink: &mut F,
@@ -366,11 +367,16 @@ where
             Vec::new(),
             &[],
             "input",
+            None,
             emit,
             sink,
         )
         .await?;
         base_step += 1;
+    }
+    let post_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
+    if let Some(id) = post_id.as_deref() {
+        crate::pregel::scheduling::assign_v4_ids(tasks, Some(id), namespace, base_step);
     }
     save_checkpoint_via(
         backend,
@@ -388,6 +394,7 @@ where
         Vec::new(),
         &[],
         "loop",
+        post_id,
         emit,
         sink,
     )

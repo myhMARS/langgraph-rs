@@ -193,8 +193,9 @@ pub(crate) fn schedule_next_tasks<'a>(
         }
         next_tasks.push(Task::new(node));
     }
-    for (source, send) in router_sends {
-        let task = send_task(&source, send)?;
+    for (index, (source, send)) in router_sends.into_iter().enumerate() {
+        let mut task = send_task(&source, send)?;
+        task.push_index = Some(index);
         if !node_exists(&task.node) {
             return Err(Error::routing(
                 &source,
@@ -243,10 +244,36 @@ pub(crate) fn entry_tasks<S: State>(
                 .filter(|node| node != END)
                 .map(Task::new)
                 .collect();
-            for send in sends {
-                tasks.push(send_task(START, send)?);
+            for (index, send) in sends.into_iter().enumerate() {
+                let mut task = send_task(START, send)?;
+                task.push_index = Some(index);
+                tasks.push(task);
             }
             Ok(tasks)
+        }
+    }
+}
+
+/// Rewrite task ids with LangGraph's v4 scheme so cross-engine ids line up.
+pub(crate) fn assign_v4_ids(
+    tasks: &mut [crate::_internal::node::Task],
+    parent_checkpoint_id: Option<&str>,
+    namespace: &str,
+    step: usize,
+) {
+    let Some(parent) = parent_checkpoint_id else {
+        return;
+    };
+    for task in tasks.iter_mut() {
+        let node_ns = if namespace.is_empty() {
+            task.node.clone()
+        } else {
+            format!("{namespace}|{}", task.node)
+        };
+        if let Some(id) =
+            crate::checkpoint::v4_task_id(parent, &node_ns, &task.node, step, task.push_index)
+        {
+            task.id = id;
         }
     }
 }

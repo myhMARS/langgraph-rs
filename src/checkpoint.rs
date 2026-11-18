@@ -126,8 +126,82 @@ static CHECKPOINT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Generate a checkpoint id for a thread and superstep.
 pub(crate) fn new_checkpoint_id(thread_id: &str, step: usize) -> String {
+    // LangGraph checkpoint ids are UUID-shaped hex: `bytes.fromhex(id.replace("-", ""))`
+    // must yield 16 bytes, and v4 task ids hash those bytes.
     let sequence = CHECKPOINT_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{thread_id}-step{step}-{sequence:06}")
+    let millis = now_millis();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use std::hash::{Hash, Hasher};
+    thread_id.hash(&mut hasher);
+    step.hash(&mut hasher);
+    sequence.hash(&mut hasher);
+    let tail = hasher.finish();
+    let hex = format!(
+        "{:012x}{:08x}{:08x}{:04x}",
+        millis & 0xffff_ffff_ffff,
+        sequence & 0xffff_ffff,
+        step & 0xffff,
+        tail & 0xffff
+    );
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// LangGraph v4 task id: `xxh3_128(checkpoint_id_bytes + ns + step + node + kind + parts)`.
+///
+/// `namespace` is the task's checkpoint namespace including the node (`parent_ns|node` or
+/// just `node`), matching `prepare_next_tasks` in `langgraph/pregel/_algo.py`.
+pub(crate) fn v4_task_id(
+    parent_checkpoint_id: &str,
+    namespace: &str,
+    node: &str,
+    step: usize,
+    push_index: Option<usize>,
+) -> Option<String> {
+    let cleaned: String = parent_checkpoint_id
+        .chars()
+        .filter(|ch| *ch != '-')
+        .collect();
+    if cleaned.len() != 32 || !cleaned.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(32);
+    let digits = cleaned.as_bytes();
+    let mut index = 0;
+    while index + 1 < digits.len() {
+        let pair = std::str::from_utf8(&digits[index..index + 2]).ok()?;
+        bytes.push(u8::from_str_radix(pair, 16).ok()?);
+        index += 2;
+    }
+    let mut payload = bytes;
+    payload.extend_from_slice(namespace.as_bytes());
+    payload.extend_from_slice(step.to_string().as_bytes());
+    payload.extend_from_slice(node.as_bytes());
+    match push_index {
+        Some(position) => {
+            payload.extend_from_slice(b"__pregel_push");
+            payload.extend_from_slice(position.to_string().as_bytes());
+        }
+        None => {
+            payload.extend_from_slice(b"__pregel_pull");
+            payload.extend_from_slice(format!("branch:to:{node}").as_bytes());
+        }
+    }
+    let digest = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(&payload));
+    Some(format!(
+        "{}-{}-{}-{}-{}",
+        &digest[0..8],
+        &digest[8..12],
+        &digest[12..16],
+        &digest[16..20],
+        &digest[20..32]
+    ))
 }
 
 /// Current wall clock time in milliseconds.
@@ -290,10 +364,29 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_ids_are_unique() {
+    fn v4_task_ids_match_langgraph() {
+        // Values captured from Python LangGraph 1.2.22 for a two-step graph: the `b` task
+        // stored in the checkpoint after `a` (metadata step 0, so task step 1... 2 for the
+        // next tick) and the `a` task stored in the post-input checkpoint.
+        assert_eq!(
+            v4_task_id("1f1e35d4-e33b-6e8d-8001-25c431728cdf", "b", "b", 2, None),
+            Some("62d6e473-cf27-c2a6-3df4-4c2fde5aa4a8".to_string())
+        );
+        assert_eq!(
+            v4_task_id("1f1e35d4-e33b-6e8c-8000-ef5e29b5e742", "a", "a", 1, None),
+            Some("0df6e4c8-0330-3c00-e775-77561adb21d1".to_string())
+        );
+    }
+
+    #[test]
+    fn checkpoint_ids_are_unique_and_uuid_shaped() {
         let first = new_checkpoint_id("thread", 0);
         let second = new_checkpoint_id("thread", 0);
         assert_ne!(first, second);
-        assert!(first.starts_with("thread-step0-"));
+        // LangGraph hashes the un-hexed id, so it must be 32 hex digits in UUID form.
+        let cleaned: String = first.chars().filter(|ch| *ch != '-').collect();
+        assert_eq!(cleaned.len(), 32);
+        assert!(cleaned.chars().all(|ch| ch.is_ascii_hexdigit()));
+        assert_eq!(first.len(), 36);
     }
 }

@@ -156,6 +156,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                             timeout_millis: None,
                             interrupted: false,
                             triggers: Vec::new(),
+                            push_index: None,
                         });
                     }
                     Some(_) => {}
@@ -319,6 +320,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         timeout_millis: send.timeout_millis,
                         interrupted: false,
                         triggers: Vec::new(),
+                        push_index: None,
                     });
                 }
             }

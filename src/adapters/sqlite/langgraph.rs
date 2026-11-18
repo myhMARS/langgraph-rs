@@ -478,6 +478,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
             timeout_millis: None,
             interrupted: !checkpoint.interrupts.is_empty(),
             triggers: Vec::new(),
+            push_index: None,
         });
     }
     // Attach node/task identity to interrupts decoded from `__interrupt__` payloads so
