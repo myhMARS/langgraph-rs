@@ -421,3 +421,48 @@ fn goto_sibling_does_not_also_run_static_targets_after_resume() {
         .unwrap();
     assert_eq!(output.log, vec!["ok", "ask", "detour"]);
 }
+
+#[test]
+fn exit_durability_does_not_replay_consumed_routes() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["ok"])))
+        })
+        .add_node("ask", |_state: &RouteState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new().update("log", json!(["ask"])))
+        })
+        .add_node("down", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["down"])))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .add_edge("ok", "down")
+        .set_finish_point("down")
+        .set_finish_point("ask")
+        .compile_with(
+            CompileOptions::new()
+                .with_checkpointer(saver)
+                .interrupt_before(["down"]),
+        )
+        .unwrap();
+    let config = RunConfig::new()
+        .with_thread("exit-routes")
+        .with_durability(langgraph_rs::Durability::Exit);
+
+    let error = graph.run(&RouteState::default(), &config).unwrap_err();
+    assert!(error.is_interrupt());
+
+    let snapshot = graph.get_state("exit-routes").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "resumed" });
+    let error = graph
+        .resume_with_config("exit-routes", resume, &config)
+        .unwrap_err();
+    assert!(error.is_interrupt(), "the static hook pauses before `down`");
+
+    let output = graph
+        .resume_with_config("exit-routes", json!("continue"), &config)
+        .unwrap();
+    assert_eq!(output.log, vec!["ok", "ask", "down"]);
+}
