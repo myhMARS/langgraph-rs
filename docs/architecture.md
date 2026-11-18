@@ -29,7 +29,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::graph::snapshot` | `StateSnapshot`, the typed view of a checkpoint. |
 | `kernel::graph::visualize` | Mermaid renderer shared by the sync and async compiled graphs (`to_mermaid`). |
 | `kernel::cache` | `NodeCache` port, `CachedOutput`, `CachePolicy` (TTL + custom key) for node-level caching. |
-| `kernel::store` | `BaseStore` port, `StoreItem` / `Namespace`, `Runtime` and the thread-local run context (`get_store`, `current_context`, `current_runtime`). |
+| `kernel::store` | `BaseStore` port, `StoreItem` / `Namespace` (`src/store.rs`); the thread-local run context (`get_store`, `current_context`, `current_runtime`) lives in `src/runtime/context_run.rs`. |
 | `kernel::timeout` | `TimeoutPolicy` (`run_timeout`, `idle_timeout`) attached per node; managed values (`remaining_steps`, `is_last_step`) live in the run context. |
 | `kernel::executor::pregel` | `src/pregel/run_loop.rs` (the only Pregel loop), with `fresh.rs` for seeding, `pause.rs` for interrupts and `checkpointing.rs` for persistence. `PregelBackend`, `SyncBackend` are in `src/pregel/backend.rs`; `AsyncBackend` lives in `src/adapters/tokio_runtime/compiled.rs`. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
