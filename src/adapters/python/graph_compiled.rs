@@ -449,41 +449,7 @@ impl PyCompiledGraph {
             let Some((root, subgraphs)) = states else {
                 return Ok(py.None());
             };
-            let root_py = snapshot_to_py(py, &root)?;
-            if let Ok(root_snapshot) = root_py
-                .bind(py)
-                .extract::<PyRef<crate::adapters::python::types::PyStateSnapshot>>()
-                && let Ok(Some(tasks)) = root_snapshot.dict(py).get_item("tasks")
-                && let Ok(tasks) = tasks.cast::<PyList>()
-            {
-                for task in tasks {
-                    let Ok(task_dict) = task.cast::<PyDict>() else {
-                        continue;
-                    };
-                    let Ok(Some(node)) = task_dict.get_item("node") else {
-                        continue;
-                    };
-                    let Ok(node) = node.extract::<String>() else {
-                        continue;
-                    };
-                    let child = subgraphs.iter().find(|snapshot| {
-                        snapshot
-                            .checkpoint_ns
-                            .split('|')
-                            .next_back()
-                            .is_some_and(|segment| {
-                                segment == node
-                                    || segment
-                                        .strip_prefix(&node)
-                                        .is_some_and(|rest| rest.starts_with(':'))
-                            })
-                    });
-                    if let Some(child) = child {
-                        task_dict.set_item("state", snapshot_to_py(py, child)?)?;
-                    }
-                }
-            }
-            return Ok(root_py);
+            return graph_support::embed_subgraph_states(py, &root, &subgraphs);
         }
         let snapshot = match (
             checkpoint_ns.as_deref(),

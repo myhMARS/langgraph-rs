@@ -250,31 +250,37 @@ impl<S: State> AsyncCompiledGraph<S> {
         } else {
             None
         };
-        let next = match as_node.or(inferred.as_deref()) {
-            Some(node) => {
-                if !self.nodes.contains_key(node) {
-                    return Err(Error::validation(format!(
-                        "update_state: `{node}` is not a registered node"
-                    )));
+        let next = if as_node == Some(crate::END) {
+            Vec::new()
+        } else if matches!(as_node, Some(crate::START) | Some("__input__")) {
+            self.entry_tasks(&state)?
+        } else {
+            match as_node.or(inferred.as_deref()) {
+                Some(node) => {
+                    if !self.nodes.contains_key(node) {
+                        return Err(Error::validation(format!(
+                            "update_state: `{node}` is not a registered node"
+                        )));
+                    }
+                    let executed = vec![node.to_string()];
+                    let (targets, router_sends) = collect_next_nodes(
+                        &state,
+                        &executed,
+                        &HashSet::new(),
+                        &[],
+                        |candidate| self.edges_of(candidate),
+                        |candidate| self.conditional_of(candidate),
+                        |candidate| self.nodes.contains_key(candidate),
+                        |candidate| self.destinations_of(candidate),
+                    )?;
+                    let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
+                    for (source, send) in router_sends {
+                        tasks.push(send_task(&source, send)?);
+                    }
+                    tasks
                 }
-                let executed = vec![node.to_string()];
-                let (targets, router_sends) = collect_next_nodes(
-                    &state,
-                    &executed,
-                    &HashSet::new(),
-                    &[],
-                    |candidate| self.edges_of(candidate),
-                    |candidate| self.conditional_of(candidate),
-                    |candidate| self.nodes.contains_key(candidate),
-                    |candidate| self.destinations_of(candidate),
-                )?;
-                let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
-                for (source, send) in router_sends {
-                    tasks.push(send_task(&source, send)?);
-                }
-                tasks
+                None => checkpoint.next.clone(),
             }
-            None => checkpoint.next.clone(),
         };
         let id = new_checkpoint_id(thread_id, checkpoint.step);
         let updated = Checkpoint {

@@ -49,6 +49,59 @@ pub(crate) fn snapshot_to_py_with_step(
     Ok(value)
 }
 
+/// Attach child subgraph snapshots to the root snapshot's tasks (`subgraphs=True`).
+///
+/// LangGraph keys a child namespace by task id (`f"{parent_ns}:{task_id}"`), so the match
+/// uses the pending task's id when available and falls back to the node name.
+pub(crate) fn embed_subgraph_states(
+    py: Python<'_>,
+    root: &crate::StateSnapshot<crate::JsonState>,
+    subgraphs: &[crate::StateSnapshot<crate::JsonState>],
+) -> PyResult<Py<PyAny>> {
+    let root_py = snapshot_to_py(py, root)?;
+    if let Ok(root_snapshot) = root_py
+        .bind(py)
+        .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
+        && let Ok(Some(tasks)) = root_snapshot.dict(py).get_item("tasks")
+        && let Ok(tasks) = tasks.cast::<pyo3::types::PyList>()
+    {
+        for task in tasks {
+            let Ok(task_dict) = task.cast::<pyo3::types::PyDict>() else {
+                continue;
+            };
+            let Ok(Some(node)) = task_dict.get_item("node") else {
+                continue;
+            };
+            let Ok(node) = node.extract::<String>() else {
+                continue;
+            };
+            let task_id = task_dict
+                .get_item("id")
+                .ok()
+                .flatten()
+                .and_then(|id| id.extract::<String>().ok());
+            let child = subgraphs.iter().find(|snapshot| {
+                let Some(segment) = snapshot.checkpoint_ns.split('|').next_back() else {
+                    return false;
+                };
+                if let Some(task_id) = task_id.as_deref()
+                    && let Some((segment_task, segment_id)) = segment.rsplit_once(':')
+                {
+                    return segment_id == task_id && segment_task == node;
+                }
+                segment == node
+                    || segment
+                        .strip_prefix(&node)
+                        .is_some_and(|rest| rest.starts_with(':'))
+            });
+            if let Some(child) = child {
+                task_dict.set_item("state", snapshot_to_py(py, child)?)?;
+            }
+        }
+    }
+    Ok(root_py)
+}
+
 /// Graph description object returned by `CompiledGraph.get_graph()`.
 #[pyclass(name = "Graph")]
 pub struct PyGraph {

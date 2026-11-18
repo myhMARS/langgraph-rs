@@ -112,6 +112,37 @@ fn update_state_recomputes_next_tasks_from_as_node() {
 }
 
 #[test]
+fn update_state_supports_end_and_input_as_node() {
+    let graph = two_node_graph();
+    graph
+        .run(
+            &ModelState::default(),
+            &RunConfig::new().with_thread("model-update-end"),
+        )
+        .unwrap();
+
+    // `as_node=END` records the update as coming from the end: nothing is scheduled.
+    let snapshot = graph
+        .update_state(
+            "model-update-end",
+            [("value", json!(3))],
+            Some(langgraph_rs::END),
+        )
+        .unwrap();
+    assert!(snapshot.next.is_empty());
+
+    // `as_node=START` (or `__input__`) replays the entry points.
+    let snapshot = graph
+        .update_state(
+            "model-update-end",
+            [("value", json!(4))],
+            Some(langgraph_rs::START),
+        )
+        .unwrap();
+    assert_eq!(snapshot.next, vec!["a".to_string()]);
+}
+
+#[test]
 fn update_state_infers_as_node_in_a_multi_node_graph() {
     let graph = two_node_graph();
     graph

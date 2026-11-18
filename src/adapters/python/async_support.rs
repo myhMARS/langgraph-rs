@@ -1,6 +1,6 @@
 //! Async Python binding helpers (timeouts, snapshot steps, subgraph embedding).
 
-use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::types::PyAny;
 
 use super::*;
 use crate::adapters::python::convert::snapshot_to_py;
@@ -91,44 +91,11 @@ pub(crate) fn run_timed_awaitable<'py>(
     loop_object.call_method1("run_until_complete", (value,))
 }
 
+/// Attach child subgraph snapshots to the root snapshot (task-id aware).
 pub(crate) fn embed_subgraph_states(
     py: Python<'_>,
     root: &crate::StateSnapshot<JsonState>,
     subgraphs: &[crate::StateSnapshot<JsonState>],
 ) -> PyResult<Py<PyAny>> {
-    let root_py = snapshot_to_py(py, root)?;
-    if let Ok(root_snapshot) = root_py
-        .bind(py)
-        .extract::<PyRef<crate::adapters::python::types::PyStateSnapshot>>()
-        && let Ok(Some(tasks)) = root_snapshot.dict(py).get_item("tasks")
-        && let Ok(tasks) = tasks.cast::<PyList>()
-    {
-        for task in tasks {
-            let Ok(task_dict) = task.cast::<PyDict>() else {
-                continue;
-            };
-            let Ok(Some(node)) = task_dict.get_item("node") else {
-                continue;
-            };
-            let Ok(node) = node.extract::<String>() else {
-                continue;
-            };
-            let child = subgraphs.iter().find(|snapshot| {
-                snapshot
-                    .checkpoint_ns
-                    .split('|')
-                    .next_back()
-                    .is_some_and(|segment| {
-                        segment == node
-                            || segment
-                                .strip_prefix(&node)
-                                .is_some_and(|rest| rest.starts_with(':'))
-                    })
-            });
-            if let Some(child) = child {
-                task_dict.set_item("state", snapshot_to_py(py, child)?)?;
-            }
-        }
-    }
-    Ok(root_py)
+    crate::adapters::python::graph::embed_subgraph_states(py, root, subgraphs)
 }

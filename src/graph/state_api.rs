@@ -292,6 +292,12 @@ impl<S: State> CompiledGraph<S> {
         };
         let next = if preserve_next {
             checkpoint.next.clone()
+        } else if as_node == Some(crate::END) {
+            // LangGraph: `as_node=END` records the update as coming from the end, so no
+            // follow-up tasks are scheduled.
+            Vec::new()
+        } else if matches!(as_node, Some(crate::START) | Some("__input__")) {
+            self.entry_tasks(&state)?
         } else {
             match as_node.or(inferred.as_deref()) {
                 Some(node) => {
