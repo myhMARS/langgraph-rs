@@ -26,7 +26,6 @@ use crate::pregel::outcome::{
 };
 use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
 use crate::pregel::{StartInput, start, step};
-use crate::runtime::context;
 
 /// Execute a graph through the shared Pregel loop.
 pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk)>(
@@ -222,7 +221,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         // LangGraph stores the input-merge checkpoint before the first loop tick, so a
         // replay from the raw-input checkpoint gains it too.
         step += 1;
-        save_checkpoint_via(
+        crate::pregel::fresh::write_entry_merge(
             backend,
             thread_id.as_deref(),
             &namespace,
@@ -231,15 +230,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &values,
             &tasks,
             step,
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            "loop",
-            &std::collections::HashMap::new(),
-            None,
             checkpoint_emit,
             sink,
         )
@@ -247,8 +237,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     }
     let mut pause_force_new = false;
     if fresh {
-        context::clear_task_results();
-        let (base_step, persisted) = crate::pregel::checkpointing::save_fresh_start(
+        let (base_step, force_new) = crate::pregel::fresh::open_run(
             backend,
             thread_id.as_deref(),
             &namespace,
@@ -263,10 +252,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             sink,
         )
         .await?;
-        // Exit durability defers this turn's checkpoints; a pause must then be written as a
-        // new checkpoint instead of rewriting the previous turn's.
         step = base_step;
-        pause_force_new = !persisted;
+        pause_force_new = force_new;
     }
     // Task ids are hashed from the checkpoint the tick starts from (LangGraph v4 scheme).
     crate::pregel::scheduling::assign_v4_ids(
