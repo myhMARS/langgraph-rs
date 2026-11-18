@@ -59,6 +59,48 @@ pub struct StateSnapshot<S: State> {
 }
 
 impl<S: State> StateSnapshot<S> {
+    /// Build a live snapshot: pending sibling writes are applied to values and exposed
+    /// as task results, matching LangGraph's `get_state` (`live=True`).
+    pub(crate) fn from_checkpoint_live(
+        checkpoint: Checkpoint,
+        schema: &crate::kernel::state::StateSchema,
+    ) -> Result<Self> {
+        let mut values = checkpoint.values.clone();
+        let mut regular = Vec::new();
+        let mut task_results: std::collections::HashMap<String, Map<String, Value>> =
+            std::collections::HashMap::new();
+        for write in &checkpoint.pending_writes {
+            if schema.is_finish_value(&write.channel) {
+                continue;
+            }
+            task_results
+                .entry(write.task_id.clone())
+                .or_default()
+                .insert(write.channel.clone(), write.value.clone());
+            if write.replace {
+                values.insert(write.channel.clone(), write.value.clone());
+            } else {
+                regular.push(crate::kernel::state::ChannelUpdate {
+                    channel: write.channel.clone(),
+                    value: write.value.clone(),
+                    node: write.node.clone(),
+                });
+            }
+        }
+        crate::kernel::state::apply_updates(schema, &mut values, regular)?;
+        let mut checkpoint = checkpoint;
+        checkpoint.values = values;
+        let mut snapshot = Self::from_checkpoint(checkpoint)?;
+        for task in &mut snapshot.tasks {
+            if task.result.is_none() {
+                if let Some(writes) = task_results.remove(&task.id) {
+                    task.result = Some(Value::Object(writes));
+                }
+            }
+        }
+        Ok(snapshot)
+    }
+
     pub(crate) fn from_checkpoint(checkpoint: Checkpoint) -> Result<Self> {
         let tasks = checkpoint
             .next

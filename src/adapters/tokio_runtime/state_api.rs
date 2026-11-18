@@ -32,7 +32,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .position(|item| item.id == checkpoint.id)
                     .map(|index| total - 2 - index as i64)
                     .unwrap_or(checkpoint.step as i64);
-                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
                 snapshot.step = step;
                 Ok(Some(snapshot))
             }
@@ -164,7 +164,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                     .get(&checkpoint.id)
                     .map(|index| total - 2 - *index as i64)
                     .unwrap_or(checkpoint.step as i64);
-                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
                 snapshot.step = step;
                 Ok(snapshot)
             })

@@ -341,14 +341,15 @@ pub(crate) fn chunk_to_py_v1(
             namespace.split('|').map(str::to_owned).collect()
         };
         let namespace = PyTuple::new(py, namespace)?;
-        let payload = chunk_to_py_v1(py, inner, multi_mode)?;
         let result = if multi_mode {
+            let payload = chunk_to_py(py, inner)?;
             let mode = inner.mode().map(|mode| mode.as_str()).unwrap_or("updates");
             (namespace, mode, payload)
                 .into_pyobject(py)?
                 .into_any()
                 .unbind()
         } else {
+            let payload = chunk_to_py_v1(py, inner, false)?;
             (namespace, payload).into_pyobject(py)?.into_any().unbind()
         };
         return Ok(result);
