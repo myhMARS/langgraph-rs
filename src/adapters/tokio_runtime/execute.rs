@@ -9,8 +9,8 @@ use super::super::BoxNodeFuture;
 use super::super::context::AsyncContext;
 use super::{AsyncBackend, AsyncCompiledGraph, AsyncRunInfo, run_with_idle_timeout};
 use crate::RunConfig;
-use crate::application::executor::StartInput;
-use crate::application::executor::outcome::{TaskFailure, TaskOutcome, TaskResult};
+use crate::application::pregel::StartInput;
+use crate::application::pregel::outcome::{TaskFailure, TaskOutcome, TaskResult};
 use crate::kernel::cache::CachedOutput;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::{Error, Interrupt, NodeFailure, Result};
@@ -250,14 +250,13 @@ impl<S: State> AsyncCompiledGraph<S> {
             run.context.clone(),
         );
         let mut adapt = |chunk| sink(chunk);
-        let future = crate::application::executor::pregel::run_loop(
-            &backend, start, config, &mut adapt, emit,
-        );
+        let future =
+            crate::application::pregel::pregel::run_loop(&backend, start, config, &mut adapt, emit);
         crate::application::context::with_async_run(run_context, future).await
     }
 
     pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        crate::application::executor::scheduling::entry_tasks(&self.entry, state)
+        crate::application::pregel::scheduling::entry_tasks(&self.entry, state)
     }
 
     pub(crate) async fn run_task(

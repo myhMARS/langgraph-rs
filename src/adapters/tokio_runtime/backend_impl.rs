@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::compiled::AsyncBackend;
-use crate::application::executor::outcome::TaskOutcome;
+use crate::application::pregel::outcome::TaskOutcome;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -11,7 +11,7 @@ use crate::kernel::stream::StreamChunk;
 use futures::future::join_all;
 use serde_json::Value;
 
-impl<'a, S: State> crate::application::executor::backend::PregelBackend<S> for AsyncBackend<'a, S> {
+impl<'a, S: State> crate::application::pregel::backend::PregelBackend<S> for AsyncBackend<'a, S> {
     fn schema(&self) -> &crate::kernel::state::StateSchema {
         &self.graph.schema
     }
@@ -138,7 +138,7 @@ impl<'a, S: State> crate::application::executor::backend::PregelBackend<S> for A
         if let Some(async_saver) = &self.graph.async_checkpointer {
             async_saver.put(checkpoint).await?;
         } else if let Some(saver) = &self.graph.checkpointer {
-            crate::application::executor::checkpointing::persist_checkpoint(
+            crate::application::pregel::checkpointing::persist_checkpoint(
                 saver.as_ref(),
                 checkpoint,
                 None,
@@ -150,7 +150,7 @@ impl<'a, S: State> crate::application::executor::backend::PregelBackend<S> for A
     }
 }
 
-impl<'a, S: State> crate::application::executor::outcome::OutcomeGraph for AsyncBackend<'a, S> {
+impl<'a, S: State> crate::application::pregel::outcome::OutcomeGraph for AsyncBackend<'a, S> {
     fn trace_sinks(&self) -> &[std::sync::Arc<dyn crate::kernel::ports::TraceSink>] {
         &self.graph.trace_sinks
     }

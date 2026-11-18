@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::application::executor::{StartInput, apply_pending_writes};
+use crate::application::pregel::{StartInput, apply_pending_writes};
 use crate::kernel::error::Result;
 use crate::kernel::state::{ChannelUpdate, State, StateSchema, apply_updates, values_to_state};
 
@@ -70,7 +70,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
             // A fresh `Command(goto=...)` writes branch targets only; LangGraph does not
             // write the START trigger, so the entry points are not scheduled.
             let mut tasks: Vec<crate::kernel::node::Task> = Vec::new();
-            for node in crate::application::executor::scheduling::dedupe(nodes) {
+            for node in crate::application::pregel::scheduling::dedupe(nodes) {
                 if node == crate::END {
                     continue;
                 }
@@ -79,7 +79,7 @@ pub(crate) fn resolve_fresh_start<S: State>(
                 }
             }
             for send in sends {
-                tasks.push(crate::application::executor::scheduling::send_task(
+                tasks.push(crate::application::pregel::scheduling::send_task(
                     "<command>",
                     send,
                 )?);
@@ -126,7 +126,7 @@ pub(crate) fn resolve_resume_start<S: State>(
     }
     let state = values_to_state::<S>(&values)?;
     let mut tasks =
-        crate::application::executor::checkpointing::prepare_resume_tasks(checkpoint, resume);
+        crate::application::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume);
     for node in goto {
         if node == crate::END {
             continue;

@@ -239,7 +239,7 @@ pub(crate) fn persist_checkpoint(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn save_checkpoint_via<
     S: State,
-    B: crate::application::executor::backend::PregelBackend<S>,
+    B: crate::application::pregel::backend::PregelBackend<S>,
     F: FnMut(StreamChunk),
 >(
     backend: &B,

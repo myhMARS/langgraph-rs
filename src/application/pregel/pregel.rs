@@ -12,17 +12,17 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::application::context;
-use crate::application::executor::backend::PregelBackend;
-use crate::application::executor::checkpointing::save_checkpoint_via;
-use crate::application::executor::outcome::{
+use crate::application::graph::RunConfig;
+use crate::application::pregel::backend::PregelBackend;
+use crate::application::pregel::checkpointing::save_checkpoint_via;
+use crate::application::pregel::outcome::{
     TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
     debug_chunk, finish, interrupt_after_node, interrupt_before_pause, interrupts_from,
     merge_interrupted_tasks, process_outcomes, should_save_after_step, should_save_terminal,
     values_chunk,
 };
-use crate::application::executor::scheduling::{collect_next_nodes, schedule_next_tasks};
-use crate::application::executor::{StartInput, apply_pending_writes, start, step};
-use crate::application::graph::RunConfig;
+use crate::application::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
+use crate::application::pregel::{StartInput, apply_pending_writes, start, step};
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::node::Task;
 use crate::kernel::state::{State, values_to_state};

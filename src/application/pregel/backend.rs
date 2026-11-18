@@ -6,8 +6,8 @@
 
 use serde_json::Value;
 
-use crate::application::executor::outcome::TaskOutcome;
 use crate::application::graph::CompiledGraph;
+use crate::application::pregel::outcome::TaskOutcome;
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::Result;
 use crate::kernel::node::{ConditionalEdge, Task};
@@ -54,7 +54,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 /// Sync backend: scoped OS threads and a blocking checkpointer.
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
-    pub(crate) writer: Option<&'a crate::application::executor::checkpointing::CheckpointWriter>,
+    pub(crate) writer: Option<&'a crate::application::pregel::checkpointing::CheckpointWriter>,
     pub(crate) max_concurrency: Option<usize>,
 }
 
@@ -155,7 +155,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         let Some(checkpointer) = self.graph.checkpointer() else {
             return Ok(());
         };
-        crate::application::executor::checkpointing::persist_checkpoint(
+        crate::application::pregel::checkpointing::persist_checkpoint(
             checkpointer.as_ref(),
             checkpoint,
             self.writer,

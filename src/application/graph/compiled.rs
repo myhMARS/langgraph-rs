@@ -346,7 +346,7 @@ impl<S: State> CompiledGraph<S> {
     }
 
     pub(crate) fn entry_tasks(&self, state: &S) -> Result<Vec<Task>> {
-        crate::application::executor::scheduling::entry_tasks(&self.entry, state)
+        crate::application::pregel::scheduling::entry_tasks(&self.entry, state)
     }
 }
 

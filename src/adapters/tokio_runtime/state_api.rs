@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use serde_json::{Map, Value};
 
 use super::AsyncCompiledGraph;
-use crate::application::executor::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::application::graph::StateSnapshot;
+use crate::application::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 use crate::kernel::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 use crate::kernel::error::{Error, Result};
 use crate::kernel::node::Task;

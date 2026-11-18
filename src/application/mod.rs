@@ -5,7 +5,8 @@
 
 pub mod context;
 pub mod control;
-pub mod executor;
+pub mod pregel;
+pub use pregel as executor;
 pub mod functional;
 pub mod graph;
 pub mod prebuilt;

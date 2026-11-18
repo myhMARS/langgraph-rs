@@ -8,8 +8,8 @@ use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use super::{AsyncNodeFn, BoxNodeFuture};
-use crate::application::executor::StartInput;
 use crate::application::graph::{Entry, RunConfig, StateSnapshot};
+use crate::application::pregel::StartInput;
 use crate::kernel::cache::{CachePolicy, NodeCache};
 use crate::kernel::checkpoint::Checkpoint;
 use crate::kernel::error::{Error, Result};

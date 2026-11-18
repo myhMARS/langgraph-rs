@@ -3,8 +3,8 @@
 use serde_json::Value;
 
 use super::*;
-use crate::application::executor::{self, StartInput};
 use crate::application::graph::options::RunConfig;
+use crate::application::pregel::{self, StartInput};
 use crate::kernel::command::Command;
 use crate::kernel::error::{Error, Result};
 use crate::kernel::state::{ChannelUpdate, State, apply_updates, state_to_values};
@@ -15,7 +15,7 @@ impl<S: State> CompiledGraph<S> {
     pub fn invoke(&self, input: &S, config: &RunConfig) -> Result<S> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(self, StartInput::Values(values), config, &mut sink)
+        pregel::execute_quiet(self, StartInput::Values(values), config, &mut sink)
             .map(|outcome| outcome.state)
     }
 
@@ -63,7 +63,7 @@ impl<S: State> CompiledGraph<S> {
         let mut config = config.clone();
         config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(self, StartInput::Values(values), &config, &mut sink)
+        pregel::execute_quiet(self, StartInput::Values(values), &config, &mut sink)
     }
 
     /// Continue a thread and additionally schedule explicit `goto` targets.
@@ -90,7 +90,7 @@ impl<S: State> CompiledGraph<S> {
             .collect();
         let config = RunConfig::new().with_thread(thread_id);
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -118,7 +118,7 @@ impl<S: State> CompiledGraph<S> {
             .map(|(channel, value)| (channel.into(), value))
             .collect();
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
+        pregel::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
             .map(|outcome| outcome.state)
     }
 
@@ -131,7 +131,7 @@ impl<S: State> CompiledGraph<S> {
     pub fn run(&self, input: &S, config: &RunConfig) -> Result<RunOutcome<S>> {
         let values = state_to_values(input)?;
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(self, StartInput::Values(values), config, &mut sink)
+        pregel::execute_quiet(self, StartInput::Values(values), config, &mut sink)
     }
 
     /// Run the graph from a partial state patch and return state plus report.
@@ -145,7 +145,7 @@ impl<S: State> CompiledGraph<S> {
             .map(|(channel, value)| (channel.into(), value))
             .collect();
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
+        pregel::execute_quiet(self, StartInput::Updates(values), config, &mut sink)
     }
 
     /// Run the graph and return its final state while streaming every chunk.
@@ -161,7 +161,7 @@ impl<S: State> CompiledGraph<S> {
         F: FnMut(StreamChunk),
     {
         let values = state_to_values(input)?;
-        executor::execute(self, StartInput::Values(values), config, &mut sink)
+        pregel::execute(self, StartInput::Values(values), config, &mut sink)
             .map(|outcome| outcome.state)
     }
 
@@ -190,7 +190,7 @@ impl<S: State> CompiledGraph<S> {
                 sink(chunk);
             }
         };
-        executor::execute(
+        pregel::execute(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -296,7 +296,7 @@ impl<S: State> CompiledGraph<S> {
                 sink(chunk);
             }
         };
-        executor::execute(self, StartInput::Values(values), config, &mut filtered)
+        pregel::execute(self, StartInput::Values(values), config, &mut filtered)
             .map(|outcome| outcome.state)
     }
 
@@ -388,7 +388,7 @@ impl<S: State> CompiledGraph<S> {
             config.context = overrides.context.clone();
             config.stream_subgraphs = true;
         }
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -488,9 +488,9 @@ impl<S: State> CompiledGraph<S> {
                     "Command requires either `goto` or `update`",
                 ));
             };
-            return executor::execute_quiet(
+            return pregel::execute_quiet(
                 self,
-                executor::StartInput::Updates(updates.into_iter().collect()),
+                pregel::StartInput::Updates(updates.into_iter().collect()),
                 config,
                 &mut sink,
             );
@@ -510,9 +510,9 @@ impl<S: State> CompiledGraph<S> {
                     .collect(),
             )?;
         }
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
-            executor::StartInput::Gateways {
+            pregel::StartInput::Gateways {
                 values,
                 nodes: command.goto,
                 sends: command.sends,
@@ -553,7 +553,7 @@ impl<S: State> CompiledGraph<S> {
             .collect();
         let config = RunConfig::new().with_thread(thread_id);
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -626,7 +626,7 @@ impl<S: State> CompiledGraph<S> {
         let mut config = config.clone();
         config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -667,7 +667,7 @@ impl<S: State> CompiledGraph<S> {
         let mut config = config.clone();
         config.thread_id = Some(thread_id.to_string());
         let mut sink = |_chunk: StreamChunk| {};
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
@@ -718,7 +718,7 @@ impl<S: State> CompiledGraph<S> {
         let checkpoint_id = checkpoint_id
             .map(str::to_string)
             .or_else(|| config.checkpoint_id.clone());
-        executor::execute_quiet(
+        pregel::execute_quiet(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),

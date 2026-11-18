@@ -32,13 +32,7 @@ pub(crate) fn begin_step<S: State>(
     if control.is_some_and(RunControl::is_aborted) {
         return Err(Error::other("run aborted by RunControl"));
     }
-    crate::application::executor::apply_managed_values(
-        schema,
-        values,
-        state,
-        step,
-        recursion_limit,
-    )?;
+    crate::application::pregel::apply_managed_values(schema, values, state, step, recursion_limit)?;
     if iteration >= recursion_limit {
         return Err(Error::RecursionLimit(recursion_limit));
     }
