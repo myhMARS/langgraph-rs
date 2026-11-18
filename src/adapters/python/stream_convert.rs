@@ -119,7 +119,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             } else {
                 namespace.split('|').map(str::to_owned).collect()
             };
-            inner.set_item("ns", ns)?;
+            inner.set_item("ns", PyTuple::new(py, ns)?)?;
             return Ok(inner.clone().into_any().unbind());
         }
         StreamChunk::Values { values, .. } => {
@@ -240,7 +240,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("data", value_to_py(py, &execution)?)?;
         }
     }
-    dict.set_item("ns", Vec::<String>::new())?;
+    dict.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
     Ok(dict.into_any().unbind())
 }
 
@@ -292,7 +292,7 @@ pub(crate) fn chunk_to_py_v2_parts(
         )?;
         start_data.set_item("triggers", Vec::<String>::new())?;
         start.set_item("data", start_data)?;
-        start.set_item("ns", Vec::<String>::new())?;
+        start.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
 
         let finish = PyDict::new(py);
         finish.set_item("type", "tasks")?;
@@ -318,7 +318,7 @@ pub(crate) fn chunk_to_py_v2_parts(
             },
         )?;
         finish.set_item("data", finish_data)?;
-        finish.set_item("ns", Vec::<String>::new())?;
+        finish.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
         return Ok(vec![start.into_any().unbind(), finish.into_any().unbind()]);
     }
     Ok(vec![chunk_to_py_v2(py, chunk)?])
