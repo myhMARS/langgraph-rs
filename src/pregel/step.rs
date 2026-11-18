@@ -31,9 +31,18 @@ pub(crate) fn open_named_barriers(
 ///
 /// Only barriers in `armed` are cleared, so a barrier that opened during this superstep
 /// remains visible to the nodes it schedules. Returns `true` when a channel changed.
-pub(crate) fn consume_named_barriers(values: &mut Map<String, Value>, armed: &[String]) -> bool {
+pub(crate) fn consume_named_barriers(
+    values: &mut Map<String, Value>,
+    armed: &[String],
+    written: &std::collections::HashSet<String>,
+) -> bool {
     let mut changed = false;
     for name in armed {
+        // A barrier re-armed by this superstep's own writes must stay open, matching
+        // LangGraph, which consumes before applying the new writes.
+        if written.contains(name) {
+            continue;
+        }
         if values.get(name) == Some(&Value::Bool(true)) {
             // LangGraph raises `EmptyChannelError` after consume; dropping the key makes
             // typed state fall back to its default, which is the closest analogue.

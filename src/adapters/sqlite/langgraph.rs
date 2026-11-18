@@ -399,9 +399,26 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
             resume_history: Vec::new(),
             error: None,
             timeout_millis: None,
-            interrupted: false,
+            interrupted: !checkpoint.interrupts.is_empty(),
             triggers: Vec::new(),
         });
+    }
+    // Attach node/task identity to interrupts decoded from `__interrupt__` payloads so
+    // resume maps keyed by interrupt id can match their pending task.
+    for (index, interrupt) in checkpoint.interrupts.iter_mut().enumerate() {
+        if !interrupt.node.is_empty() {
+            continue;
+        }
+        let task = checkpoint
+            .next
+            .get(index)
+            .or_else(|| checkpoint.next.first());
+        if let Some(task) = task {
+            interrupt.node = task.node.clone();
+            if interrupt.task_id.is_none() {
+                interrupt.task_id = Some(task.id.clone().into_boxed_str());
+            }
+        }
     }
     Ok(())
 }

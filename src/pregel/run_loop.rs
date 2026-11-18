@@ -310,6 +310,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .collect();
                 let processed =
                     process_outcomes(backend, successful, step, &mut report, sink, emit)?;
+                let written_for_barriers: HashSet<String> = processed
+                    .channel_updates
+                    .iter()
+                    .map(|update| update.channel.clone())
+                    .collect();
                 // Successful siblings still contribute their outgoing routes even though
                 // their values stay pending until resume.
                 let mut routing_values = values.clone();
@@ -355,6 +360,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     &processed.executed,
                     |node| backend.edges_of(node),
                 );
+                // Consume named barriers here too; the single-interrupt path returns
+                // before the shared post-step consumption.
+                step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
                 save_checkpoint_via(
                     backend,
                     thread_id.as_deref(),
@@ -423,6 +431,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
                 .collect();
             let processed = process_outcomes(backend, successful, step, &mut report, sink, emit)?;
+            let written_for_barriers: HashSet<String> = processed
+                .channel_updates
+                .iter()
+                .map(|update| update.channel.clone())
+                .collect();
             apply_processed_updates(
                 backend.schema(),
                 &mut values,
@@ -447,7 +460,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             )?;
             // `state` is re-derived later in this loop; only the checkpointed values
             // need the consumed barrier.
-            step::consume_named_barriers(&mut values, &armed_barriers);
+            step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
             let scheduled = schedule_next_tasks(
                 next_nodes,
                 router_sends,
@@ -536,6 +549,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         }
 
         let processed = process_outcomes(backend, outcomes, step, &mut report, sink, emit)?;
+        let written_for_barriers: HashSet<String> = processed
+            .channel_updates
+            .iter()
+            .map(|update| update.channel.clone())
+            .collect();
         let channel_updates = processed.channel_updates;
         let replacements = processed.replacements;
         let next_tasks = processed.next_tasks;
@@ -583,7 +601,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut pending_deferred,
             true,
         )?;
-        if step::consume_named_barriers(&mut values, &armed_barriers) {
+        if step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers) {
             state = values_to_state::<S>(&values)?;
         }
         crate::pregel::scheduling::fill_triggers(&mut next_tasks, &executed, |node| {

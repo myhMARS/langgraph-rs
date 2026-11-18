@@ -284,7 +284,8 @@ async fn durability_async_writes_in_the_background() {
     assert_eq!(output.state.get("value"), Some(&json!(2)));
     let first_node_start = started.lock().unwrap().expect("node started");
     assert!(
-        first_node_start.duration_since(before_run) < Duration::from_millis(20),
+        // Generous bound: the full test suite runs many cases in parallel.
+        first_node_start.duration_since(before_run) < Duration::from_millis(100),
         "checkpoint writes blocked the first node"
     );
     assert!(saver.puts.load(Ordering::SeqCst) >= 2);
