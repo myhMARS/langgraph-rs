@@ -151,7 +151,7 @@ fn embed_subgraph_states(
 impl PyAsyncCompiledGraph {
     /// Awaitable graph invocation returning the final state dict.
     #[pyo3(signature = (input=None, thread_id=None, context=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn ainvoke<'py>(
         &self,
         py: Python<'py>,
