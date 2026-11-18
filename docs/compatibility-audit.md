@@ -166,3 +166,20 @@ Still open, in rough priority order:
   export with a Python writer on the same thread would see different ids.
 - Multi-turn step numbering was re-verified against Python (single node, three turns):
   Python `[1,0,-1]` / `[4,3,2,1,0,-1]` / `[7,6,5,4,3,2,1,0,-1]`, Rust identical (no drift).
+## Round 147 verifications (update_state on a paused thread)
+
+Python and Rust were probed with the same graph (`a -> ask`, `ask` raises `interrupt`):
+
+| call after the pause | Python `next` | Rust `next` |
+| --- | --- | --- |
+| `update_state({"value": 9}, as_node="a")` | `('ask',)` | `['ask']` |
+| `update_state({"value": 10}, as_node="ask")` | `()` | `[]` |
+
+So an `as_node` update does **not** unconditionally keep interrupted tasks: the paused node
+stays pending only when the chosen author's outgoing route reaches it (`a -> ask`), and the
+pause disappears when the author is the interrupted node itself. Rust matches, and the
+earlier audit note claiming "Rust drops the pending task, Python keeps it" is incorrect.
+
+Related verified behaviour: `update_state` on a finished thread infers the author with
+Python's `_infer_as_node` rules (one-node shortcut, highest pre-step version wins), and
+raises "Ambiguous update, specify as_node" when no author can be inferred.

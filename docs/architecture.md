@@ -177,7 +177,7 @@ A checkpoint is written only when both a `thread_id` and a checkpointer exist:
 | --- | --- | --- | --- | --- |
 | fresh run start, before any node | 0 | false | false | entry tasks |
 | `interrupt_before` pause | current | true | true | task list including the paused node |
-| node called `interrupt()` (single) | current (pre-merge values) | true | false | interrupted tasks + routes of successful siblings |
+| node called `interrupt()` (single) | current (pre-merge values) | true | false | interrupted tasks + routing seeds of successful siblings |
 | after a completed superstep | current + 1 | false | false | next scheduled tasks |
 | `interrupt_after` pause | current + 1 | true | false | tasks following the paused node |
 
@@ -212,7 +212,7 @@ the chain.
 6. Execution continues normally from the node's writes.
 
 **Sibling writes and routes.** A single interrupt checkpoint keeps the interrupted tasks plus
-the static/conditional routes of successful siblings, and stores the siblings' writes as
+the static/conditional routing seeds of successful siblings, and stores the siblings' writes as
 pending writes. On resume the interrupted nodes re-run, the pending writes are replayed, and
 the sibling routes become the next tasks; siblings themselves are not executed again. With
 multiple pending interrupts the successful siblings' values are merged immediately and only

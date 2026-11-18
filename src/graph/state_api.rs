@@ -370,6 +370,7 @@ impl<S: State> CompiledGraph<S> {
                     for (source, send) in router_sends {
                         tasks.push(send_task(&source, send)?);
                     }
+
                     tasks
                 }
             }
