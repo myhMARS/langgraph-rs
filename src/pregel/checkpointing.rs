@@ -549,3 +549,28 @@ where
     *previous = Some(checkpoint);
     Ok(())
 }
+
+/// Attach pending writes to the latest checkpoint without creating a new one.
+///
+/// LangGraph stores `Command(update=...)` on a finished thread as writes against the
+/// existing checkpoint, so `get_state` shows them through the live view.
+pub(crate) async fn attach_pending_writes<S, B>(
+    backend: &B,
+    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    writes: &[crate::checkpoint::PendingWrite],
+) -> Result<()>
+where
+    S: State,
+    B: crate::pregel::backend::PregelBackend<S>,
+{
+    if writes.is_empty() {
+        return Ok(());
+    }
+    let Some(mut checkpoint) = previous.clone() else {
+        return Ok(());
+    };
+    checkpoint.pending_writes.extend(writes.iter().cloned());
+    backend.persist_checkpoint(checkpoint.clone()).await?;
+    *previous = Some(checkpoint);
+    Ok(())
+}

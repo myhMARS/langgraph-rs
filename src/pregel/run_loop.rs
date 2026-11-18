@@ -80,53 +80,69 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         StartInput::Gateways { values, .. } => Some(values.clone()),
         StartInput::Resume { .. } => None,
     };
-    let (mut values, mut state, mut tasks, mut step, mut resume_deferred, resume_finish) =
-        if let Some((values, state, tasks)) = start::resolve_fresh_start(
-            &start,
-            backend.schema(),
-            |node| backend.node_exists(node),
-            |state| backend.entry_tasks(state),
-        )? {
-            (values, state, tasks, 0usize, Vec::new(), Vec::new())
-        } else {
-            let StartInput::Resume {
-                thread_id: resume_thread,
-                checkpoint_id,
-                resume,
-                updates,
-                goto: resume_goto,
-                sends: resume_sends,
-            } = start
-            else {
-                unreachable!("fresh start inputs were resolved above");
-            };
-            let checkpoint = backend
-                .load_checkpoint(&resume_thread, checkpoint_id.as_deref(), &namespace)
-                .await?
-                .ok_or_else(|| {
-                    Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
-                })?;
-            parent = Some(checkpoint.id.clone());
-            previous_checkpoint = Some(checkpoint.clone());
-            skip_interrupt_before = checkpoint.paused_before;
-            let (values, state, tasks, finish_writes) = start::resolve_resume_start(
-                &checkpoint,
-                &resume,
-                updates,
-                &resume_goto,
-                &resume_sends,
-                backend.schema(),
-            )?;
-            let deferred = checkpoint.deferred.clone();
-            (
-                values,
-                state,
-                tasks,
-                checkpoint.step,
-                deferred,
-                finish_writes,
-            )
+    let (
+        mut values,
+        mut state,
+        mut tasks,
+        mut step,
+        mut resume_deferred,
+        resume_finish,
+        update_writes,
+    ) = if let Some((values, state, tasks)) = start::resolve_fresh_start(
+        &start,
+        backend.schema(),
+        |node| backend.node_exists(node),
+        |state| backend.entry_tasks(state),
+    )? {
+        (
+            values,
+            state,
+            tasks,
+            0usize,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+    } else {
+        let StartInput::Resume {
+            thread_id: resume_thread,
+            checkpoint_id,
+            resume,
+            updates,
+            goto: resume_goto,
+            sends: resume_sends,
+        } = start
+        else {
+            unreachable!("fresh start inputs were resolved above");
         };
+        let checkpoint = backend
+            .load_checkpoint(&resume_thread, checkpoint_id.as_deref(), &namespace)
+            .await?
+            .ok_or_else(|| {
+                Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
+            })?;
+        parent = Some(checkpoint.id.clone());
+        previous_checkpoint = Some(checkpoint.clone());
+        skip_interrupt_before = checkpoint.paused_before;
+        let (values, state, tasks, finish_writes, update_writes) = start::resolve_resume_start(
+            &checkpoint,
+            &resume,
+            updates,
+            &resume_goto,
+            &resume_sends,
+            backend.schema(),
+        )?;
+        let deferred = checkpoint.deferred.clone();
+        (
+            values,
+            state,
+            tasks,
+            checkpoint.step,
+            deferred,
+            finish_writes,
+            update_writes,
+        )
+    };
 
     if tasks.is_empty() && !resume_deferred.is_empty() {
         tasks = std::mem::take(&mut resume_deferred);
@@ -139,6 +155,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             }
             state = values_to_state::<S>(&values)?;
         }
+        // A `Command(update=...)` on a finished thread is persisted as writes on the
+        // existing checkpoint instead of a new checkpoint.
+        crate::pregel::checkpointing::attach_pending_writes(
+            backend,
+            &mut previous_checkpoint,
+            &update_writes,
+        )
+        .await?;
         if emit && values_enabled {
             // A run with nothing left to do still reports its final values once.
             sink(values_chunk(0, &values));
