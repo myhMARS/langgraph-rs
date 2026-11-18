@@ -47,6 +47,10 @@ pub struct Checkpoint {
     /// `goto`/`Send` targets the successful siblings scheduled before the interrupt.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resume_tasks: Vec<Task>,
+    /// Sibling nodes that chose `goto`; their static/conditional edges must not be
+    /// re-derived when the pause is replayed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub goto_sources: Vec<String>,
     /// Tasks of the interrupted superstep that already completed (LangGraph reports them
     /// in `get_state().tasks` next to the pending ones).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -111,6 +115,7 @@ impl Checkpoint {
             next: Vec::new(),
             deferred_routes: Vec::new(),
             resume_tasks: Vec::new(),
+            goto_sources: Vec::new(),
             completed_tasks: Vec::new(),
             interrupted: false,
             paused_before: false,

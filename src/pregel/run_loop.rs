@@ -73,6 +73,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut time_travel = false;
     let mut resume_seed_nodes: Vec<String> = Vec::new();
     let mut resume_pending: Vec<Task> = Vec::new();
+    let mut resume_goto_sources: Vec<String> = Vec::new();
     let raw_input = match &start {
         StartInput::Values(map) => Some(map.clone()),
         // LangGraph writes an input checkpoint for an update-start run too.
@@ -139,6 +140,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 backend.schema(),
             )?;
         resume_pending = checkpoint.resume_tasks.clone();
+        resume_goto_sources = checkpoint.goto_sources.clone();
         resume_seed_nodes = checkpoint
             .deferred_routes
             .iter()
@@ -455,6 +457,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         // only for the tick that replays them.
         let mut routing_executed = executed.clone();
         routing_executed.append(&mut replayed_nodes);
+        // A sibling that chose `goto` must not have its static/conditional edges re-derived.
+        routing_executed.retain(|node| !resume_goto_sources.contains(node));
         for node in resume_seed_nodes.drain(..) {
             if !routing_executed.contains(&node) {
                 routing_executed.push(node);

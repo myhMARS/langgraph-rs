@@ -399,6 +399,7 @@ impl<S: State> CompiledGraph<S> {
             next,
             deferred_routes: Vec::new(),
             resume_tasks: Vec::new(),
+            goto_sources: Vec::new(),
             completed_tasks: Vec::new(),
             // LangGraph writes a fresh `source="update"` checkpoint: earlier pending writes
             // and interrupts belong to the previous tuple and are not carried over.

@@ -374,3 +374,50 @@ fn sibling_routes_survive_a_second_interrupt() {
     let output = graph.resume("interrupt-route-twice", resume).unwrap();
     assert_eq!(output.log, vec!["ok", "ask", "down"]);
 }
+
+#[test]
+fn goto_sibling_does_not_also_run_static_targets_after_resume() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new()
+                .update("log", json!(["ok"]))
+                .goto("detour"))
+        })
+        .add_node("ask", |_state: &RouteState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new().update("log", json!(["ask"])))
+        })
+        .add_node("detour", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["detour"])))
+        })
+        .add_node("down", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["down"])))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .add_edge("ok", "down")
+        .set_finish_point("detour")
+        .set_finish_point("down")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &RouteState::default(),
+            &RunConfig::new().with_thread("interrupt-route-goto-override"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let snapshot = graph
+        .get_state("interrupt-route-goto-override")
+        .unwrap()
+        .unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "resumed" });
+    let output = graph
+        .resume("interrupt-route-goto-override", resume)
+        .unwrap();
+    assert_eq!(output.log, vec!["ok", "ask", "detour"]);
+}

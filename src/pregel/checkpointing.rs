@@ -103,6 +103,7 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         next: draft.next.to_vec(),
         deferred_routes: Vec::new(),
         resume_tasks: Vec::new(),
+        goto_sources: Vec::new(),
         completed_tasks: Vec::new(),
         interrupted: draft.interrupted,
         paused_before: draft.paused_before,
@@ -370,6 +371,8 @@ pub(crate) struct PauseDraft<'a> {
     pub(crate) resume_tasks: Vec<Task>,
     /// Siblings that completed before the interrupt.
     pub(crate) completed_tasks: Vec<Task>,
+    /// Siblings that chose `goto` (their static edges are suppressed on replay).
+    pub(crate) goto_sources: Vec<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -494,6 +497,7 @@ where
     checkpoint.deferred_routes = draft.scheduled_after;
     checkpoint.resume_tasks = draft.resume_tasks;
     checkpoint.completed_tasks = draft.completed_tasks;
+    checkpoint.goto_sources = draft.goto_sources;
     // Functional-API tasks that finished during the interrupted superstep keep their
     // recorded results so a resume does not re-run them.
     checkpoint

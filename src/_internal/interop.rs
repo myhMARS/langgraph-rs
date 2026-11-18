@@ -524,6 +524,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         next,
         deferred_routes: Vec::new(),
         resume_tasks: Vec::new(),
+        goto_sources: Vec::new(),
         completed_tasks: Vec::new(),
         interrupted,
         paused_before: extra
