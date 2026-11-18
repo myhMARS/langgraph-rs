@@ -497,7 +497,7 @@ impl<S: State> AsyncStateGraph<S> {
             trace_sinks: self.kernel.trace_sinks().to_vec(),
             recursion_limit: self
                 .recursion_limit
-                .unwrap_or(crate::DEFAULT_RECURSION_LIMIT),
+                .unwrap_or_else(crate::graph::default_recursion_limit),
             context_schema: self.context_schema,
             name: self.name,
         })

@@ -457,8 +457,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         // only for the tick that replays them.
         let mut routing_executed = executed.clone();
         routing_executed.append(&mut replayed_nodes);
-        // A sibling that chose `goto` must not have its static/conditional edges re-derived.
-        routing_executed.retain(|node| !resume_goto_sources.contains(node));
+        // A sibling that chose `goto` must not have its static/conditional edges re-derived,
+        // but only for the tick that replays it: later ticks must route normally.
+        if !resume_goto_sources.is_empty() {
+            routing_executed.retain(|node| !resume_goto_sources.contains(node));
+            resume_goto_sources.clear();
+        }
         for node in resume_seed_nodes.drain(..) {
             if !routing_executed.contains(&node) {
                 routing_executed.push(node);

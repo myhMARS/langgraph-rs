@@ -132,7 +132,7 @@ the interrupted tasks, the stored writes and the stored routes — siblings neve
 
 ## Channel merging
 
-`apply_updates` (`src/state.rs`) is the only place values change:
+`apply_updates` (`src/_internal/state.rs`) is the only place values change:
 
 1. Writes are grouped into an `IndexMap<channel, (values, nodes)>` in result order. Since
    results are joined in task order, grouping and error messages are deterministic despite

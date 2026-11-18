@@ -46,6 +46,19 @@ where
     F: FnMut(crate::StreamChunk),
 {
     let (interrupt, chunk) = interrupt_before_pause(interrupted);
+    // Routes recorded by an earlier pause must survive a static pause too.
+    let inherited_routes = previous
+        .as_ref()
+        .map(|checkpoint| checkpoint.deferred_routes.clone())
+        .unwrap_or_default();
+    let inherited_tasks = previous
+        .as_ref()
+        .map(|checkpoint| checkpoint.resume_tasks.clone())
+        .unwrap_or_default();
+    let inherited_gotos = previous
+        .as_ref()
+        .map(|checkpoint| checkpoint.goto_sources.clone())
+        .unwrap_or_default();
     let mut paused_tasks: Vec<Task> = tasks
         .iter()
         .map(|task| {
@@ -80,10 +93,10 @@ where
             next_tasks: &paused_tasks,
             writes_by_node: &std::collections::HashMap::new(),
             raw_input,
-            scheduled_after: Vec::new(),
-            resume_tasks: Vec::new(),
+            scheduled_after: inherited_routes,
+            resume_tasks: inherited_tasks,
             completed_tasks: Vec::new(),
-            goto_sources: Vec::new(),
+            goto_sources: inherited_gotos,
         },
         context.force_new,
         "loop",
@@ -563,11 +576,8 @@ where
                 .map(|checkpoint| checkpoint.resume_tasks.clone())
                 .unwrap_or_default(),
             completed_tasks: Vec::new(),
-            goto_sources: context
-                .previous
-                .as_ref()
-                .map(|checkpoint| checkpoint.goto_sources.clone())
-                .unwrap_or_default(),
+            // A multi pause commits the siblings' routes directly, so no stale goto list.
+            goto_sources: Vec::new(),
         },
         context.force_new,
         "loop",
