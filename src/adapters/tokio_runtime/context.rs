@@ -202,9 +202,10 @@ impl AsyncContext {
             .resume
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let task = crate::runtime::context::current_task_id().unwrap_or_else(|| self.node.clone());
         let id = crate::_internal::error::deterministic_interrupt_id(&format!(
-            "{}|{}|{}|{}",
-            self.namespace, self.step, self.node, slot.1,
+            "{}|{}|{}",
+            self.namespace, task, slot.1,
         ));
         if slot.1 < slot.0.len() {
             let resume = slot.0[slot.1].clone();

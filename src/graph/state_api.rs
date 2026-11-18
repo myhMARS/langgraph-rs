@@ -326,18 +326,20 @@ impl<S: State> CompiledGraph<S> {
             step: checkpoint.step,
             values,
             next,
-            interrupted: checkpoint.interrupted,
-            paused_before: checkpoint.paused_before,
+            // LangGraph writes a fresh `source="update"` checkpoint: earlier pending writes
+            // and interrupts belong to the previous tuple and are not carried over.
+            interrupted: false,
+            paused_before: false,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
-            interrupts: checkpoint.interrupts.clone(),
+            interrupts: Vec::new(),
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),
             channel_versions: checkpoint.channel_versions.clone(),
             versions_seen: checkpoint.versions_seen.clone(),
             updated_channels,
-            pending_writes: checkpoint.pending_writes.clone(),
+            pending_writes: Vec::new(),
             deferred: checkpoint.deferred.clone(),
         };
         let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;

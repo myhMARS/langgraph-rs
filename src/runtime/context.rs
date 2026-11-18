@@ -343,14 +343,17 @@ pub fn current_namespace() -> String {
     current_run().map(|run| run.namespace).unwrap_or_default()
 }
 
-/// Deterministic interrupt id for the current task/step/call index.
+/// LangGraph-compatible interrupt id for the current task and answered index.
+///
+/// LangGraph hashes `checkpoint_ns|task_id` (plus the number of already answered
+/// interrupts), so parallel `Send` tasks of the same node get distinct ids.
 pub(crate) fn next_interrupt_id(context: &mut TaskContext) -> String {
-    let step = CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step).unwrap_or(0));
     let namespace = current_namespace();
-    let seed = format!(
-        "{namespace}|{step}|{}|{}",
-        context.node, context.interrupt_calls,
-    );
+    let task = context
+        .task_id
+        .clone()
+        .unwrap_or_else(|| context.node.clone());
+    let seed = format!("{namespace}|{task}|{}", context.interrupt_calls);
     context.interrupt_calls += 1;
     crate::_internal::error::deterministic_interrupt_id(&seed)
 }
