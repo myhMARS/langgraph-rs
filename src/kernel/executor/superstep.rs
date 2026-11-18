@@ -113,6 +113,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     .map(|usage| vec![usage])
                     .unwrap_or_default();
                 return TaskOutcome::Ok(Box::new(TaskResult {
+                    id: task.id.clone(),
                     node: task.node.clone(),
                     output: NodeOutput::from_cached(cached),
                     custom: Vec::new(),
@@ -190,6 +191,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     }
                 }
                 return TaskOutcome::Ok(Box::new(TaskResult {
+                    id: task.id.clone(),
                     node: task.node.clone(),
                     output,
                     custom,
@@ -242,6 +244,7 @@ fn failed(
     started: Instant,
 ) -> TaskOutcome {
     TaskOutcome::Failed(Box::new(TaskFailure {
+        id: task.id.clone(),
         failure: NodeFailure::new(task.node.clone(), message, attempts),
         usage,
         duration_millis: started.elapsed().as_millis() as u64,

@@ -150,6 +150,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> TaskOutcome {
         let Some(node) = self.nodes.get(&task.node) else {
             return TaskOutcome::Failed(Box::new(TaskFailure {
+                id: task.id.clone(),
                 failure: NodeFailure::new(
                     &task.node,
                     format!("node `{}` is not registered in this graph", task.node),
@@ -166,6 +167,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 Ok(state) => state,
                 Err(error) => {
                     return TaskOutcome::Failed(Box::new(TaskFailure {
+                        id: task.id.clone(),
                         failure: NodeFailure::new(&task.node, error.to_string(), 1),
                         usage: Vec::new(),
                         duration_millis: 0,
@@ -193,6 +195,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         .map(|usage| vec![usage])
                         .unwrap_or_default();
                     return TaskOutcome::Ok(Box::new(TaskResult {
+                        id: task.id.clone(),
                         node: task.node.clone(),
                         output: crate::kernel::node::NodeOutput::from_cached(cached),
                         custom: Vec::new(),
@@ -207,6 +210,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 Ok(None) => {}
                 Err(error) => {
                     return TaskOutcome::Failed(Box::new(TaskFailure {
+                        id: task.id.clone(),
                         failure: NodeFailure::new(
                             &task.node,
                             format!("node cache lookup failed: {error}"),
@@ -294,6 +298,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         };
                         if let Err(error) = cache.put(key, cached_output, cache_policy.ttl()) {
                             return TaskOutcome::Failed(Box::new(TaskFailure {
+                                id: task.id.clone(),
                                 failure: NodeFailure::new(
                                     &task.node,
                                     format!("node cache store failed: {error}"),
@@ -306,6 +311,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         }
                     }
                     return TaskOutcome::Ok(Box::new(TaskResult {
+                        id: task.id.clone(),
                         node: task.node.clone(),
                         output,
                         custom,
@@ -342,6 +348,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
 
         TaskOutcome::Failed(Box::new(TaskFailure {
+            id: task.id.clone(),
             failure: NodeFailure::new(
                 &task.node,
                 last_error.unwrap_or_else(|| "node failed without an error message".to_string()),

@@ -348,6 +348,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     node: interrupted.node.clone(),
                     id: interrupted.id.clone(),
                     value: interrupted.value.clone(),
+                    response_schema: interrupted.response_schema.clone(),
                 });
                 return Err(Error::Interrupt(interrupted));
             }
@@ -431,6 +432,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     node: interrupt.node.clone(),
                     id: interrupt.id.clone(),
                     value: interrupt.value.clone(),
+                    response_schema: interrupt.response_schema.clone(),
                 });
             }
             return Err(Error::Interrupt(
@@ -539,6 +541,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 node: interrupt.node.clone(),
                 id: interrupt.id.clone(),
                 value: Value::Null,
+                response_schema: interrupt.response_schema.clone(),
             });
             return Err(Error::Interrupt(interrupt));
         }

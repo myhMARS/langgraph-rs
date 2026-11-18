@@ -186,7 +186,12 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("type", "checkpoints")?;
             dict.set_item("data", value_to_py(py, payload)?)?;
         }
-        StreamChunk::Interrupt { node, id, value } => {
+        StreamChunk::Interrupt {
+            node,
+            id,
+            value,
+            response_schema,
+        } => {
             dict.set_item("type", "updates")?;
             let data = PyDict::new(py);
             let interrupt = Py::new(
@@ -196,6 +201,10 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
                     value: value_to_py(py, value)?,
                     node: Some(node.clone()),
                     resumable: true,
+                    response_schema: match response_schema {
+                        Some(schema) => Some(value_to_py(py, schema)?),
+                        None => None,
+                    },
                 },
             )?;
             data.set_item("__interrupt__", PyTuple::new(py, [interrupt])?)?;
@@ -340,7 +349,12 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             Ok(data.into_any().unbind())
         }
         StreamChunk::Custom { value, .. } => value_to_py(py, value),
-        StreamChunk::Interrupt { node, id, value } => {
+        StreamChunk::Interrupt {
+            node,
+            id,
+            value,
+            response_schema,
+        } => {
             let interrupt = Py::new(
                 py,
                 crate::adapters::python::types::PyInterrupt {
@@ -348,6 +362,10 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                     value: value_to_py(py, value)?,
                     node: Some(node.clone()),
                     resumable: true,
+                    response_schema: match response_schema {
+                        Some(schema) => Some(value_to_py(py, schema)?),
+                        None => None,
+                    },
                 },
             )?;
             let data = PyDict::new(py);

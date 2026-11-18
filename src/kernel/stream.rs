@@ -49,6 +49,8 @@ pub enum StreamChunk {
         id: String,
         /// Interrupt payload.
         value: Value,
+        /// Optional JSON schema for the resume value.
+        response_schema: Option<Value>,
     },
     /// A checkpoint was persisted.
     Checkpoint {

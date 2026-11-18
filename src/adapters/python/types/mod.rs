@@ -62,18 +62,26 @@ pub struct PyInterrupt {
     pub node: Option<String>,
     #[pyo3(get)]
     pub resumable: bool,
+    #[pyo3(get)]
+    pub response_schema: Option<Py<PyAny>>,
 }
 
 #[pymethods]
 impl PyInterrupt {
     #[new]
-    #[pyo3(signature = (value, id=None, node=None))]
-    fn new(value: Py<PyAny>, id: Option<String>, node: Option<String>) -> Self {
+    #[pyo3(signature = (value, id=None, node=None, response_schema=None))]
+    fn new(
+        value: Py<PyAny>,
+        id: Option<String>,
+        node: Option<String>,
+        response_schema: Option<Py<PyAny>>,
+    ) -> Self {
         Self {
             id: id.unwrap_or_default(),
             value,
             node,
             resumable: true,
+            response_schema,
         }
     }
 

@@ -39,6 +39,7 @@ pub(crate) fn merge_usage(usage: Vec<Usage>) -> Option<Usage> {
 /// Successful result of one node execution.
 #[derive(Debug)]
 pub(crate) struct TaskResult {
+    pub(crate) id: String,
     pub(crate) node: String,
     pub(crate) output: NodeOutput,
     pub(crate) custom: Vec<Value>,
@@ -53,6 +54,7 @@ pub(crate) struct TaskResult {
 /// Permanent failure of one node execution.
 #[derive(Debug)]
 pub(crate) struct TaskFailure {
+    pub(crate) id: String,
     pub(crate) failure: NodeFailure,
     pub(crate) usage: Vec<Usage>,
     pub(crate) duration_millis: u64,
@@ -105,6 +107,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
             }
             TaskOutcome::Failed(task_failure) => {
                 let TaskFailure {
+                    id,
                     failure,
                     usage,
                     duration_millis,
@@ -131,7 +134,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
 
                 sink(StreamChunk::Task {
                     step,
-                    id: format!("{step}:{}", failure.node),
+                    id: id.clone(),
                     node: failure.node.clone(),
                     input,
                     result: None,
@@ -165,6 +168,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
             }
             TaskOutcome::Ok(result) => {
                 let TaskResult {
+                    id,
                     node,
                     output,
                     custom,
@@ -224,7 +228,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     };
                     sink(StreamChunk::Task {
                         step,
-                        id: format!("{step}:{node}"),
+                        id: id.clone(),
                         node: node.clone(),
                         input: input.clone(),
                         result: task_result,
@@ -524,6 +528,7 @@ pub(crate) fn interrupt_before_pause(task: &Task) -> (Interrupt, StreamChunk) {
         node: task.node.clone(),
         id: interrupt.id.clone(),
         value: Value::Null,
+        response_schema: interrupt.response_schema.clone(),
     };
     (interrupt, chunk)
 }
