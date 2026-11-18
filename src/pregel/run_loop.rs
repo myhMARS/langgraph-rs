@@ -71,6 +71,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
     let mut time_travel = false;
+    let mut run_start_step = 0usize;
     let mut resume_seed_nodes: Vec<String> = Vec::new();
     let mut resume_pending: Vec<Task> = Vec::new();
     let mut resume_goto_sources: Vec<String> = Vec::new();
@@ -146,6 +147,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .iter()
             .map(|task| task.node.clone())
             .collect();
+        run_start_step = checkpoint.step;
         let deferred = checkpoint.deferred.clone();
         (
             values,
@@ -301,6 +303,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 step,
                 checkpoint_emit,
                 force_new: pause_force_new,
+                first_tick: step == run_start_step,
             };
             let interrupt = crate::pregel::pause::pause_before(
                 backend,
@@ -357,6 +360,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     step,
                     checkpoint_emit,
                     force_new: pause_force_new,
+                    first_tick: step == run_start_step,
+
                     emit,
                     values_enabled,
                     parent: &mut parent,
@@ -385,6 +390,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 step,
                 checkpoint_emit,
                 force_new: pause_force_new,
+                first_tick: step == run_start_step,
                 emit,
                 values_enabled,
                 parent: &mut parent,
@@ -554,6 +560,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 step,
                 checkpoint_emit,
                 force_new: pause_force_new,
+                first_tick: step == run_start_step,
             };
             crate::pregel::pause::save_after_step(
                 backend,
@@ -598,6 +605,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     step,
                     checkpoint_emit,
                     force_new: pause_force_new,
+                    first_tick: step == run_start_step,
                 };
                 crate::pregel::pause::save_terminal(
                     backend,

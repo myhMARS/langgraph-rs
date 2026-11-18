@@ -21,6 +21,9 @@ pub(crate) struct PauseContext<'a> {
     pub(crate) checkpoint_emit: bool,
     /// Write a fresh checkpoint instead of updating the previous one in place.
     pub(crate) force_new: bool,
+    /// `true` for the first superstep of this run; only then may a pause inherit the
+    /// previous checkpoint's un-consumed routes.
+    pub(crate) first_tick: bool,
 }
 
 /// Handle an `interrupt_before` hook: persist the pause and emit its events.
@@ -47,16 +50,20 @@ where
 {
     let (interrupt, chunk) = interrupt_before_pause(interrupted);
     // Routes recorded by an earlier pause must survive a static pause too.
+    let inherit = context.first_tick;
     let inherited_routes = previous
         .as_ref()
+        .filter(|_| inherit)
         .map(|checkpoint| checkpoint.deferred_routes.clone())
         .unwrap_or_default();
     let inherited_tasks = previous
         .as_ref()
+        .filter(|_| inherit)
         .map(|checkpoint| checkpoint.resume_tasks.clone())
         .unwrap_or_default();
     let inherited_gotos = previous
         .as_ref()
+        .filter(|_| inherit)
         .map(|checkpoint| checkpoint.goto_sources.clone())
         .unwrap_or_default();
     let mut paused_tasks: Vec<Task> = tasks
@@ -141,6 +148,7 @@ pub(crate) fn pause_error(interrupt: Interrupt) -> Error {
 
 /// Mutable run state a dynamic interrupt needs in order to pause in place.
 pub(crate) struct InterruptedStep<'a, S: State, B: PregelBackend<S>, F: FnMut(crate::StreamChunk)> {
+    pub(crate) first_tick: bool,
     pub(crate) _state: std::marker::PhantomData<S>,
     pub(crate) backend: &'a B,
     pub(crate) thread_id: Option<&'a str>,
@@ -233,7 +241,9 @@ where
         .map(|task| Task::new(task.node.clone()))
         .collect();
     // Routes from an earlier pause survive another interrupt of the same superstep.
-    if let Some(previous) = context.previous.as_ref() {
+    if context.first_tick
+        && let Some(previous) = context.previous.as_ref()
+    {
         for task in &previous.deferred_routes {
             if !resume_seeds.iter().any(|seed| seed.node == task.node) {
                 resume_seeds.push(task.clone());
@@ -249,7 +259,9 @@ where
         .map(|(target, _)| Task::new(target.clone()))
         .chain(processed.next_tasks.iter().cloned())
         .collect();
-    if let Some(previous) = context.previous.as_ref() {
+    if context.first_tick
+        && let Some(previous) = context.previous.as_ref()
+    {
         for task in &previous.resume_tasks {
             if !resume_tasks
                 .iter()
@@ -568,11 +580,13 @@ where
             scheduled_after: context
                 .previous
                 .as_ref()
+                .filter(|_| context.first_tick)
                 .map(|checkpoint| checkpoint.deferred_routes.clone())
                 .unwrap_or_default(),
             resume_tasks: context
                 .previous
                 .as_ref()
+                .filter(|_| context.first_tick)
                 .map(|checkpoint| checkpoint.resume_tasks.clone())
                 .unwrap_or_default(),
             completed_tasks: Vec::new(),
