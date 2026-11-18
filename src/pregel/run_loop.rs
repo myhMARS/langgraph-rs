@@ -18,11 +18,10 @@ use crate::_internal::stream::{StreamChunk, StreamMode};
 use crate::_internal::usage::RunOutcome;
 use crate::graph::RunConfig;
 use crate::pregel::backend::PregelBackend;
-use crate::pregel::checkpointing::save_checkpoint_via;
 use crate::pregel::outcome::{
-    TaskOutcome, apply_finish_updates, apply_processed_updates, debug_chunk, finish,
-    interrupt_after_node, interrupts_from, merge_interrupted_tasks, process_outcomes,
-    should_save_after_step, should_save_terminal, values_chunk,
+    TaskOutcome, apply_finish_updates, apply_processed_updates, finish, interrupt_after_node,
+    interrupts_from, merge_interrupted_tasks, process_outcomes, should_save_after_step,
+    should_save_terminal, values_chunk,
 };
 use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
 use crate::pregel::{StartInput, start, step};
@@ -616,17 +615,17 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .as_deref()
             .map(|thread| crate::checkpoint::new_checkpoint_id(thread, step));
         if emit && debug_enabled {
-            sink(debug_chunk(
+            crate::pregel::pause::emit_debug_step(
+                sink,
                 step,
                 &executed,
                 &next_tasks,
-                &Value::Object(values.clone()),
+                &values,
                 thread_id.as_deref(),
                 &namespace,
                 parent.as_deref(),
                 next_checkpoint_id.as_deref(),
-                "loop",
-            ));
+            );
         }
         crate::pregel::scheduling::assign_v4_ids(
             &mut next_tasks,
@@ -645,25 +644,26 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             state = values_to_state::<S>(&values)?;
         }
         if should_save_after_step(durability, interrupt_after.is_some()) {
-            save_checkpoint_via(
+            let pause_context = crate::pregel::pause::PauseContext {
+                thread_id: thread_id.as_deref(),
+                namespace: &namespace,
+                step,
+                checkpoint_emit,
+                force_new: pause_force_new,
+            };
+            crate::pregel::pause::save_after_step(
                 backend,
-                thread_id.as_deref(),
-                &namespace,
+                &pause_context,
                 &mut parent,
                 &mut previous_checkpoint,
                 &values,
                 &next_tasks,
-                step,
-                interrupt_after.is_some(),
-                false,
-                interrupt_after.clone().into_iter().collect(),
+                interrupt_after.as_ref(),
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &executed,
-                "loop",
                 &writes_by_node,
                 next_checkpoint_id.clone(),
-                checkpoint_emit,
                 sink,
             )
             .await?;
@@ -688,25 +688,24 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 state = values_to_state::<S>(&values)?;
             }
             if should_save_terminal(durability, thread_id.is_some()) {
-                save_checkpoint_via(
+                let pause_context = crate::pregel::pause::PauseContext {
+                    thread_id: thread_id.as_deref(),
+                    namespace: &namespace,
+                    step,
+                    checkpoint_emit,
+                    force_new: pause_force_new,
+                };
+                crate::pregel::pause::save_terminal(
                     backend,
-                    thread_id.as_deref(),
-                    &namespace,
+                    &pause_context,
                     &mut parent,
                     &mut previous_checkpoint,
                     &values,
-                    &[],
                     step,
-                    false,
-                    false,
-                    Vec::new(),
                     Vec::new(),
                     pending_deferred.clone(),
                     &executed,
-                    "loop",
                     &writes_by_node,
-                    None,
-                    checkpoint_emit,
                     sink,
                 )
                 .await?;

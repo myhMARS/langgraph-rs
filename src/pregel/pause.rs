@@ -303,3 +303,117 @@ where
     }
     Ok(interrupted.clone())
 }
+
+/// Persist the checkpoint for a completed superstep, attaching an `interrupt_after` pause.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn save_after_step<S, B, F>(
+    backend: &B,
+    context: &PauseContext<'_>,
+    parent: &mut Option<String>,
+    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    values: &serde_json::Map<String, Value>,
+    next_tasks: &[Task],
+    interrupted: Option<&Interrupt>,
+    pending_writes: Vec<crate::checkpoint::PendingWrite>,
+    deferred: Vec<Task>,
+    executed: &[String],
+    writes_by_node: &std::collections::HashMap<String, Vec<String>>,
+    checkpoint_id: Option<String>,
+    sink: &mut F,
+) -> Result<()>
+where
+    S: State,
+    B: PregelBackend<S>,
+    F: FnMut(crate::StreamChunk),
+{
+    crate::pregel::checkpointing::save_checkpoint_via(
+        backend,
+        context.thread_id,
+        context.namespace,
+        parent,
+        previous,
+        values,
+        next_tasks,
+        context.step,
+        interrupted.is_some(),
+        false,
+        interrupted.cloned().into_iter().collect(),
+        pending_writes,
+        deferred,
+        executed,
+        "loop",
+        writes_by_node,
+        checkpoint_id,
+        context.checkpoint_emit,
+        sink,
+    )
+    .await
+}
+/// Persist the terminal checkpoint of a run that has no further tasks.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn save_terminal<S, B, F>(
+    backend: &B,
+    context: &PauseContext<'_>,
+    parent: &mut Option<String>,
+    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    values: &serde_json::Map<String, Value>,
+    step: usize,
+    pending_writes: Vec<crate::checkpoint::PendingWrite>,
+    deferred: Vec<Task>,
+    executed: &[String],
+    writes_by_node: &std::collections::HashMap<String, Vec<String>>,
+    sink: &mut F,
+) -> Result<()>
+where
+    S: State,
+    B: PregelBackend<S>,
+    F: FnMut(crate::StreamChunk),
+{
+    crate::pregel::checkpointing::save_checkpoint_via(
+        backend,
+        context.thread_id,
+        context.namespace,
+        parent,
+        previous,
+        values,
+        &[],
+        step,
+        false,
+        false,
+        Vec::new(),
+        pending_writes,
+        deferred,
+        executed,
+        "loop",
+        writes_by_node,
+        None,
+        context.checkpoint_emit,
+        sink,
+    )
+    .await
+}
+/// Emit the debug checkpoint record for a completed superstep.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_debug_step<F: FnMut(crate::StreamChunk)>(
+    sink: &mut F,
+    step: usize,
+    executed: &[String],
+    next_tasks: &[Task],
+    values: &serde_json::Map<String, Value>,
+    thread_id: Option<&str>,
+    namespace: &str,
+    parent: Option<&str>,
+    checkpoint_id: Option<&str>,
+) {
+    sink(crate::pregel::outcome::debug_chunk(
+        step,
+        executed,
+        next_tasks,
+        &Value::Object(values.clone()),
+        thread_id,
+        namespace,
+        parent,
+        checkpoint_id,
+        "loop",
+    ));
+}
