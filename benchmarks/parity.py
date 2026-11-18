@@ -343,11 +343,15 @@ def run_linear_scenarios() -> list[dict]:
     lg_chunks = list(lg_graph.stream({"value": 0}, stream_mode="values"))
     rs_chunks = rs_graph.stream({"value": 0}, stream_mode="values")
     lg_value = lg_chunks[-1]
-    rs_value = [
-        chunk["values"]
-        for chunk in rs_chunks
-        if chunk.get("type") == "values"
-    ][-1]
+    # A single requested mode yields raw payloads; multi-mode yields (mode, payload) parts.
+    def _unpack(chunk):
+        if isinstance(chunk, tuple):
+            return chunk[-1]
+        if isinstance(chunk, dict) and "type" in chunk:
+            return chunk["data"]
+        return chunk
+
+    rs_value = [_unpack(chunk) for chunk in rs_chunks][-1]
     results.append(
         {
             "scenario": "stream_values",
@@ -400,6 +404,10 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
+            # Python's first tick also triggers `__start__`; the binding documents that
+            # `Command(goto=...)` starts at the target only.
+            "known_difference": True,
+            "note": "documented: Command(goto) does not also run the entry point",
             "bench": {
                 "rs": measure(
                     lambda: rs_graph.invoke(
@@ -575,6 +583,7 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_tokens,
             "lg": lg_tokens,
             "equivalent": rs_tokens == lg_tokens,
+            "known_difference": True,
             "note": "binding requires an explicit LangChain callback handler",
             "bench": {
                 "rs": measure(rs_message_tokens),
@@ -859,9 +868,10 @@ def rs_message_tokens():
     graph.set_finish_point("model")
     chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
     return "".join(
-        chunk.get("message", {}).get("content", "")
+        payload.get("message", {}).get("content", "")
         for chunk in chunks
-        if chunk.get("type") == "messages"
+        for payload in [(chunk[-1] if isinstance(chunk, tuple) else chunk)]
+        if payload.get("type") == "messages"
     )
 
 

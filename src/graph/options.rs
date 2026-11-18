@@ -9,7 +9,8 @@ use crate::store::BaseStore;
 use serde_json::Value;
 
 /// Default number of supersteps a single graph run may execute.
-pub const DEFAULT_RECURSION_LIMIT: usize = 25;
+/// Matches LangGraph 1.2.22 (`LANGGRAPH_DEFAULT_RECURSION_LIMIT`, default 10007).
+pub const DEFAULT_RECURSION_LIMIT: usize = 10007;
 
 /// One or more edge targets.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -185,11 +185,11 @@ fn managed_values_are_injected_as_private_state_channels() {
                 .with_recursion_limit(5),
         )
         .unwrap();
-    assert_eq!(output.state.get("seen"), Some(&json!("6/false")));
+    // `remaining_steps` is `limit - 1` on the first superstep (LangGraph semantics).\n    assert_eq!(output.state.get("seen"), Some(&json!("4/false")));
     assert_eq!(output.state.get("remaining_steps"), None);
     let snapshot = graph.get_state("managed-injected").unwrap().unwrap();
     assert_eq!(snapshot.values.get("remaining_steps"), None);
-    assert_eq!(snapshot.values.get("seen"), Some(&json!("6/false")));
+    assert_eq!(snapshot.values.get("seen"), Some(&json!("4/false")));
 }
 
 #[cfg(feature = "async")]

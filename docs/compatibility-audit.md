@@ -5,9 +5,10 @@ implementation and the repo's own parity harness. Python package source was not 
 inside that review environment, so Python-side claims that depend on exact 1.2.22 details
 are marked "verify" where relevant.
 
-The installed Python LangGraph is used by `benchmarks/parity.py`; the 40 scenario groups
-there are the executable comparison suite and currently report **40/40 equivalent, 0 known
-differences**.
+The installed Python LangGraph is used by `benchmarks/parity.py`; the scenario groups there
+are the executable comparison suite and currently report **34/36 equivalent, 2 known
+differences** (`Command(goto=...)` does not also run the entry point here, and the `messages`
+stream needs an explicit callback handler).
 
 ## Fixed in this pass
 
@@ -123,6 +124,9 @@ behaviour; these are now implemented and covered by tests:
   state writes out of the pending set.
 - **Streaming.** The starting state is emitted before the first superstep, v1 task payloads
   carry `triggers`, and `StateTask.state` is only populated for subgraph tasks.
+- **Managed values and budget.** `remaining_steps` now follows LangGraph's `stop - step`
+  rule (first superstep reports `limit - 1`), and the default recursion limit is 10007 like
+  `LANGGRAPH_DEFAULT_RECURSION_LIMIT`.
 - **Robustness.** An unkeyed resume with several pending interrupts is rejected; the entire
   feature matrix (none/async/sqlite/redis/postgres/msgpack/python/python-async) builds
   without warnings.

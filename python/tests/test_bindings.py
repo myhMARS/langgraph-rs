@@ -1689,7 +1689,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("inspect")
         compiled = graph.compile(checkpointer=lg.InMemorySaver(), recursion_limit=5)
         output = compiled.invoke({}, thread_id="py-managed")
-        self.assertEqual(output["seen"], "6/False")
+        # LangGraph reports `limit - 1` on the first superstep.\n        self.assertEqual(output["seen"], "4/False")
         self.assertNotIn("remaining_steps", output)
 
 
