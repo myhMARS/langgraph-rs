@@ -234,4 +234,6 @@ impl PyStateGraph {
 
 #[path = "graph_compiled.rs"]
 mod graph_compiled;
+#[path = "graph_invoke.rs"]
+mod graph_invoke;
 pub(crate) use graph_compiled::*;
