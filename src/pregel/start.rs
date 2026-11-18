@@ -155,7 +155,7 @@ pub(crate) fn resolve_resume_start<S: State>(
             "multiple pending interrupts; resume must be keyed by interrupt id",
         ));
     }
-    let mut tasks = crate::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume);
+    let mut tasks = crate::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume)?;
     for node in goto {
         if node == crate::END {
             continue;

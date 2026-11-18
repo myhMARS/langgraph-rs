@@ -5,7 +5,7 @@ use std::sync::mpsc;
 
 use serde_json::{Map, Value};
 
-use crate::_internal::error::Interrupt;
+use crate::_internal::error::{Error, Interrupt};
 use crate::_internal::node::Task;
 use crate::_internal::ports::Checkpointer;
 use crate::_internal::state::State;
@@ -127,7 +127,10 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
 /// several pending interrupts is a map keyed by interrupt id. The new value is
 /// folded into each task's consumed history so repeated `interrupt()` calls see
 /// earlier answers on re-runs.
-pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Value>) -> Vec<Task> {
+pub(crate) fn prepare_resume_tasks(
+    checkpoint: &Checkpoint,
+    resume: &Option<Value>,
+) -> Result<Vec<Task>> {
     let interrupt_ids: std::collections::HashSet<&str> = checkpoint
         .interrupts
         .iter()
@@ -141,8 +144,19 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
         Some(Value::Object(map)) if !map.is_empty() && map.keys().all(|key| looks_like_id(key)) => {
             Some(map.clone())
         }
+
         _ => None,
     };
+    if let Some(map) = &interrupt_map {
+        if let Some(unknown) = map
+            .keys()
+            .find(|key| !checkpoint.interrupts.iter().any(|known| &known.id == *key))
+        {
+            return Err(Error::validation(format!(
+                "Unknown or already-consumed interrupt: {unknown}"
+            )));
+        }
+    }
     let mut tasks = checkpoint.next.clone();
     let flagged: std::collections::HashSet<String> = tasks
         .iter()
@@ -171,7 +185,7 @@ pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Valu
             task.resume_history.push(value);
         }
     }
-    tasks
+    Ok(tasks)
 }
 
 /// Record a persisted checkpoint as the new parent and emit its stream event.
