@@ -585,6 +585,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             backend.edges_of(node)
         });
 
+        step += 1;
+        // Next tick's task ids hash the checkpoint they will be stored in.
+        let next_checkpoint_id = thread_id
+            .as_deref()
+            .map(|thread| crate::checkpoint::new_checkpoint_id(thread, step));
         if emit && debug_enabled {
             sink(debug_chunk(
                 step,
@@ -594,14 +599,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 thread_id.as_deref(),
                 &namespace,
                 parent.as_deref(),
+                next_checkpoint_id.as_deref(),
+                "loop",
             ));
         }
-
-        step += 1;
-        // Next tick's task ids hash the checkpoint they will be stored in.
-        let next_checkpoint_id = thread_id
-            .as_deref()
-            .map(|thread| crate::checkpoint::new_checkpoint_id(thread, step));
         crate::pregel::scheduling::assign_v4_ids(
             &mut next_tasks,
             next_checkpoint_id.as_deref(),

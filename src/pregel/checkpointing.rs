@@ -12,6 +12,7 @@ use crate::_internal::state::State;
 use crate::_internal::stream::StreamChunk;
 use crate::Result;
 use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::pregel::outcome::debug_chunk;
 
 /// Background checkpoint writer used by [`Durability::Async`](crate::Durability::Async).
 ///
@@ -351,6 +352,8 @@ where
     }
     if let Some(raw) = raw_input {
         let start_tasks = vec![Task::new(crate::START)];
+        let raw_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
+        let raw_parent = parent.clone();
         save_checkpoint_via(
             backend,
             thread_id,
@@ -367,17 +370,31 @@ where
             Vec::new(),
             &[],
             "input",
-            None,
+            raw_id.clone(),
             emit,
             sink,
         )
         .await?;
+        if emit {
+            sink(debug_chunk(
+                base_step,
+                &[],
+                &start_tasks,
+                &Value::Object(raw.clone()),
+                thread_id,
+                namespace,
+                raw_parent.as_deref(),
+                raw_id.as_deref(),
+                "input",
+            ));
+        }
         base_step += 1;
     }
     let post_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
     if let Some(id) = post_id.as_deref() {
         crate::pregel::scheduling::assign_v4_ids(tasks, Some(id), namespace, base_step);
     }
+    let post_parent = parent.clone();
     save_checkpoint_via(
         backend,
         thread_id,
@@ -394,11 +411,24 @@ where
         Vec::new(),
         &[],
         "loop",
-        post_id,
+        post_id.clone(),
         emit,
         sink,
     )
     .await?;
+    if emit {
+        sink(debug_chunk(
+            base_step,
+            &[],
+            tasks,
+            &Value::Object(values.clone()),
+            thread_id,
+            namespace,
+            post_parent.as_deref(),
+            post_id.as_deref(),
+            "loop",
+        ));
+    }
     Ok(base_step)
 }
 

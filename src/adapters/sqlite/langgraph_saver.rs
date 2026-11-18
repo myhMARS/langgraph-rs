@@ -235,9 +235,8 @@ impl LangGraphSqliteSaver {
         metadata
             .entry("source".to_string())
             .or_insert_with(|| Value::String("loop".to_string()));
-        // The LangGraph-compatible table stores the internal step: the task ids written
-        // beside it are derived from that counter, so LangGraph must see the same value to
-        // recompute identical ids on resume.
+        // The LangGraph-compatible table stores the internal step: LangGraph recomputes
+        // task ids from this value and the ids written beside it were derived from it.
         metadata.insert("step".to_string(), json!(checkpoint.step as i64));
         metadata
             .entry("parents".to_string())

@@ -466,6 +466,7 @@ pub(crate) fn values_chunk(step: usize, values: &serde_json::Map<String, Value>)
 }
 
 /// Stream chunk reporting which nodes ran and which are scheduled next.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn debug_chunk(
     step: usize,
     executed: &[String],
@@ -474,12 +475,14 @@ pub(crate) fn debug_chunk(
     thread_id: Option<&str>,
     namespace: &str,
     parent_checkpoint_id: Option<&str>,
+    checkpoint_id: Option<&str>,
+    source: &str,
 ) -> StreamChunk {
     let config = serde_json::json!({
         "configurable": {
             "thread_id": thread_id,
             "checkpoint_ns": namespace,
-            "checkpoint_id": null,
+            "checkpoint_id": checkpoint_id,
         }
     });
     let parent_config = parent_checkpoint_id.map(|parent| {
@@ -507,7 +510,7 @@ pub(crate) fn debug_chunk(
         step,
         payload: serde_json::json!({
             "config": config,
-            "metadata": {"step": step, "source": "loop", "parents": {}},
+            "metadata": {"step": step as i64 - 1, "source": source, "parents": {}},
             "values": values,
             "next": next,
             "parent_config": parent_config,
