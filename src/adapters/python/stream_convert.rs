@@ -1,7 +1,7 @@
 //! Snapshot and stream-chunk conversion helpers.
 
 use pyo3::exceptions::PyTypeError;
-use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyList, PyString, PyTuple};
 use serde_json::Value;
 
 use super::*;
@@ -472,32 +472,16 @@ pub(crate) fn convert_stream_chunks(
 ) -> PyResult<Vec<Py<PyAny>>> {
     let multi_mode = requested.len() > 1;
     let debug_mode = requested.contains(&crate::StreamMode::Debug);
+    let tasks_enabled = requested.contains(&crate::StreamMode::Tasks);
     let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
     let mut values_indices = Vec::new();
-    for chunk in chunks {
-        if debug_mode {
-            match chunk {
-                StreamChunk::Debug { .. } => {
-                    if v2 {
-                        converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-                    } else {
-                        converted.push(chunk_to_py_v1(py, chunk, false)?);
-                    }
-                }
-                StreamChunk::Task { .. } => {
-                    converted.extend(task_debug_parts(py, chunk, v2)?);
-                }
-                StreamChunk::Usage { .. } | StreamChunk::Interrupt { .. } => {
-                    if v2 {
-                        converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-                    } else {
-                        converted.push(chunk_to_py_v1(py, chunk, false)?);
-                    }
-                }
-                _ => {}
-            }
-            continue;
-        }
+    let mut interrupt_payloads: Vec<Py<PyAny>> = Vec::new();
+    let mut interrupt_chunks: Vec<&StreamChunk> = Vec::new();
+
+    let convert_regular = |converted: &mut Vec<Py<PyAny>>,
+                           values_indices: &mut Vec<usize>,
+                           chunk: &StreamChunk|
+     -> PyResult<()> {
         if matches!(chunk, StreamChunk::Values { .. }) {
             values_indices.push(converted.len());
         }
@@ -506,34 +490,111 @@ pub(crate) fn convert_stream_chunks(
         } else {
             converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
         }
-    }
-    let interrupts = converted.iter().rev().find_map(|item| {
-        let dict = item.bind(py).cast::<PyDict>().ok()?;
-        if v2 {
-            dict.get_item("data")
-                .ok()
-                .flatten()
-                .and_then(|data| data.cast_into::<PyDict>().ok())
-                .and_then(|data| data.get_item("__interrupt__").ok().flatten())
-                .map(|value| value.unbind())
-        } else {
-            dict.get_item("__interrupt__")
-                .ok()
-                .flatten()
-                .map(|value| value.unbind())
-        }
-    });
-    if let Some(interrupts) = interrupts {
-        if let Some(index) = values_indices.last().copied() {
-            if let Some(item) = converted.get_mut(index) {
-                if let Ok(dict) = item.bind(py).cast::<PyDict>() {
-                    let key = if v2 { "interrupts" } else { "__interrupt__" };
-                    dict.set_item(key, interrupts.bind(py))?;
+        Ok(())
+    };
+
+    for chunk in chunks {
+        if debug_mode {
+            match chunk {
+                StreamChunk::Debug { .. } => {
+                    convert_regular(&mut converted, &mut values_indices, chunk)?
                 }
+                StreamChunk::Task { .. } => {
+                    let parts = task_debug_parts(py, chunk, v2)?;
+                    if v2 || !multi_mode {
+                        converted.extend(parts);
+                    } else {
+                        for part in parts {
+                            converted.push(
+                                PyTuple::new(
+                                    py,
+                                    [PyString::new(py, "debug").into_any(), part.into_bound(py)],
+                                )?
+                                .into_any()
+                                .unbind(),
+                            );
+                        }
+                    }
+                    if tasks_enabled {
+                        convert_regular(&mut converted, &mut values_indices, chunk)?;
+                    }
+                }
+                StreamChunk::Interrupt { .. } => {
+                    interrupt_payloads.push(interrupt_payload(py, chunk, v2)?);
+                    interrupt_chunks.push(chunk);
+                    if v2 {
+                        converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+                    } else {
+                        converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
+                    }
+                }
+                _ if chunk.matches_modes(requested) => {
+                    convert_regular(&mut converted, &mut values_indices, chunk)?;
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if matches!(chunk, StreamChunk::Interrupt { .. }) {
+            interrupt_payloads.push(interrupt_payload(py, chunk, v2)?);
+            interrupt_chunks.push(chunk);
+            continue;
+        }
+        convert_regular(&mut converted, &mut values_indices, chunk)?;
+    }
+
+    if let Some(index) = values_indices.last().copied()
+        && let Some(item) = converted.get_mut(index)
+        && let Some(dict) = values_dict(item.bind(py))
+    {
+        let key = if v2 { "interrupts" } else { "__interrupt__" };
+        if !interrupt_payloads.is_empty() {
+            dict.set_item(key, PyList::new(py, interrupt_payloads)?)?;
+        }
+    } else {
+        // Updates/other modes without a values payload surface interrupts as their own chunk.
+        for chunk in interrupt_chunks {
+            if v2 {
+                converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+            } else {
+                converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
             }
         }
     }
     Ok(converted)
+}
+
+fn values_dict<'py>(item: &Bound<'py, PyAny>) -> Option<Bound<'py, PyDict>> {
+    if let Ok(tuple) = item.cast::<PyTuple>() {
+        return tuple.get_item(1).ok()?.cast::<PyDict>().ok().cloned();
+    }
+    item.cast::<PyDict>().ok().cloned()
+}
+
+fn interrupt_payload(py: Python<'_>, chunk: &StreamChunk, v2: bool) -> PyResult<Py<PyAny>> {
+    let item = if v2 {
+        chunk_to_py_v2_parts(py, chunk)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| PyTypeError::new_err("interrupt chunk produced no part"))?
+    } else {
+        chunk_to_py_v1(py, chunk, false)?
+    };
+    let dict = item
+        .bind(py)
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("interrupt chunk is not a dict"))?;
+    let key = "__interrupt__";
+    let payload = if v2 {
+        dict.get_item("data")?
+            .and_then(|data| data.cast_into::<PyDict>().ok())
+            .and_then(|data| data.get_item(key).ok().flatten())
+    } else {
+        dict.get_item(key)?
+    };
+    payload
+        .map(|value| value.unbind())
+        .ok_or_else(|| PyTypeError::new_err("interrupt chunk has no payload"))
 }
 
 /// LangGraph v1 chunk conversion that also applies multi-mode tuple wrapping.
