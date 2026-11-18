@@ -160,6 +160,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Vec::new(),
             Vec::new(),
             &[],
+            emit,
             sink,
         )
         .await?;
@@ -178,6 +179,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Vec::new(),
             Vec::new(),
             &[],
+            emit,
             sink,
         )
         .await?;
@@ -231,6 +233,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &[],
+                emit,
                 sink,
             )
             .await?;
@@ -337,6 +340,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     pending_writes,
                     pending_deferred.clone(),
                     &[],
+                    emit,
                     sink,
                 )
                 .await?;
@@ -420,6 +424,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_writes,
                 pending_deferred.clone(),
                 &[],
+                emit,
                 sink,
             )
             .await?;
@@ -528,6 +533,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &executed,
+                emit,
                 sink,
             )
             .await?;
@@ -567,6 +573,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     Vec::new(),
                     pending_deferred.clone(),
                     &executed,
+                    emit,
                     sink,
                 )
                 .await?;

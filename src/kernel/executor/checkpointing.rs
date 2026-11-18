@@ -158,8 +158,12 @@ pub(crate) fn checkpoint_committed(
     parent: &mut Option<String>,
     checkpoint: &Checkpoint,
     sink: &mut dyn FnMut(StreamChunk),
+    emit: bool,
 ) {
     *parent = Some(checkpoint.id.clone());
+    if !emit {
+        return;
+    }
     let config = serde_json::json!({
         "configurable": {
             "thread_id": checkpoint.thread_id,
@@ -238,6 +242,7 @@ pub(crate) async fn save_checkpoint_via<
     pending_writes: Vec<crate::kernel::checkpoint::PendingWrite>,
     deferred: Vec<Task>,
     executed: &[String],
+    emit: bool,
     sink: &mut F,
 ) -> Result<()> {
     let Some(thread_id) = thread_id else {
@@ -263,7 +268,7 @@ pub(crate) async fn save_checkpoint_via<
         task_results: crate::kernel::context::snapshot_task_results(),
     });
     backend.persist_checkpoint(checkpoint.clone()).await?;
-    checkpoint_committed(parent, &checkpoint, sink);
+    checkpoint_committed(parent, &checkpoint, sink, emit);
     *previous = Some(checkpoint);
     Ok(())
 }
