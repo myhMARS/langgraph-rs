@@ -1,6 +1,7 @@
 //! Node execution for one superstep.
 
-use std::panic;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -26,14 +27,14 @@ pub(super) fn run_superstep<S: State>(
     tasks: &[Task],
     max_concurrency: Option<usize>,
 ) -> Vec<TaskOutcome> {
-    if let Some(limit) = max_concurrency.filter(|limit| *limit > 0 && tasks.len() > *limit) {
-        let mut outcomes = Vec::with_capacity(tasks.len());
-        for chunk in tasks.chunks(limit) {
-            outcomes.extend(run_superstep(graph, state, chunk, None));
-        }
-        return outcomes;
+    if tasks.is_empty() {
+        return Vec::new();
     }
-    if tasks.len() <= 1 {
+    let limit = max_concurrency
+        .filter(|limit| *limit > 0)
+        .unwrap_or(usize::MAX);
+    let workers = limit.min(tasks.len()).max(1);
+    if workers == 1 {
         return tasks
             .iter()
             .map(|task| run_task(graph, state, task))
@@ -43,31 +44,40 @@ pub(super) fn run_superstep<S: State>(
     let run = crate::runtime::context::capture_run_context();
     let step = crate::runtime::context::capture_step_context();
     let collector = crate::runtime::context::current_subgraph_collector();
+    let next = AtomicUsize::new(0);
+    let outcomes: Mutex<Vec<Option<TaskOutcome>>> =
+        Mutex::new((0..tasks.len()).map(|_| None).collect());
     std::thread::scope(|scope| {
-        let handles: Vec<_> = tasks
-            .iter()
-            .map(|task| {
-                let run = run.clone();
-                let collector = collector.clone();
-                scope.spawn(move || {
-                    let _run_guard = run.map(crate::runtime::context::install_run_context);
-                    let _step_guard = step.map(|(step, limit)| {
-                        crate::runtime::context::install_step(step, step, limit)
-                    });
-                    let _collector_guard =
-                        collector.map(crate::runtime::context::install_subgraph_collector);
-                    run_task(graph, state, task)
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| match handle.join() {
-                Ok(outcome) => outcome,
-                Err(panic) => panic::resume_unwind(panic),
-            })
-            .collect()
-    })
+        for _ in 0..workers {
+            let run = run.clone();
+            let collector = collector.clone();
+            let next = &next;
+            let outcomes = &outcomes;
+            scope.spawn(move || {
+                let _run_guard = run.map(crate::runtime::context::install_run_context);
+                let _step_guard = step
+                    .map(|(step, limit)| crate::runtime::context::install_step(step, step, limit));
+                let _collector_guard =
+                    collector.map(crate::runtime::context::install_subgraph_collector);
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    if index >= tasks.len() {
+                        break;
+                    }
+                    let outcome = run_task(graph, state, &tasks[index]);
+                    if let Ok(mut outcomes) = outcomes.lock() {
+                        outcomes[index] = Some(outcome);
+                    }
+                }
+            });
+        }
+    });
+    outcomes
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .into_iter()
+        .map(|outcome| outcome.expect("every task has an outcome"))
+        .collect()
 }
 
 fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskOutcome {
