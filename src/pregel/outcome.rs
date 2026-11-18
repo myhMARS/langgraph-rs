@@ -139,6 +139,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     input,
                     result: None,
                     error: Some(failure.clone()),
+                    started: false,
                 });
 
                 match graph.error_handler(&failure.node) {
@@ -233,6 +234,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         input: input.clone(),
                         result: task_result,
                         error: None,
+                        started: false,
                     });
                 }
                 if output.is_parent() {

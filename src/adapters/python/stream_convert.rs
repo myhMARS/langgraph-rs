@@ -179,29 +179,45 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("data", data)?;
         }
         StreamChunk::Task {
+            id,
             node,
             input,
             result,
             error,
+            started,
             ..
         } => {
             dict.set_item("type", "tasks")?;
             let data = PyDict::new(py);
-            data.set_item("node", node)?;
+            data.set_item("id", id)?;
             data.set_item("name", node)?;
-            data.set_item("path", Vec::<String>::new())?;
-            data.set_item("triggers", Vec::<String>::new())?;
-            data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
-            if let Some(input) = input {
-                data.set_item("input", value_to_py(py, input)?)?;
-            }
-            if let Some(result) = result {
-                data.set_item("result", value_to_py(py, result)?)?;
-            }
-            if let Some(error) = error {
-                let error = serde_json::to_value(error)
-                    .map_err(|error| PyTypeError::new_err(error.to_string()))?;
-                data.set_item("error", value_to_py(py, &error)?)?;
+            if *started {
+                data.set_item(
+                    "input",
+                    match input {
+                        Some(input) => value_to_py(py, input)?,
+                        None => py.None(),
+                    },
+                )?;
+                data.set_item("triggers", Vec::<String>::new())?;
+            } else {
+                data.set_item(
+                    "error",
+                    match error {
+                        Some(error) => {
+                            value_to_py(py, &serde_json::Value::String(error.message.clone()))?
+                        }
+                        None => py.None(),
+                    },
+                )?;
+                data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+                data.set_item(
+                    "result",
+                    match result {
+                        Some(result) => value_to_py(py, result)?,
+                        None => py.None(),
+                    },
+                )?;
             }
             dict.set_item("data", data)?;
         }
@@ -275,9 +291,28 @@ pub(crate) fn chunk_to_py_v2_parts(
         input,
         result,
         error,
+        started,
         ..
     } = chunk
     {
+        if *started {
+            let start = PyDict::new(py);
+            start.set_item("type", "tasks")?;
+            let start_data = PyDict::new(py);
+            start_data.set_item("id", id)?;
+            start_data.set_item("name", node)?;
+            start_data.set_item(
+                "input",
+                match input {
+                    Some(input) => value_to_py(py, input)?,
+                    None => py.None(),
+                },
+            )?;
+            start_data.set_item("triggers", Vec::<String>::new())?;
+            start.set_item("data", start_data)?;
+            start.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
+            return Ok(vec![start.into_any().unbind()]);
+        }
         let start = PyDict::new(py);
         start.set_item("type", "tasks")?;
         let start_data = PyDict::new(py);
@@ -319,7 +354,7 @@ pub(crate) fn chunk_to_py_v2_parts(
         )?;
         finish.set_item("data", finish_data)?;
         finish.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
-        return Ok(vec![start.into_any().unbind(), finish.into_any().unbind()]);
+        return Ok(vec![finish.into_any().unbind()]);
     }
     Ok(vec![chunk_to_py_v2(py, chunk)?])
 }
@@ -364,27 +399,37 @@ pub(crate) fn task_debug_parts(
         input,
         result,
         error,
+        started,
         ..
     } = chunk
     else {
         return Ok(Vec::new());
     };
     let timestamp = crate::checkpoint::iso_timestamp(crate::checkpoint::now_millis());
-    let start_payload = serde_json::json!({
-        "id": id,
-        "name": node,
-        "input": input,
-        "triggers": [],
-    });
-    let result_payload = serde_json::json!({
-        "id": id,
-        "name": node,
-        "error": error.as_ref().map(|error| error.message.clone()),
-        "interrupts": [],
-        "result": result,
-    });
+    let records = if *started {
+        vec![(
+            "task",
+            serde_json::json!({
+                "id": id,
+                "name": node,
+                "input": input,
+                "triggers": [],
+            }),
+        )]
+    } else {
+        vec![(
+            "task_result",
+            serde_json::json!({
+                "id": id,
+                "name": node,
+                "error": error.as_ref().map(|error| error.message.clone()),
+                "interrupts": [],
+                "result": result,
+            }),
+        )]
+    };
     let mut parts = Vec::new();
-    for (kind, payload) in [("task", start_payload), ("task_result", result_payload)] {
+    for (kind, payload) in records {
         if v2 {
             let data = PyDict::new(py);
             data.set_item("type", kind)?;
@@ -610,23 +655,39 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             input,
             result,
             error,
+            started,
         } => {
             let dict = PyDict::new(py);
             dict.set_item("id", id)?;
             dict.set_item("name", node)?;
             dict.set_item("step", *step)?;
-            if let Some(input) = input {
-                dict.set_item("input", value_to_py(py, input)?)?;
-            }
-            if let Some(result) = result {
-                dict.set_item("result", value_to_py(py, result)?)?;
-            }
-            if let Some(error) = error {
-                let failure = PyDict::new(py);
-                failure.set_item("node", error.node.clone())?;
-                failure.set_item("message", error.message.clone())?;
-                failure.set_item("attempts", error.attempts)?;
-                dict.set_item("error", failure)?;
+            if *started {
+                dict.set_item(
+                    "input",
+                    match input {
+                        Some(input) => value_to_py(py, input)?,
+                        None => py.None(),
+                    },
+                )?;
+                dict.set_item("triggers", Vec::<String>::new())?;
+            } else {
+                dict.set_item(
+                    "error",
+                    match error {
+                        Some(error) => {
+                            value_to_py(py, &serde_json::Value::String(error.message.clone()))?
+                        }
+                        None => py.None(),
+                    },
+                )?;
+                dict.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+                dict.set_item(
+                    "result",
+                    match result {
+                        Some(result) => value_to_py(py, result)?,
+                        None => py.None(),
+                    },
+                )?;
             }
             Ok(dict.into_any().unbind())
         }

@@ -250,6 +250,20 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return Err(Error::Interrupt(interrupted_interrupt));
         }
 
+        if emit {
+            for task in &tasks {
+                sink(StreamChunk::Task {
+                    step,
+                    id: task.id.clone(),
+                    node: task.node.clone(),
+                    input: task.input.clone().map(Value::Object),
+                    result: None,
+                    error: None,
+                    started: true,
+                });
+            }
+        }
+
         let outcomes = match backend
             .run_superstep(&state, &tasks, step, config.control.as_ref())
             .await

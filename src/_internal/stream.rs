@@ -81,6 +81,8 @@ pub enum StreamChunk {
         result: Option<Value>,
         /// Failure routed by the task, when it failed.
         error: Option<NodeFailure>,
+        /// `true` for the start event emitted before the task runs.
+        started: bool,
     },
     /// Debug record for a completed superstep (`stream_mode="debug"`).
     Debug {
