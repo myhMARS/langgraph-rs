@@ -337,70 +337,7 @@ impl PyCompiledGraph {
                 })
                 .collect::<Vec<_>>()
         };
-        let multi_mode = requested.len() > 1;
-        let debug_mode = requested.contains(&crate::StreamMode::Debug);
-        let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
-        let mut values_indices = Vec::new();
-        for chunk in &chunks {
-            if debug_mode {
-                match chunk {
-                    crate::StreamChunk::Debug { .. } => {
-                        if v2 {
-                            converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-                        } else {
-                            converted.push(chunk_to_py_v1(py, chunk, false)?);
-                        }
-                    }
-                    crate::StreamChunk::Task { .. } => {
-                        converted.extend(task_debug_parts(py, chunk, v2)?);
-                    }
-                    crate::StreamChunk::Usage { .. } | crate::StreamChunk::Interrupt { .. } => {
-                        if v2 {
-                            converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-                        } else {
-                            converted.push(chunk_to_py_v1(py, chunk, false)?);
-                        }
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-            if matches!(chunk, crate::StreamChunk::Values { .. }) {
-                values_indices.push(converted.len());
-            }
-            if v2 {
-                converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-            } else {
-                converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
-            }
-        }
-        let interrupts = converted.iter().rev().find_map(|item| {
-            let dict = item.bind(py).cast::<PyDict>().ok()?;
-            if v2 {
-                dict.get_item("data")
-                    .ok()
-                    .flatten()
-                    .and_then(|data| data.cast_into::<PyDict>().ok())
-                    .and_then(|data| data.get_item("__interrupt__").ok().flatten())
-                    .map(|value| value.unbind())
-            } else {
-                dict.get_item("__interrupt__")
-                    .ok()
-                    .flatten()
-                    .map(|value| value.unbind())
-            }
-        });
-        if let Some(interrupts) = interrupts {
-            if let Some(index) = values_indices.last().copied() {
-                if let Some(item) = converted.get_mut(index) {
-                    if let Ok(dict) = item.bind(py).cast::<PyDict>() {
-                        let key = if v2 { "interrupts" } else { "__interrupt__" };
-                        dict.set_item(key, interrupts.bind(py))?;
-                    }
-                }
-            }
-        }
-        Ok(converted)
+        convert_stream_chunks(py, &chunks, v2, &requested)
     }
 
     /// Invoke the graph over a list of inputs.
