@@ -173,7 +173,7 @@ impl<S: State> CompiledGraph<S> {
                     .get(&checkpoint.id)
                     .map(|index| total - 2 - *index as i64)
                     .unwrap_or(checkpoint.step as i64);
-                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
                 snapshot.step = step;
                 Ok(snapshot)
             })
