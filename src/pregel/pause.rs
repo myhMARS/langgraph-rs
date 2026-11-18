@@ -417,3 +417,157 @@ pub(crate) fn emit_debug_step<F: FnMut(crate::StreamChunk)>(
         "loop",
     ));
 }
+
+/// Pause a superstep that produced several interrupts: commit the siblings' writes,
+/// keep every interrupted task pending, and persist the pause.
+pub(crate) async fn pause_multi_interrupt<S, B, F>(
+    context: &mut InterruptedStep<'_, S, B, F>,
+    tasks: &[Task],
+    outcomes: Vec<crate::pregel::outcome::TaskOutcome>,
+    interrupts: &[Interrupt],
+) -> Result<Interrupt>
+where
+    S: State,
+    B: PregelBackend<S>,
+    F: FnMut(crate::StreamChunk),
+{
+    use crate::pregel::outcome::{
+        TaskOutcome, apply_processed_updates, process_outcomes, values_chunk,
+    };
+    use crate::pregel::run_loop::finish_pending;
+    let interrupted_ids: std::collections::HashSet<String> = tasks
+        .iter()
+        .zip(&outcomes)
+        .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
+        .map(|(task, _)| task.id.clone())
+        .collect();
+    let successful: Vec<TaskOutcome> = outcomes
+        .into_iter()
+        .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
+        .collect();
+    let processed = process_outcomes(
+        context.backend,
+        successful,
+        context.step,
+        context.report,
+        context.sink,
+        context.emit,
+    )?;
+    let written: std::collections::HashSet<String> = processed
+        .channel_updates
+        .iter()
+        .map(|update| update.channel.clone())
+        .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
+        .collect();
+    let mut writes_by_node: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for update in &processed.channel_updates {
+        writes_by_node
+            .entry(update.node.clone())
+            .or_default()
+            .push(update.channel.clone());
+    }
+    apply_processed_updates(
+        context.backend.schema(),
+        context.values,
+        processed.channel_updates,
+        processed.replacements,
+        context.finish_updates,
+    )?;
+    context
+        .backend
+        .schema()
+        .clear_step_topics(context.values, &written);
+    if context.emit {
+        (context.sink)(values_chunk(context.step, context.values));
+    }
+    let state = crate::_internal::state::values_to_state::<S>(context.values)?;
+    let finish_writes = finish_pending(context.finish_updates, context.backend.schema());
+    let (next_nodes, router_sends) = crate::pregel::scheduling::collect_next_nodes(
+        &state,
+        &processed.executed,
+        &processed.goto_nodes,
+        &processed.goto_targets,
+        |node| context.backend.edges_of(node),
+        |node| context.backend.conditional_of(node),
+        |node| context.backend.node_exists(node),
+        |node| PregelBackend::destinations_of(context.backend, node),
+    )?;
+    let scheduled = crate::pregel::scheduling::schedule_next_tasks(
+        next_nodes,
+        router_sends,
+        processed.next_tasks,
+        |node| context.backend.node_exists(node),
+        |node| PregelBackend::destinations_of(context.backend, node),
+        |node| context.backend.is_deferred(node),
+        context.pending_deferred,
+        false,
+    )?;
+    let mut next_tasks = crate::pregel::outcome::merge_interrupted_tasks(
+        tasks,
+        |task| interrupted_ids.contains(&task.id),
+        scheduled,
+    );
+    for task in &mut next_tasks {
+        if interrupted_ids.contains(&task.id) {
+            task.interrupted = true;
+        }
+    }
+    crate::pregel::scheduling::fill_triggers(&mut next_tasks, &processed.executed, |node| {
+        context.backend.edges_of(node)
+    });
+    let executed: Vec<String> = tasks.iter().map(|task| task.node.clone()).collect();
+    crate::pregel::scheduling::assign_v4_ids(
+        &mut next_tasks,
+        context
+            .previous
+            .as_ref()
+            .map(|checkpoint| checkpoint.id.as_str()),
+        context.namespace,
+        context.step,
+    );
+    persist_pause(
+        context.backend,
+        context.thread_id,
+        context.namespace,
+        context.parent,
+        context.previous,
+        &next_tasks,
+        context.values,
+        context.step,
+        PauseDraft {
+            interrupted: true,
+            paused_before: false,
+            interrupts: interrupts.to_vec(),
+            pending_writes: finish_writes,
+            deferred: context.pending_deferred.clone(),
+            executed: &executed,
+            values: Some(context.values),
+            next_tasks: &next_tasks,
+            writes_by_node: &writes_by_node,
+            raw_input: context.raw_input,
+            scheduled_after: Vec::new(),
+            resume_tasks: Vec::new(),
+            completed_tasks: Vec::new(),
+        },
+        context.force_new,
+        "loop",
+        context.checkpoint_emit,
+        context.sink,
+    )
+    .await?;
+    if context.emit {
+        emit_pause_events(
+            context.sink,
+            context.step,
+            tasks,
+            interrupts,
+            context.values,
+            context.values_enabled,
+        );
+    }
+    Ok(interrupts
+        .first()
+        .cloned()
+        .unwrap_or_else(|| Interrupt::new(String::new(), Value::Null)))
+}
