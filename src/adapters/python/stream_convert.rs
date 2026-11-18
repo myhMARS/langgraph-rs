@@ -226,6 +226,26 @@ pub(crate) fn chunk_to_py_v2_parts(
     py: Python<'_>,
     chunk: &StreamChunk,
 ) -> PyResult<Vec<Py<PyAny>>> {
+    if let StreamChunk::Subgraph {
+        namespace,
+        chunk: inner,
+    } = chunk
+    {
+        let namespace: Vec<String> = if namespace.is_empty() {
+            Vec::new()
+        } else {
+            namespace.split('|').map(str::to_owned).collect()
+        };
+        let parts = chunk_to_py_v2_parts(py, inner)?;
+        let mut wrapped = Vec::with_capacity(parts.len());
+        for part in parts {
+            if let Ok(dict) = part.bind(py).cast::<PyDict>() {
+                dict.set_item("ns", PyTuple::new(py, namespace.clone())?)?;
+            }
+            wrapped.push(part);
+        }
+        return Ok(wrapped);
+    }
     if let StreamChunk::Task {
         id,
         node,

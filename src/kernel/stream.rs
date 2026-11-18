@@ -220,8 +220,8 @@ impl StreamChunk {
 
     /// Check whether this chunk is forwarded for the selected stream modes.
     ///
-    /// Usage and interrupt chunks are always forwarded; the `debug` mode also includes
-    /// values, updates, tasks and checkpoint records, matching LangGraph's behaviour.
+    /// Usage and interrupt chunks are always forwarded. `debug` only forwards the
+    /// dedicated debug records, matching LangGraph's `stream_mode="debug"` output.
     pub fn matches_modes(&self, modes: &[StreamMode]) -> bool {
         if modes.is_empty() {
             return true;
@@ -232,20 +232,6 @@ impl StreamChunk {
         let Some(mode) = self.mode() else {
             return true;
         };
-        if modes.contains(&mode) {
-            return true;
-        }
-        if modes.contains(&StreamMode::Debug)
-            && matches!(
-                mode,
-                StreamMode::Values
-                    | StreamMode::Updates
-                    | StreamMode::Tasks
-                    | StreamMode::Checkpoints
-            )
-        {
-            return true;
-        }
-        false
+        modes.contains(&mode)
     }
 }
