@@ -293,23 +293,16 @@ impl<S: State> AsyncCompiledGraph<S> {
                             )
                             .await;
                     }
-                    let mut values = latest
-                        .map(|checkpoint| checkpoint.values)
-                        .unwrap_or_default();
-                    crate::_internal::state::apply_updates(
-                        &self.schema,
-                        &mut values,
-                        updates
-                            .into_iter()
-                            .map(|(channel, value)| crate::_internal::state::ChannelUpdate {
-                                channel,
-                                value,
-                                node: "<input>".to_string(),
-                            })
-                            .collect(),
-                    )?;
+                    // Finished thread: store the update against the existing checkpoint
+                    // instead of re-running the entry points (LangGraph semantics).
                     return self
-                        .execute(StartInput::Values(values), config, &mut sink)
+                        .resume_inner(
+                            thread,
+                            config.checkpoint_id.as_deref(),
+                            None,
+                            Some(updates.into_iter().collect()),
+                            config.checkpoint_ns.as_deref(),
+                        )
                         .await;
                 }
             }

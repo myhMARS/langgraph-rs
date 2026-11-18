@@ -89,12 +89,15 @@ impl<S: State> CompiledGraph<S> {
                 };
                 if latest.is_some() {
                     let updates: Map<String, Value> = updates.into_iter().collect();
-                    let state = self.resume_with_updates_config(
+                    // No resume value: `Command(update=...)` must leave a dynamic interrupt
+                    // pending (Python only writes RESUME when `cmd.resume is not None`).
+                    let state = self.resume_inner(
                         thread,
-                        Value::Null,
-                        updates,
-                        Vec::new(),
-                        config,
+                        config.checkpoint_id.as_deref(),
+                        None,
+                        Some(updates),
+                        config.checkpoint_ns.as_deref(),
+                        Some(config),
                     )?;
                     return Ok(crate::RunOutcome {
                         state,
