@@ -133,6 +133,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             }
             state = values_to_state::<S>(&values)?;
         }
+        if emit && values_enabled {
+            // A run with nothing left to do still reports its final values once.
+            sink(values_chunk(0, &values));
+        }
         return finish(state, backend.schema(), report, started);
     }
     if config
@@ -183,6 +187,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         .into_iter()
         .map(|write| (write.channel, write.value))
         .collect();
+    if emit && values_enabled {
+        // LangGraph emits the run's starting state before the first superstep.
+        sink(values_chunk(0, &values));
+    }
     let mut iteration = 0usize;
     loop {
         // Barriers already open before this superstep are consumed by it (LangGraph
