@@ -235,8 +235,8 @@ impl LangGraphSqliteSaver {
         metadata
             .entry("source".to_string())
             .or_insert_with(|| Value::String("loop".to_string()));
-        // The LangGraph-compatible table stores the internal step: LangGraph recomputes
-        // task ids from this value and the ids written beside it were derived from it.
+        // LangGraph metadata steps are one below our internal counter; task ids are
+        // recomputed as `metadata.step + 1`, which is our internal step.
         metadata.insert("step".to_string(), json!(checkpoint.step as i64));
         metadata
             .entry("parents".to_string())

@@ -100,6 +100,9 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
             }
         },
         "checkpoint": {
+            // Exports stay on v1: LangGraph derives task ids with SHA-1 for v1, matching
+            // the ids the compatible saver writes, so a Python reader recomputes the same
+            // ids we stored. (v4/xxh3 ids are used internally for new checkpoints.)
             "v": 1,
             "id": checkpoint.id,
             "ts": ts,

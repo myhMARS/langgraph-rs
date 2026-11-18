@@ -149,3 +149,20 @@ Still open, in rough priority order:
    `channel_values.__interrupt__` (the SQLite reader does).
 5. **Python binding breadth** (unchanged from the historical section): drop-in
    `RunnableConfig` API surface, streaming iteration semantics, and v2 payload details.
+## v4 task ids and the export version (rounds 130)
+
+- Internally new checkpoints use LangGraph v4 semantics: ids are UUID-shaped hex and task ids
+  are `xxh3_128(checkpoint_id_bytes + ns + str(step) + node + "__pregel_pull" + "branch:to:<node>")`
+  (`"__pregel_push" + index` for `Send` tasks), rendered as an 8-4-4-4-12 UUID.
+- The LangGraph-compatible SQLite writer/export still emits `"v": 1` and SHA-1 task ids. Reasons:
+  a Python reader picks `_xxhash_str` for `v > 1` and `_uuid5_str` otherwise
+  (`langgraph/pregel/_algo.py:550`); our writes table stores the ids written beside each row, so
+  the export and the stored ids must use the same hash. Switching the export to `v: 4` while the
+  saver still wrote SHA-1 ids made Python see unknown tasks ("multiple pending interrupts",
+  `tuple index out of range` on the Send-fan-out case), and switching the saver to xxh3 did not
+  resolve it because the row layout (`task_path`, `idx`) still assumes the v1 shape.
+- Consequence: cross-language readers recompute SHA-1 ids for exported checkpoints, while the
+  engine's own runtime uses v4/xxh3 ids. Both are self-consistent; only a reader that mixes our
+  export with a Python writer on the same thread would see different ids.
+- Multi-turn step numbering was re-verified against Python (single node, three turns):
+  Python `[1,0,-1]` / `[4,3,2,1,0,-1]` / `[7,6,5,4,3,2,1,0,-1]`, Rust identical (no drift).
