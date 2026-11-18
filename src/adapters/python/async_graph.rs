@@ -259,7 +259,7 @@ impl PyAsyncCompiledGraph {
             config = config.with_stream_subgraphs(true);
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
-            .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
+            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
         let mut resume_start: Option<(
             Option<crate::Value>,
             Option<serde_json::Map<String, crate::Value>>,
