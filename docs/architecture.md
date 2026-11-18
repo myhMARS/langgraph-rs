@@ -78,7 +78,8 @@ As implemented in `executor::pregel::run_loop`:
    targets that are not nodes; `compile_with` also rejects interrupt hooks naming unknown
    nodes.
 2. **Resolve the budget.** `config.recursion_limit` overrides the compiled limit, which
-   defaults to `DEFAULT_RECURSION_LIMIT = 25`. A `thread_id` without a checkpointer fails
+   defaults to `DEFAULT_RECURSION_LIMIT = 10007` (LangGraph's default; `LANGGRAPH_DEFAULT_RECURSION_LIMIT`
+   overrides it). A `thread_id` without a checkpointer fails
    with `MissingCheckpointer` before any work.
 3. **Seed `(values, state, tasks, step)`.** `Values` serializes the typed input and builds
    entry tasks, filtering `END`. `Updates` starts from an empty channel map, applies the
@@ -88,9 +89,10 @@ As implemented in `executor::pregel::run_loop`:
    sets `tasks = checkpoint.next` and stamps each task with the resume value.
 4. **Short circuit.** No tasks returns the state immediately — also why `continue_thread`
    on a finished thread is a no-op returning the final state.
-5. **Root checkpoint.** A fresh run bound to a thread writes a step-0 checkpoint whose
-   `next` is the entry-task list and whose `parent_id` is the thread's previous latest
-   checkpoint, so history starts before the first node runs.
+5. **Root checkpoints.** A fresh run bound to a thread writes two checkpoints: a step-0
+   `source="input"` checkpoint whose `next` is the pseudo task `[START]` and whose
+   `parent_id` is the thread's previous latest checkpoint, then a step-1 `source="loop"`
+   checkpoint holding the entry tasks. History therefore starts before the first node runs.
 6. **Budget check.** `iteration >= budget` fails with `Error::RecursionLimit(budget)`. The
    counter measures supersteps, not node executions: a ten-node fan-out costs one.
 7. **`interrupt_before` gate.** Unless skipped, the first hooked task pauses the run:
@@ -184,9 +186,9 @@ A checkpoint is written only when both a `thread_id` and a checkpointer exist:
 
 | Moment | `step` | `interrupted` | `paused_before` | `next` |
 | --- | --- | --- | --- | --- |
-| fresh run start, before any node | 0 | false | false | entry tasks |
+| fresh run start, before any node | 0 | false | false | `[START]` (then step 1 holds the entry tasks) |
 | `interrupt_before` pause | current | true | true | task list including the paused node |
-| node called `interrupt()` (single) | current (pre-merge values) | true | false | interrupted tasks + routing seeds of successful siblings |
+| node called `interrupt()` (single) | current (pre-merge values) | true | false | interrupted tasks only; siblings' routes live in `deferred_routes`/`resume_tasks` |
 | after a completed superstep | current + 1 | false | false | next scheduled tasks |
 | `interrupt_after` pause | current + 1 | true | false | tasks following the paused node |
 

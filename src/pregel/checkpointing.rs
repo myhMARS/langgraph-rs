@@ -160,7 +160,13 @@ pub(crate) fn prepare_resume_tasks(
             )));
         }
     }
-    let mut tasks = checkpoint.next.clone();
+    // Defensive: `END` is never a runnable task, even if a checkpoint stores one.
+    let mut tasks: Vec<Task> = checkpoint
+        .next
+        .iter()
+        .filter(|task| task.node != crate::END)
+        .cloned()
+        .collect();
     let flagged: std::collections::HashSet<String> = tasks
         .iter()
         .filter(|task| task.interrupted)
