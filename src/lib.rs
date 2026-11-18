@@ -96,10 +96,16 @@
 
 mod adapters;
 pub mod application;
+pub mod config;
+pub mod constants;
 pub mod domain;
 pub mod interop;
-pub use application::{functional, prebuilt};
+pub mod managed;
+pub mod runtime;
+pub mod types;
+pub use application::{functional, graph, prebuilt, pregel};
 pub use domain as kernel;
+pub use domain::{channels, checkpoint, errors, store};
 
 #[cfg(feature = "python")]
 pub use adapters::python;

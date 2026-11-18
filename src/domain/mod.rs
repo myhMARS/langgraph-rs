@@ -6,9 +6,11 @@
 
 pub mod cache;
 pub mod channel;
+pub use channel as channels;
 pub mod checkpoint;
 pub mod command;
 pub mod error;
+pub use error as errors;
 pub mod node;
 pub mod plugin;
 pub mod ports;
