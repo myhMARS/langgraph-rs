@@ -236,6 +236,9 @@ pub struct RunConfig {
     pub durability: Durability,
     /// Forward chunks emitted inside subgraphs (wrapped in `StreamChunk::Subgraph`).
     pub stream_subgraphs: bool,
+    /// Requested stream modes; when set, expensive chunk payloads are built only
+    /// for the selected modes.
+    pub stream_modes: Option<Vec<crate::domain::stream::StreamMode>>,
     /// Cooperative abort flag checked between supersteps.
     pub control: Option<crate::RunControl>,
 }
@@ -264,6 +267,12 @@ impl RunConfig {
     /// Create a config without a thread.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Restrict chunk construction to the requested stream modes.
+    pub fn with_stream_modes(mut self, modes: Vec<crate::domain::stream::StreamMode>) -> Self {
+        self.stream_modes = Some(modes);
+        self
     }
 
     /// Bind the run to a checkpoint thread.

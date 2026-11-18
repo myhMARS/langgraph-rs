@@ -271,6 +271,7 @@ impl PyCompiledGraph {
         }
         let requested =
             stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        let config = config.clone().with_stream_modes(requested.clone());
         let mut streamed = Vec::new();
         let mut handled = false;
         if let Some(obj) = input {

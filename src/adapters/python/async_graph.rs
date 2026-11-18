@@ -358,6 +358,7 @@ impl PyAsyncCompiledGraph {
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        let config = config.with_stream_modes(requested.clone());
         let mut resume_start: Option<(
             Option<crate::Value>,
             Option<serde_json::Map<String, crate::Value>>,

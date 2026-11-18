@@ -26,7 +26,7 @@ use crate::application::pregel::{StartInput, apply_pending_writes, start, step};
 use crate::kernel::error::{Error, Interrupt, Result};
 use crate::kernel::node::Task;
 use crate::kernel::state::{State, values_to_state};
-use crate::kernel::stream::StreamChunk;
+use crate::kernel::stream::{StreamChunk, StreamMode};
 use crate::kernel::usage::RunOutcome;
 
 /// Execute a graph through the shared Pregel loop.
@@ -38,6 +38,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     emit: bool,
 ) -> Result<RunOutcome<S>> {
     let started = Instant::now();
+    let modes = config.stream_modes.as_deref();
+    let values_enabled = modes.is_none_or(|modes| modes.contains(&StreamMode::Values));
+    let debug_enabled = modes.is_none_or(|modes| modes.contains(&StreamMode::Debug));
+    let checkpoints_enabled = modes.is_none_or(|modes| {
+        modes.contains(&StreamMode::Checkpoints) || modes.contains(&StreamMode::Debug)
+    });
+    let checkpoint_emit = emit && checkpoints_enabled;
     let mut report = crate::kernel::usage::RunReport::new();
     let recursion_limit = config
         .recursion_limit
@@ -162,7 +169,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Vec::new(),
             Vec::new(),
             &[],
-            emit,
+            checkpoint_emit,
             sink,
         )
         .await?;
@@ -181,7 +188,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Vec::new(),
             Vec::new(),
             &[],
-            emit,
+            checkpoint_emit,
             sink,
         )
         .await?;
@@ -235,7 +242,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &[],
-                emit,
+                checkpoint_emit,
                 sink,
             )
             .await?;
@@ -342,14 +349,16 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     pending_writes,
                     pending_deferred.clone(),
                     &[],
-                    emit,
+                    checkpoint_emit,
                     sink,
                 )
                 .await?;
-                sink(StreamChunk::Values {
-                    step,
-                    values: Value::Object(values.clone()),
-                });
+                if emit && values_enabled {
+                    sink(StreamChunk::Values {
+                        step,
+                        values: Value::Object(values.clone()),
+                    });
+                }
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
                     id: interrupted.id.clone(),
@@ -426,15 +435,17 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_writes,
                 pending_deferred.clone(),
                 &[],
-                emit,
+                checkpoint_emit,
                 sink,
             )
             .await?;
             for interrupt in &interrupts {
-                sink(StreamChunk::Values {
-                    step,
-                    values: Value::Object(values.clone()),
-                });
+                if emit && values_enabled {
+                    sink(StreamChunk::Values {
+                        step,
+                        values: Value::Object(values.clone()),
+                    });
+                }
                 sink(StreamChunk::Interrupt {
                     node: interrupt.node.clone(),
                     id: interrupt.id.clone(),
@@ -463,7 +474,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut finish_updates,
         )?;
         state = values_to_state::<S>(&values)?;
-        if emit {
+        if emit && values_enabled {
             sink(values_chunk(step, &values));
         }
         if backend.has_parent_command() {
@@ -497,7 +508,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         )?;
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
-        if emit {
+        if emit && debug_enabled {
             sink(debug_chunk(
                 step,
                 &executed,
@@ -535,16 +546,18 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &executed,
-                emit,
+                checkpoint_emit,
                 sink,
             )
             .await?;
         }
         if let Some(interrupt) = interrupt_after {
-            sink(StreamChunk::Values {
-                step,
-                values: Value::Object(values.clone()),
-            });
+            if emit && values_enabled {
+                sink(StreamChunk::Values {
+                    step,
+                    values: Value::Object(values.clone()),
+                });
+            }
             sink(StreamChunk::Interrupt {
                 node: interrupt.node.clone(),
                 id: interrupt.id.clone(),
@@ -575,7 +588,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     Vec::new(),
                     pending_deferred.clone(),
                     &executed,
-                    emit,
+                    checkpoint_emit,
                     sink,
                 )
                 .await?;
