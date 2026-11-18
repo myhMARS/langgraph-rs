@@ -366,9 +366,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     &processed.executed,
                     |node| backend.edges_of(node),
                 );
-                // Consume named barriers here too; the single-interrupt path returns
-                // before the shared post-step consumption.
-                step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
+                // LangGraph never reaches `apply_writes` when a task interrupts, so named
+                // barriers stay armed until a superstep completes normally.
 
                 crate::pregel::scheduling::assign_v4_ids(
                     &mut next_tasks,
@@ -466,9 +465,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 |node| backend.node_exists(node),
                 |node| PregelBackend::destinations_of(backend, node),
             )?;
-            // `state` is re-derived later in this loop; only the checkpointed values
-            // need the consumed barrier.
-            step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
+
             let scheduled = schedule_next_tasks(
                 next_nodes,
                 router_sends,
