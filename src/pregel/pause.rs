@@ -80,23 +80,10 @@ where
             next_tasks: &paused_tasks,
             writes_by_node: &std::collections::HashMap::new(),
             raw_input,
-            // Routes from an earlier pause survive another interrupt of the same superstep.
-            scheduled_after: context
-                .previous
-                .as_ref()
-                .map(|checkpoint| checkpoint.deferred_routes.clone())
-                .unwrap_or_default(),
-            resume_tasks: context
-                .previous
-                .as_ref()
-                .map(|checkpoint| checkpoint.resume_tasks.clone())
-                .unwrap_or_default(),
+            scheduled_after: Vec::new(),
+            resume_tasks: Vec::new(),
             completed_tasks: Vec::new(),
-            goto_sources: context
-                .previous
-                .as_ref()
-                .map(|checkpoint| checkpoint.goto_sources.clone())
-                .unwrap_or_default(),
+            goto_sources: Vec::new(),
         },
         context.force_new,
         "loop",
