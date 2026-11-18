@@ -522,6 +522,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         step,
         values,
         next,
+        deferred_routes: Vec::new(),
         interrupted,
         paused_before: extra
             .and_then(|extra| extra.get("paused_before"))

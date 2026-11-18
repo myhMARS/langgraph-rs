@@ -41,6 +41,10 @@ pub struct Checkpoint {
     /// Work that is still scheduled.
     #[serde(default)]
     pub next: Vec<Task>,
+    /// Tasks scheduled by successful siblings of an interrupted superstep; they are
+    /// replayed when the pause resumes instead of being re-derived from edges.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_routes: Vec<Task>,
     /// `true` when the graph stopped because of a human-in-the-loop interrupt.
     #[serde(default)]
     pub interrupted: bool,
@@ -99,6 +103,7 @@ impl Checkpoint {
             step,
             values,
             next: Vec::new(),
+            deferred_routes: Vec::new(),
             interrupted: false,
             paused_before: false,
             parent_id: None,

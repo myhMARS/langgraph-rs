@@ -454,6 +454,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     next_tasks: &next_tasks,
                     writes_by_node: &writes_by_node,
                     raw_input: raw_input.as_ref(),
+                    scheduled_after: Vec::new(),
                 },
                 pause_force_new,
                 "loop",
@@ -546,6 +547,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut pending_deferred,
             true,
         )?;
+
         if step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers) {
             state = values_to_state::<S>(&values)?;
         }
