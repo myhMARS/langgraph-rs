@@ -47,6 +47,124 @@ impl<S: State> AsyncCompiledGraph<S> {
         .await
     }
 
+    /// Continue a thread with an explicit per-run config.
+    pub async fn continue_thread_with_config(
+        &self,
+        thread_id: &str,
+        config: &RunConfig,
+    ) -> Result<S> {
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
+        let mut sink = |_chunk: StreamChunk| {};
+        self.execute_quiet(
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: config.checkpoint_id.clone(),
+                resume: None,
+                updates: None,
+                goto: Vec::new(),
+            },
+            &config,
+            &mut sink,
+        )
+        .await
+        .map(|outcome| outcome.state)
+    }
+
+    /// Resume with updates using an explicit per-run config.
+    pub async fn resume_with_updates_config<I, K>(
+        &self,
+        thread_id: &str,
+        value: Value,
+        updates: I,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        self.resume_command_start(thread_id, Some(value), Some(updates), Vec::new(), config)
+            .await
+    }
+
+    /// Continue with goto targets and no resume value using a per-run config.
+    pub async fn resume_continue_with_goto_config<I, K>(
+        &self,
+        thread_id: &str,
+        updates: I,
+        goto: Vec<String>,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        self.resume_command_start(thread_id, None, Some(updates), goto, config)
+            .await
+    }
+
+    /// Resume with updates and goto targets using a per-run config.
+    pub async fn resume_with_updates_and_goto_config<I, K>(
+        &self,
+        thread_id: &str,
+        value: Value,
+        updates: I,
+        goto: Vec<String>,
+        config: &RunConfig,
+    ) -> Result<S>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
+        let updates: Map<String, Value> = updates
+            .into_iter()
+            .map(|(channel, value)| (channel.into(), value))
+            .collect();
+        self.resume_command_start(thread_id, Some(value), Some(updates), goto, config)
+            .await
+    }
+
+    async fn resume_command_start(
+        &self,
+        thread_id: &str,
+        resume: Option<Value>,
+        updates: Option<Map<String, Value>>,
+        goto: Vec<String>,
+        config: &RunConfig,
+    ) -> Result<S> {
+        for node in &goto {
+            if node != crate::END && !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "Command(goto=...): `{node}` is not a registered node"
+                )));
+            }
+        }
+        let mut config = config.clone();
+        config.thread_id = Some(thread_id.to_string());
+        let mut sink = |_chunk: StreamChunk| {};
+        self.execute_quiet(
+            StartInput::Resume {
+                thread_id: thread_id.to_string(),
+                checkpoint_id: config.checkpoint_id.clone(),
+                resume,
+                updates,
+                goto,
+            },
+            &config,
+            &mut sink,
+        )
+        .await
+        .map(|outcome| outcome.state)
+    }
+
     pub(crate) async fn execute(
         &self,
         start: StartInput,

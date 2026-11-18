@@ -151,25 +151,123 @@ fn embed_subgraph_states(
 impl PyAsyncCompiledGraph {
     /// Awaitable graph invocation returning the final state dict.
     #[pyo3(signature = (input=None, thread_id=None, context=None))]
+    #[allow(clippy::too_many_arguments)]
     fn ainvoke<'py>(
         &self,
         py: Python<'py>,
         input: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<String>,
+        thread_id: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let state = state_from_py(input)?;
-        let mut config = run_config(thread_id);
+        let (thread, mut config) = super::convert::config_from_py(py, thread_id)?;
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
+        let mut resume_start: Option<(
+            Option<crate::Value>,
+            Option<serde_json::Map<String, crate::Value>>,
+            Vec<String>,
+        )> = None;
+        let mut command: Option<crate::Command> = None;
+        if let Some(obj) = input {
+            if let Ok(py_command) = obj.extract::<PyRef<PyCommand>>() {
+                let (resume, updates) = py_command.to_resume_command(py)?;
+                let (goto, sends) = py_command.goto_parts(py)?;
+                if !sends.is_empty() {
+                    return Err(PyTypeError::new_err(
+                        "ainvoke Command(goto=Send) is not supported yet",
+                    ));
+                }
+                let command_update = Some(updates.clone());
+                resume_start = Some((
+                    resume.clone(),
+                    Some(updates.into_iter().collect()),
+                    goto.clone(),
+                ));
+                command = Some(crate::Command {
+                    resume,
+                    update: command_update,
+                    goto,
+                    sends: Vec::new(),
+                    parent: false,
+                });
+            }
+        }
+        let continue_thread =
+            resume_start.is_none() && input.is_none_or(|value| value.is_none()) && thread.is_some();
+        let state = if resume_start.is_none() && !continue_thread {
+            Some(state_from_py(input)?)
+        } else {
+            None
+        };
         let graph = self.graph.clone();
+        let stream_thread = thread.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            match graph
-                .run(&state, &config)
-                .await
-                .map(|outcome| outcome.state)
-            {
+            let result = if let Some((resume, updates, goto)) = resume_start {
+                let thread = stream_thread.as_deref();
+                match thread {
+                    Some(thread) => {
+                        let exists = graph.get_state(thread).ok().flatten().is_some();
+                        match (resume, exists) {
+                            (Some(value), _) if goto.is_empty() => {
+                                graph
+                                    .resume_with_updates_config(
+                                        thread,
+                                        value,
+                                        updates.unwrap_or_default(),
+                                        &config,
+                                    )
+                                    .await
+                            }
+                            (Some(value), _) => {
+                                graph
+                                    .resume_with_updates_and_goto_config(
+                                        thread,
+                                        value,
+                                        updates.unwrap_or_default(),
+                                        goto,
+                                        &config,
+                                    )
+                                    .await
+                            }
+                            (None, true) => {
+                                graph
+                                    .resume_continue_with_goto_config(
+                                        thread,
+                                        updates.unwrap_or_default(),
+                                        goto,
+                                        &config,
+                                    )
+                                    .await
+                            }
+                            (None, false) => {
+                                let command = command.unwrap_or_default();
+                                graph
+                                    .run_command(command, &config)
+                                    .await
+                                    .map(|outcome| outcome.state)
+                            }
+                        }
+                    }
+                    None => {
+                        let command = command.unwrap_or_default();
+                        graph
+                            .run_command(command, &config)
+                            .await
+                            .map(|outcome| outcome.state)
+                    }
+                }
+            } else if continue_thread {
+                let thread = stream_thread.as_deref().unwrap_or_default();
+                graph.continue_thread_with_config(thread, &config).await
+            } else {
+                let state = state.expect("input state checked");
+                graph
+                    .run(&state, &config)
+                    .await
+                    .map(|outcome| outcome.state)
+            };
+            match result {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
                 Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
             }
