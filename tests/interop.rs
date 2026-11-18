@@ -86,6 +86,35 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
 
 #[cfg(feature = "msgpack")]
 #[test]
+fn drops_reserved_control_writes_in_tuple_form() {
+    let graph = graph();
+    let document = json!({
+        "config": { "configurable": { "thread_id": "lg-tuple", "checkpoint_ns": "", "checkpoint_id": "cp-t" } },
+        "checkpoint": {
+            "v": 1,
+            "id": "cp-t",
+            "channel_values": { "value": 7 },
+            "channel_versions": { "value": "1.0.1" },
+            "versions_seen": {},
+            "updated_channels": ["value"]
+        },
+        "metadata": { "source": "loop", "step": 1 },
+        "parent_config": null,
+        "pending_writes": [
+            ["task-1", "__interrupt__", []],
+            ["task-1", "__resume__", 3],
+            ["task-1", "value", 8]
+        ]
+    });
+    graph.import_checkpoint("tuple-form", &document).unwrap();
+    let reexported = graph.export_checkpoint("tuple-form").unwrap().unwrap();
+    let writes = reexported["pending_writes"].as_array().unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["channel"], json!("value"));
+}
+
+#[cfg(feature = "msgpack")]
+#[test]
 fn checkpoint_tuple_roundtrips_through_msgpack() {
     use langgraph_rs::{Checkpoint, json};
     use std::collections::BTreeMap;

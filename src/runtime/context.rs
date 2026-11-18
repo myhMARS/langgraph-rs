@@ -18,7 +18,7 @@ use crate::{Error, Interrupt, Result};
 thread_local! {
     static CURRENT_TASK: RefCell<Option<TaskContext>> = const { RefCell::new(None) };
     static CURRENT_RUN: RefCell<Option<RunContext>> = const { RefCell::new(None) };
-    static CURRENT_STEP: RefCell<Option<(usize, usize)>> = const { RefCell::new(None) };
+    static CURRENT_STEP: RefCell<Option<(usize, usize, usize)>> = const { RefCell::new(None) };
     static SUBGRAPH_COLLECTOR: RefCell<Option<Arc<Mutex<Vec<StreamChunk>>>>> =
         const { RefCell::new(None) };
     static PARENT_COMMAND: RefCell<Option<ParentCommand>> = const { RefCell::new(None) };
@@ -222,8 +222,6 @@ pub(crate) fn with_task<R>(
 /// Failure that caused the current node to be scheduled.
 ///
 /// When a node fails permanently and the graph has an error edge
-/// ([`StateGraph::add_error_edge`](crate::StateGraph::add_error_edge)), the handler node
-/// runs and can inspect the failure with this function.
 /// Superstep currently being executed, when called from a node.
 pub fn current_step() -> Option<usize> {
     if let Some(run) = current_run()
@@ -231,7 +229,7 @@ pub fn current_step() -> Option<usize> {
     {
         return Some(run.step.load(std::sync::atomic::Ordering::Relaxed));
     }
-    CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step))
+    CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _, _)| step))
 }
 
 /// Task id currently executing, when called from a node.

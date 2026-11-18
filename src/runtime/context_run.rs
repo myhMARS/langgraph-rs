@@ -136,8 +136,11 @@ pub(crate) fn install_run_context(run: RunContext) -> RunGuard {
     RunGuard { previous }
 }
 
-/// Current superstep context `(step, recursion_limit)`, when inside a step.
-pub(crate) fn capture_step_context() -> Option<(usize, usize)> {
+/// Current superstep context `(step, managed_step, recursion_limit)`, when inside a step.
+///
+/// The managed step is captured too so worker threads reinstall the same per-run
+/// counter instead of falling back to the absolute checkpoint step.
+pub(crate) fn capture_step_context() -> Option<(usize, usize, usize)> {
     CURRENT_STEP.with(|slot| *slot.borrow())
 }
 
@@ -154,7 +157,7 @@ type AsyncStepPrevious = (
 );
 
 pub(crate) struct StepGuard {
-    previous: Option<(usize, usize)>,
+    previous: Option<(usize, usize, usize)>,
     async_previous: Option<AsyncStepPrevious>,
 }
 
@@ -177,7 +180,10 @@ impl Drop for StepGuard {
 
 /// Install the current superstep number and recursion limit for managed values.
 pub(crate) fn install_step(step: usize, managed_step: usize, recursion_limit: usize) -> StepGuard {
-    let previous = CURRENT_STEP.with(|slot| slot.borrow_mut().replace((step, recursion_limit)));
+    let previous = CURRENT_STEP.with(|slot| {
+        slot.borrow_mut()
+            .replace((step, managed_step, recursion_limit))
+    });
     let async_previous = current_run().map(|run| {
         let old = (
             run.step.load(std::sync::atomic::Ordering::Relaxed),
@@ -226,7 +232,7 @@ pub fn remaining_steps() -> Option<usize> {
     }
     CURRENT_STEP.with(|slot| {
         slot.borrow()
-            .map(|(step, recursion_limit)| recursion_limit.saturating_add(1).saturating_sub(step))
+            .map(|(_, managed, limit)| limit.saturating_add(1).saturating_sub(managed))
     })
 }
 

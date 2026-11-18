@@ -316,6 +316,11 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                             let tuple = write.as_array()?;
                             let task_id = tuple.first()?.as_str()?.to_string();
                             let channel = tuple.get(1)?.as_str()?.to_string();
+                            // LangGraph's real `PendingWrite` is a tuple; reserved control
+                            // channels must be dropped here too, not only in the object branch.
+                            if channel.starts_with("__") {
+                                return None;
+                            }
                             let value = tuple.get(2).cloned().unwrap_or(Value::Null);
                             Some(crate::checkpoint::PendingWrite {
                                 task_id,

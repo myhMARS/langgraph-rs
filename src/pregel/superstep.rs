@@ -55,8 +55,9 @@ pub(super) fn run_superstep<S: State>(
             let outcomes = &outcomes;
             scope.spawn(move || {
                 let _run_guard = run.map(crate::runtime::context::install_run_context);
-                let _step_guard = step
-                    .map(|(step, limit)| crate::runtime::context::install_step(step, step, limit));
+                let _step_guard = step.map(|(step, managed, limit)| {
+                    crate::runtime::context::install_step(step, managed, limit)
+                });
                 let _collector_guard =
                     collector.map(crate::runtime::context::install_subgraph_collector);
                 loop {
@@ -288,8 +289,9 @@ fn run_node_timed<S: State>(
     let collector = crate::runtime::context::current_subgraph_collector();
     std::thread::spawn(move || {
         let _run_guard = run.map(crate::runtime::context::install_run_context);
-        let _step_guard =
-            step.map(|(step, limit)| crate::runtime::context::install_step(step, step, limit));
+        let _step_guard = step.map(|(step, managed, limit)| {
+            crate::runtime::context::install_step(step, managed, limit)
+        });
         let _collector_guard = collector.map(crate::runtime::context::install_subgraph_collector);
         let context = TaskContext::new(node_name.clone(), resume)
             .with_task_id(task_id)
