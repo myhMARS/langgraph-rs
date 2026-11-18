@@ -185,3 +185,21 @@ earlier audit note claiming "Rust drops the pending task, Python keeps it" is in
 Related verified behaviour: `update_state` on a finished thread infers the author with
 Python's `_infer_as_node` rules (one-node shortcut, highest pre-step version wins), and
 raises "Ambiguous update, specify as_node" when no author can be inferred.
+## Closeout verification (round 156)
+
+An independent static audit (Claude Code, reads-only) traced the pause/resume protocol and
+concluded "nothing material remains" for the four interrupt flows (linear, fan-out sibling+join,
+sequential interrupts, `Send` fan-out with one interrupt) under the default durability, with all
+files under 700 lines (99 files, ~27.5k lines, largest `_internal/interop.rs` at 670).
+
+Accepted P2 items, kept documented rather than fixed:
+
+1. **Router re-evaluation.** A pause replays sibling routes by re-running `collect_next_nodes`
+   against the resumed state instead of replaying the stored branch write. Routes survive; a
+   router that reads a channel the resumed task writes may pick a different target.
+2. **`Durability::Exit` route inheritance.** Route inheritance is gated to a run's first
+   superstep (`PauseContext::first_tick`), which closes the double-run window; locked by
+   `tests/interrupt_routing.rs::exit_durability_does_not_replay_consumed_routes`.
+3. **Same-node executed+replayed routing.** `routing_executed` de-duplicates by node name, so a
+   node that is both a replayed `Send` sibling and the re-executed task can appear twice when it
+   has conditional `Send` edges. Not reachable through the standard static-continuation shapes.
