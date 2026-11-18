@@ -523,10 +523,9 @@ where
     checkpoint.interrupted = draft.interrupted;
     checkpoint.paused_before = draft.paused_before;
     checkpoint.interrupts = draft.interrupts;
-    // A resume that pauses again must not drop the writes it just applied from pending.
-    if !draft.pending_writes.is_empty() {
-        checkpoint.pending_writes = draft.pending_writes;
-    }
+    // The draft always carries the complete pending set: writes applied to `values` are
+    // dropped here, writes from the interrupted tick are kept.
+    checkpoint.pending_writes = draft.pending_writes;
     checkpoint.deferred = draft.deferred;
     // Functional-API tasks that finished during the interrupted superstep keep their
     // recorded results so a resume does not re-run them.

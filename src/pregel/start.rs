@@ -17,6 +17,8 @@ pub(crate) type ResumeStart<S> = (
     // The `Command.update` writes, kept so a run with nothing left to do can store them as
     // pending writes (LangGraph does not create a checkpoint for them).
     Vec<crate::checkpoint::PendingWrite>,
+    // Nodes whose writes were replayed from the checkpoint; they still contribute routes.
+    Vec<String>,
 );
 
 /// Resolve the three non-resume start inputs into initial channel values, state and
@@ -111,6 +113,14 @@ pub(crate) fn resolve_resume_start<S: State>(
         }
     }
     apply_pending_writes(schema, &mut values, &regular_writes)?;
+    // Nodes whose writes were replayed (including held finish values) still route.
+    let mut replayed: Vec<String> = Vec::new();
+    for write in &checkpoint.pending_writes {
+        if !write.node.is_empty() && !write.node.starts_with('<') && !replayed.contains(&write.node)
+        {
+            replayed.push(write.node.clone());
+        }
+    }
     let mut update_writes: Vec<crate::checkpoint::PendingWrite> = Vec::new();
     if let Some(updates) = updates {
         for (channel, value) in &updates {
@@ -160,5 +170,5 @@ pub(crate) fn resolve_resume_start<S: State>(
             send.clone(),
         )?);
     }
-    Ok((values, state, tasks, finish_writes, update_writes))
+    Ok((values, state, tasks, finish_writes, update_writes, replayed))
 }

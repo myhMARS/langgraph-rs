@@ -265,12 +265,20 @@ pub(crate) fn assign_v4_ids(
     let Some(parent) = parent_checkpoint_id else {
         return;
     };
-    // `Send` tasks are numbered in superstep order; Python hashes that index into the id.
-    let mut push_counter = 0usize;
+    // `Send` tasks keep the index they were first given: a pause prunes the task list, and
+    // renumbering would change ids that clients already hold.
+    let mut used: std::collections::HashSet<usize> =
+        tasks.iter().filter_map(|task| task.push_index).collect();
+    let mut next_free = 0usize;
     for task in tasks.iter_mut() {
         let push_index = if task.push {
-            let index = push_counter;
-            push_counter += 1;
+            let index = task.push_index.unwrap_or_else(|| {
+                while used.contains(&next_free) {
+                    next_free += 1;
+                }
+                used.insert(next_free);
+                next_free
+            });
             task.push_index = Some(index);
             Some(index)
         } else {

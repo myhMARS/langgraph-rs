@@ -73,7 +73,7 @@ where
             pending_writes,
             deferred,
             executed: &[],
-            values: None,
+            values: Some(values),
             next_tasks: &paused_tasks,
             writes_by_node: &std::collections::HashMap::new(),
         },

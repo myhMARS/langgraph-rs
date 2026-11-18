@@ -25,7 +25,7 @@ use crate::pregel::outcome::{
     process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
 };
 use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
-use crate::pregel::{StartInput, apply_pending_writes, start, step};
+use crate::pregel::{StartInput, start, step};
 use crate::runtime::context;
 
 /// Execute a graph through the shared Pregel loop.
@@ -88,6 +88,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         mut resume_deferred,
         resume_finish,
         update_writes,
+        mut replayed_nodes,
     ) = if let Some((values, state, tasks)) = start::resolve_fresh_start(
         &start,
         backend.schema(),
@@ -99,6 +100,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             state,
             tasks,
             0usize,
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -124,14 +126,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         parent = Some(checkpoint.id.clone());
         previous_checkpoint = Some(checkpoint.clone());
         skip_interrupt_before = checkpoint.paused_before;
-        let (values, state, tasks, finish_writes, update_writes) = start::resolve_resume_start(
-            &checkpoint,
-            &resume,
-            updates,
-            &resume_goto,
-            &resume_sends,
-            backend.schema(),
-        )?;
+        let (values, state, tasks, finish_writes, update_writes, replayed) =
+            start::resolve_resume_start(
+                &checkpoint,
+                &resume,
+                updates,
+                &resume_goto,
+                &resume_sends,
+                backend.schema(),
+            )?;
         let deferred = checkpoint.deferred.clone();
         (
             values,
@@ -141,6 +144,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             deferred,
             finish_writes,
             update_writes,
+            replayed,
         )
     };
 
@@ -321,51 +325,18 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 // superstep, not just the ones that completed.
                 let executed_for_resume: Vec<String> =
                     tasks.iter().map(|task| task.node.clone()).collect();
-                // Successful siblings still contribute their outgoing routes even though
-                // their values stay pending until resume.
-                let mut routing_values = values.clone();
-                let routing_writes: Vec<_> = pending_writes
+                // LangGraph aborts the tick before `after_tick`, so a pause keeps only the
+                // interrupted tasks; successful siblings stay as pending writes and their
+                // routes are taken when the resume replays them.
+                let _ = &processed.executed;
+                let mut next_tasks: Vec<Task> = tasks
                     .iter()
-                    .filter(|write| !backend.schema().is_finish_value(&write.channel))
+                    .filter(|task| interrupted_ids.contains(&task.id))
                     .cloned()
                     .collect();
-                apply_pending_writes(backend.schema(), &mut routing_values, &routing_writes)?;
-                let routing_state = values_to_state::<S>(&routing_values)?;
-                let (next_nodes, router_sends) = collect_next_nodes(
-                    &routing_state,
-                    &processed.executed,
-                    &processed.goto_nodes,
-                    &processed.goto_targets,
-                    |node| backend.edges_of(node),
-                    |node| backend.conditional_of(node),
-                    |node| backend.node_exists(node),
-                    |node| PregelBackend::destinations_of(backend, node),
-                )?;
-                let scheduled = schedule_next_tasks(
-                    next_nodes,
-                    router_sends,
-                    processed.next_tasks,
-                    |node| backend.node_exists(node),
-                    |node| PregelBackend::destinations_of(backend, node),
-                    |node| backend.is_deferred(node),
-                    &mut pending_deferred,
-                    false,
-                )?;
-                let mut next_tasks = merge_interrupted_tasks(
-                    &tasks,
-                    |task| interrupted_ids.contains(&task.id),
-                    scheduled,
-                );
                 for task in &mut next_tasks {
-                    if interrupted_ids.contains(&task.id) {
-                        task.interrupted = true;
-                    }
+                    task.interrupted = true;
                 }
-                crate::pregel::scheduling::fill_triggers(
-                    &mut next_tasks,
-                    &processed.executed,
-                    |node| backend.edges_of(node),
-                );
                 // LangGraph never reaches `apply_writes` when a task interrupts, so named
                 // barriers stay armed until a superstep completes normally.
 
@@ -393,7 +364,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         pending_writes,
                         deferred: pending_deferred.clone(),
                         executed: &executed_for_resume,
-                        values: None,
+                        values: Some(&values),
                         next_tasks: &next_tasks,
                         writes_by_node: &std::collections::HashMap::new(),
                     },
@@ -587,9 +558,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return finish(state, backend.schema(), report, started);
         }
 
+        // Nodes replayed from pending writes still contribute their outgoing routes, but
+        // only for the tick that replays them.
+        let mut routing_executed = executed.clone();
+        routing_executed.extend(replayed_nodes.drain(..));
         let (next_nodes, router_sends) = collect_next_nodes(
             &state,
-            &executed,
+            &routing_executed,
             &goto_nodes,
             &goto_targets,
             |node| backend.edges_of(node),
