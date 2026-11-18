@@ -208,26 +208,19 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     task
                 })
                 .collect();
-            save_checkpoint_via(
+            crate::pregel::checkpointing::persist_pause(
                 backend,
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
                 &mut previous_checkpoint,
-                &values,
                 &paused_tasks,
-                // The pause checkpoint reports the number of completed supersteps, like
-                // any other checkpoint (LangGraph metadata step).
-                step + 1,
-                true,
-                true,
-                vec![interrupted_interrupt.clone()],
-                finish_pending(&finish_updates, backend.schema()),
-                pending_deferred.clone(),
-                &[],
-                "loop",
-                checkpoint_emit,
-                sink,
+                crate::pregel::checkpointing::PauseDraft {
+                    interrupted: true,
+                    paused_before: true,
+                    interrupts: vec![interrupted_interrupt.clone()],
+                    pending_writes: finish_pending(&finish_updates, backend.schema()),
+                    deferred: pending_deferred.clone(),
+                    executed: &[],
+                    values: None,
+                },
             )
             .await?;
             sink(chunk);
@@ -366,26 +359,19 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 // Consume named barriers here too; the single-interrupt path returns
                 // before the shared post-step consumption.
                 step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
-                save_checkpoint_via(
+                crate::pregel::checkpointing::persist_pause(
                     backend,
-                    thread_id.as_deref(),
-                    &namespace,
-                    &mut parent,
                     &mut previous_checkpoint,
-                    &values,
                     &next_tasks,
-                    // LangGraph saves the interrupted superstep under the incremented
-                    // counter, so the pause is reported with step S like any other step.
-                    step + 1,
-                    true,
-                    false,
-                    vec![interrupted.clone()],
-                    pending_writes,
-                    pending_deferred.clone(),
-                    &executed_for_resume,
-                    "loop",
-                    checkpoint_emit,
-                    sink,
+                    crate::pregel::checkpointing::PauseDraft {
+                        interrupted: true,
+                        paused_before: false,
+                        interrupts: vec![interrupted.clone()],
+                        pending_writes,
+                        deferred: pending_deferred.clone(),
+                        executed: &executed_for_resume,
+                        values: None,
+                    },
                 )
                 .await?;
                 if emit && values_enabled {
@@ -483,24 +469,19 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             );
             let executed_for_resume: Vec<String> =
                 tasks.iter().map(|task| task.node.clone()).collect();
-            save_checkpoint_via(
+            crate::pregel::checkpointing::persist_pause(
                 backend,
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
                 &mut previous_checkpoint,
-                &values,
                 &next_tasks,
-                step + 1,
-                true,
-                false,
-                interrupts.clone(),
-                finish_writes,
-                pending_deferred.clone(),
-                &executed_for_resume,
-                "loop",
-                checkpoint_emit,
-                sink,
+                crate::pregel::checkpointing::PauseDraft {
+                    interrupted: true,
+                    paused_before: false,
+                    interrupts: interrupts.clone(),
+                    pending_writes: finish_writes,
+                    deferred: pending_deferred.clone(),
+                    executed: &executed_for_resume,
+                    values: Some(&values),
+                },
             )
             .await?;
             if emit && values_enabled {

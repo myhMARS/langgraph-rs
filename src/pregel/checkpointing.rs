@@ -394,3 +394,62 @@ where
     .await?;
     Ok(base_step)
 }
+
+/// Attach a pause to the checkpoint the interrupted superstep started from.
+///
+/// LangGraph does not write a new checkpoint when a task interrupts: the interrupt and the
+/// step's pending writes are recorded against the previous checkpoint, so history and
+/// `metadata.step` are unchanged by the pause.
+pub(crate) struct PauseDraft<'a> {
+    pub(crate) interrupted: bool,
+    pub(crate) paused_before: bool,
+    pub(crate) interrupts: Vec<crate::_internal::error::Interrupt>,
+    pub(crate) pending_writes: Vec<crate::checkpoint::PendingWrite>,
+    pub(crate) deferred: Vec<crate::_internal::node::Task>,
+    pub(crate) executed: &'a [String],
+    /// Updated channel values, when the tick's writes were already applied.
+    pub(crate) values: Option<&'a Map<String, Value>>,
+}
+
+pub(crate) async fn persist_pause<S, B>(
+    backend: &B,
+    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    next: &[crate::_internal::node::Task],
+    draft: PauseDraft<'_>,
+) -> Result<()>
+where
+    S: State,
+    B: crate::pregel::backend::PregelBackend<S>,
+{
+    let Some(mut checkpoint) = previous.take() else {
+        return Ok(());
+    };
+    checkpoint.next = next.to_vec();
+    if let Some(values) = draft.values {
+        checkpoint.values = backend.schema().persisted_values(values);
+    }
+    checkpoint.interrupted = draft.interrupted;
+    checkpoint.paused_before = draft.paused_before;
+    checkpoint.interrupts = draft.interrupts;
+    checkpoint.pending_writes = draft.pending_writes;
+    checkpoint.deferred = draft.deferred;
+    // Functional-API tasks that finished during the interrupted superstep keep their
+    // recorded results so a resume does not re-run them.
+    checkpoint
+        .task_results
+        .extend(crate::runtime::context::snapshot_task_results());
+    if !draft.executed.is_empty() {
+        let (channel_versions, versions_seen, updated_channels) = crate::checkpoint::versions_for(
+            Some(&checkpoint),
+            &checkpoint.values,
+            checkpoint.step,
+            &[],
+        );
+        checkpoint.channel_versions = channel_versions;
+        checkpoint.versions_seen = versions_seen;
+        checkpoint.updated_channels = updated_channels;
+    }
+    backend.persist_checkpoint(checkpoint.clone()).await?;
+    *previous = Some(checkpoint);
+    Ok(())
+}

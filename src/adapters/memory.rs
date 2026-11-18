@@ -31,10 +31,16 @@ impl Checkpointer for InMemorySaver {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        inner
-            .entry(checkpoint.thread_id.clone())
-            .or_default()
-            .push(checkpoint);
+        let checkpoints = inner.entry(checkpoint.thread_id.clone()).or_default();
+        // Writes are keyed by checkpoint id: an interrupt attaches to the checkpoint it
+        // paused on, so re-putting the same id updates it instead of duplicating history.
+        match checkpoints
+            .iter_mut()
+            .find(|existing| existing.id == checkpoint.id)
+        {
+            Some(existing) => *existing = checkpoint,
+            None => checkpoints.push(checkpoint),
+        }
         Ok(())
     }
 
