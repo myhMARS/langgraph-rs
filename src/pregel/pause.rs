@@ -201,6 +201,13 @@ where
         .filter(|task| interrupted_ids.contains(&task.id))
         .cloned()
         .collect();
+    // Successful siblings keep their node names as routing seeds: a sibling that wrote no
+    // persisted channel still has to have its outgoing edges scheduled on resume.
+    let resume_seeds: Vec<Task> = tasks
+        .iter()
+        .filter(|task| !interrupted_ids.contains(&task.id))
+        .map(|task| Task::new(task.node.clone()))
+        .collect();
     for task in &mut next_tasks {
         task.interrupted = true;
     }
@@ -233,7 +240,7 @@ where
             next_tasks: &next_tasks,
             writes_by_node: &std::collections::HashMap::new(),
             raw_input: context.raw_input,
-            scheduled_after: Vec::new(),
+            scheduled_after: resume_seeds,
         },
         context.force_new,
         "loop",

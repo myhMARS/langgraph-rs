@@ -74,6 +74,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
     let mut time_travel = false;
+    let mut resume_seed_nodes: Vec<String> = Vec::new();
     let raw_input = match &start {
         StartInput::Values(map) => Some(map.clone()),
         // LangGraph writes an input checkpoint for an update-start run too.
@@ -137,6 +138,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &resume_sends,
                 backend.schema(),
             )?;
+        resume_seed_nodes = checkpoint
+            .deferred_routes
+            .iter()
+            .map(|task| task.node.clone())
+            .collect();
         let deferred = checkpoint.deferred.clone();
         (
             values,
@@ -527,6 +533,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         // only for the tick that replays them.
         let mut routing_executed = executed.clone();
         routing_executed.append(&mut replayed_nodes);
+        for node in resume_seed_nodes.drain(..) {
+            if !routing_executed.contains(&node) {
+                routing_executed.push(node);
+            }
+        }
         let (next_nodes, router_sends) = collect_next_nodes(
             &state,
             &routing_executed,
