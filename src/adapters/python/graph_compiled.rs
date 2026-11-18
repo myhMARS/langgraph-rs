@@ -280,7 +280,7 @@ impl PyCompiledGraph {
                     PyTypeError::new_err("stream(Command(...)) requires thread_id")
                 })?;
                 let (resume, updates) = command.to_resume_command(py)?;
-                let goto = command.goto_targets(py)?;
+                let (goto, sends) = command.goto_parts(py)?;
                 let updates = Some(updates.into_iter().collect());
                 match py.detach(|| {
                     self.graph.stream_thread_with(
@@ -288,6 +288,7 @@ impl PyCompiledGraph {
                         resume,
                         updates,
                         goto,
+                        sends,
                         &config,
                         &requested,
                         |chunk| streamed.push(chunk),
@@ -306,6 +307,7 @@ impl PyCompiledGraph {
                         thread,
                         None,
                         None,
+                        Vec::new(),
                         Vec::new(),
                         &config,
                         &requested,

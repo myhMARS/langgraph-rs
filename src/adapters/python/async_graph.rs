@@ -242,12 +242,13 @@ impl PyAsyncCompiledGraph {
             Option<crate::Value>,
             Option<serde_json::Map<String, crate::Value>>,
             Vec<String>,
+            Vec<crate::Send>,
         )> = None;
         if let Some(obj) = input {
             if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
                 let (resume, updates) = command.to_resume_command(py)?;
-                let goto = command.goto_targets(py)?;
-                resume_start = Some((resume, Some(updates.into_iter().collect()), goto));
+                let (goto, sends) = command.goto_parts(py)?;
+                resume_start = Some((resume, Some(updates.into_iter().collect()), goto, sends));
             }
         }
         let continue_thread =
@@ -266,7 +267,7 @@ impl PyAsyncCompiledGraph {
         let graph = self.graph.clone();
         let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut collected: Vec<StreamChunk> = Vec::new();
-            let result = if let Some((resume, updates, goto)) = resume_start {
+            let result = if let Some((resume, updates, goto, sends)) = resume_start {
                 let thread = stream_thread.as_deref().expect("command thread checked");
                 graph
                     .stream_thread_with(
@@ -274,6 +275,7 @@ impl PyAsyncCompiledGraph {
                         resume,
                         updates,
                         goto,
+                        sends,
                         &config,
                         &requested,
                         |chunk| collected.push(chunk),
@@ -286,6 +288,7 @@ impl PyAsyncCompiledGraph {
                         thread,
                         None,
                         None,
+                        Vec::new(),
                         Vec::new(),
                         &config,
                         &requested,

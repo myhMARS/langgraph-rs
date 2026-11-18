@@ -273,30 +273,6 @@ impl PyCommand {
         push_item(goto)?;
         Ok((names, sends))
     }
-
-    pub(super) fn goto_targets(&self, py: Python<'_>) -> PyResult<Vec<String>> {
-        if self.graph.is_some() {
-            return Err(PyTypeError::new_err(
-                "Command(graph=...) is only supported for subgraphs",
-            ));
-        }
-        let Some(goto) = &self.goto else {
-            return Ok(Vec::new());
-        };
-        let goto = goto.bind(py);
-        if goto.is_none() {
-            return Ok(Vec::new());
-        }
-        if let Ok(node) = goto.extract::<String>() {
-            return Ok(vec![node]);
-        }
-        if let Ok(nodes) = goto.extract::<Vec<String>>() {
-            return Ok(nodes);
-        }
-        Err(PyTypeError::new_err(
-            "Command(goto=...) expects a node name or a list of node names",
-        ))
-    }
 }
 
 /// Cooperative run-control handle (LangGraph `RunControl` basics).

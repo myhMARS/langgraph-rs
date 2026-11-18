@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use langgraph_rs::JsonState;
-use langgraph_rs::functional::{async_entrypoint, async_task};
+use langgraph_rs::async_entrypoint;
+use langgraph_rs::functional::async_task;
 use langgraph_rs::{RunConfig, json};
 
 #[tokio::test]

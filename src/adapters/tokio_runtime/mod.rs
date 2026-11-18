@@ -5,8 +5,8 @@
 //! and scheduling reuses the kernel's edge evaluation. The adapter is deliberately
 //! separate from the kernel so the sync engine has no runtime dependency:
 //!
-//! - **No blocking.** Every node returns a `Send` future and supersteps use
-//!   [`futures::future::join_all`], so pending I/O overlaps.
+//! - **No blocking.** Every node returns a `Send` future and supersteps run through a
+//!   bounded `FuturesUnordered` window, so pending I/O overlaps up to `max_concurrency`.
 //! - **Explicit context.** Because futures interleave on one task, the thread-local
 //!   context of the sync API is not available; nodes receive an [`AsyncContext`](crate::tokio_runtime::AsyncContext) with
 //!   `interrupt`, `record_usage`, `record_tokens` and `custom`.
@@ -38,11 +38,13 @@ mod backend_impl;
 mod builder;
 mod compiled;
 mod context;
+mod functional;
 mod save;
 
 pub use builder::AsyncStateGraph;
 pub use compiled::AsyncCompiledGraph;
 pub use context::AsyncContext;
+pub use functional::async_entrypoint;
 
 /// Boxed future returned by an async node.
 pub type BoxNodeFuture =

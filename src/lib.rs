@@ -119,6 +119,10 @@ pub use adapters::python;
 #[cfg(feature = "async")]
 pub use adapters::tokio_runtime;
 
+/// Async functional entrypoint (LangGraph `functional` async API).
+#[cfg(feature = "async")]
+pub use adapters::tokio_runtime::async_entrypoint;
+
 pub use adapters::memory::{InMemoryCache, InMemorySaver, InMemoryStore, MemorySaver};
 
 /// Async checkpointer adapter that offloads a synchronous saver to a blocking pool.
