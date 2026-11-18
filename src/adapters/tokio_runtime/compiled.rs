@@ -265,15 +265,25 @@ impl<S: State> AsyncCompiledGraph<S> {
                 ));
             };
             if let Some(thread) = config.thread_id.as_deref() {
-                return self
-                    .resume_inner(
-                        thread,
-                        config.checkpoint_id.as_deref(),
-                        None,
-                        Some(updates.into_iter().collect()),
-                        config.checkpoint_ns.as_deref(),
-                    )
-                    .await;
+                // A fresh thread has no checkpoint to resume: apply the update as run
+                // input instead of failing with "no checkpoint found".
+                let namespace = config.checkpoint_ns.as_deref().unwrap_or("");
+                let exists = if self.has_checkpointer() {
+                    self.saver_latest_in(thread, namespace).await?.is_some()
+                } else {
+                    false
+                };
+                if exists {
+                    return self
+                        .resume_inner(
+                            thread,
+                            config.checkpoint_id.as_deref(),
+                            None,
+                            Some(updates.into_iter().collect()),
+                            config.checkpoint_ns.as_deref(),
+                        )
+                        .await;
+                }
             }
             return self
                 .execute(

@@ -7,6 +7,43 @@ use crate::_internal::node::Task;
 use crate::_internal::state::{State, StateSchema};
 use crate::RunControl;
 
+/// Named barriers that are currently open (all writers seen).
+///
+/// Captured before a superstep so the barrier a superstep opens stays open for the
+/// node that reads it; only a barrier that was already open is consumed afterwards.
+pub(crate) fn open_named_barriers(
+    schema: &StateSchema,
+    values: &Map<String, Value>,
+) -> Vec<String> {
+    schema
+        .names()
+        .filter(|name| {
+            schema
+                .channel(name)
+                .is_some_and(crate::channels::Channel::is_named_barrier)
+                && values.get(*name) == Some(&Value::Bool(true))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Consume named barriers that this superstep read (LangGraph `NamedBarrierValue.consume`).
+///
+/// Only barriers in `armed` are cleared, so a barrier that opened during this superstep
+/// remains visible to the nodes it schedules. Returns `true` when a channel changed.
+pub(crate) fn consume_named_barriers(values: &mut Map<String, Value>, armed: &[String]) -> bool {
+    let mut changed = false;
+    for name in armed {
+        if values.get(name) == Some(&Value::Bool(true)) {
+            // LangGraph raises `EmptyChannelError` after consume; dropping the key makes
+            // typed state fall back to its default, which is the closest analogue.
+            values.remove(name);
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// State produced by the shared superstep prologue.
 pub(crate) struct StepStart {
     pub(crate) iteration: usize,

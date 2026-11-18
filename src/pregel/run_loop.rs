@@ -146,14 +146,17 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     if fresh {
         context::clear_task_results();
         if let Some(tid) = thread_id.as_deref() {
-            if let Some(latest) = backend.load_checkpoint(tid, None, &namespace).await? {
+            // Honour an addressed checkpoint so time-travel forks chain from it instead
+            // of from the thread's latest checkpoint.
+            if let Some(latest) = backend
+                .load_checkpoint(tid, config.checkpoint_id.as_deref(), &namespace)
+                .await?
+            {
                 parent = Some(latest.id.clone());
                 previous_checkpoint = Some(latest);
             }
         }
-        // LangGraph records the input checkpoint(s) before the first superstep. The
-        // two records and the `total - 2` history step math are covered by checkpoint
-        // and namespace tests; keep them in sync if the initial layout changes.
+        // LangGraph records a single input checkpoint before the first superstep.
         save_checkpoint_via(
             backend,
             thread_id.as_deref(),
@@ -182,6 +185,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         .collect();
     let mut iteration = 0usize;
     loop {
+        // Barriers already open before this superstep are consumed by it (LangGraph
+        // consumes a named barrier when the value is read).
+        let armed_barriers = step::open_named_barriers(backend.schema(), &values);
         let prepared = step::begin_step(
             config.control.as_ref(),
             backend.schema(),
@@ -419,6 +425,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 |node| backend.node_exists(node),
                 |node| PregelBackend::destinations_of(backend, node),
             )?;
+            // `state` is re-derived later in this loop; only the checkpointed values
+            // need the consumed barrier.
+            step::consume_named_barriers(&mut values, &armed_barriers);
             let scheduled = schedule_next_tasks(
                 next_nodes,
                 router_sends,
@@ -548,6 +557,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &mut pending_deferred,
             true,
         )?;
+        if step::consume_named_barriers(&mut values, &armed_barriers) {
+            state = values_to_state::<S>(&values)?;
+        }
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
         if emit && debug_enabled {

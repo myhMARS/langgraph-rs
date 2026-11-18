@@ -112,6 +112,24 @@ fn update_state_recomputes_next_tasks_from_as_node() {
 }
 
 #[test]
+fn update_state_infers_as_node_in_a_multi_node_graph() {
+    let graph = two_node_graph();
+    graph
+        .run(
+            &ModelState::default(),
+            &RunConfig::new().with_thread("model-update-infer"),
+        )
+        .unwrap();
+
+    // No `as_node`: the last writer must be inferred instead of raising ambiguity.
+    let snapshot = graph
+        .update_state("model-update-infer", [("value", json!(20))], None)
+        .unwrap();
+    assert_eq!(snapshot.values.value, 20);
+    assert!(snapshot.next.is_empty());
+}
+
+#[test]
 fn update_state_without_as_node_keeps_pending_tasks() {
     let graph = hitl_graph();
     let _ = graph

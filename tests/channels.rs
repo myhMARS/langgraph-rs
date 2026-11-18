@@ -184,6 +184,38 @@ fn named_barrier_opens_after_every_writer() {
 }
 
 #[test]
+fn named_barrier_is_consumed_after_use() {
+    let graph = StateGraph::<BarrierState>::new()
+        .add_node("a", |_state: &BarrierState| {
+            Ok(NodeOutput::new().set("barrier", "a"))
+        })
+        .add_node("b", |_state: &BarrierState| {
+            Ok(NodeOutput::new().set("barrier", "b"))
+        })
+        .add_node("join", |state: &BarrierState| {
+            Ok(NodeOutput::new().set("seen", i64::from(state.barrier)))
+        })
+        .add_edge(langgraph_rs::START, "a")
+        .add_edge(langgraph_rs::START, "b")
+        .add_edges_from(["a", "b"], "join")
+        .set_finish_point("join")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap();
+
+    let output = graph
+        .invoke(
+            &BarrierState::default(),
+            &RunConfig::new().with_thread("barrier-consume"),
+        )
+        .unwrap();
+    // The join node still observes the open barrier ...
+    assert_eq!(output.seen, 1);
+    // ... but the consumed barrier does not stay open in the checkpoint.
+    let snapshot = graph.get_state("barrier-consume").unwrap().unwrap();
+    assert!(!snapshot.values.barrier);
+}
+
+#[test]
 fn overwrite_bypasses_the_reducer() {
     let graph = StateGraph::<LogState>::new()
         .add_node("rewrite", |_state: &LogState| {

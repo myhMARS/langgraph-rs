@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::_internal::error::{Error, Interrupt, Result};
+use crate::_internal::error::{Interrupt, Result};
 use crate::_internal::node::Task;
 
 /// A task write that was produced before an interrupt and must be replayed on resume.
@@ -226,27 +226,36 @@ pub(crate) fn versions_for(
     (channel_versions, versions_seen, updated)
 }
 
-/// Infer the last writing node from checkpoint channel versions, matching
-/// LangGraph's `_infer_as_node`.
+/// Infer the node that last wrote, matching LangGraph's `_infer_as_node`.
+///
+/// LangGraph picks the node with the highest observed channel version and treats a tie at
+/// the top as ambiguous. Our `versions_seen` records all current versions per executed
+/// node (an approximation of per-trigger reads), so a tie is common; `None` therefore means
+/// "cannot infer" and callers keep the pending tasks instead of failing.
 pub(crate) fn infer_as_node(checkpoint: &Checkpoint) -> Result<Option<String>> {
-    let mut candidates = Vec::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
     for (node, seen) in &checkpoint.versions_seen {
         let Some(seen) = seen.as_object() else {
             continue;
         };
-        let wrote = checkpoint.updated_channels.iter().any(|channel| {
-            checkpoint.channel_versions.get(channel).is_some()
-                && seen.get(channel) == checkpoint.channel_versions.get(channel)
-        });
-        if wrote {
-            candidates.push(node.clone());
+        for version in seen.values().filter_map(Value::as_str) {
+            pairs.push((version.to_string(), node.clone()));
         }
     }
-    match candidates.len() {
-        0 => Ok(None),
-        1 => Ok(candidates.pop()),
-        _ => Err(Error::validation("Ambiguous update, specify as_node")),
+    if pairs.is_empty() {
+        return Ok(None);
     }
+    pairs.sort();
+    let Some((version, node)) = pairs.pop() else {
+        return Ok(None);
+    };
+    if pairs
+        .last()
+        .is_some_and(|(previous, _)| previous == &version)
+    {
+        return Ok(None);
+    }
+    Ok(Some(node))
 }
 
 #[cfg(test)]

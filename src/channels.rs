@@ -153,6 +153,11 @@ impl Channel {
         matches!(self, Channel::LastValueAfterFinish)
     }
 
+    /// Whether this channel is a named barrier (LangGraph `NamedBarrierValue`).
+    pub(crate) fn is_named_barrier(&self) -> bool {
+        matches!(self, Channel::NamedBarrierValue { .. })
+    }
+
     /// Whether the channel value belongs in a checkpoint.
     pub fn persists(&self) -> bool {
         !self.is_ephemeral() && !self.is_untracked()
