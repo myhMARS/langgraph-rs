@@ -205,19 +205,46 @@ where
         .collect();
     // Successful siblings keep their node names as routing seeds: a sibling that wrote no
     // persisted channel still has to have its outgoing edges scheduled on resume.
-    let resume_seeds: Vec<Task> = tasks
-        .iter()
-        .filter(|task| !interrupted_ids.contains(&task.id))
-        .map(|task| Task::new(task.node.clone()))
-        .collect();
-    // `goto`/`Send` targets chosen by successful siblings are remembered so the resume
-    // replays them (they cannot be derived from static edges).
-    let resume_tasks: Vec<Task> = processed
+    // A sibling that chose `goto` must not also re-derive its static/conditional edges.
+    let goto_sources: std::collections::HashSet<&str> = processed
         .goto_targets
         .iter()
+        .map(|(_, source)| source.as_str())
+        .collect();
+    let mut resume_seeds: Vec<Task> = tasks
+        .iter()
+        .filter(|task| {
+            !interrupted_ids.contains(&task.id) && !goto_sources.contains(task.node.as_str())
+        })
+        .map(|task| Task::new(task.node.clone()))
+        .collect();
+    // Routes from an earlier pause survive another interrupt of the same superstep.
+    if let Some(previous) = context.previous.as_ref() {
+        for task in &previous.deferred_routes {
+            if !resume_seeds.iter().any(|seed| seed.node == task.node) {
+                resume_seeds.push(task.clone());
+            }
+        }
+    }
+    // `goto`/`Send` targets chosen by successful siblings are remembered so the resume
+    // replays them (they cannot be derived from static edges).
+    let mut resume_tasks: Vec<Task> = processed
+        .goto_targets
+        .iter()
+        .filter(|(target, _)| target != crate::END)
         .map(|(target, _)| Task::new(target.clone()))
         .chain(processed.next_tasks.iter().cloned())
         .collect();
+    if let Some(previous) = context.previous.as_ref() {
+        for task in &previous.resume_tasks {
+            if !resume_tasks
+                .iter()
+                .any(|known| known.node == task.node && known.input == task.input)
+            {
+                resume_tasks.push(task.clone());
+            }
+        }
+    }
     for task in &mut next_tasks {
         task.interrupted = true;
     }

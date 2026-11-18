@@ -601,6 +601,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         )?; // `goto`/`Send` targets chosen by the paused tick's successful siblings run after
         // the resumed tasks complete.
         for task in resume_pending.drain(..) {
+            if task.node == crate::END {
+                continue;
+            }
             let duplicate = next_tasks.iter().any(|existing| {
                 if existing.input.is_none() && task.input.is_none() {
                     existing.node == task.node
