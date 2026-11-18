@@ -17,6 +17,8 @@ mod state_api;
 mod threads;
 pub(crate) mod visualize;
 
+pub(crate) use state_api::metadata_matches;
+
 use crate::_internal::node::ConditionalEdge;
 
 /// Convert a recorded parent command into a node output, folding repeated reducer

@@ -10,6 +10,7 @@ use crate::_internal::node::Task;
 use crate::_internal::state::{ChannelUpdate, State, apply_updates, values_to_state};
 use crate::checkpoint::{Checkpoint, infer_as_node, new_checkpoint_id, now_millis, versions_for};
 use crate::graph::StateSnapshot;
+use crate::graph::metadata_matches;
 use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 
 impl<S: State> AsyncCompiledGraph<S> {
@@ -111,6 +112,40 @@ impl<S: State> AsyncCompiledGraph<S> {
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
         self.get_state_history_filtered_in(thread_id, "", before, limit)
+    }
+
+    /// History filtered by metadata values (LangGraph `get_state_history(filter=...)`).
+    pub fn get_state_history_where(
+        &self,
+        thread_id: &str,
+        filter: Option<&serde_json::Map<String, serde_json::Value>>,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        self.get_state_history_where_in(thread_id, "", filter, before, limit)
+    }
+
+    /// History inside a namespace, filtered by metadata values.
+    pub fn get_state_history_where_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        filter: Option<&serde_json::Map<String, serde_json::Value>>,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        let history = self.get_state_history_filtered_in(thread_id, namespace, before, None)?;
+        let mut matches: Vec<StateSnapshot<S>> = match filter {
+            Some(filter) => history
+                .into_iter()
+                .filter(|snapshot| metadata_matches(snapshot, filter))
+                .collect(),
+            None => history,
+        };
+        if let Some(limit) = limit {
+            matches.truncate(limit);
+        }
+        Ok(matches)
     }
 
     /// History inside a namespace with `before` / `limit` filters.
