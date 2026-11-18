@@ -222,10 +222,24 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 })
                 .collect();
 
+            let mut paused_tasks = paused_tasks;
+            crate::pregel::scheduling::assign_v4_ids(
+                &mut paused_tasks,
+                previous_checkpoint
+                    .as_ref()
+                    .map(|checkpoint| checkpoint.id.as_str()),
+                &namespace,
+                step,
+            );
             crate::pregel::checkpointing::persist_pause(
                 backend,
+                thread_id.as_deref(),
+                &namespace,
+                &mut parent,
                 &mut previous_checkpoint,
                 &paused_tasks,
+                &values,
+                step,
                 crate::pregel::checkpointing::PauseDraft {
                     interrupted: true,
                     paused_before: true,
@@ -234,7 +248,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     deferred: pending_deferred.clone(),
                     executed: &[],
                     values: None,
+                    next_tasks: &paused_tasks,
+                    writes_by_node: &std::collections::HashMap::new(),
                 },
+                "loop",
+                checkpoint_emit,
+                sink,
             )
             .await?;
             sink(chunk);
@@ -374,10 +393,23 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 // before the shared post-step consumption.
                 step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers);
 
+                crate::pregel::scheduling::assign_v4_ids(
+                    &mut next_tasks,
+                    previous_checkpoint
+                        .as_ref()
+                        .map(|checkpoint| checkpoint.id.as_str()),
+                    &namespace,
+                    step,
+                );
                 crate::pregel::checkpointing::persist_pause(
                     backend,
+                    thread_id.as_deref(),
+                    &namespace,
+                    &mut parent,
                     &mut previous_checkpoint,
                     &next_tasks,
+                    &values,
+                    step,
                     crate::pregel::checkpointing::PauseDraft {
                         interrupted: true,
                         paused_before: false,
@@ -386,7 +418,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         deferred: pending_deferred.clone(),
                         executed: &executed_for_resume,
                         values: None,
+                        next_tasks: &next_tasks,
+                        writes_by_node: &std::collections::HashMap::new(),
                     },
+                    "loop",
+                    checkpoint_emit,
+                    sink,
                 )
                 .await?;
                 if emit && values_enabled {
@@ -492,10 +529,23 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             );
             let executed_for_resume: Vec<String> =
                 tasks.iter().map(|task| task.node.clone()).collect();
+            crate::pregel::scheduling::assign_v4_ids(
+                &mut next_tasks,
+                previous_checkpoint
+                    .as_ref()
+                    .map(|checkpoint| checkpoint.id.as_str()),
+                &namespace,
+                step,
+            );
             crate::pregel::checkpointing::persist_pause(
                 backend,
+                thread_id.as_deref(),
+                &namespace,
+                &mut parent,
                 &mut previous_checkpoint,
                 &next_tasks,
+                &values,
+                step,
                 crate::pregel::checkpointing::PauseDraft {
                     interrupted: true,
                     paused_before: false,
@@ -504,7 +554,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     deferred: pending_deferred.clone(),
                     executed: &executed_for_resume,
                     values: Some(&values),
+                    next_tasks: &next_tasks,
+                    writes_by_node: &writes_by_node,
                 },
+                "loop",
+                checkpoint_emit,
+                sink,
             )
             .await?;
             if emit && values_enabled {

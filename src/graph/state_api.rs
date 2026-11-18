@@ -342,6 +342,8 @@ impl<S: State> CompiledGraph<S> {
             &std::collections::HashMap::new(),
         );
         let id = new_checkpoint_id(thread_id, step);
+        let mut next = next;
+        crate::pregel::scheduling::assign_v4_ids(&mut next, Some(&id), namespace, step);
         let updated = Checkpoint {
             id,
             thread_id: thread_id.to_string(),

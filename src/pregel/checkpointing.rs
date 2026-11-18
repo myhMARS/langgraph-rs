@@ -462,29 +462,76 @@ pub(crate) struct PauseDraft<'a> {
     pub(crate) executed: &'a [String],
     /// Updated channel values, when the tick's writes were already applied.
     pub(crate) values: Option<&'a Map<String, Value>>,
+    /// Tasks still pending after the pause.
+    pub(crate) next_tasks: &'a [crate::_internal::node::Task],
+    /// Channels each executed node wrote, for `versions_seen`.
+    pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
 }
 
-pub(crate) async fn persist_pause<S, B>(
+/// Whether a pause can be attached to the previous checkpoint in place.
+pub(crate) fn can_pause_in_place(previous: &Option<crate::checkpoint::Checkpoint>) -> bool {
+    previous.is_some()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn persist_pause<S, B, F>(
     backend: &B,
+    thread_id: Option<&str>,
+    namespace: &str,
+    parent: &mut Option<String>,
     previous: &mut Option<crate::checkpoint::Checkpoint>,
     next: &[crate::_internal::node::Task],
+    values: &Map<String, Value>,
+    step: usize,
     draft: PauseDraft<'_>,
+    source: &str,
+    emit: bool,
+    sink: &mut F,
 ) -> Result<()>
 where
     S: State,
     B: crate::pregel::backend::PregelBackend<S>,
+    F: FnMut(StreamChunk),
 {
+    let _ = next;
     let Some(mut checkpoint) = previous.take() else {
-        return Ok(());
+        // Durability::Exit skips the input checkpoints, so a pause needs to be written
+        // explicitly or it would be lost.
+        let next_tasks: &[crate::_internal::node::Task] = draft.next_tasks;
+        return save_checkpoint_via(
+            backend,
+            thread_id,
+            namespace,
+            parent,
+            previous,
+            draft.values.unwrap_or(values),
+            next_tasks,
+            step + 1,
+            draft.interrupted,
+            draft.paused_before,
+            draft.interrupts.clone(),
+            draft.pending_writes.clone(),
+            draft.deferred.clone(),
+            draft.executed,
+            source,
+            draft.writes_by_node,
+            None,
+            emit,
+            sink,
+        )
+        .await;
     };
-    checkpoint.next = next.to_vec();
+    checkpoint.next = draft.next_tasks.to_vec();
     if let Some(values) = draft.values {
         checkpoint.values = backend.schema().persisted_values(values);
     }
     checkpoint.interrupted = draft.interrupted;
     checkpoint.paused_before = draft.paused_before;
     checkpoint.interrupts = draft.interrupts;
-    checkpoint.pending_writes = draft.pending_writes;
+    // A resume that pauses again must not drop the writes it just applied from pending.
+    if !draft.pending_writes.is_empty() {
+        checkpoint.pending_writes = draft.pending_writes;
+    }
     checkpoint.deferred = draft.deferred;
     // Functional-API tasks that finished during the interrupted superstep keep their
     // recorded results so a resume does not re-run them.
