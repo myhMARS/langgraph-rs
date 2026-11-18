@@ -303,8 +303,13 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
         };
         let step = checkpoint.step + 1;
-        let (channel_versions, versions_seen, updated_channels) =
-            versions_for(Some(&checkpoint), &values, step, &[]);
+        let (channel_versions, versions_seen, updated_channels) = versions_for(
+            Some(&checkpoint),
+            &values,
+            step,
+            &[],
+            &std::collections::HashMap::new(),
+        );
         let id = new_checkpoint_id(thread_id, step);
         let updated = Checkpoint {
             id,

@@ -81,14 +81,21 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) executed: &'a [String],
     /// LangGraph `metadata.source` (`input`, `loop`, `update`, `fork`).
     pub(crate) source: &'a str,
+    /// Channels each executed node wrote, so `versions_seen` can approximate reads.
+    pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
     pub(crate) previous: Option<&'a Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
 }
 
 /// Build a checkpoint with the version metadata used by both runtimes.
 pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
-    let (channel_versions, versions_seen, updated_channels) =
-        crate::checkpoint::versions_for(draft.previous, &draft.values, draft.step, draft.executed);
+    let (channel_versions, versions_seen, updated_channels) = crate::checkpoint::versions_for(
+        draft.previous,
+        &draft.values,
+        draft.step,
+        draft.executed,
+        draft.writes_by_node,
+    );
     Checkpoint {
         id: draft.id,
         thread_id: draft.thread_id.to_string(),
@@ -282,6 +289,7 @@ pub(crate) async fn save_checkpoint_via<
     deferred: Vec<Task>,
     executed: &[String],
     source: &str,
+    writes_by_node: &std::collections::HashMap<String, Vec<String>>,
     id: Option<String>,
     emit: bool,
     sink: &mut F,
@@ -306,6 +314,7 @@ pub(crate) async fn save_checkpoint_via<
         deferred,
         executed,
         source,
+        writes_by_node,
         previous: previous.as_ref(),
         task_results: crate::runtime::context::snapshot_task_results(),
     });
@@ -370,6 +379,7 @@ where
             Vec::new(),
             &[],
             "input",
+            &std::collections::HashMap::new(),
             raw_id.clone(),
             emit,
             sink,
@@ -411,6 +421,7 @@ where
         Vec::new(),
         &[],
         "loop",
+        &std::collections::HashMap::new(),
         post_id.clone(),
         emit,
         sink,
@@ -481,6 +492,7 @@ where
             &checkpoint.values,
             checkpoint.step,
             &[],
+            &std::collections::HashMap::new(),
         );
         checkpoint.channel_versions = channel_versions;
         checkpoint.versions_seen = versions_seen;

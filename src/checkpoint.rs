@@ -267,6 +267,7 @@ pub(crate) fn versions_for(
     values: &Map<String, Value>,
     step: usize,
     executed: &[String],
+    written_by_node: &std::collections::HashMap<String, Vec<String>>,
 ) -> (Map<String, Value>, Map<String, Value>, Vec<String>) {
     let mut channel_versions = previous
         .map(|checkpoint| checkpoint.channel_versions.clone())
@@ -283,18 +284,20 @@ pub(crate) fn versions_for(
             updated.push(channel.clone());
         }
     }
-    // LangGraph records the channel versions each executed node has observed.
+    // LangGraph records, per executed node, the versions of the channels it read *before*
+    // this step's writes. Reads are not tracked here, so the node's own writes are excluded
+    // and the remaining channels use their pre-step versions.
     if !executed.is_empty() {
-        let seen: Map<String, Value> = values
-            .keys()
-            .filter_map(|channel| {
-                channel_versions
-                    .get(channel)
-                    .map(|version| (channel.clone(), version.clone()))
-            })
-            .collect();
+        let pre_step = previous.map(|checkpoint| &checkpoint.channel_versions);
         for node in executed {
-            versions_seen.insert(node.clone(), Value::Object(seen.clone()));
+            let own = written_by_node.get(node);
+            let seen: Map<String, Value> = pre_step
+                .into_iter()
+                .flat_map(|versions| versions.iter())
+                .filter(|(channel, _)| !own.is_some_and(|channels| channels.contains(channel)))
+                .map(|(channel, version)| (channel.clone(), version.clone()))
+                .collect();
+            versions_seen.insert(node.clone(), Value::Object(seen));
         }
     }
     (channel_versions, versions_seen, updated)

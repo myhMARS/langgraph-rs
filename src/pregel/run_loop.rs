@@ -424,6 +424,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .map(|update| update.channel.clone())
                 .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
                 .collect();
+            // Channels each executed node wrote this tick, for per-node `versions_seen`.
+            let mut writes_by_node: HashMap<String, Vec<String>> = HashMap::new();
+            for update in &processed.channel_updates {
+                writes_by_node
+                    .entry(update.node.clone())
+                    .or_default()
+                    .push(update.channel.clone());
+            }
             apply_processed_updates(
                 backend.schema(),
                 &mut values,
@@ -527,6 +535,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .map(|update| update.channel.clone())
             .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
             .collect();
+        // Channels each executed node wrote this tick, for per-node `versions_seen`.
+        let mut writes_by_node: HashMap<String, Vec<String>> = HashMap::new();
+        for update in &processed.channel_updates {
+            writes_by_node
+                .entry(update.node.clone())
+                .or_default()
+                .push(update.channel.clone());
+        }
         let channel_updates = processed.channel_updates;
         let replacements = processed.replacements;
         let next_tasks = processed.next_tasks;
@@ -638,6 +654,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 pending_deferred.clone(),
                 &executed,
                 "loop",
+                &writes_by_node,
                 next_checkpoint_id.clone(),
                 checkpoint_emit,
                 sink,
@@ -688,6 +705,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     pending_deferred.clone(),
                     &executed,
                     "loop",
+                    &writes_by_node,
                     None,
                     checkpoint_emit,
                     sink,
