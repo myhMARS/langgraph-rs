@@ -333,10 +333,7 @@ impl PyCompiledGraph {
             }
             streamed
                 .into_iter()
-                .filter(|chunk| {
-                    matches!(chunk, crate::StreamChunk::Interrupt { .. })
-                        || chunk.matches_modes_strict(&requested)
-                })
+                .filter(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested))
                 .collect::<Vec<_>>()
         };
         convert_stream_chunks(py, &chunks, v2, &requested)

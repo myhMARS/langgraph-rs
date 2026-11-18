@@ -293,6 +293,13 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                                 .unwrap_or_default()
                                 .to_string();
                             let channel = write.get("channel")?.as_str()?.to_string();
+                            // LangGraph reserves `__`-prefixed control channels (RESUME,
+                            // INTERRUPT, ERROR, NULL_TASK_ID writes). They drive the source
+                            // engine's own loop and are not state, so replaying them as
+                            // updates would either fail or pollute the imported state.
+                            if channel.starts_with("__") {
+                                return None;
+                            }
                             let value = write.get("value").cloned().unwrap_or(Value::Null);
                             let replace = write
                                 .get("replace")

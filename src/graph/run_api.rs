@@ -186,9 +186,7 @@ impl<S: State> CompiledGraph<S> {
         let mut config = config.clone();
         config.thread_id = Some(thread_id.to_string());
         let mut filtered = |chunk: StreamChunk| {
-            if matches!(chunk, StreamChunk::Interrupt { .. })
-                || chunk.matches_modes_strict(&requested)
-            {
+            if chunk.is_interrupt() || chunk.matches_modes_strict(&requested) {
                 sink(chunk);
             }
         };

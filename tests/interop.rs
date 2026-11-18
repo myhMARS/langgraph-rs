@@ -62,7 +62,11 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
         },
         "metadata": { "source": "input", "step": 1 },
         "parent_config": null,
-        "pending_writes": []
+        "pending_writes": [
+            { "task_id": "t1", "node": "n", "channel": "__interrupt__", "value": [], "replace": false },
+            { "task_id": "t1", "node": "n", "channel": "__resume__", "value": 1, "replace": false },
+            { "task_id": "t1", "node": "n", "channel": "extra", "value": 43, "replace": false }
+        ]
     });
     graph.import_checkpoint("foreign", &document).unwrap();
     let snapshot = graph.get_state("foreign").unwrap().unwrap();
@@ -72,6 +76,12 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
         reexported["checkpoint"]["channel_versions"]["value"],
         json!("1.0.1")
     );
+    // Reserved `__` control writes are dropped on import; only real state survives.
+    assert_eq!(
+        reexported["pending_writes"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(reexported["pending_writes"][0]["channel"], json!("extra"));
 }
 
 #[cfg(feature = "msgpack")]

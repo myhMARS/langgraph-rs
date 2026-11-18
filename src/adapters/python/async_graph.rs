@@ -306,10 +306,8 @@ impl PyAsyncCompiledGraph {
                     return Python::attach(|py| Err(to_pyerr(py, error)));
                 }
             }
-            collected.retain(|chunk| {
-                matches!(chunk, StreamChunk::Interrupt { .. })
-                    || chunk.matches_modes_strict(&requested)
-            });
+            collected
+                .retain(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested));
             Python::attach(|py| {
                 let converted = convert_stream_chunks(py, &collected, v2, &requested)?;
                 let list = PyList::empty(py);

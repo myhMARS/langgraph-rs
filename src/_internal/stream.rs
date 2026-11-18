@@ -222,6 +222,18 @@ impl StreamChunk {
         self.mode().is_some_and(|_| self.matches_modes(modes))
     }
 
+    /// Whether this chunk (or a nested subgraph chunk) carries an interrupt.
+    ///
+    /// Interrupts have no stream mode, so adapters forward them regardless of the
+    /// requested modes; nested ones must survive the subgraph wrapper.
+    pub fn is_interrupt(&self) -> bool {
+        match self {
+            StreamChunk::Interrupt { .. } => true,
+            StreamChunk::Subgraph { chunk, .. } => chunk.is_interrupt(),
+            _ => false,
+        }
+    }
+
     /// Check whether this chunk is forwarded for the selected stream modes.
     ///
     /// Usage and interrupt chunks are always forwarded. `debug` only forwards the
