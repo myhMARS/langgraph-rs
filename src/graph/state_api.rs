@@ -29,15 +29,8 @@ impl<S: State> CompiledGraph<S> {
             .ok_or(Error::MissingCheckpointer("get_state"))?;
         match checkpointer.latest_in(thread_id, namespace)? {
             Some(checkpoint) => {
-                let history = checkpointer.history_in(thread_id, namespace)?;
-                let total = history.len() as i64;
-                let step = history
-                    .iter()
-                    .position(|item| item.id == checkpoint.id)
-                    .map(|index| total - 2 - index as i64)
-                    .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
-                snapshot.step = step;
+                snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(Some(snapshot))
             }
             None => Ok(None),
@@ -57,7 +50,7 @@ impl<S: State> CompiledGraph<S> {
     pub fn get_state_in_at(
         &self,
         thread_id: &str,
-        namespace: &str,
+        _namespace: &str,
         checkpoint_id: &str,
     ) -> Result<Option<StateSnapshot<S>>> {
         let checkpointer = self
@@ -66,15 +59,8 @@ impl<S: State> CompiledGraph<S> {
         let Some(checkpoint) = checkpointer.get(thread_id, checkpoint_id)? else {
             return Ok(None);
         };
-        let history = checkpointer.history_in(thread_id, namespace)?;
-        let total = history.len() as i64;
-        let step = history
-            .iter()
-            .position(|item| item.id == checkpoint.id)
-            .map(|index| total - 2 - index as i64)
-            .unwrap_or(checkpoint.step as i64);
         let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
-        snapshot.step = step;
+        snapshot.step = snapshot.step.saturating_sub(1);
         Ok(Some(snapshot))
     }
 
@@ -148,12 +134,6 @@ impl<S: State> CompiledGraph<S> {
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
         let all = checkpointer.history_in(thread_id, namespace)?;
-        let total = all.len() as i64;
-        let step_by_id: std::collections::HashMap<String, usize> = all
-            .iter()
-            .enumerate()
-            .map(|(index, checkpoint)| (checkpoint.id.clone(), index))
-            .collect();
         let mut checkpoints = all;
         if let Some(before) = before {
             match checkpoints.iter().position(|cp| cp.id == before) {
@@ -169,12 +149,8 @@ impl<S: State> CompiledGraph<S> {
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let step = step_by_id
-                    .get(&checkpoint.id)
-                    .map(|index| total - 2 - *index as i64)
-                    .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
-                snapshot.step = step;
+                snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(snapshot)
             })
             .collect()

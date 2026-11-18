@@ -25,15 +25,8 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Option<StateSnapshot<S>>> {
         match self.saver_latest_in_sync(thread_id, namespace)? {
             Some(checkpoint) => {
-                let history = self.saver_history_in_sync(thread_id, namespace)?;
-                let total = history.len() as i64;
-                let step = history
-                    .iter()
-                    .position(|item| item.id == checkpoint.id)
-                    .map(|index| total - 2 - index as i64)
-                    .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
-                snapshot.step = step;
+                snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(Some(snapshot))
             }
             None => Ok(None),
@@ -53,7 +46,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub fn get_state_in_at(
         &self,
         thread_id: &str,
-        namespace: &str,
+        _namespace: &str,
         checkpoint_id: &str,
     ) -> Result<Option<StateSnapshot<S>>> {
         let Some(checkpoint) =
@@ -61,15 +54,8 @@ impl<S: State> AsyncCompiledGraph<S> {
         else {
             return Ok(None);
         };
-        let history = self.saver_history_in_sync(thread_id, namespace)?;
-        let total = history.len() as i64;
-        let step = history
-            .iter()
-            .position(|item| item.id == checkpoint.id)
-            .map(|index| total - 2 - index as i64)
-            .unwrap_or(checkpoint.step as i64);
         let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
-        snapshot.step = step;
+        snapshot.step = snapshot.step.saturating_sub(1);
         Ok(Some(snapshot))
     }
 
@@ -136,12 +122,6 @@ impl<S: State> AsyncCompiledGraph<S> {
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
         let all = futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
-        let total = all.len() as i64;
-        let step_by_id: std::collections::HashMap<String, usize> = all
-            .iter()
-            .enumerate()
-            .map(|(index, checkpoint)| (checkpoint.id.clone(), index))
-            .collect();
         let mut checkpoints = all;
         if let Some(before) = before {
             match checkpoints
@@ -160,12 +140,8 @@ impl<S: State> AsyncCompiledGraph<S> {
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let step = step_by_id
-                    .get(&checkpoint.id)
-                    .map(|index| total - 2 - *index as i64)
-                    .unwrap_or(checkpoint.step as i64);
                 let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
-                snapshot.step = step;
+                snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(snapshot)
             })
             .collect()

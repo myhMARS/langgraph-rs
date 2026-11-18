@@ -11,6 +11,13 @@ use crate::pregel::outcome::TaskOutcome;
 use futures::stream::StreamExt;
 use serde_json::Value;
 
+async fn with_index<F: std::future::Future<Output = TaskOutcome>>(
+    index: usize,
+    future: F,
+) -> (usize, TaskOutcome) {
+    (index, future.await)
+}
+
 impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a, S> {
     fn schema(&self) -> &crate::_internal::state::StateSchema {
         &self.graph.schema
@@ -86,21 +93,30 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
             .unwrap_or_else(|| tasks.len().max(1));
         let run = async {
             let mut pending = futures::stream::FuturesUnordered::new();
-            let mut remaining = tasks.iter();
+            let mut remaining = tasks.iter().enumerate();
+            let mut outcomes: Vec<Option<TaskOutcome>> = (0..tasks.len()).map(|_| None).collect();
             for _ in 0..limit {
                 match remaining.next() {
-                    Some(task) => pending.push(self.graph.run_task(task, state, step, self.run)),
+                    Some((index, task)) => pending.push(with_index(
+                        index,
+                        self.graph.run_task(task, state, step, self.run),
+                    )),
                     None => break,
                 }
             }
-            let mut outcomes = Vec::with_capacity(tasks.len());
-            while let Some(outcome) = pending.next().await {
-                outcomes.push(outcome);
-                if let Some(task) = remaining.next() {
-                    pending.push(self.graph.run_task(task, state, step, self.run));
+            while let Some((index, outcome)) = pending.next().await {
+                outcomes[index] = Some(outcome);
+                if let Some((index, task)) = remaining.next() {
+                    pending.push(with_index(
+                        index,
+                        self.graph.run_task(task, state, step, self.run),
+                    ));
                 }
             }
             outcomes
+                .into_iter()
+                .map(|outcome| outcome.expect("every task has an outcome"))
+                .collect()
         };
         match control {
             Some(control) => tokio::select! {
