@@ -129,7 +129,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         parent = Some(checkpoint.id.clone());
         previous_checkpoint = Some(checkpoint.clone());
         skip_interrupt_before = checkpoint.paused_before;
-        time_travel = checkpoint_id.is_some();
+        // LangGraph excludes `Command(resume=...)` from time travel but keeps it for other
+        // addressed replays (including `Command(update=...)`).
+        time_travel = checkpoint_id.is_some() && resume.is_none();
         let (values, state, tasks, finish_writes, update_writes, replayed) =
             start::resolve_resume_start(
                 &checkpoint,
@@ -182,6 +184,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             sink(values_chunk(0, &values));
         }
         return finish(state, backend.schema(), report, started);
+    }
+    // A replay addressed at the raw-input checkpoint stores `__start__` as its pending
+    // task; that pseudo node is not a real node, so it expands to the entry tasks.
+    if tasks.iter().any(|task| task.node == crate::START) {
+        tasks = backend.entry_tasks(&state)?;
     }
     if config
         .control
