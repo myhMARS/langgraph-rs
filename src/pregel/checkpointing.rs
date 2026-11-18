@@ -638,3 +638,47 @@ where
     *previous = Some(checkpoint);
     Ok(())
 }
+
+/// Write the `source="fork"` checkpoint LangGraph creates when a run replays from an
+/// addressed checkpoint, so the replayed branch gets its own head.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn write_fork<S, B, F>(
+    backend: &B,
+    thread_id: Option<&str>,
+    namespace: &str,
+    parent: &mut Option<String>,
+    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    values: &Map<String, Value>,
+    tasks: &[crate::_internal::node::Task],
+    step: usize,
+    emit: bool,
+    sink: &mut F,
+) -> Result<()>
+where
+    S: State,
+    B: crate::pregel::backend::PregelBackend<S>,
+    F: FnMut(StreamChunk),
+{
+    save_checkpoint_via(
+        backend,
+        thread_id,
+        namespace,
+        parent,
+        previous,
+        values,
+        tasks,
+        step,
+        false,
+        false,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        &[],
+        "fork",
+        &std::collections::HashMap::new(),
+        None,
+        emit,
+        sink,
+    )
+    .await
+}

@@ -204,10 +204,11 @@ impl CompileOptions {
 /// Checkpoint durability policy for a run (LangGraph `durability`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Durability {
-    /// Persist a checkpoint after every superstep (default).
-    #[default]
+    /// Persist a checkpoint after every superstep.
     Sync,
     /// Queue checkpoints to a background writer thread (flushed when the run ends).
+    /// LangGraph's default (`durability` config defaults to `"async"`).
+    #[default]
     Async,
     /// Only persist the initial, interrupt and final checkpoints.
     Exit,

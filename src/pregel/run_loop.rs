@@ -187,7 +187,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     // checkpoint, so the replayed branch has its own head instead of rewriting history.
     if time_travel {
         step += 1;
-        save_checkpoint_via(
+        crate::pregel::checkpointing::write_fork(
             backend,
             thread_id.as_deref(),
             &namespace,
@@ -196,15 +196,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &values,
             &tasks,
             step,
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            "fork",
-            &std::collections::HashMap::new(),
-            None,
             checkpoint_emit,
             sink,
         )

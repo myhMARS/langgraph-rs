@@ -371,6 +371,34 @@ impl<S: State> CompiledGraph<S> {
         self.resume_inner(thread_id, None, None, None, None, None)
     }
 
+    /// Resume with an explicit per-run config (durability/recursion/context preserved).
+    pub fn resume_with_config(
+        &self,
+        thread_id: &str,
+        value: Value,
+        config: &RunConfig,
+    ) -> Result<S> {
+        self.resume_inner(thread_id, None, Some(value), None, None, Some(config))
+    }
+
+    /// Replay from a checkpoint with an explicit per-run config.
+    pub fn resume_from_with_config(
+        &self,
+        thread_id: &str,
+        checkpoint_id: &str,
+        value: Value,
+        config: &RunConfig,
+    ) -> Result<S> {
+        self.resume_inner(
+            thread_id,
+            Some(checkpoint_id),
+            Some(value),
+            None,
+            None,
+            Some(config),
+        )
+    }
+
     /// Continue a namespace-bound thread paused by an interrupt hook.
     pub fn continue_thread_in(&self, thread_id: &str, namespace: &str) -> Result<S> {
         self.resume_inner(thread_id, None, None, None, Some(namespace), None)
