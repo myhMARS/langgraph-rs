@@ -8,11 +8,23 @@ use crate::checkpoint::Checkpoint;
 
 /// Wraps any synchronous checkpointer into an [`AsyncCheckpointer`].
 ///
-/// Persistence calls run on a dedicated blocking pool, so a Tokio worker is never blocked
-/// by SQLite/Redis/Postgres I/O. The wrapper owns a small private runtime for that pool.
+/// Persistence calls run on a process-wide blocking pool, so a Tokio worker is never
+/// blocked by SQLite/Redis/Postgres I/O and creating many savers does not create one
+/// runtime/thread per saver.
 pub struct BlockingSaver {
     inner: Arc<dyn Checkpointer>,
-    runtime: Option<tokio::runtime::Runtime>,
+}
+
+fn blocking_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("langgraph-checkpoint")
+            .enable_all()
+            .build()
+            .expect("checkpoint runtime")
+    })
 }
 
 impl std::fmt::Debug for BlockingSaver {
@@ -24,17 +36,7 @@ impl std::fmt::Debug for BlockingSaver {
 impl BlockingSaver {
     /// Wrap a synchronous checkpointer.
     pub fn new(inner: Arc<dyn Checkpointer>) -> Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                Error::Checkpoint(format!("failed to start checkpoint runtime: {error}"))
-            })?;
-        Ok(Self {
-            inner,
-            runtime: Some(runtime),
-        })
+        Ok(Self { inner })
     }
 }
 
@@ -44,21 +46,7 @@ fn join_error(error: tokio::task::JoinError) -> Error {
 
 impl BlockingSaver {
     fn handle(&self) -> tokio::runtime::Handle {
-        self.runtime
-            .as_ref()
-            .expect("checkpoint runtime is present")
-            .handle()
-            .clone()
-    }
-}
-
-impl Drop for BlockingSaver {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            // `Runtime::drop` blocks; shut down in the background so dropping from an async
-            // context (or a test) never panics.
-            runtime.shutdown_background();
-        }
+        blocking_runtime().handle().clone()
     }
 }
 
