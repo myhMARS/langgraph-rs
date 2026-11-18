@@ -21,7 +21,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::state` | `State`, `StateSchema` (strict or `dynamic`), `JsonState`, `ChannelUpdate`, `apply_updates` — the single point where writes become values. |
 | `kernel::node` | `NodeFn`, `NodeOutput` (writes, `goto`, `Send`), `Send`, `Route`, `PathMap`, `ConditionalEdge`, `Task`. Pure data, no execution. |
 | `kernel::context` | Thread-local `TaskContext` installed around each node call, plus `interrupt`, `custom`, `push_custom`, `current_node`. |
-| `kernel::checkpoint` | `Checkpoint`, the `Checkpointer` trait, `InMemorySaver` / `MemorySaver`, id and timestamp helpers. |
+| `kernel::checkpoint` | `Checkpoint` and its id/timestamp helpers (`src/checkpoint.rs`); the `Checkpointer` port lives in `src/_internal/ports.rs`, the in-memory saver in `src/adapters/memory.rs`. |
 | `kernel::command` | `Command`: an explicit resume description (value + optional patch). The `CompiledGraph` methods build the same intent in `executor::StartInput::Resume`. |
 | `kernel::graph::builder` | `StateGraph`, the mutable builder, its edges and the validation rules. |
 | `kernel::graph::compiled` | `CompiledGraph`, the immutable runnable form with `invoke` / `run` / `stream` / `resume` / state queries. |
@@ -31,7 +31,7 @@ version 0.1.0) for contributors who need to reason about execution semantics.
 | `kernel::cache` | `NodeCache` port, `CachedOutput`, `CachePolicy` (TTL + custom key) for node-level caching. |
 | `kernel::store` | `BaseStore` port, `StoreItem` / `Namespace`, `Runtime` and the thread-local run context (`get_store`, `current_context`, `current_runtime`). |
 | `kernel::timeout` | `TimeoutPolicy` (`run_timeout`, `idle_timeout`) attached per node; managed values (`remaining_steps`, `is_last_step`) live in the run context. |
-| `kernel::executor::pregel` | `run_loop`: the only Pregel loop; owns seeding, supersteps, interrupts, merge and control flow. `kernel::executor::backend` supplies `PregelBackend`, `SyncBackend` and `AsyncBackend`. |
+| `kernel::executor::pregel` | `src/pregel/run_loop.rs` (the only Pregel loop), with `fresh.rs` for seeding, `pause.rs` for interrupts and `checkpointing.rs` for persistence. `PregelBackend`, `SyncBackend` are in `src/pregel/backend.rs`; `AsyncBackend` lives in `src/adapters/tokio_runtime/compiled.rs`. |
 | `kernel::executor::superstep` | `run_superstep` / `run_task`: inline or scoped-thread node execution, interrupt re-tagging, per-node timing. |
 | `kernel::executor::scheduling` | Edge evaluation, `goto` override handling, `END`/`START` filtering and de-duplication. |
 | `kernel::executor::checkpointing` | `save_checkpoint_via` / `build_checkpoint`: the only checkpoint writer, driven by a backend. |
@@ -197,8 +197,8 @@ Fields: `id` (UUID-shaped hex: millis + sequence + step + hash, so LangGraph can
 above LangGraph's `metadata.step`), `values` (all channels as one JSON object), `next`
 (`Vec<Task>` with `node`, optional `input`, optional `resume`), `interrupted`, `paused_before`,
 `parent_id` (previous checkpoint, forming the history chain) and `created_at_millis`. A pause
-also carries `deferred_routes` (routing seeds of completed siblings), `resume_tasks` (their
-`goto`/`Send` targets) and `completed_tasks` (what `get_state().tasks` reports).
+also carries `deferred_routes` (routing seeds of completed siblings), `resume_tasks` (their `goto`/`Send` targets), `completed_tasks` (what `get_state().tasks` reports) and `goto_sources` (siblings whose static edges must not be re-derived on replay).
+
 
 `InMemorySaver` keeps `Mutex<HashMap<thread_id, Vec<Checkpoint>>>` in insertion order: `latest`
 returns the last element, `history` the reversed list (newest first), and a poisoned lock is
