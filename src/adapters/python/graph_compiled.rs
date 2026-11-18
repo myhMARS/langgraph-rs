@@ -383,7 +383,7 @@ impl PyCompiledGraph {
     /// Return the checkpoint history of a thread, newest first.
     ///
     /// ``before`` is an exclusive checkpoint id and ``limit`` caps the result size.
-    #[pyo3(signature = (thread_id, before=None, limit=None, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, before=None, limit=None, checkpoint_ns=None, filter=None))]
     fn get_state_history(
         &self,
         py: Python<'_>,
@@ -391,21 +391,40 @@ impl PyCompiledGraph {
         before: Option<String>,
         limit: Option<usize>,
         checkpoint_ns: Option<String>,
+        filter: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let (thread_id, parsed_config) = config_from_py(py, Some(thread_id))?;
+        let filter = match filter {
+            Some(filter) => {
+                let value = py_to_value(&filter)?;
+                match value {
+                    Value::Object(map) => Some(map),
+                    _ => {
+                        return Err(PyTypeError::new_err(
+                            "get_state_history filter must be a dict",
+                        ));
+                    }
+                }
+            }
+            None => None,
+        };
         let thread_id = thread_id
             .ok_or_else(|| PyTypeError::new_err("get_state_history requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
         let history = match checkpoint_ns.as_deref() {
-            Some(namespace) => self.graph.get_state_history_filtered_in(
+            Some(namespace) => self.graph.get_state_history_where_in(
                 &thread_id,
                 namespace,
+                filter.as_ref(),
                 before.as_deref(),
                 limit,
             ),
-            None => self
-                .graph
-                .get_state_history_filtered(&thread_id, before.as_deref(), limit),
+            None => self.graph.get_state_history_where(
+                &thread_id,
+                filter.as_ref(),
+                before.as_deref(),
+                limit,
+            ),
         }
         .map_err(|error| to_pyerr(py, error))?;
         if checkpoint_ns.is_none() {

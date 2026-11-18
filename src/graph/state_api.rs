@@ -125,6 +125,44 @@ impl<S: State> CompiledGraph<S> {
         self.get_state_history_filtered_in(thread_id, "", before, limit)
     }
 
+    /// History filtered by metadata values (LangGraph `get_state_history(filter=...)`).
+    pub fn get_state_history_where_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        filter: Option<&Map<String, Value>>,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        let history = self.get_state_history_filtered_in(thread_id, namespace, before, None)?;
+        let Some(filter) = filter else {
+            let mut history = history;
+            if let Some(limit) = limit {
+                history.truncate(limit);
+            }
+            return Ok(history);
+        };
+        let mut matches: Vec<StateSnapshot<S>> = history
+            .into_iter()
+            .filter(|snapshot| metadata_matches(snapshot, filter))
+            .collect();
+        if let Some(limit) = limit {
+            matches.truncate(limit);
+        }
+        Ok(matches)
+    }
+
+    /// History filtered by metadata values.
+    pub fn get_state_history_where(
+        &self,
+        thread_id: &str,
+        filter: Option<&Map<String, Value>>,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<StateSnapshot<S>>> {
+        self.get_state_history_where_in(thread_id, "", filter, before, limit)
+    }
+
     /// History inside a namespace with `before` / `limit` filters.
     pub fn get_state_history_filtered_in(
         &self,
@@ -382,4 +420,20 @@ impl<S: State> CompiledGraph<S> {
         checkpointer.put(updated)?;
         Ok(snapshot)
     }
+}
+
+/// Compare a snapshot's metadata (and step) against a LangGraph `filter` map.
+pub(crate) fn metadata_matches<S: crate::_internal::state::State>(
+    snapshot: &StateSnapshot<S>,
+    filter: &Map<String, Value>,
+) -> bool {
+    filter.iter().all(|(key, expected)| {
+        if key == "step" {
+            return expected.as_i64() == Some(snapshot.step);
+        }
+        snapshot
+            .metadata
+            .get(key)
+            .is_some_and(|actual| actual == expected)
+    })
 }
