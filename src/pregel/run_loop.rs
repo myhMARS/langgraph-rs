@@ -173,25 +173,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             sink,
         )
         .await?;
-        save_checkpoint_via(
-            backend,
-            thread_id.as_deref(),
-            &namespace,
-            &mut parent,
-            &mut previous_checkpoint,
-            &values,
-            &tasks,
-            step,
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            checkpoint_emit,
-            sink,
-        )
-        .await?;
     }
 
     let mut pending_deferred: Vec<Task> = resume_deferred;

@@ -77,11 +77,11 @@ fn namespaces_are_isolated_within_a_thread() {
     assert_eq!(one.checkpoint_ns, "sub/one");
     assert_eq!(
         graph.get_state_history_in(thread, "sub/one").unwrap().len(),
-        4
+        3
     );
     assert_eq!(
         graph.get_state_history_in(thread, "sub/two").unwrap().len(),
-        4
+        3
     );
     assert_eq!(saver.threads().unwrap(), vec![thread.to_string()]);
 }
