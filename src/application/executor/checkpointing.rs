@@ -118,8 +118,22 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
 /// folded into each task's consumed history so repeated `interrupt()` calls see
 /// earlier answers on re-runs.
 pub(crate) fn prepare_resume_tasks(checkpoint: &Checkpoint, resume: &Option<Value>) -> Vec<Task> {
-    let interrupt_map = match (resume, checkpoint.interrupts.len() > 1) {
-        (Some(Value::Object(map)), true) => Some(map.clone()),
+    let interrupt_ids: std::collections::HashSet<&str> = checkpoint
+        .interrupts
+        .iter()
+        .map(|interrupt| interrupt.id.as_str())
+        .collect();
+    let looks_like_id = |key: &str| {
+        interrupt_ids.contains(key)
+            || (key.len() >= 32 && key.chars().all(|ch| ch.is_ascii_hexdigit() || ch == '-'))
+    };
+    let interrupt_map = match resume {
+        Some(Value::Object(map)) if map.keys().any(|key| looks_like_id(key)) => Some(map.clone()),
+        Some(Value::Object(map))
+            if checkpoint.interrupts.len() > 1 && map.keys().all(|key| looks_like_id(key)) =>
+        {
+            Some(map.clone())
+        }
         _ => None,
     };
     let mut tasks = checkpoint.next.clone();
