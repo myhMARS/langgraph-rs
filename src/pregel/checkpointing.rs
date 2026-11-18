@@ -78,6 +78,8 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) pending_writes: Vec<crate::checkpoint::PendingWrite>,
     pub(crate) deferred: Vec<Task>,
     pub(crate) executed: &'a [String],
+    /// LangGraph `metadata.source` (`input`, `loop`, `update`, `fork`).
+    pub(crate) source: &'a str,
     pub(crate) previous: Option<&'a Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
 }
@@ -97,7 +99,10 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         parent_id: draft.parent,
         created_at_millis: now_millis(),
         interrupts: draft.interrupts,
-        metadata: Map::from_iter([("source".to_string(), Value::String("loop".to_string()))]),
+        metadata: Map::from_iter([(
+            "source".to_string(),
+            Value::String(draft.source.to_string()),
+        )]),
         namespace: draft.namespace.to_string(),
         task_results: draft.task_results,
         channel_versions,
@@ -275,6 +280,7 @@ pub(crate) async fn save_checkpoint_via<
     pending_writes: Vec<crate::checkpoint::PendingWrite>,
     deferred: Vec<Task>,
     executed: &[String],
+    source: &str,
     emit: bool,
     sink: &mut F,
 ) -> Result<()> {
@@ -297,6 +303,7 @@ pub(crate) async fn save_checkpoint_via<
         pending_writes,
         deferred,
         executed,
+        source,
         previous: previous.as_ref(),
         task_results: crate::runtime::context::snapshot_task_results(),
     });

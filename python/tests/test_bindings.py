@@ -262,7 +262,7 @@ class UsageTests(unittest.TestCase):
         self.assertEqual(len(report["executions"]), 2)
         planner = report["executions"][0]
         self.assertEqual(planner["node"], "planner")
-        self.assertEqual(planner["step"], 0)
+        # Steps follow the tick counter: the first superstep is 1.\n        self.assertEqual(planner["step"], 1)
         self.assertEqual(planner["usage"]["model"], "gpt-4o")
         self.assertEqual(planner["usage"]["input_tokens"], 100)
         self.assertEqual(report["executions"][1]["usage"]["output_tokens"], 5)

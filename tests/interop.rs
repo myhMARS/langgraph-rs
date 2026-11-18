@@ -45,9 +45,8 @@ fn checkpoint_roundtrips_through_langgraph_json() {
         reexported["checkpoint"]["channel_versions"],
         document["checkpoint"]["channel_versions"]
     );
-    // One superstep: the terminal checkpoint reports metadata step 0, matching LangGraph
-    // (input -1, first superstep 0).
-    assert_eq!(reexported["metadata"]["step"], json!(0));
+    // One superstep: raw input (-1), post-input (0) and the terminal checkpoint (1).
+    assert_eq!(reexported["metadata"]["step"], json!(1));
     let imported_step = reexported["metadata"]["step"].as_i64().unwrap();
     graph.import_checkpoint("dst-2", &reexported).unwrap();
     let again = graph.export_checkpoint("dst-2").unwrap().unwrap();

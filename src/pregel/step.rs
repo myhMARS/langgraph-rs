@@ -82,7 +82,10 @@ pub(crate) fn begin_step<S: State>(
     if iteration >= recursion_limit {
         return Err(Error::RecursionLimit(recursion_limit));
     }
-    let guard = crate::runtime::context::install_step(step, iteration, recursion_limit);
+    // `current_step` mirrors LangGraph's `langgraph_step` metadata, which is one below
+    // our internal checkpoint counter.
+    let guard =
+        crate::runtime::context::install_step(step.saturating_sub(1), iteration, recursion_limit);
     let paused = if skip_interrupt_before {
         None
     } else {

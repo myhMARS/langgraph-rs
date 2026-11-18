@@ -75,13 +75,14 @@ fn namespaces_are_isolated_within_a_thread() {
     assert_eq!(one.values.value, 2);
     assert_eq!(two.values.value, 12);
     assert_eq!(one.checkpoint_ns, "sub/one");
+    // LangGraph layout: raw input, post-input and one checkpoint per superstep.
     assert_eq!(
         graph.get_state_history_in(thread, "sub/one").unwrap().len(),
-        3
+        4
     );
     assert_eq!(
         graph.get_state_history_in(thread, "sub/two").unwrap().len(),
-        3
+        4
     );
     assert_eq!(saver.threads().unwrap(), vec![thread.to_string()]);
 }

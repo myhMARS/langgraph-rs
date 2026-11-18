@@ -74,6 +74,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut parent: Option<String> = None;
     let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
     let mut skip_interrupt_before = false;
+    let raw_input = match &start {
+        StartInput::Values(map) => Some(map.clone()),
+        _ => None,
+    };
     let (mut values, mut state, mut tasks, mut step, mut resume_deferred, resume_finish) =
         if let Some((values, state, tasks)) = start::resolve_fresh_start(
             &start,
@@ -149,6 +153,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
     if fresh {
         context::clear_task_results();
+        let mut base_step = 0usize;
         if let Some(tid) = thread_id.as_deref() {
             // Honour an addressed checkpoint so time-travel forks chain from it instead
             // of from the thread's latest checkpoint.
@@ -156,11 +161,40 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .load_checkpoint(tid, config.checkpoint_id.as_deref(), &namespace)
                 .await?
             {
+                // Steps are thread-cumulative in LangGraph: a new turn continues one
+                // past the latest checkpoint instead of restarting at zero.
+                base_step = latest.step + 1;
                 parent = Some(latest.id.clone());
                 previous_checkpoint = Some(latest);
             }
         }
-        // LangGraph records a single input checkpoint before the first superstep.
+        if let Some(raw) = raw_input {
+            // LangGraph stores the raw input in its own `source="input"` checkpoint.
+            step = base_step;
+            let start_tasks = vec![Task::new(crate::START)];
+            save_checkpoint_via(
+                backend,
+                thread_id.as_deref(),
+                &namespace,
+                &mut parent,
+                &mut previous_checkpoint,
+                &raw,
+                &start_tasks,
+                step,
+                false,
+                false,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                &[],
+                "input",
+                checkpoint_emit,
+                sink,
+            )
+            .await?;
+            base_step += 1;
+        }
+        step = base_step;
         save_checkpoint_via(
             backend,
             thread_id.as_deref(),
@@ -176,6 +210,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Vec::new(),
             Vec::new(),
             &[],
+            "loop",
             checkpoint_emit,
             sink,
         )
@@ -239,6 +274,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &[],
+                "loop",
                 checkpoint_emit,
                 sink,
             )
@@ -396,6 +432,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     pending_writes,
                     pending_deferred.clone(),
                     &executed_for_resume,
+                    "loop",
                     checkpoint_emit,
                     sink,
                 )
@@ -510,6 +547,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_writes,
                 pending_deferred.clone(),
                 &executed_for_resume,
+                "loop",
                 checkpoint_emit,
                 sink,
             )
@@ -645,6 +683,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 finish_pending(&finish_updates, backend.schema()),
                 pending_deferred.clone(),
                 &executed,
+                "loop",
                 checkpoint_emit,
                 sink,
             )
@@ -693,6 +732,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     Vec::new(),
                     pending_deferred.clone(),
                     &executed,
+                    "loop",
                     checkpoint_emit,
                     sink,
                 )

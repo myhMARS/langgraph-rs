@@ -479,9 +479,11 @@ fn checkpointer_records_thread_history() {
     assert!(!snapshot.interrupted);
 
     let history = graph.get_state_history("history-thread").unwrap();
-    assert_eq!(history.len(), 3);
+    // Raw input (-1), post-input (0) and one checkpoint per superstep (1, 2).
+    assert_eq!(history.len(), 4);
     assert_eq!(history[0].checkpoint_id, snapshot.checkpoint_id);
-    assert_eq!(history[2].step, -1);
+    assert_eq!(history[3].step, -1);
+    assert_eq!(history[0].step, 2);
 }
 
 #[test]

@@ -65,7 +65,8 @@ fn run_report_tracks_duration_and_usage_per_node() {
 
     let planner = &outcome.report.executions()[0];
     assert_eq!(planner.node, "planner");
-    assert_eq!(planner.step, 0);
+    // Steps follow LangGraph's tick counter: the first superstep is 1.
+    assert_eq!(planner.step, 1);
     let planner_usage = planner.usage.as_ref().expect("planner reported usage");
     assert_eq!(planner_usage.input_tokens, Some(100));
     assert_eq!(planner_usage.output_tokens, Some(20));
@@ -77,7 +78,7 @@ fn run_report_tracks_duration_and_usage_per_node() {
 
     let writer = &outcome.report.executions()[1];
     assert_eq!(writer.node, "writer");
-    assert_eq!(writer.step, 1);
+    assert_eq!(writer.step, 2);
     assert_eq!(writer.usage.as_ref().unwrap().total_tokens(), 15);
 
     let by_node = outcome.report.usage_by_node();

@@ -118,8 +118,8 @@ mod sqlite_tests {
         assert_eq!(one.values.get("value"), Some(&serde_json::json!(1)));
         assert_eq!(two.values.get("value"), Some(&serde_json::json!(11)));
         assert!(saver.latest_in(thread, "sub/missing").unwrap().is_none());
-        // One input checkpoint plus one superstep checkpoint (LangGraph layout).
-        assert_eq!(saver.history_in(thread, "sub/one").unwrap().len(), 2);
+        // Raw input, post-input and one checkpoint per superstep (LangGraph layout).
+        assert_eq!(saver.history_in(thread, "sub/one").unwrap().len(), 3);
 
         saver.copy_thread(thread, "sqlite-copy").unwrap();
         let copied = saver.latest_in("sqlite-copy", "sub/two").unwrap().unwrap();
