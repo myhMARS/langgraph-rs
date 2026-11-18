@@ -428,7 +428,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
     }
     // Only interrupted tasks are still pending; a task that merely wrote state finished.
     let mut seen = std::collections::HashSet::new();
-    for (task_id, task_path, channel, _) in collected {
+    for (task_id, task_path, channel, value) in collected {
         if channel != "__interrupt__" && channel != "__error__" {
             continue;
         }
@@ -449,13 +449,32 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
         {
             continue;
         }
+        let error = if channel == "__error__" {
+            blob_bytes(&value)
+                .and_then(|bytes| crate::interop::msgpack::decode(&bytes).ok())
+                .map(|document| crate::_internal::error::NodeFailure {
+                    node: node.clone(),
+                    message: match &document {
+                        Value::Object(map) => map
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| document.to_string()),
+                        Value::String(text) => text.clone(),
+                        other => other.to_string(),
+                    },
+                    attempts: 1,
+                })
+        } else {
+            None
+        };
         checkpoint.next.push(Task {
             id: task_id,
             node,
             input: None,
             resume: None,
             resume_history: Vec::new(),
-            error: None,
+            error,
             timeout_millis: None,
             interrupted: !checkpoint.interrupts.is_empty(),
             triggers: Vec::new(),
