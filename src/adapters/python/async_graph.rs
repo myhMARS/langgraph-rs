@@ -537,12 +537,16 @@ impl PyAsyncCompiledGraph {
         .map_err(|error| to_pyerr(py, error))?;
         match snapshot {
             Some(snapshot) => {
-                let history = self
-                    .graph
-                    .get_state_history(&thread_id)
-                    .map_err(|error| to_pyerr(py, error))?;
-                let global_step = global_step_for(&history, &snapshot.checkpoint_id);
-                snapshot_to_py_with_step(py, &snapshot, global_step).map(Some)
+                if checkpoint_ns.is_none() {
+                    snapshot_to_py(py, &snapshot).map(Some)
+                } else {
+                    let history = self
+                        .graph
+                        .get_state_history(&thread_id)
+                        .map_err(|error| to_pyerr(py, error))?;
+                    let global_step = global_step_for(&history, &snapshot.checkpoint_id);
+                    snapshot_to_py_with_step(py, &snapshot, global_step).map(Some)
+                }
             }
             None => Ok(None),
         }
@@ -626,10 +630,16 @@ impl PyAsyncCompiledGraph {
                     None => graph.get_state_history_filtered(&thread_id, before.as_deref(), limit),
                 }
                 .map_err(|error| to_pyerr(py, error))?;
+                let list = PyList::empty(py);
+                if checkpoint_ns.is_none() {
+                    for snapshot in snapshots {
+                        list.append(snapshot_to_py(py, &snapshot)?)?;
+                    }
+                    return Ok(list.into_any().unbind());
+                }
                 let full = graph
                     .get_state_history(&thread_id)
                     .map_err(|error| to_pyerr(py, error))?;
-                let list = PyList::empty(py);
                 for snapshot in snapshots {
                     let global_step = global_step_for(&full, &snapshot.checkpoint_id);
                     list.append(snapshot_to_py_with_step(py, &snapshot, global_step)?)?;
