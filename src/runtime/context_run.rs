@@ -121,6 +121,7 @@ pub fn current_runtime() -> Option<Runtime> {
     })
 }
 
+#[cfg(feature = "async")]
 pub(crate) fn has_sync_task() -> bool {
     CURRENT_TASK.with(|slot| slot.borrow().is_some())
 }

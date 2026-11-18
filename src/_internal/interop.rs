@@ -235,23 +235,74 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
     // writes, which the state filter below drops, so collect task id -> node first.
     let mut task_hints: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
+    // Real LangGraph checkpoints persist interrupts as `__interrupt__` pending writes, so
+    // they are decoded here before the state filter drops the control channel.
+    let mut foreign_interrupts: Vec<crate::_internal::error::Interrupt> = Vec::new();
     if let Some(writes) = object.get("pending_writes").and_then(Value::as_array) {
         for write in writes {
-            if let Some(write) = write.as_object() {
-                if let (Some(task_id), Some(node)) = (
+            let (task_id, node, channel, value, replace) = if let Some(write) = write.as_object() {
+                (
                     write.get("task_id").and_then(Value::as_str),
                     write.get("node").and_then(Value::as_str),
-                ) && !node.is_empty()
-                {
-                    task_hints.insert(task_id.to_string(), node.to_string());
-                }
-            } else if let Some(tuple) = write.as_array()
-                && let Some(task_id) = tuple.first().and_then(Value::as_str)
-                && let Some(node) = tuple.get(3).and_then(Value::as_str)
+                    write.get("channel").and_then(Value::as_str),
+                    write.get("value").cloned(),
+                    write
+                        .get("replace")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                )
+            } else if let Some(tuple) = write.as_array() {
+                (
+                    tuple.first().and_then(Value::as_str),
+                    tuple.get(3).and_then(Value::as_str),
+                    tuple.get(1).and_then(Value::as_str),
+                    tuple.get(2).cloned(),
+                    false,
+                )
+            } else {
+                continue;
+            };
+            let Some(task_id) = task_id else { continue };
+            if let Some(node) = node
                 && !node.is_empty()
             {
                 task_hints.insert(task_id.to_string(), node.to_string());
             }
+            let _ = replace;
+            if channel != Some("__interrupt__") {
+                continue;
+            }
+            let Some(value) = value else { continue };
+            let entries: Vec<&Value> = match &value {
+                Value::Array(items) => items.iter().collect(),
+                other => vec![other],
+            };
+            for entry in entries {
+                let Some(entry) = entry.as_object() else {
+                    continue;
+                };
+                foreign_interrupts.push(crate::_internal::error::Interrupt {
+                    node: node.unwrap_or_default().to_string(),
+                    value: entry.get("value").cloned().unwrap_or(Value::Null),
+                    id: entry
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    response_schema: entry
+                        .get("response_schema")
+                        .filter(|schema| !schema.is_null())
+                        .cloned(),
+                    task_id: Some(task_id.to_string().into_boxed_str()),
+                    static_pause: false,
+                });
+            }
+        }
+    }
+    let mut interrupts = interrupts;
+    for foreign in foreign_interrupts {
+        if !interrupts.iter().any(|known| known.id == foreign.id) {
+            interrupts.push(foreign);
         }
     }
     let pending_writes: Vec<crate::checkpoint::PendingWrite> = object

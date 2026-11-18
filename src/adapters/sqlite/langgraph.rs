@@ -352,7 +352,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
     }
     let mut statement = connection
         .prepare(
-            "SELECT task_id, task_path FROM writes
+            "SELECT task_id, task_path, channel, value FROM writes
              WHERE thread_id = ?1 AND checkpoint_ns = ?2 AND checkpoint_id = ?3
              ORDER BY task_id, idx",
         )
@@ -360,10 +360,17 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
     let rows = statement
         .query_map(
             params![checkpoint.thread_id, checkpoint.namespace, checkpoint.id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, rusqlite::types::Value>(3)?,
+                ))
+            },
         )
         .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: writes: {error}")))?;
-    let mut collected: Vec<(String, String)> = Vec::new();
+    let mut collected: Vec<(String, String, String, rusqlite::types::Value)> = Vec::new();
     for row in rows {
         collected.push(
             row.map_err(|error| {
@@ -372,8 +379,53 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
         );
     }
     drop(statement);
+    // LangGraph persists interrupts as `__interrupt__` writes; decode them so a foreign
+    // database reports the same pending interrupts as `get_state`.
+    let mut decoded_interrupts: Vec<Interrupt> = Vec::new();
+    for (task_id, task_path, channel, value) in &collected {
+        if channel != "__interrupt__" {
+            continue;
+        }
+        let node = node_from_task_path(task_path);
+        let Some(blob) = blob_bytes(value) else {
+            continue;
+        };
+        let Ok(document) = crate::interop::msgpack::decode(&blob) else {
+            continue;
+        };
+        let entries: Vec<&Value> = match &document {
+            Value::Array(items) => items.iter().collect(),
+            other => vec![other],
+        };
+        for entry in entries {
+            let Some(entry) = entry.as_object() else {
+                continue;
+            };
+            let Some(id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if decoded_interrupts.iter().any(|known| known.id == id) {
+                continue;
+            }
+            decoded_interrupts.push(Interrupt {
+                node: node.clone(),
+                value: entry.get("value").cloned().unwrap_or(Value::Null),
+                id: id.to_string(),
+                response_schema: entry
+                    .get("response_schema")
+                    .filter(|schema| !schema.is_null())
+                    .cloned(),
+                task_id: Some(task_id.clone().into_boxed_str()),
+                static_pause: false,
+            });
+        }
+    }
+    if checkpoint.interrupts.is_empty() {
+        checkpoint.interrupts = decoded_interrupts;
+        checkpoint.interrupted = !checkpoint.interrupts.is_empty();
+    }
     let mut seen = std::collections::HashSet::new();
-    for (task_id, task_path) in collected {
+    for (task_id, task_path, _, _) in collected {
         if !seen.insert(task_id.clone()) {
             continue;
         }
@@ -488,4 +540,22 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
+}
+
+/// Node name encoded in a LangGraph task path (`~__pregel_pull, <node>`).
+fn node_from_task_path(path: &str) -> String {
+    path.rsplit(',')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// Bytes of a `writes.value` cell, which may be stored as a blob or text.
+fn blob_bytes(value: &rusqlite::types::Value) -> Option<Vec<u8>> {
+    match value {
+        rusqlite::types::Value::Blob(bytes) => Some(bytes.clone()),
+        rusqlite::types::Value::Text(text) => Some(text.clone().into_bytes()),
+        _ => None,
+    }
 }

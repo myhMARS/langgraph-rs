@@ -119,6 +119,43 @@ fn imports_a_foreign_interrupted_checkpoint_with_resumable_tasks() {
     assert_eq!(snapshot.next, vec!["inc".to_string()]);
 }
 
+#[test]
+fn imports_interrupts_recorded_as_control_writes() {
+    let graph = graph();
+    // LangGraph persists interrupts as `__interrupt__` pending writes; no sidecar exists.
+    let document = json!({
+        "config": { "configurable": { "thread_id": "lg-ctrl", "checkpoint_ns": "", "checkpoint_id": "cp-c" } },
+        "checkpoint": {
+            "v": 1,
+            "id": "cp-c",
+            "channel_values": { "value": 5 },
+            "channel_versions": { "value": "1.0.1" },
+            "versions_seen": {},
+            "updated_channels": ["value"]
+        },
+        "metadata": { "source": "loop", "step": 1 },
+        "parent_config": null,
+        "pending_writes": [
+            {
+                "task_id": "task-7",
+                "node": "inc",
+                "channel": "__interrupt__",
+                "value": [{ "value": { "ask": "go?" }, "id": "int-7", "response_schema": null }],
+                "replace": false
+            }
+        ],
+        "metadata_extra": null
+    });
+    graph.import_checkpoint("lg-ctrl", &document).unwrap();
+    let snapshot = graph.get_state("lg-ctrl").unwrap().unwrap();
+    assert!(snapshot.interrupted);
+    assert_eq!(snapshot.next, vec!["inc".to_string()]);
+    assert_eq!(snapshot.interrupts.len(), 1);
+    assert_eq!(snapshot.interrupts[0].id, "int-7");
+    assert_eq!(snapshot.interrupts[0].value, json!({ "ask": "go?" }));
+    assert_eq!(snapshot.interrupts[0].node, "inc");
+}
+
 #[cfg(feature = "msgpack")]
 #[test]
 fn drops_reserved_control_writes_in_tuple_form() {
