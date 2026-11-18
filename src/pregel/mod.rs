@@ -12,6 +12,7 @@
 pub(crate) mod backend;
 pub(crate) mod checkpointing;
 pub(crate) mod outcome;
+pub(crate) mod pause;
 pub(crate) mod run_loop;
 pub(crate) mod scheduling;
 pub(crate) mod start;

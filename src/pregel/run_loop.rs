@@ -21,9 +21,8 @@ use crate::pregel::backend::PregelBackend;
 use crate::pregel::checkpointing::save_checkpoint_via;
 use crate::pregel::outcome::{
     TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
-    debug_chunk, finish, interrupt_after_node, interrupt_before_pause, interrupts_from,
-    merge_interrupted_tasks, process_outcomes, should_save_after_step, should_save_terminal,
-    values_chunk,
+    debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
+    process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
 };
 use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
 use crate::pregel::{StartInput, apply_pending_writes, start, step};
@@ -212,76 +211,40 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         let paused = prepared.paused;
         skip_interrupt_before = false;
         if let Some(interrupted) = paused {
-            let (interrupted_interrupt, chunk) = interrupt_before_pause(&interrupted);
-            let paused_tasks: Vec<Task> = tasks
-                .iter()
-                .map(|task| {
-                    let mut task = task.clone();
-                    task.interrupted = task.id == interrupted.id;
-                    task
-                })
-                .collect();
-
-            let mut paused_tasks = paused_tasks;
-            crate::pregel::scheduling::assign_v4_ids(
-                &mut paused_tasks,
-                previous_checkpoint
-                    .as_ref()
-                    .map(|checkpoint| checkpoint.id.as_str()),
-                &namespace,
+            let pause_context = crate::pregel::pause::PauseContext {
+                thread_id: thread_id.as_deref(),
+                namespace: &namespace,
                 step,
-            );
-            crate::pregel::checkpointing::persist_pause(
+                checkpoint_emit,
+            };
+            let interrupt = crate::pregel::pause::pause_before(
                 backend,
-                thread_id.as_deref(),
-                &namespace,
+                &pause_context,
                 &mut parent,
                 &mut previous_checkpoint,
-                &paused_tasks,
                 &values,
-                step,
-                crate::pregel::checkpointing::PauseDraft {
-                    interrupted: true,
-                    paused_before: true,
-                    interrupts: vec![interrupted_interrupt.clone()],
-                    pending_writes: finish_pending(&finish_updates, backend.schema()),
-                    deferred: pending_deferred.clone(),
-                    executed: &[],
-                    values: None,
-                    next_tasks: &paused_tasks,
-                    writes_by_node: &std::collections::HashMap::new(),
-                },
-                "loop",
-                checkpoint_emit,
+                &tasks,
+                &interrupted,
+                finish_pending(&finish_updates, backend.schema()),
+                pending_deferred.clone(),
                 sink,
             )
             .await?;
-            sink(chunk);
-            return Err(Error::Interrupt(interrupted_interrupt));
+            return Err(crate::pregel::pause::pause_error(interrupt));
         }
 
         if step == 0 {
             // Entry tasks are triggered by `START`; later supersteps were filled when
             // they were scheduled.
-            for task in &mut tasks {
-                if task.triggers.is_empty() {
-                    task.triggers.push(crate::START.to_string());
-                }
-            }
+            crate::pregel::scheduling::fill_triggers(
+                &mut tasks,
+                &[crate::START.to_string()],
+                |node| backend.edges_of(node),
+            );
         }
         if emit {
-            for task in &tasks {
-                sink(StreamChunk::Task {
-                    step,
-                    id: task.id.clone(),
-                    node: task.node.clone(),
-                    input: task.input.clone().map(Value::Object),
-                    result: None,
-                    error: None,
-                    started: true,
-                    interrupts: Vec::new(),
-                    triggers: task.triggers.clone(),
-                });
+            for chunk in crate::pregel::outcome::task_start_chunks(step, &tasks) {
+                sink(chunk);
             }
         }
 
@@ -295,17 +258,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 return Err(error);
             }
         };
-        if emit && let Some(collector) = backend.collector().or_else(|| setup.collector().cloned())
-        {
-            let chunks: Vec<StreamChunk> = collector
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .drain(..)
-                .collect();
-            for chunk in chunks {
-                sink(chunk);
-            }
-        }
+        drain_collector(backend, &setup, sink);
 
         let interrupts = interrupts_from(&outcomes);
         if !interrupts.is_empty() {
@@ -426,26 +379,16 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     sink,
                 )
                 .await?;
-                if emit && values_enabled {
-                    sink(StreamChunk::Values {
-                        step,
-                        values: Value::Object(values.clone()),
-                    });
-                }
                 if emit {
-                    sink(crate::pregel::outcome::interrupted_task_chunk(
+                    crate::pregel::pause::emit_pause_events(
+                        sink,
                         step,
                         &tasks,
-                        &interrupted,
-                    ));
+                        std::slice::from_ref(&interrupted),
+                        &values,
+                        values_enabled,
+                    );
                 }
-                sink(StreamChunk::Interrupt {
-                    node: interrupted.node.clone(),
-                    id: interrupted.id.clone(),
-                    value: interrupted.value.clone(),
-                    response_schema: interrupted.response_schema.clone(),
-                    static_pause: interrupted.static_pause,
-                });
                 return Err(Error::Interrupt(interrupted));
             }
             let interrupted_task_ids: HashSet<String> = tasks
@@ -562,25 +505,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 sink,
             )
             .await?;
-            if emit && values_enabled {
-                sink(StreamChunk::Values {
+            if emit {
+                crate::pregel::pause::emit_pause_events(
+                    sink,
                     step,
-                    values: Value::Object(values.clone()),
-                });
-            }
-            for interrupt in &interrupts {
-                if emit {
-                    sink(crate::pregel::outcome::interrupted_task_chunk(
-                        step, &tasks, interrupt,
-                    ));
-                }
-                sink(StreamChunk::Interrupt {
-                    node: interrupt.node.clone(),
-                    id: interrupt.id.clone(),
-                    value: interrupt.value.clone(),
-                    response_schema: interrupt.response_schema.clone(),
-                    static_pause: interrupt.static_pause,
-                });
+                    &tasks,
+                    &interrupts,
+                    &values,
+                    values_enabled,
+                );
             }
             return Err(Error::Interrupt(
                 interrupts.into_iter().next().expect("interrupt"),
@@ -690,8 +623,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 interrupt.static_pause = true;
                 interrupt
             });
-        // A finished graph publishes held finish-channel values before its final checkpoint,
-        // so the latest checkpoint matches the returned state.
         if next_tasks.is_empty() && interrupt_after.is_none() && !finish_updates.is_empty() {
             apply_finish_updates(&mut values, &mut finish_updates);
             state = values_to_state::<S>(&values)?;
@@ -721,24 +652,16 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .await?;
         }
         if let Some(interrupt) = interrupt_after {
-            if emit && values_enabled {
-                sink(StreamChunk::Values {
-                    step,
-                    values: Value::Object(values.clone()),
-                });
-            }
             if emit {
-                sink(crate::pregel::outcome::interrupted_task_chunk(
-                    step, &tasks, &interrupt,
-                ));
+                crate::pregel::pause::emit_pause_events(
+                    sink,
+                    step,
+                    &tasks,
+                    std::slice::from_ref(&interrupt),
+                    &values,
+                    values_enabled,
+                );
             }
-            sink(StreamChunk::Interrupt {
-                node: interrupt.node.clone(),
-                id: interrupt.id.clone(),
-                value: Value::Null,
-                response_schema: interrupt.response_schema.clone(),
-                static_pause: interrupt.static_pause,
-            });
             return Err(Error::Interrupt(interrupt));
         }
 

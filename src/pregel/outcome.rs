@@ -582,3 +582,24 @@ pub(crate) fn interrupted_task_chunk(
         triggers: Vec::new(),
     }
 }
+
+/// `task` stream events announcing that a superstep's tasks have started.
+pub(crate) fn task_start_chunks(
+    step: usize,
+    tasks: &[crate::_internal::node::Task],
+) -> Vec<StreamChunk> {
+    tasks
+        .iter()
+        .map(|task| StreamChunk::Task {
+            step,
+            id: task.id.clone(),
+            node: task.node.clone(),
+            input: task.input.clone().map(Value::Object),
+            result: None,
+            error: None,
+            started: true,
+            interrupts: Vec::new(),
+            triggers: task.triggers.clone(),
+        })
+        .collect()
+}
