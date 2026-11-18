@@ -71,7 +71,9 @@ pub fn checkpoint_to_langgraph(checkpoint: &Checkpoint) -> Value {
     });
     let mut metadata = Map::new();
     metadata.insert("source".to_string(), source);
-    metadata.insert("step".to_string(), json!(checkpoint.step));
+    // LangGraph's `metadata["step"]` is one less than our internal counter: the input
+    // checkpoint is -1 there and 0 here, so the first superstep is 0 vs 1.
+    metadata.insert("step".to_string(), json!(checkpoint.step as i64 - 1));
     metadata.insert("parents".to_string(), json!({}));
     metadata.insert("thread_id".to_string(), json!(checkpoint.thread_id));
     metadata.insert("checkpoint_ns".to_string(), json!(checkpoint.namespace));
@@ -155,9 +157,10 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         .to_string();
     let step = metadata
         .get("step")
-        .and_then(Value::as_u64)
-        .or_else(|| checkpoint.get("step").and_then(Value::as_u64))
-        .unwrap_or_default() as usize;
+        .and_then(Value::as_i64)
+        .or_else(|| checkpoint.get("step").and_then(Value::as_i64))
+        .map(|step| (step + 1).max(0) as usize)
+        .unwrap_or_default();
     let namespace = metadata
         .get("checkpoint_ns")
         .and_then(Value::as_str)

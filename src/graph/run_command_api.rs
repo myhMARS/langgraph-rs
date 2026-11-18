@@ -299,6 +299,10 @@ impl<S: State> CompiledGraph<S> {
         .map(|outcome| outcome.state)
     }
 
+    /// Resume a checkpointed thread with an explicit [`Command`].
+    ///
+    /// Runs `Command(goto=...)` targets, applying `Command.update` first; a
+    /// `Command(resume=...)` value is handed to the paused task.
     pub fn resume_command(&self, thread_id: &str, command: Command) -> Result<S> {
         let updates = command
             .update

@@ -1,7 +1,7 @@
 //! Per-node consumption tracking.
 //!
 //! Nodes can report what they consumed (`record_usage(...)` or
-//! [`NodeOutput::with_usage`]) and the engine records how long each execution took.
+//! `NodeOutput::with_usage`) and the engine records how long each execution took.
 //! A run produces a [`RunReport`] with one [`NodeExecution`] per executed node, plus
 //! aggregated totals per node and per run.
 
