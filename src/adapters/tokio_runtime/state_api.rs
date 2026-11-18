@@ -265,7 +265,12 @@ impl<S: State> AsyncCompiledGraph<S> {
         let inferred = if preserve_next || as_node.is_some() || !checkpoint.next.is_empty() {
             None
         } else {
-            infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
+            let single = if self.nodes.len() == 1 {
+                self.nodes.keys().next().map(String::as_str)
+            } else {
+                None
+            };
+            infer_as_node(&checkpoint, single, |node| self.nodes.contains_key(node))?
         };
         // A paused thread keeps its pending tasks unless `as_node` overrides them.
         let next = if preserve_next || (as_node.is_none() && !checkpoint.next.is_empty()) {
@@ -276,6 +281,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             self.entry_tasks(&state)?
         } else {
             match as_node.or(inferred.as_deref()) {
+                None => {
+                    return Err(Error::validation("Ambiguous update, specify as_node"));
+                }
                 Some(node) => {
                     if !self.nodes.contains_key(node) {
                         return Err(Error::validation(format!(

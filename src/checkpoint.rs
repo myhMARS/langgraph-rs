@@ -288,13 +288,15 @@ pub(crate) fn versions_for(
     // this step's writes. Reads are not tracked here, so the node's own writes are excluded
     // and the remaining channels use their pre-step versions.
     if !executed.is_empty() {
+        // Reads are not tracked, so every executed node records the versions of all
+        // channels as they were *before* this step; that still separates the last writer
+        // from earlier ones because each step advances its channels.
+        let _ = written_by_node;
         let pre_step = previous.map(|checkpoint| &checkpoint.channel_versions);
         for node in executed {
-            let own = written_by_node.get(node);
             let seen: Map<String, Value> = pre_step
                 .into_iter()
                 .flat_map(|versions| versions.iter())
-                .filter(|(channel, _)| !own.is_some_and(|channels| channels.contains(channel)))
                 .map(|(channel, version)| (channel.clone(), version.clone()))
                 .collect();
             versions_seen.insert(node.clone(), Value::Object(seen));
@@ -311,8 +313,13 @@ pub(crate) fn versions_for(
 /// "cannot infer" and callers keep the pending tasks instead of failing.
 pub(crate) fn infer_as_node(
     checkpoint: &Checkpoint,
+    single_node: Option<&str>,
     is_node: impl Fn(&str) -> bool,
 ) -> Result<Option<String>> {
+    // LangGraph short-circuits a one-node graph, where the author is unambiguous.
+    if let Some(node) = single_node {
+        return Ok(Some(node.to_string()));
+    }
     let mut pairs: Vec<(String, String)> = Vec::new();
     for (node, seen) in &checkpoint.versions_seen {
         // LangGraph skips its internal snapshot-bump bookkeeping and nodes that no longer
