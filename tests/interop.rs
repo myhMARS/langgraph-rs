@@ -92,7 +92,7 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
 }
 
 #[test]
-fn imports_a_foreign_interrupted_checkpoint_with_resumable_tasks() {
+fn treats_plain_foreign_state_writes_as_finished_tasks() {
     let graph = graph();
     let document = json!({
         "config": { "configurable": { "thread_id": "lg-int", "checkpoint_ns": "", "checkpoint_id": "cp-i" } },
@@ -113,10 +113,10 @@ fn imports_a_foreign_interrupted_checkpoint_with_resumable_tasks() {
     });
     graph.import_checkpoint("lg-int", &document).unwrap();
     let snapshot = graph.get_state("lg-int").unwrap().unwrap();
-    // Without a `next` sidecar the pending task is rebuilt from the pending writes, so a
-    // resume does not silently finish.
-    assert!(snapshot.interrupted);
-    assert_eq!(snapshot.next, vec!["inc".to_string()]);
+    // Plain state writes belong to a task that already finished, so nothing is pending
+    // and the checkpoint is not interrupted.
+    assert!(!snapshot.interrupted);
+    assert!(snapshot.next.is_empty());
 }
 
 #[test]

@@ -424,8 +424,12 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
         checkpoint.interrupts = decoded_interrupts;
         checkpoint.interrupted = !checkpoint.interrupts.is_empty();
     }
+    // Only interrupted tasks are still pending; a task that merely wrote state finished.
     let mut seen = std::collections::HashSet::new();
-    for (task_id, task_path, _, _) in collected {
+    for (task_id, task_path, channel, _) in collected {
+        if channel != "__interrupt__" && channel != "__error__" {
+            continue;
+        }
         if !seen.insert(task_id.clone()) {
             continue;
         }

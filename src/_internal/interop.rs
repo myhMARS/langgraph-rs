@@ -380,17 +380,31 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                 next.push(task);
             }
         }
-        for write in &pending_writes {
-            let node = if write.node.is_empty() {
-                task_hints.get(&write.task_id).cloned().unwrap_or_default()
+        // Only interrupts (and their task ids) mark a task as still pending; plain state
+        // writes belong to tasks that already finished.
+        for interrupt in &interrupts {
+            let node = if interrupt.node.is_empty() {
+                interrupt
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| task_hints.get(task_id).cloned())
+                    .unwrap_or_default()
             } else {
-                write.node.clone()
+                interrupt.node.clone()
             };
-            if node.is_empty() || !seen.insert(write.task_id.clone()) {
+            if node.is_empty() {
+                continue;
+            }
+            let id = interrupt
+                .task_id
+                .as_deref()
+                .map(str::to_owned)
+                .unwrap_or_else(|| crate::_internal::node::new_task_id(&node));
+            if !seen.insert(id.clone()) {
                 continue;
             }
             let mut task = crate::_internal::node::Task::new(node);
-            task.id = write.task_id.clone();
+            task.id = id;
             task.interrupted = true;
             next.push(task);
         }
