@@ -248,6 +248,9 @@ impl<S: State> AsyncCompiledGraph<S> {
                 Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
             })?;
         let mut values = checkpoint.values.clone();
+        // Match the sync runtime and `get_state`: pending sibling writes are part of the
+        // visible state, so they must survive an update.
+        crate::pregel::apply_pending_writes(&self.schema, &mut values, &checkpoint.pending_writes)?;
         let updates: Vec<ChannelUpdate> = updates
             .into_iter()
             .map(|(channel, value)| ChannelUpdate {
@@ -299,12 +302,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             }
         };
         let step = checkpoint.step + 1;
-        let executed_for_versions: Vec<String> = match as_node.or(inferred.as_deref()) {
-            Some(node) if self.nodes.contains_key(node) => vec![node.to_string()],
-            _ => Vec::new(),
-        };
         let (channel_versions, versions_seen, updated_channels) =
-            versions_for(Some(&checkpoint), &values, step, &executed_for_versions);
+            versions_for(Some(&checkpoint), &values, step, &[]);
         let id = new_checkpoint_id(thread_id, step);
         let updated = Checkpoint {
             id,

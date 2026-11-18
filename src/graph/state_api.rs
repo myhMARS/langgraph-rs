@@ -270,6 +270,9 @@ impl<S: State> CompiledGraph<S> {
             })?;
 
         let mut values = checkpoint.values.clone();
+        // `get_state` shows sibling writes from the paused superstep (they live in
+        // `pending_writes`), so the update checkpoint must start from the same view.
+        crate::pregel::apply_pending_writes(&self.schema, &mut values, &checkpoint.pending_writes)?;
         let updates: Vec<ChannelUpdate> = updates
             .into_iter()
             .map(|(channel, value)| ChannelUpdate {
@@ -282,12 +285,14 @@ impl<S: State> CompiledGraph<S> {
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
 
-        let inferred = if preserve_next || as_node.is_some() {
+        let inferred = if preserve_next || as_node.is_some() || !checkpoint.next.is_empty() {
             None
         } else {
             infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
         };
-        let next = if preserve_next {
+        // A paused thread keeps its pending tasks unless `as_node` overrides them,
+        // matching LangGraph's `update_state` on an interrupted checkpoint.
+        let next = if preserve_next || (as_node.is_none() && !checkpoint.next.is_empty()) {
             checkpoint.next.clone()
         } else if as_node == Some(crate::END) {
             // LangGraph: `as_node=END` records the update as coming from the end, so no
@@ -327,12 +332,10 @@ impl<S: State> CompiledGraph<S> {
         // LangGraph advances the step for the update checkpoint and bumps the versions of
         // the channels it changed, so later inference can see the update.
         let step = checkpoint.step + 1;
-        let executed_for_versions: Vec<String> = match as_node.or(inferred.as_deref()) {
-            Some(node) if self.nodes.contains_key(node) => vec![node.to_string()],
-            _ => Vec::new(),
-        };
+        // LangGraph's synthetic update task only has the INTERRUPT trigger, which is not a
+        // channel version, so `versions_seen` is left untouched here.
         let (channel_versions, versions_seen, updated_channels) =
-            versions_for(Some(&checkpoint), &values, step, &executed_for_versions);
+            versions_for(Some(&checkpoint), &values, step, &[]);
         let id = new_checkpoint_id(thread_id, step);
         let updated = Checkpoint {
             id,

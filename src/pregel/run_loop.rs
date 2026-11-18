@@ -185,10 +185,6 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         .collect();
     let mut iteration = 0usize;
     loop {
-        // Non-accumulating topics only expose the previous superstep's writes.
-        if step > 0 && backend.schema().clear_step_topics(&mut values) {
-            state = values_to_state::<S>(&values)?;
-        }
         // Barriers already open before this superstep are consumed by it (LangGraph
         // consumes a named barrier when the value is read).
         let armed_barriers = step::open_named_barriers(backend.schema(), &values);
@@ -314,7 +310,17 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     .channel_updates
                     .iter()
                     .map(|update| update.channel.clone())
+                    .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
                     .collect();
+                // The paused checkpoint must still reflect LangGraph's post-step topic
+                // state: topics this superstep rewrote keep their values.
+                backend
+                    .schema()
+                    .clear_step_topics(&mut values, &written_for_barriers);
+                // LangGraph records `versions_seen` for every task of the interrupted
+                // superstep, not just the ones that completed.
+                let executed_for_resume: Vec<String> =
+                    tasks.iter().map(|task| task.node.clone()).collect();
                 // Successful siblings still contribute their outgoing routes even though
                 // their values stay pending until resume.
                 let mut routing_values = values.clone();
@@ -371,13 +377,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     &mut previous_checkpoint,
                     &values,
                     &next_tasks,
-                    step,
+                    // LangGraph saves the interrupted superstep under the incremented
+                    // counter, so the pause is reported with step S like any other step.
+                    step + 1,
                     true,
                     false,
                     vec![interrupted.clone()],
                     pending_writes,
                     pending_deferred.clone(),
-                    &[],
+                    &executed_for_resume,
                     checkpoint_emit,
                     sink,
                 )
@@ -418,6 +426,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 .channel_updates
                 .iter()
                 .map(|update| update.channel.clone())
+                .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
                 .collect();
             apply_processed_updates(
                 backend.schema(),
@@ -426,6 +435,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 processed.replacements,
                 &mut finish_updates,
             )?;
+            // Step-scoped topics that this superstep did not rewrite are emptied now.
+            backend
+                .schema()
+                .clear_step_topics(&mut values, &written_for_barriers);
             if emit {
                 sink(values_chunk(step, &values));
             }
@@ -469,6 +482,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &processed.executed,
                 |node| backend.edges_of(node),
             );
+            let executed_for_resume: Vec<String> =
+                tasks.iter().map(|task| task.node.clone()).collect();
             save_checkpoint_via(
                 backend,
                 thread_id.as_deref(),
@@ -477,13 +492,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &mut previous_checkpoint,
                 &values,
                 &next_tasks,
-                step,
+                step + 1,
                 true,
                 false,
                 interrupts.clone(),
                 finish_writes,
                 pending_deferred.clone(),
-                &[],
+                &executed_for_resume,
                 checkpoint_emit,
                 sink,
             )
@@ -517,6 +532,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             .channel_updates
             .iter()
             .map(|update| update.channel.clone())
+            .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
             .collect();
         let channel_updates = processed.channel_updates;
         let replacements = processed.replacements;
@@ -532,6 +548,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             replacements,
             &mut finish_updates,
         )?;
+        // Step-scoped topics that this superstep did not rewrite are emptied now.
+        backend
+            .schema()
+            .clear_step_topics(&mut values, &written_for_barriers);
         state = values_to_state::<S>(&values)?;
         if emit && values_enabled {
             sink(values_chunk(step, &values));

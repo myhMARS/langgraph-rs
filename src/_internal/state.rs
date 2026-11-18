@@ -217,17 +217,23 @@ impl StateSchema {
         changed
     }
 
-    /// Drop non-accumulating topic values between supersteps.
+    /// Drop non-accumulating topic values that this superstep did not rewrite.
     ///
-    /// LangGraph's `Topic(accumulate=False)` only holds the writes of the current
-    /// superstep, so values left over from the previous one must not leak forward.
-    pub(crate) fn clear_step_topics(&self, values: &mut Map<String, Value>) -> bool {
+    /// LangGraph calls `Topic.update` after the superstep's writes are applied: a topic
+    /// written this step keeps its values, an untouched one is emptied. Values written in
+    /// superstep S are therefore still visible to the tasks of S+1.
+    pub(crate) fn clear_step_topics(
+        &self,
+        values: &mut Map<String, Value>,
+        written: &std::collections::HashSet<String>,
+    ) -> bool {
         let mut changed = false;
         for (name, channel) in &self.channels {
             if matches!(
                 channel,
                 crate::channels::Channel::Topic { accumulate: false }
-            ) && values.remove(name).is_some()
+            ) && !written.contains(name)
+                && values.remove(name).is_some()
             {
                 changed = true;
             }

@@ -233,7 +233,8 @@ fn non_accumulating_topic_does_not_leak_into_the_next_superstep() {
             Ok(NodeOutput::new().set("log", "first"))
         })
         .add_node("read", |state: &StepTopicState| {
-            // The step-scoped topic is cleared before the next superstep runs.
+            // Values written in the previous superstep stay readable here; they are
+            // dropped only after a superstep that does not rewrite the topic.
             Ok(NodeOutput::new().set("log", format!("seen:{}", state.log.len())))
         })
         .set_entry_point("write")
@@ -245,7 +246,47 @@ fn non_accumulating_topic_does_not_leak_into_the_next_superstep() {
     let output = graph
         .invoke(&StepTopicState::default(), &RunConfig::new())
         .unwrap();
-    assert_eq!(output.log, vec!["seen:0".to_string()]);
+    assert_eq!(output.log, vec!["seen:1".to_string()]);
+}
+
+#[test]
+fn non_accumulating_topic_is_dropped_by_a_step_that_does_not_write_it() {
+    #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+    struct FadeState {
+        log: Vec<String>,
+        seen: usize,
+    }
+
+    impl State for FadeState {
+        fn schema() -> StateSchema {
+            StateSchema::new().topic("log").last_value("seen")
+        }
+    }
+
+    let graph = StateGraph::<FadeState>::new()
+        .add_node("write", |_state: &FadeState| {
+            Ok(NodeOutput::new().set("log", "only-once"))
+        })
+        .add_node("first", |state: &FadeState| {
+            Ok(NodeOutput::new().set("seen", state.log.len()))
+        })
+        .add_node("second", |state: &FadeState| {
+            Ok(NodeOutput::new().set("seen", state.log.len()))
+        })
+        .set_entry_point("write")
+        .add_edge("write", "first")
+        .add_edge("first", "second")
+        .set_finish_point("second")
+        .compile()
+        .unwrap();
+
+    // `first` sees `write`'s value; `second` runs after a superstep that never rewrote the
+    // topic, so it observes the emptied channel.
+    let output = graph
+        .invoke(&FadeState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.seen, 0);
+    assert!(output.log.is_empty());
 }
 
 #[test]
