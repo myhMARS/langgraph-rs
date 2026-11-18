@@ -346,7 +346,9 @@ impl<S: State> CompiledGraph<S> {
             // LangGraph writes a fresh `source="update"` checkpoint: earlier pending writes
             // and interrupts belong to the previous tuple and are not carried over.
             interrupted: false,
-            paused_before: false,
+            // Keep the pause marker so resuming after an edit does not re-run the
+            // `interrupt_before` hook that already fired.
+            paused_before: checkpoint.paused_before,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
             interrupts: Vec::new(),

@@ -177,7 +177,18 @@ impl PyAsyncCompiledGraph {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             match graph.resume(&thread_id, value).await {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
-                Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
+                Err(error) => Python::attach(|py| {
+                    match async_support::static_pause_values(
+                        py,
+                        &graph,
+                        Some(thread_id.as_str()),
+                        None,
+                        &error,
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    }
+                }),
             }
         })
     }

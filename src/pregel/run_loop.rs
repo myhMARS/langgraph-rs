@@ -514,13 +514,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 sink,
             )
             .await?;
+            if emit && values_enabled {
+                sink(StreamChunk::Values {
+                    step,
+                    values: Value::Object(values.clone()),
+                });
+            }
             for interrupt in &interrupts {
-                if emit && values_enabled {
-                    sink(StreamChunk::Values {
-                        step,
-                        values: Value::Object(values.clone()),
-                    });
-                }
                 if emit {
                     sink(crate::pregel::outcome::interrupted_task_chunk(
                         step, &tasks, interrupt,

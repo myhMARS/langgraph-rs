@@ -44,11 +44,12 @@ impl PyCompiledGraph {
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, base_config) =
             crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
-        let static_ns = base_config.checkpoint_ns.clone();
         let mut invoke_config = base_config.clone();
         if let Some(namespace) = checkpoint_ns.clone() {
             invoke_config = invoke_config.with_checkpoint_ns(namespace);
         }
+        // Captured after the explicit `checkpoint_ns` override is applied.
+        let static_ns = invoke_config.checkpoint_ns.clone();
         if let Some(control) = control.as_ref() {
             invoke_config = invoke_config.with_control(control.inner.clone());
         }
@@ -425,7 +426,13 @@ impl PyCompiledGraph {
         let result = py.detach(|| self.graph.resume(&thread_id, value));
         match result {
             Ok(state) => json_state_to_py(py, &state),
-            Err(error) => Err(to_pyerr(py, error)),
+            Err(error) => {
+                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                {
+                    Some(value) => Ok(value),
+                    None => Err(to_pyerr(py, error)),
+                }
+            }
         }
     }
 
@@ -445,7 +452,13 @@ impl PyCompiledGraph {
         let result = py.detach(|| self.graph.resume_from(&thread_id, &checkpoint_id, value));
         match result {
             Ok(state) => json_state_to_py(py, &state),
-            Err(error) => Err(to_pyerr(py, error)),
+            Err(error) => {
+                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                {
+                    Some(value) => Ok(value),
+                    None => Err(to_pyerr(py, error)),
+                }
+            }
         }
     }
 
@@ -469,7 +482,13 @@ impl PyCompiledGraph {
         let result = py.detach(|| self.graph.resume_with_updates(&thread_id, value, updates));
         match result {
             Ok(state) => json_state_to_py(py, &state),
-            Err(error) => Err(to_pyerr(py, error)),
+            Err(error) => {
+                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                {
+                    Some(value) => Ok(value),
+                    None => Err(to_pyerr(py, error)),
+                }
+            }
         }
     }
 
@@ -478,7 +497,13 @@ impl PyCompiledGraph {
         let result = py.detach(|| self.graph.continue_thread(&thread_id));
         match result {
             Ok(state) => json_state_to_py(py, &state),
-            Err(error) => Err(to_pyerr(py, error)),
+            Err(error) => {
+                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                {
+                    Some(value) => Ok(value),
+                    None => Err(to_pyerr(py, error)),
+                }
+            }
         }
     }
 

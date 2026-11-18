@@ -297,6 +297,43 @@ async fn durability_async_writes_in_the_background() {
     assert_eq!(history[0].values.get("value"), Some(&json!(2)));
 }
 
+#[tokio::test]
+async fn async_update_state_keeps_pending_tasks_of_a_paused_thread() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = AsyncStateGraph::<JsonState>::with_schema(StateSchema::dynamic())
+        .add_node("ask", |_state: JsonState, ctx| async move {
+            let answer = ctx.interrupt(json!("q"))?;
+            Ok(NodeOutput::new().update("value", json!(answer.as_i64().unwrap_or(0) + 99)))
+        })
+        .add_node("finish", |state: JsonState, _ctx| async move {
+            let value = state
+                .get("value")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            Ok(NodeOutput::new().update("value", json!(value + 1)))
+        })
+        .set_entry_point("ask")
+        .add_edge("ask", "finish")
+        .set_finish_point("finish")
+        .with_checkpointer(saver)
+        .compile()
+        .unwrap();
+    let thread = "async-update-pending";
+    let input = JsonState::from(json!({"value": 0}).as_object().unwrap().clone());
+    let _ = graph
+        .run(&input, &RunConfig::new().with_thread(thread))
+        .await
+        .unwrap_err();
+
+    let snapshot = graph
+        .update_state(thread, [("value", json!(99))], None)
+        .await
+        .unwrap();
+    assert_eq!(snapshot.values.get("value"), Some(&json!(99)));
+    // The paused task must survive the update, like the sync runtime.
+    assert_eq!(snapshot.next, vec!["ask".to_string()]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn async_run_context_survives_task_migration() {
     use std::time::Duration;

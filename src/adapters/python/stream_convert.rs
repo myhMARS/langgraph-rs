@@ -246,14 +246,29 @@ pub(crate) fn convert_stream_chunks(
                 converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
             }
         }
-        if static_pauses > 0 && interrupt_payloads.is_empty() {
+        // A static breakpoint shows up only as an empty `__interrupt__` marker in
+        // updates mode, matching LangGraph.
+        if static_pauses > 0
+            && interrupt_payloads.is_empty()
+            && requested.contains(&crate::StreamMode::Updates)
+        {
             let marker = PyDict::new(py);
             marker.set_item("__interrupt__", PyTuple::empty(py))?;
             if v2 {
                 let part = PyDict::new(py);
                 part.set_item("type", "updates")?;
                 part.set_item("data", marker)?;
+                part.set_item("ns", PyTuple::empty(py))?;
                 converted.push(part.into_any().unbind());
+            } else if multi_mode {
+                converted.push(
+                    PyTuple::new(
+                        py,
+                        [PyString::new(py, "updates").into_any(), marker.into_any()],
+                    )?
+                    .into_any()
+                    .unbind(),
+                );
             } else {
                 converted.push(marker.into_any().unbind());
             }

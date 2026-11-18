@@ -151,7 +151,13 @@ impl<S: State> StateSnapshot<S> {
             created_at_millis: checkpoint.created_at_millis,
             created_at,
             tasks,
-            interrupts: checkpoint.interrupts,
+            // LangGraph does not expose static `interrupt_before`/`interrupt_after`
+            // breakpoints as interrupts: they are a pause, not a question.
+            interrupts: checkpoint
+                .interrupts
+                .into_iter()
+                .filter(|interrupt| !interrupt.static_pause)
+                .collect(),
             parent_checkpoint_id: checkpoint.parent_id,
             metadata: checkpoint.metadata,
             checkpoint_ns: checkpoint.namespace,

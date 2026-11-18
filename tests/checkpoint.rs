@@ -168,13 +168,10 @@ fn interrupt_after_pauses_after_the_node_ran() {
     let snapshot = graph.get_state("after").unwrap().unwrap();
     assert_eq!(snapshot.values.log, vec!["a"]);
     assert_eq!(snapshot.next, vec!["b".to_string()]);
-    assert_eq!(
-        snapshot
-            .interrupts
-            .first()
-            .map(|interrupt| interrupt.id.as_str()),
-        error.interrupt().map(|interrupt| interrupt.id.as_str())
-    );
+    // LangGraph treats a static breakpoint as a pause, not a question: the snapshot and
+    // its tasks expose no interrupts (the engine-level error still carries the pauser).
+    assert!(snapshot.interrupts.is_empty());
+    assert!(snapshot.tasks.iter().all(|task| task.interrupts.is_empty()));
 
     let output = graph.continue_thread("after").unwrap();
     assert_eq!(output.log, vec!["a", "b"]);

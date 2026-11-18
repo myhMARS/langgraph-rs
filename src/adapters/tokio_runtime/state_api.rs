@@ -262,12 +262,13 @@ impl<S: State> AsyncCompiledGraph<S> {
         apply_updates(&self.schema, &mut values, updates)?;
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
-        let inferred = if as_node.is_none() {
-            infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
-        } else {
+        let inferred = if preserve_next || as_node.is_some() || !checkpoint.next.is_empty() {
             None
+        } else {
+            infer_as_node(&checkpoint, |node| self.nodes.contains_key(node))?
         };
-        let next = if preserve_next {
+        // A paused thread keeps its pending tasks unless `as_node` overrides them.
+        let next = if preserve_next || (as_node.is_none() && !checkpoint.next.is_empty()) {
             checkpoint.next.clone()
         } else if as_node == Some(crate::END) {
             Vec::new()
@@ -313,7 +314,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             next,
             // Fresh `source="update"` checkpoint, matching the sync runtime.
             interrupted: false,
-            paused_before: false,
+            // Keep the pause marker so resuming after an edit does not re-run the
+            // `interrupt_before` hook that already fired.
+            paused_before: checkpoint.paused_before,
             parent_id: Some(checkpoint.id),
             created_at_millis: now_millis(),
             interrupts: Vec::new(),
