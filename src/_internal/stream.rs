@@ -85,6 +85,8 @@ pub enum StreamChunk {
         started: bool,
         /// Interrupts that occurred while the task ran.
         interrupts: Vec<crate::Interrupt>,
+        /// Nodes (or `START`) that triggered this task.
+        triggers: Vec<String>,
     },
     /// Debug record for a completed superstep (`stream_mode="debug"`).
     Debug {

@@ -549,6 +549,9 @@ pub struct Task {
     /// Whether this task paused on `interrupt()` in the checkpoint that stores it.
     #[serde(default)]
     pub interrupted: bool,
+    /// Nodes (or `START`) that triggered this task, for `stream_mode="tasks"` payloads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
 }
 
 impl Task {
@@ -564,6 +567,7 @@ impl Task {
             error: None,
             timeout_millis: None,
             interrupted: false,
+            triggers: Vec::new(),
         }
     }
 
@@ -579,6 +583,7 @@ impl Task {
             error: None,
             timeout_millis: None,
             interrupted: false,
+            triggers: Vec::new(),
         }
     }
 }

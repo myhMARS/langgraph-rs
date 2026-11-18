@@ -200,6 +200,7 @@ pub(crate) fn chunk_to_py_v2_parts(
         error,
         started,
         interrupts,
+        triggers,
         ..
     } = chunk
     {
@@ -216,7 +217,7 @@ pub(crate) fn chunk_to_py_v2_parts(
                     None => py.None(),
                 },
             )?;
-            start_data.set_item("triggers", Vec::<String>::new())?;
+            start_data.set_item("triggers", triggers)?;
             start.set_item("data", start_data)?;
             start.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
             return Ok(vec![start.into_any().unbind()]);
@@ -289,6 +290,7 @@ pub(crate) fn task_debug_parts(
         error,
         started,
         interrupts,
+        triggers,
         ..
     } = chunk
     else {
@@ -302,7 +304,7 @@ pub(crate) fn task_debug_parts(
                 "id": id,
                 "name": node,
                 "input": input,
-                "triggers": [],
+                "triggers": triggers,
             }),
         )]
     } else {
@@ -473,6 +475,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             error,
             started,
             interrupts,
+            triggers,
         } => {
             let dict = PyDict::new(py);
             dict.set_item("id", id)?;
@@ -486,7 +489,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                         None => py.None(),
                     },
                 )?;
-                dict.set_item("triggers", Vec::<String>::new())?;
+                dict.set_item("triggers", triggers)?;
             } else {
                 dict.set_item(
                     "error",

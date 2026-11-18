@@ -399,6 +399,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
             error: None,
             timeout_millis: None,
             interrupted: false,
+            triggers: Vec::new(),
         });
     }
     Ok(())

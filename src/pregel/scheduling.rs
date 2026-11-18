@@ -89,6 +89,36 @@ pub(crate) fn send_task(source: &str, send: Send) -> Result<Task> {
     Ok(task)
 }
 
+/// Fill each task's triggers for `stream_mode="tasks"` payloads.
+///
+/// Static edges give exact triggers; conditional/`Send` targets fall back to the last
+/// executed node (LangGraph records the triggering task's channel writes there).
+pub(crate) fn fill_triggers<'a>(
+    tasks: &mut [Task],
+    executed: &[String],
+    edges_of: impl Fn(&str) -> Option<&'a [String]>,
+) {
+    for task in tasks.iter_mut() {
+        if !task.triggers.is_empty() {
+            continue;
+        }
+        if executed.is_empty() {
+            task.triggers.push(START.to_string());
+            continue;
+        }
+        for node in executed {
+            if edges_of(node).is_some_and(|targets| targets.iter().any(|t| t == &task.node)) {
+                task.triggers.push(node.clone());
+            }
+        }
+        if task.triggers.is_empty()
+            && let Some(last) = executed.last()
+        {
+            task.triggers.push(last.clone());
+        }
+    }
+}
+
 /// Drop `END`/`START` markers and de-duplicate node names, preserving first-seen order.
 pub(crate) fn dedupe(nodes: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();

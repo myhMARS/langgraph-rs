@@ -241,6 +241,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return Err(Error::Interrupt(interrupted_interrupt));
         }
 
+        if step == 0 {
+            // Entry tasks are triggered by `START`; later supersteps were filled when
+            // they were scheduled.
+            for task in &mut tasks {
+                if task.triggers.is_empty() {
+                    task.triggers.push(crate::START.to_string());
+                }
+            }
+        }
         if emit {
             for task in &tasks {
                 sink(StreamChunk::Task {
@@ -252,6 +261,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     error: None,
                     started: true,
                     interrupts: Vec::new(),
+                    triggers: task.triggers.clone(),
                 });
             }
         }
@@ -340,6 +350,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         task.interrupted = true;
                     }
                 }
+                crate::pregel::scheduling::fill_triggers(
+                    &mut next_tasks,
+                    &processed.executed,
+                    |node| backend.edges_of(node),
+                );
                 save_checkpoint_via(
                     backend,
                     thread_id.as_deref(),
@@ -386,6 +401,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         error: None,
                         started: false,
                         interrupts: vec![interrupted.clone()],
+                        triggers: Vec::new(),
                     });
                 }
                 sink(StreamChunk::Interrupt {
@@ -452,6 +468,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     task.interrupted = true;
                 }
             }
+            crate::pregel::scheduling::fill_triggers(
+                &mut next_tasks,
+                &processed.executed,
+                |node| backend.edges_of(node),
+            );
             save_checkpoint_via(
                 backend,
                 thread_id.as_deref(),
@@ -499,6 +520,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         error: None,
                         started: false,
                         interrupts: vec![interrupt.clone()],
+                        triggers: Vec::new(),
                     });
                 }
                 sink(StreamChunk::Interrupt {
@@ -551,7 +573,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             |node| backend.node_exists(node),
             |node| PregelBackend::destinations_of(backend, node),
         )?;
-        let next_tasks = schedule_next_tasks(
+        let mut next_tasks = schedule_next_tasks(
             next_nodes,
             router_sends,
             next_tasks,
@@ -564,6 +586,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         if step::consume_named_barriers(&mut values, &armed_barriers) {
             state = values_to_state::<S>(&values)?;
         }
+        crate::pregel::scheduling::fill_triggers(&mut next_tasks, &executed, |node| {
+            backend.edges_of(node)
+        });
 
         let scheduled: Vec<String> = next_tasks.iter().map(|task| task.node.clone()).collect();
         if emit && debug_enabled {
@@ -637,6 +662,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     error: None,
                     started: false,
                     interrupts: vec![interrupt.clone()],
+                    triggers: Vec::new(),
                 });
             }
             sink(StreamChunk::Interrupt {
