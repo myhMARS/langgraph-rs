@@ -40,6 +40,11 @@ fn checkpoint_roundtrips_through_langgraph_json() {
     graph.import_checkpoint("dst", &document).unwrap();
     let snapshot = graph.get_state("dst").unwrap().unwrap();
     assert_eq!(snapshot.values.get("value"), Some(&json!(1)));
+    let reexported = graph.export_checkpoint("dst").unwrap().unwrap();
+    assert_eq!(
+        reexported["checkpoint"]["channel_versions"],
+        document["checkpoint"]["channel_versions"]
+    );
 }
 
 #[test]
@@ -62,6 +67,11 @@ fn imports_a_foreign_langgraph_checkpoint_document() {
     graph.import_checkpoint("foreign", &document).unwrap();
     let snapshot = graph.get_state("foreign").unwrap().unwrap();
     assert_eq!(snapshot.values.get("value"), Some(&json!(42)));
+    let reexported = graph.export_checkpoint("foreign").unwrap().unwrap();
+    assert_eq!(
+        reexported["checkpoint"]["channel_versions"]["value"],
+        json!("1.0.1")
+    );
 }
 
 #[cfg(feature = "msgpack")]

@@ -258,12 +258,23 @@ impl<S: State> AsyncCompiledGraph<S> {
             ));
         }
         let mut sink = |_chunk: StreamChunk| {};
-        if command.goto.is_empty() {
+        if command.goto.is_empty() && command.sends.is_empty() {
             let Some(updates) = command.update else {
                 return Err(Error::validation(
                     "Command requires either `goto` or `update`",
                 ));
             };
+            if let Some(thread) = config.thread_id.as_deref() {
+                return self
+                    .resume_inner(
+                        thread,
+                        config.checkpoint_id.as_deref(),
+                        None,
+                        Some(updates.into_iter().collect()),
+                        config.checkpoint_ns.as_deref(),
+                    )
+                    .await;
+            }
             return self
                 .execute(
                     StartInput::Updates(updates.into_iter().collect()),
@@ -272,7 +283,22 @@ impl<S: State> AsyncCompiledGraph<S> {
                 )
                 .await;
         }
-        let mut values = Map::new();
+        // Seed from the latest checkpoint when the Command targets an existing thread.
+        let mut values = match config.thread_id.as_deref() {
+            Some(thread) => {
+                let checkpoint = match config.checkpoint_id.as_deref() {
+                    Some(id) => self.saver_get(thread, id).await?,
+                    None => {
+                        self.saver_latest_in(thread, config.checkpoint_ns.as_deref().unwrap_or(""))
+                            .await?
+                    }
+                };
+                checkpoint
+                    .map(|checkpoint| checkpoint.values)
+                    .unwrap_or_default()
+            }
+            None => Map::new(),
+        };
         if let Some(updates) = command.update {
             apply_updates(
                 &self.schema,

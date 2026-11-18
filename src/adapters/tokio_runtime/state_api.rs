@@ -8,7 +8,7 @@ use super::AsyncCompiledGraph;
 use crate::_internal::error::{Error, Result};
 use crate::_internal::node::Task;
 use crate::_internal::state::{ChannelUpdate, State, apply_updates, values_to_state};
-use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::checkpoint::{Checkpoint, infer_as_node, new_checkpoint_id, now_millis};
 use crate::graph::StateSnapshot;
 use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 
@@ -245,7 +245,12 @@ impl<S: State> AsyncCompiledGraph<S> {
         apply_updates(&self.schema, &mut values, updates)?;
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
-        let next = match as_node {
+        let inferred = if as_node.is_none() {
+            infer_as_node(&checkpoint)?
+        } else {
+            None
+        };
+        let next = match as_node.or(inferred.as_deref()) {
             Some(node) => {
                 if !self.nodes.contains_key(node) {
                     return Err(Error::validation(format!(

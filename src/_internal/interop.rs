@@ -253,18 +253,21 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         task_results,
         channel_versions: extra
             .and_then(|extra| extra.get("channel_versions"))
+            .or_else(|| checkpoint.get("channel_versions"))
             .or_else(|| object.get("channel_versions"))
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default(),
         versions_seen: extra
             .and_then(|extra| extra.get("versions_seen"))
+            .or_else(|| checkpoint.get("versions_seen"))
             .or_else(|| object.get("versions_seen"))
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default(),
         updated_channels: extra
             .and_then(|extra| extra.get("updated_channels"))
+            .or_else(|| checkpoint.get("updated_channels"))
             .or_else(|| object.get("updated_channels"))
             .and_then(Value::as_array)
             .map(|channels| {

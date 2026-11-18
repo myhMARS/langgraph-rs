@@ -105,6 +105,26 @@ class AsyncStreamTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_ainvoke_command_send_on_existing_thread_keeps_state(self):
+        async def scenario():
+            graph = lg.AsyncStateGraph({"value": "last_value", "log": "append"})
+            graph.add_node("a", lambda state: {"value": 1, "log": ["a"]})
+            graph.add_node(
+                "b", lambda state: {"value": state["value"] + 10, "log": ["b"]}
+            )
+            graph.set_entry_point("a")
+            graph.set_finish_point("a")
+            graph.set_finish_point("b")
+            compiled = graph.compile(checkpointer=lg.InMemorySaver())
+            await compiled.ainvoke({"value": 0, "log": []}, thread_id="async-command")
+            out = await compiled.ainvoke(
+                lg.Command(goto=[lg.Send("b")]), thread_id="async-command"
+            )
+            self.assertEqual(out["log"], ["a", "b"])
+            self.assertEqual(out["value"], 11)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()

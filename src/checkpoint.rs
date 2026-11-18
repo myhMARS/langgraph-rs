@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::_internal::error::Interrupt;
+use crate::_internal::error::{Error, Interrupt, Result};
 use crate::_internal::node::Task;
 
 /// A task write that was produced before an interrupt and must be replayed on resume.
@@ -224,6 +224,29 @@ pub(crate) fn versions_for(
         }
     }
     (channel_versions, versions_seen, updated)
+}
+
+/// Infer the last writing node from checkpoint channel versions, matching
+/// LangGraph's `_infer_as_node`.
+pub(crate) fn infer_as_node(checkpoint: &Checkpoint) -> Result<Option<String>> {
+    let mut candidates = Vec::new();
+    for (node, seen) in &checkpoint.versions_seen {
+        let Some(seen) = seen.as_object() else {
+            continue;
+        };
+        let wrote = checkpoint.updated_channels.iter().any(|channel| {
+            checkpoint.channel_versions.get(channel).is_some()
+                && seen.get(channel) == checkpoint.channel_versions.get(channel)
+        });
+        if wrote {
+            candidates.push(node.clone());
+        }
+    }
+    match candidates.len() {
+        0 => Ok(None),
+        1 => Ok(candidates.pop()),
+        _ => Err(Error::validation("Ambiguous update, specify as_node")),
+    }
 }
 
 #[cfg(test)]

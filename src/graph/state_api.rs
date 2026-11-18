@@ -7,7 +7,7 @@ use crate::_internal::node::Task;
 use crate::_internal::state::ChannelUpdate;
 use crate::_internal::state::apply_updates;
 use crate::_internal::state::{State, values_to_state};
-use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
+use crate::checkpoint::{Checkpoint, infer_as_node, new_checkpoint_id, now_millis};
 use crate::graph::StateSnapshot;
 use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 use serde_json::{Map, Value};
@@ -283,10 +283,15 @@ impl<S: State> CompiledGraph<S> {
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
 
+        let inferred = if preserve_next || as_node.is_some() {
+            None
+        } else {
+            infer_as_node(&checkpoint)?
+        };
         let next = if preserve_next {
             checkpoint.next.clone()
         } else {
-            match as_node {
+            match as_node.or(inferred.as_deref()) {
                 Some(node) => {
                     if !self.nodes.contains_key(node) {
                         return Err(Error::validation(format!(
