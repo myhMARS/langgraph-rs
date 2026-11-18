@@ -26,6 +26,12 @@ pub struct Interrupt {
     /// Task that raised this interrupt, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<Box<str>>,
+    /// `true` for a static `interrupt_before`/`interrupt_after` breakpoint.
+    ///
+    /// LangGraph pauses on these without raising, so bindings return the state instead
+    /// of surfacing an interrupt error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub static_pause: bool,
 }
 
 impl Interrupt {
@@ -38,6 +44,7 @@ impl Interrupt {
             value,
             response_schema: None,
             task_id: None,
+            static_pause: false,
         }
     }
 
@@ -54,6 +61,7 @@ impl Interrupt {
             value,
             response_schema,
             task_id: None,
+            static_pause: false,
         }
     }
 

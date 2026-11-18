@@ -51,6 +51,8 @@ pub enum StreamChunk {
         value: Value,
         /// Optional JSON schema for the resume value.
         response_schema: Option<Value>,
+        /// `true` for a static `interrupt_before`/`interrupt_after` breakpoint.
+        static_pause: bool,
     },
     /// A checkpoint was persisted.
     Checkpoint {

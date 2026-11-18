@@ -138,6 +138,7 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             id,
             value,
             response_schema,
+            ..
         } => {
             dict.set_item("type", "updates")?;
             let data = PyDict::new(py);
@@ -420,6 +421,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             id,
             value,
             response_schema,
+            ..
         } => {
             let interrupt = Py::new(
                 py,

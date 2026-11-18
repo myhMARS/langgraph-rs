@@ -90,12 +90,10 @@ class AsyncStreamTests(unittest.TestCase):
             compiled = graph.compile(
                 checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
             )
-            try:
-                await compiled.ainvoke(
-                    {"value": 0, "log": []}, thread_id="async-stream-resume"
-                )
-            except lg.GraphInterrupt:
-                pass
+            # Static breakpoints pause without raising.
+            await compiled.ainvoke(
+                {"value": 0, "log": []}, thread_id="async-stream-resume"
+            )
             chunks = await compiled.astream(
                 None, thread_id="async-stream-resume"
             )

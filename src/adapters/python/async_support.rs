@@ -55,3 +55,34 @@ pub(crate) fn embed_subgraph_states(
 ) -> PyResult<Py<PyAny>> {
     crate::adapters::python::graph::embed_subgraph_states(py, root, subgraphs)
 }
+
+/// Async counterpart of [`super::graph_support::static_pause_values`]: a static
+/// `interrupt_before`/`interrupt_after` pause returns the current state instead of raising.
+pub(crate) fn static_pause_values(
+    py: Python<'_>,
+    graph: &crate::adapters::tokio_runtime::AsyncCompiledGraph<crate::JsonState>,
+    thread: Option<&str>,
+    namespace: Option<&str>,
+    error: &crate::Error,
+) -> PyResult<Option<Py<PyAny>>> {
+    let crate::Error::Interrupt(interrupt) = error else {
+        return Ok(None);
+    };
+    if !interrupt.static_pause {
+        return Ok(None);
+    }
+    let Some(thread) = thread else {
+        return Ok(None);
+    };
+    let snapshot = match namespace {
+        Some(namespace) => graph.get_state_in(thread, namespace),
+        None => graph.get_state(thread),
+    }
+    .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
+    match snapshot {
+        Some(snapshot) => {
+            crate::adapters::python::convert::json_state_to_py(py, &snapshot.values).map(Some)
+        }
+        None => Ok(Some(py.None())),
+    }
+}

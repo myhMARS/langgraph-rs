@@ -222,6 +222,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     value: interrupt.value,
                     response_schema: interrupt.response_schema,
                     task_id: Some(task.id.clone().into_boxed_str()),
+                    static_pause: interrupt.static_pause,
                 });
             }
             Err(error) => {

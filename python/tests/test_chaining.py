@@ -130,10 +130,11 @@ class MessagesStateTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke(
-                {"value": 0, "log": []}, thread_id="threaded-invoke"
-            )
+        # LangGraph's static breakpoints pause without raising.
+        paused = compiled.invoke(
+            {"value": 0, "log": []}, thread_id="threaded-invoke"
+        )
+        self.assertEqual(paused["log"], ["a"])
         output = compiled.invoke(None, thread_id="threaded-invoke")
         self.assertEqual(output["log"], ["a", "b"])
 
@@ -194,10 +195,10 @@ class ReactAgentModelTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.InMemorySaver(), interrupt_before=["b"]
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke(
-                {"value": 0, "log": []}, thread_id="stream-resume"
-            )
+        compiled.invoke({"value": 0, "log": []}, thread_id="stream-resume")
+        self.assertEqual(
+            compiled.get_state("stream-resume")["next"], ["b"]
+        )
         chunks = compiled.stream(None, thread_id="stream-resume")
         self.assertTrue(chunks)
         self.assertEqual(

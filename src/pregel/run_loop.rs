@@ -222,7 +222,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &mut previous_checkpoint,
                 &values,
                 &paused_tasks,
-                step,
+                // The pause checkpoint reports the number of completed supersteps, like
+                // any other checkpoint (LangGraph metadata step).
+                step + 1,
                 true,
                 true,
                 vec![interrupted_interrupt.clone()],
@@ -408,6 +410,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     id: interrupted.id.clone(),
                     value: interrupted.value.clone(),
                     response_schema: interrupted.response_schema.clone(),
+                    static_pause: interrupted.static_pause,
                 });
                 return Err(Error::Interrupt(interrupted));
             }
@@ -520,6 +523,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     id: interrupt.id.clone(),
                     value: interrupt.value.clone(),
                     response_schema: interrupt.response_schema.clone(),
+                    static_pause: interrupt.static_pause,
                 });
             }
             return Err(Error::Interrupt(
@@ -606,8 +610,11 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
         step += 1;
         let interrupt_after =
-            interrupt_after_node(&executed, |node| backend.interrupts_after(node))
-                .map(|node| Interrupt::new(node, Value::Null));
+            interrupt_after_node(&executed, |node| backend.interrupts_after(node)).map(|node| {
+                let mut interrupt = Interrupt::new(node, Value::Null);
+                interrupt.static_pause = true;
+                interrupt
+            });
         // A finished graph publishes held finish-channel values before its final checkpoint,
         // so the latest checkpoint matches the returned state.
         if next_tasks.is_empty() && interrupt_after.is_none() && !finish_updates.is_empty() {
@@ -652,6 +659,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 id: interrupt.id.clone(),
                 value: Value::Null,
                 response_schema: interrupt.response_schema.clone(),
+                static_pause: interrupt.static_pause,
             });
             return Err(Error::Interrupt(interrupt));
         }

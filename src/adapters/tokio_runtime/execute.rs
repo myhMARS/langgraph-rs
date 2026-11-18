@@ -461,6 +461,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         value: interrupt.value,
                         response_schema: interrupt.response_schema,
                         task_id: Some(task.id.clone().into_boxed_str()),
+                        static_pause: interrupt.static_pause,
                     });
                 }
                 Err(error) => {

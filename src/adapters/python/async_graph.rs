@@ -78,6 +78,7 @@ impl PyAsyncCompiledGraph {
         };
         let graph = self.graph.clone();
         let stream_thread = thread.clone();
+        let static_ns = config.checkpoint_ns.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = if let Some((resume, updates, goto, sends)) = resume_start {
                 let thread = stream_thread.as_deref();
@@ -148,7 +149,18 @@ impl PyAsyncCompiledGraph {
             };
             match result {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
-                Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
+                Err(error) => Python::attach(|py| {
+                    match async_support::static_pause_values(
+                        py,
+                        &graph,
+                        stream_thread.as_deref(),
+                        static_ns.as_deref(),
+                        &error,
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    }
+                }),
             }
         })
     }
@@ -513,7 +525,18 @@ impl PyAsyncCompiledGraph {
             };
             match result {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
-                Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
+                Err(error) => Python::attach(|py| {
+                    match async_support::static_pause_values(
+                        py,
+                        &graph,
+                        Some(thread_id.as_str()),
+                        checkpoint_ns.as_deref(),
+                        &error,
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    }
+                }),
             }
         })
     }

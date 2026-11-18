@@ -44,6 +44,7 @@ impl PyCompiledGraph {
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, base_config) =
             crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
+        let static_ns = base_config.checkpoint_ns.clone();
         let mut invoke_config = base_config.clone();
         if let Some(namespace) = checkpoint_ns.clone() {
             invoke_config = invoke_config.with_checkpoint_ns(namespace);
@@ -99,7 +100,16 @@ impl PyCompiledGraph {
                     });
                     return match result {
                         Ok(state) => json_state_to_py(py, &state),
-                        Err(error) => Err(to_pyerr(py, error)),
+                        Err(error) => match static_pause_values(
+                            py,
+                            &self.graph,
+                            thread_id.as_deref(),
+                            static_ns.as_deref(),
+                            &error,
+                        )? {
+                            Some(value) => Ok(value),
+                            None => Err(to_pyerr(py, error)),
+                        },
                     };
                 }
                 if thread_id.is_none() && command.resume.is_none() {
@@ -121,7 +131,16 @@ impl PyCompiledGraph {
                     let result = py.detach(|| self.graph.run_command(command, &config));
                     return match result {
                         Ok(outcome) => json_state_to_py(py, &outcome.state),
-                        Err(error) => Err(to_pyerr(py, error)),
+                        Err(error) => match static_pause_values(
+                            py,
+                            &self.graph,
+                            thread_id.as_deref(),
+                            static_ns.as_deref(),
+                            &error,
+                        )? {
+                            Some(value) => Ok(value),
+                            None => Err(to_pyerr(py, error)),
+                        },
                     };
                 }
                 let thread = thread_id.as_deref().ok_or_else(|| {
@@ -158,7 +177,16 @@ impl PyCompiledGraph {
                 });
                 return match result {
                     Ok(state) => json_state_to_py(py, &state),
-                    Err(error) => Err(to_pyerr(py, error)),
+                    Err(error) => match static_pause_values(
+                        py,
+                        &self.graph,
+                        thread_id.as_deref(),
+                        static_ns.as_deref(),
+                        &error,
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    },
                 };
             }
         }
@@ -169,7 +197,16 @@ impl PyCompiledGraph {
                 let result = py.detach(|| self.graph.continue_thread_with_config(thread, &config));
                 return match result {
                     Ok(state) => json_state_to_py(py, &state),
-                    Err(error) => Err(to_pyerr(py, error)),
+                    Err(error) => match static_pause_values(
+                        py,
+                        &self.graph,
+                        thread_id.as_deref(),
+                        static_ns.as_deref(),
+                        &error,
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    },
                 };
             }
         }
@@ -191,7 +228,16 @@ impl PyCompiledGraph {
                     let result = py.detach(|| self.graph.run_on_thread(thread, updates, &config));
                     return match result {
                         Ok(outcome) => json_state_to_py(py, &outcome.state),
-                        Err(error) => Err(to_pyerr(py, error)),
+                        Err(error) => match static_pause_values(
+                            py,
+                            &self.graph,
+                            thread_id.as_deref(),
+                            static_ns.as_deref(),
+                            &error,
+                        )? {
+                            Some(value) => Ok(value),
+                            None => Err(to_pyerr(py, error)),
+                        },
                     };
                 }
             }
@@ -200,7 +246,16 @@ impl PyCompiledGraph {
         let result = py.detach(|| self.graph.invoke(&state, &config));
         match result {
             Ok(state) => json_state_to_py(py, &state),
-            Err(error) => Err(to_pyerr(py, error)),
+            Err(error) => match static_pause_values(
+                py,
+                &self.graph,
+                thread_id.as_deref(),
+                static_ns.as_deref(),
+                &error,
+            )? {
+                Some(value) => Ok(value),
+                None => Err(to_pyerr(py, error)),
+            },
         }
     }
 

@@ -530,12 +530,15 @@ pub(crate) fn should_save_terminal(durability: crate::graph::Durability, has_thr
 
 /// Interrupt raised by an `interrupt_before` hook and its stream event.
 pub(crate) fn interrupt_before_pause(task: &Task) -> (Interrupt, StreamChunk) {
-    let interrupt = Interrupt::new(task.node.clone(), Value::Null);
+    let mut interrupt = Interrupt::new(task.node.clone(), Value::Null);
+    // Static breakpoints pause without raising in LangGraph.
+    interrupt.static_pause = true;
     let chunk = StreamChunk::Interrupt {
         node: task.node.clone(),
         id: interrupt.id.clone(),
         value: Value::Null,
         response_schema: interrupt.response_schema.clone(),
+        static_pause: true,
     };
     (interrupt, chunk)
 }

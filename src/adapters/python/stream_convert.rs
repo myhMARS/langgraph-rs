@@ -154,6 +154,9 @@ pub(crate) fn convert_stream_chunks(
     let mut values_indices = Vec::new();
     let mut interrupt_payloads: Vec<Py<PyAny>> = Vec::new();
     let mut interrupt_chunks: Vec<&StreamChunk> = Vec::new();
+    // Static `interrupt_before`/`interrupt_after` breakpoints pause like LangGraph: no
+    // interrupt payload, just an empty `__interrupt__` marker in updates mode.
+    let mut static_pauses = 0usize;
 
     let convert_regular = |converted: &mut Vec<Py<PyAny>>,
                            values_indices: &mut Vec<usize>,
@@ -196,6 +199,9 @@ pub(crate) fn convert_stream_chunks(
                         convert_regular(&mut converted, &mut values_indices, chunk)?;
                     }
                 }
+                StreamChunk::Interrupt {
+                    static_pause: true, ..
+                } => static_pauses += 1,
                 StreamChunk::Interrupt { .. } => {
                     // Recorded only: the shared tail injects it into the values payload or
                     // emits it standalone, so it is never emitted twice.
@@ -208,6 +214,12 @@ pub(crate) fn convert_stream_chunks(
                 _ => {}
             }
             continue;
+        }
+        if let StreamChunk::Interrupt { static_pause, .. } = chunk {
+            if *static_pause {
+                static_pauses += 1;
+                continue;
+            }
         }
         if matches!(chunk, StreamChunk::Interrupt { .. }) {
             interrupt_payloads.push(interrupt_payload(py, chunk, v2)?);
@@ -232,6 +244,18 @@ pub(crate) fn convert_stream_chunks(
                 converted.extend(chunk_to_py_v2_parts(py, chunk)?);
             } else {
                 converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
+            }
+        }
+        if static_pauses > 0 && interrupt_payloads.is_empty() {
+            let marker = PyDict::new(py);
+            marker.set_item("__interrupt__", PyTuple::empty(py))?;
+            if v2 {
+                let part = PyDict::new(py);
+                part.set_item("type", "updates")?;
+                part.set_item("data", marker)?;
+                converted.push(part.into_any().unbind());
+            } else {
+                converted.push(marker.into_any().unbind());
             }
         }
     }
