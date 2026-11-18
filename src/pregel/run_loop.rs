@@ -166,6 +166,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             &values,
             &mut tasks,
             raw_input.as_ref(),
+            durability != crate::graph::Durability::Exit,
             checkpoint_emit,
             sink,
         )

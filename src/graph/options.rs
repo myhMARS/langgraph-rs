@@ -12,6 +12,15 @@ use serde_json::Value;
 /// Matches LangGraph 1.2.22 (`LANGGRAPH_DEFAULT_RECURSION_LIMIT`, default 10007).
 pub const DEFAULT_RECURSION_LIMIT: usize = 10007;
 
+/// LangGraph's default recursion limit, honouring `LANGGRAPH_DEFAULT_RECURSION_LIMIT`.
+pub fn default_recursion_limit() -> usize {
+    std::env::var("LANGGRAPH_DEFAULT_RECURSION_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|limit| *limit >= 1)
+        .unwrap_or(DEFAULT_RECURSION_LIMIT)
+}
+
 /// One or more edge targets.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Targets(Vec<String>);

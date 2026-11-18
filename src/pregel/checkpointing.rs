@@ -339,6 +339,7 @@ pub(crate) async fn save_fresh_start<S, B, F>(
     values: &Map<String, Value>,
     tasks: &mut [Task],
     raw_input: Option<&Map<String, Value>>,
+    persist: bool,
     emit: bool,
     sink: &mut F,
 ) -> Result<usize>
@@ -363,29 +364,31 @@ where
         let start_tasks = vec![Task::new(crate::START)];
         let raw_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
         let raw_parent = parent.clone();
-        save_checkpoint_via(
-            backend,
-            thread_id,
-            namespace,
-            parent,
-            previous,
-            raw,
-            &start_tasks,
-            base_step,
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            "input",
-            &std::collections::HashMap::new(),
-            raw_id.clone(),
-            emit,
-            sink,
-        )
-        .await?;
-        if emit {
+        if persist {
+            save_checkpoint_via(
+                backend,
+                thread_id,
+                namespace,
+                parent,
+                previous,
+                raw,
+                &start_tasks,
+                base_step,
+                false,
+                false,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                &[],
+                "input",
+                &std::collections::HashMap::new(),
+                raw_id.clone(),
+                emit,
+                sink,
+            )
+            .await?;
+        }
+        if persist && emit {
             sink(debug_chunk(
                 base_step,
                 &[],
@@ -405,29 +408,31 @@ where
         crate::pregel::scheduling::assign_v4_ids(tasks, Some(id), namespace, base_step);
     }
     let post_parent = parent.clone();
-    save_checkpoint_via(
-        backend,
-        thread_id,
-        namespace,
-        parent,
-        previous,
-        values,
-        tasks,
-        base_step,
-        false,
-        false,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        &[],
-        "loop",
-        &std::collections::HashMap::new(),
-        post_id.clone(),
-        emit,
-        sink,
-    )
-    .await?;
-    if emit {
+    if persist {
+        save_checkpoint_via(
+            backend,
+            thread_id,
+            namespace,
+            parent,
+            previous,
+            values,
+            tasks,
+            base_step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "loop",
+            &std::collections::HashMap::new(),
+            post_id.clone(),
+            emit,
+            sink,
+        )
+        .await?;
+    }
+    if persist && emit {
         sink(debug_chunk(
             base_step,
             &[],

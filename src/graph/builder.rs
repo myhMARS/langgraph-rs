@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 
 use super::Entry;
 use super::compiled::CompiledGraph;
-use super::options::{CompileOptions, DEFAULT_RECURSION_LIMIT, Targets};
+use super::options::{CompileOptions, Targets};
 use crate::_internal::cache::{CachePolicy, NodeCache};
 use crate::_internal::command::Command;
 use crate::_internal::error::{Error, Result};
