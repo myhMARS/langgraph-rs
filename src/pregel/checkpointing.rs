@@ -103,6 +103,7 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         values: draft.values,
         next: draft.next.to_vec(),
         deferred_routes: Vec::new(),
+        resume_tasks: Vec::new(),
         interrupted: draft.interrupted,
         paused_before: draft.paused_before,
         parent_id: draft.parent,
@@ -483,8 +484,10 @@ pub(crate) struct PauseDraft<'a> {
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
     /// Raw input of this turn, used to flush the deferred `Durability::Exit` checkpoints.
     pub(crate) raw_input: Option<&'a Map<String, Value>>,
-    /// Tasks the successful siblings scheduled; replayed when the pause resumes.
+    /// Routing seeds (node names) of successful siblings.
     pub(crate) scheduled_after: Vec<Task>,
+    /// `goto`/`Send` targets the successful siblings scheduled.
+    pub(crate) resume_tasks: Vec<Task>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -607,6 +610,7 @@ where
     checkpoint.pending_writes = written;
     checkpoint.deferred = draft.deferred;
     checkpoint.deferred_routes = draft.scheduled_after;
+    checkpoint.resume_tasks = draft.resume_tasks;
     // Functional-API tasks that finished during the interrupted superstep keep their
     // recorded results so a resume does not re-run them.
     checkpoint

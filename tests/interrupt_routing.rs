@@ -264,3 +264,38 @@ fn sibling_without_persisted_write_still_routes_after_resume() {
     let output = graph.resume("interrupt-route-silent", resume).unwrap();
     assert_eq!(output.log, vec!["ask", "down"]);
 }
+
+#[test]
+fn sibling_goto_target_survives_a_pause() {
+    let saver = Arc::new(InMemorySaver::new());
+    let graph = StateGraph::<RouteState>::new()
+        .add_node("ok", |_state: &RouteState| {
+            Ok(NodeOutput::new().goto("detour"))
+        })
+        .add_node("ask", |_state: &RouteState| {
+            interrupt(json!({ "q": "ask" }))?;
+            Ok(NodeOutput::new().update("log", json!(["ask"])))
+        })
+        .add_node("detour", |_state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["detour"])))
+        })
+        .add_edge(langgraph_rs::START, "ok")
+        .add_edge(langgraph_rs::START, "ask")
+        .set_finish_point("detour")
+        .set_finish_point("ask")
+        .compile_with(CompileOptions::new().with_checkpointer(saver))
+        .unwrap();
+
+    let error = graph
+        .run(
+            &RouteState::default(),
+            &RunConfig::new().with_thread("interrupt-route-goto"),
+        )
+        .unwrap_err();
+    assert!(error.is_interrupt());
+
+    let snapshot = graph.get_state("interrupt-route-goto").unwrap().unwrap();
+    let resume = json!({ snapshot.interrupts[0].id.clone(): "resumed" });
+    let output = graph.resume("interrupt-route-goto", resume).unwrap();
+    assert_eq!(output.log, vec!["ask", "detour"]);
+}

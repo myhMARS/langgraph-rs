@@ -362,6 +362,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             values,
             next,
             deferred_routes: Vec::new(),
+            resume_tasks: Vec::new(),
             // Fresh `source="update"` checkpoint, matching the sync runtime.
             interrupted: false,
             // Keep the pause marker so resuming after an edit does not re-run the

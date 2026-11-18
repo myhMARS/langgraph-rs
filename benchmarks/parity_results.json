@@ -11,13 +11,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 267387.0,
-        "ops_per_sec": 3739.9
+        "ns_per_op": 290453.0,
+        "ops_per_sec": 3442.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1641215.0,
-        "ops_per_sec": 609.3
+        "ns_per_op": 1827963.0,
+        "ops_per_sec": 547.1
       }
     }
   },
@@ -33,13 +33,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 64820.0,
-        "ops_per_sec": 15427.3
+        "ns_per_op": 73909.0,
+        "ops_per_sec": 13530.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 612671.0,
-        "ops_per_sec": 1632.2
+        "ns_per_op": 671108.0,
+        "ops_per_sec": 1490.1
       }
     }
   },
@@ -55,13 +55,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 159474.0,
-        "ops_per_sec": 6270.6
+        "ns_per_op": 160803.0,
+        "ops_per_sec": 6218.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1135683.0,
-        "ops_per_sec": 880.5
+        "ns_per_op": 1268844.0,
+        "ops_per_sec": 788.1
       }
     }
   },
@@ -87,13 +87,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 634994.0,
-        "ops_per_sec": 1574.8
+        "ns_per_op": 567554.0,
+        "ops_per_sec": 1761.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4153216.0,
-        "ops_per_sec": 240.8
+        "ns_per_op": 4096483.0,
+        "ops_per_sec": 244.1
       }
     }
   },
@@ -109,13 +109,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 49549.0,
-        "ops_per_sec": 20182.0
+        "ns_per_op": 52589.0,
+        "ops_per_sec": 19015.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 422773.0,
-        "ops_per_sec": 2365.3
+        "ns_per_op": 435054.0,
+        "ops_per_sec": 2298.6
       }
     }
   },
@@ -131,13 +131,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 306391.0,
-        "ops_per_sec": 3263.8
+        "ns_per_op": 342411.0,
+        "ops_per_sec": 2920.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1649344.0,
-        "ops_per_sec": 606.3
+        "ns_per_op": 1661394.0,
+        "ops_per_sec": 601.9
       }
     }
   },
@@ -153,13 +153,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 56119.0,
-        "ops_per_sec": 17819.3
+        "ns_per_op": 46211.0,
+        "ops_per_sec": 21639.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 483829.0,
-        "ops_per_sec": 2066.8
+        "ns_per_op": 473991.0,
+        "ops_per_sec": 2109.7
       }
     }
   },
@@ -178,13 +178,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 42505.0,
-        "ops_per_sec": 23526.6
+        "ns_per_op": 45734.0,
+        "ops_per_sec": 21865.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1417550.0,
-        "ops_per_sec": 705.4
+        "ns_per_op": 1349403.0,
+        "ops_per_sec": 741.1
       }
     }
   },
@@ -206,13 +206,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 39993.0,
-        "ops_per_sec": 25004.4
+        "ns_per_op": 43753.0,
+        "ops_per_sec": 22855.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 410351.0,
-        "ops_per_sec": 2436.9
+        "ns_per_op": 427242.0,
+        "ops_per_sec": 2340.6
       }
     }
   },
@@ -228,13 +228,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 65905.0,
-        "ops_per_sec": 15173.4
+        "ns_per_op": 65323.0,
+        "ops_per_sec": 15308.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1125446.0,
-        "ops_per_sec": 888.5
+        "ns_per_op": 1234872.0,
+        "ops_per_sec": 809.8
       }
     }
   },
@@ -252,13 +252,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 91384.0,
-        "ops_per_sec": 10942.8
+        "ns_per_op": 107146.0,
+        "ops_per_sec": 9333.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 621311.0,
-        "ops_per_sec": 1609.5
+        "ns_per_op": 677878.0,
+        "ops_per_sec": 1475.2
       }
     }
   },
@@ -277,13 +277,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 33668778.0,
-        "ops_per_sec": 29.7
+        "ns_per_op": 35748739.0,
+        "ops_per_sec": 28.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 31077897.0,
-        "ops_per_sec": 32.2
+        "ns_per_op": 31108199.0,
+        "ops_per_sec": 32.1
       }
     }
   },
@@ -305,13 +305,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 31906.0,
-        "ops_per_sec": 31342.1
+        "ns_per_op": 32975.0,
+        "ops_per_sec": 30326.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 368039.0,
-        "ops_per_sec": 2717.1
+        "ns_per_op": 408646.0,
+        "ops_per_sec": 2447.1
       }
     }
   },
@@ -327,13 +327,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 24493026.0,
-        "ops_per_sec": 40.8
+        "ns_per_op": 34357820.0,
+        "ops_per_sec": 29.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 28028757.0,
-        "ops_per_sec": 35.7
+        "ns_per_op": 41951974.0,
+        "ops_per_sec": 23.8
       }
     }
   },
@@ -350,13 +350,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 340633.0,
-        "ops_per_sec": 2935.7
+        "ns_per_op": 440200.0,
+        "ops_per_sec": 2271.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1584619.0,
-        "ops_per_sec": 631.1
+        "ns_per_op": 1725216.0,
+        "ops_per_sec": 579.6
       }
     }
   },
@@ -370,13 +370,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 715307.0,
-        "ops_per_sec": 1398.0
+        "ns_per_op": 774435.0,
+        "ops_per_sec": 1291.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1913013.0,
-        "ops_per_sec": 522.7
+        "ns_per_op": 2025354.0,
+        "ops_per_sec": 493.7
       }
     }
   },
@@ -410,13 +410,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 76748.0,
-        "ops_per_sec": 13029.7
+        "ns_per_op": 72770.0,
+        "ops_per_sec": 13741.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 496589.0,
-        "ops_per_sec": 2013.7
+        "ns_per_op": 554320.0,
+        "ops_per_sec": 1804.0
       }
     }
   },
@@ -432,13 +432,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 1045812.0,
-        "ops_per_sec": 956.2
+        "ns_per_op": 1108213.0,
+        "ops_per_sec": 902.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4077145.0,
-        "ops_per_sec": 245.3
+        "ns_per_op": 4458844.0,
+        "ops_per_sec": 224.3
       }
     }
   },
@@ -456,12 +456,12 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 65445352.0,
-        "ops_per_sec": 15.3
+        "ns_per_op": 64985248.0,
+        "ops_per_sec": 15.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 62068468.0,
+        "ns_per_op": 62238060.0,
         "ops_per_sec": 16.1
       }
     }
@@ -478,13 +478,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 782409.0,
-        "ops_per_sec": 1278.1
+        "ns_per_op": 814275.0,
+        "ops_per_sec": 1228.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3601145.0,
-        "ops_per_sec": 277.7
+        "ns_per_op": 3647663.0,
+        "ops_per_sec": 274.1
       }
     }
   },
@@ -505,13 +505,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 702644.0,
-        "ops_per_sec": 1423.2
+        "ns_per_op": 662902.0,
+        "ops_per_sec": 1508.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3790010.0,
-        "ops_per_sec": 263.9
+        "ns_per_op": 3129554.0,
+        "ops_per_sec": 319.5
       }
     }
   },
@@ -535,13 +535,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 887085.0,
-        "ops_per_sec": 1127.3
+        "ns_per_op": 1003773.0,
+        "ops_per_sec": 996.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3553260.0,
-        "ops_per_sec": 281.4
+        "ns_per_op": 3777725.0,
+        "ops_per_sec": 264.7
       }
     }
   },
@@ -567,13 +567,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 530331.0,
-        "ops_per_sec": 1885.6
+        "ns_per_op": 505375.0,
+        "ops_per_sec": 1978.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1541832.0,
-        "ops_per_sec": 648.6
+        "ns_per_op": 1614934.0,
+        "ops_per_sec": 619.2
       }
     }
   },
@@ -595,13 +595,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 82641.0,
-        "ops_per_sec": 12100.5
+        "ns_per_op": 87709.0,
+        "ops_per_sec": 11401.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 611889.0,
-        "ops_per_sec": 1634.3
+        "ns_per_op": 609900.0,
+        "ops_per_sec": 1639.6
       }
     }
   },
@@ -617,13 +617,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 48679.0,
-        "ops_per_sec": 20542.7
+        "ns_per_op": 47050.0,
+        "ops_per_sec": 21254.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1493314.0,
-        "ops_per_sec": 669.7
+        "ns_per_op": 1580250.0,
+        "ops_per_sec": 632.8
       }
     }
   },
@@ -639,13 +639,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 131533.0,
-        "ops_per_sec": 7602.7
+        "ns_per_op": 140057.0,
+        "ops_per_sec": 7140.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 743131.0,
-        "ops_per_sec": 1345.7
+        "ns_per_op": 788612.0,
+        "ops_per_sec": 1268.1
       }
     }
   },
@@ -667,13 +667,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 505815.0,
-        "ops_per_sec": 1977.0
+        "ns_per_op": 537567.0,
+        "ops_per_sec": 1860.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2255841.0,
-        "ops_per_sec": 443.3
+        "ns_per_op": 2276910.0,
+        "ops_per_sec": 439.2
       }
     }
   },
@@ -689,13 +689,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 20875485.0,
-        "ops_per_sec": 47.9
+        "ns_per_op": 30852116.0,
+        "ops_per_sec": 32.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 97209464.0,
-        "ops_per_sec": 10.3
+        "ns_per_op": 142226204.0,
+        "ops_per_sec": 7.0
       }
     }
   },
@@ -711,13 +711,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 804989.0,
-        "ops_per_sec": 1242.3
+        "ns_per_op": 870526.0,
+        "ops_per_sec": 1148.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 12742091.0,
-        "ops_per_sec": 78.5
+        "ns_per_op": 17373967.0,
+        "ops_per_sec": 57.6
       }
     }
   },
@@ -733,13 +733,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 577626.0,
-        "ops_per_sec": 1731.2
+        "ns_per_op": 564494.0,
+        "ops_per_sec": 1771.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2129981.0,
-        "ops_per_sec": 469.5
+        "ns_per_op": 2407639.0,
+        "ops_per_sec": 415.3
       }
     }
   },
@@ -761,13 +761,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 473317.0,
-        "ops_per_sec": 2112.7
+        "ns_per_op": 609436.0,
+        "ops_per_sec": 1640.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2354091.0,
-        "ops_per_sec": 424.8
+        "ns_per_op": 2908405.0,
+        "ops_per_sec": 343.8
       }
     }
   },
@@ -784,13 +784,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 312907.0,
-        "ops_per_sec": 3195.8
+        "ns_per_op": 358912.0,
+        "ops_per_sec": 2786.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1593148.0,
-        "ops_per_sec": 627.7
+        "ns_per_op": 2011953.0,
+        "ops_per_sec": 497.0
       }
     }
   },
@@ -803,13 +803,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 2994561.0,
-        "ops_per_sec": 333.9
+        "ns_per_op": 3485062.0,
+        "ops_per_sec": 286.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 7857827.0,
-        "ops_per_sec": 127.3
+        "ns_per_op": 9186371.0,
+        "ops_per_sec": 108.9
       }
     }
   },
@@ -825,13 +825,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 96602.0,
-        "ops_per_sec": 10351.8
+        "ns_per_op": 100731.0,
+        "ops_per_sec": 9927.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1122480.0,
-        "ops_per_sec": 890.9
+        "ns_per_op": 1155640.0,
+        "ops_per_sec": 865.3
       }
     }
   },
@@ -853,13 +853,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 863378.0,
-        "ops_per_sec": 1158.2
+        "ns_per_op": 853367.0,
+        "ops_per_sec": 1171.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4720830.0,
-        "ops_per_sec": 211.8
+        "ns_per_op": 5022135.0,
+        "ops_per_sec": 199.1
       }
     }
   },
@@ -875,13 +875,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 110598.0,
-        "ops_per_sec": 9041.8
+        "ns_per_op": 121816.0,
+        "ops_per_sec": 8209.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1118695.0,
-        "ops_per_sec": 893.9
+        "ns_per_op": 1227089.0,
+        "ops_per_sec": 814.9
       }
     }
   }

@@ -81,6 +81,7 @@ where
             writes_by_node: &std::collections::HashMap::new(),
             raw_input,
             scheduled_after: Vec::new(),
+            resume_tasks: Vec::new(),
         },
         context.force_new,
         "loop",
@@ -208,6 +209,14 @@ where
         .filter(|task| !interrupted_ids.contains(&task.id))
         .map(|task| Task::new(task.node.clone()))
         .collect();
+    // `goto`/`Send` targets chosen by successful siblings are remembered so the resume
+    // replays them (they cannot be derived from static edges).
+    let resume_tasks: Vec<Task> = processed
+        .goto_targets
+        .iter()
+        .map(|(target, _)| Task::new(target.clone()))
+        .chain(processed.next_tasks.iter().cloned())
+        .collect();
     for task in &mut next_tasks {
         task.interrupted = true;
     }
@@ -241,6 +250,7 @@ where
             writes_by_node: &std::collections::HashMap::new(),
             raw_input: context.raw_input,
             scheduled_after: resume_seeds,
+            resume_tasks,
         },
         context.force_new,
         "loop",

@@ -75,6 +75,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     let mut skip_interrupt_before = false;
     let mut time_travel = false;
     let mut resume_seed_nodes: Vec<String> = Vec::new();
+    let mut resume_pending: Vec<Task> = Vec::new();
     let raw_input = match &start {
         StartInput::Values(map) => Some(map.clone()),
         // LangGraph writes an input checkpoint for an update-start run too.
@@ -138,6 +139,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &resume_sends,
                 backend.schema(),
             )?;
+        resume_pending = checkpoint.resume_tasks.clone();
         resume_seed_nodes = checkpoint
             .deferred_routes
             .iter()
@@ -461,6 +463,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     writes_by_node: &writes_by_node,
                     raw_input: raw_input.as_ref(),
                     scheduled_after: Vec::new(),
+                    resume_tasks: Vec::new(),
                 },
                 pause_force_new,
                 "loop",
@@ -538,6 +541,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 routing_executed.push(node);
             }
         }
+
         let (next_nodes, router_sends) = collect_next_nodes(
             &state,
             &routing_executed,
@@ -557,7 +561,20 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             |node| backend.is_deferred(node),
             &mut pending_deferred,
             true,
-        )?;
+        )?; // `goto`/`Send` targets chosen by the paused tick's successful siblings run after
+        // the resumed tasks complete.
+        for task in resume_pending.drain(..) {
+            let duplicate = next_tasks.iter().any(|existing| {
+                if existing.input.is_none() && task.input.is_none() {
+                    existing.node == task.node
+                } else {
+                    existing.node == task.node && existing.input == task.input
+                }
+            });
+            if !duplicate {
+                next_tasks.push(task);
+            }
+        }
 
         if step::consume_named_barriers(&mut values, &armed_barriers, &written_for_barriers) {
             state = values_to_state::<S>(&values)?;
