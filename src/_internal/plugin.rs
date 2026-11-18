@@ -40,10 +40,10 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use super::channel::{Channel, reducers};
 use super::error::{Error, Result};
 use super::ports::TraceSink;
 use super::state::StateSchema;
+use crate::channels::{Channel, reducers};
 
 /// Factory that creates a channel merge policy on demand.
 #[derive(Clone)]

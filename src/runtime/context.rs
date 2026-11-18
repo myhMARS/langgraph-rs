@@ -352,7 +352,7 @@ pub(crate) fn next_interrupt_id(context: &mut TaskContext) -> String {
         context.node, context.interrupt_calls,
     );
     context.interrupt_calls += 1;
-    crate::domain::error::deterministic_interrupt_id(&seed)
+    crate::_internal::error::deterministic_interrupt_id(&seed)
 }
 
 /// Resume value stamped onto the current task, when replaying an interrupt.

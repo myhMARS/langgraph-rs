@@ -95,17 +95,25 @@
 #![allow(clippy::result_large_err)]
 
 mod adapters;
-pub mod application;
+mod application;
+mod kernel;
+
+pub mod _internal;
+pub mod channels;
+pub mod checkpoint;
 pub mod config;
 pub mod constants;
-pub mod domain;
-pub use domain::interop;
+pub mod functional;
+pub mod graph;
 pub mod managed;
+pub mod prebuilt;
+pub mod pregel;
 pub mod runtime;
+pub mod store;
 pub mod types;
-pub use application::{functional, graph, prebuilt, pregel};
-pub use domain as kernel;
-pub use domain::{channels, checkpoint, errors, store};
+
+pub use _internal::error as errors;
+pub use _internal::interop;
 
 #[cfg(feature = "python")]
 pub use adapters::python;

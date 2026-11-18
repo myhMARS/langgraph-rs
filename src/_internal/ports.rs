@@ -3,9 +3,9 @@
 //! Adapters in [`crate::adapters`] (and in downstream crates) implement these traits.
 //! The kernel never constructs an adapter itself.
 
-use super::checkpoint::Checkpoint;
 use super::error::Result;
 use super::usage::NodeExecution;
+use crate::checkpoint::Checkpoint;
 
 /// Storage backend for checkpoints.
 ///

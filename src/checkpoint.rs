@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::error::Interrupt;
-use super::node::Task;
+use crate::_internal::error::Interrupt;
+use crate::_internal::node::Task;
 
 /// A task write that was produced before an interrupt and must be replayed on resume.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
