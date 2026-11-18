@@ -549,7 +549,7 @@ impl PyAsyncCompiledGraph {
                     snapshot_to_py_with_step(py, &snapshot, global_step).map(Some)
                 }
             }
-            None => Ok(None),
+            None => empty_snapshot_to_py(py, Some(&thread_id)).map(Some),
         }
     }
 
@@ -593,7 +593,7 @@ impl PyAsyncCompiledGraph {
                 }
                 .map_err(|error| to_pyerr(py, error))?;
                 let Some(snapshot) = snapshot else {
-                    return Ok(None);
+                    return empty_snapshot_to_py(py, Some(&thread_id)).map(Some);
                 };
                 let history = graph
                     .get_state_history(&thread_id)

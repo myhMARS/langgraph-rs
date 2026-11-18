@@ -212,7 +212,9 @@ class HumanInTheLoopTests(unittest.TestCase):
         self.assertEqual(copied["checkpoint_ns"], "")
 
         compiled.delete_thread("copy-source")
-        self.assertIsNone(compiled.get_state("copy-source"))
+        missing = compiled.get_state("copy-source")
+        self.assertEqual(missing["values"], {})
+        self.assertEqual(missing["next"], [])
         self.assertIsNotNone(compiled.get_state("copy-target"))
 
     def test_checkpoint_history(self):
@@ -1278,7 +1280,8 @@ class AsyncPythonTests(unittest.TestCase):
         copied, history, deleted = asyncio.run(scenario())
         self.assertIsNotNone(copied)
         self.assertTrue(history)
-        self.assertIsNone(deleted)
+        self.assertEqual(deleted["values"], {})
+        self.assertEqual(deleted["next"], [])
 
     def test_v2_messages_metadata(self):
         import asyncio

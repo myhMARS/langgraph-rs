@@ -573,7 +573,7 @@ impl PyCompiledGraph {
                     snapshot_to_py_with_step(py, &snapshot, global_step)
                 }
             }
-            None => Ok(py.None()),
+            None => empty_snapshot_to_py(py, Some(&thread_id)),
         }
     }
 

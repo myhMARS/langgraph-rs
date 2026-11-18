@@ -324,6 +324,33 @@ pub(crate) fn chunk_to_py_v2_parts(
     Ok(vec![chunk_to_py_v2(py, chunk)?])
 }
 
+/// LangGraph returns an empty `StateSnapshot` for a thread without checkpoints.
+pub(crate) fn empty_snapshot_to_py(py: Python<'_>, thread_id: Option<&str>) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("values", PyDict::new(py))?;
+    dict.set_item("next", Vec::<String>::new())?;
+    dict.set_item("checkpoint_id", py.None())?;
+    dict.set_item("thread_id", thread_id)?;
+    dict.set_item("step", 0)?;
+    dict.set_item("interrupted", false)?;
+    dict.set_item("created_at", py.None())?;
+    dict.set_item("created_at_millis", 0)?;
+    dict.set_item("parent_checkpoint_id", py.None())?;
+    dict.set_item("checkpoint_ns", "")?;
+    dict.set_item("metadata", py.None())?;
+    dict.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+    dict.set_item("config", PyDict::new(py))?;
+    dict.set_item("parent_config", py.None())?;
+    dict.set_item("tasks", Vec::<Py<PyAny>>::new())?;
+    Ok(Py::new(
+        py,
+        crate::adapters::python::types::PyStateSnapshot {
+            data: dict.unbind(),
+        },
+    )?
+    .into_any())
+}
+
 /// Convert a task chunk into LangGraph debug `task` / `task_result` records.
 pub(crate) fn task_debug_parts(
     py: Python<'_>,
