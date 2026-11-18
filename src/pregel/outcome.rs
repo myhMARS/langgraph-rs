@@ -467,7 +467,7 @@ pub(crate) fn values_chunk(step: usize, values: &serde_json::Map<String, Value>)
 pub(crate) fn debug_chunk(
     step: usize,
     executed: &[String],
-    scheduled: &[String],
+    scheduled: &[crate::_internal::node::Task],
     values: &Value,
     thread_id: Option<&str>,
     namespace: &str,
@@ -491,21 +491,23 @@ pub(crate) fn debug_chunk(
     });
     let tasks: Vec<serde_json::Value> = scheduled
         .iter()
-        .map(|node| {
+        .map(|task| {
             serde_json::json!({
-                "id": format!("{step}:{node}"),
-                "name": node,
+                "id": task.id,
+                "name": task.node,
+                "state": task.input,
                 "interrupts": [],
             })
         })
         .collect();
+    let next: Vec<String> = scheduled.iter().map(|task| task.node.clone()).collect();
     StreamChunk::Debug {
         step,
         payload: serde_json::json!({
             "config": config,
             "metadata": {"step": step, "source": "loop", "parents": {}},
             "values": values,
-            "next": scheduled,
+            "next": next,
             "parent_config": parent_config,
             "tasks": tasks,
             "executed": executed,

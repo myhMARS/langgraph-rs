@@ -192,11 +192,35 @@ pub(crate) fn checkpoint_committed(
         .next
         .iter()
         .map(|task| {
-            serde_json::json!({
-                "id": task.id,
-                "name": task.node,
-                "interrupts": [],
-            })
+            // LangGraph's `CheckpointTask` carries the task input plus, when available,
+            // the routed error, the writes it produced and its interrupts.
+            let interrupts: Vec<serde_json::Value> = checkpoint
+                .interrupts
+                .iter()
+                .filter(|interrupt| {
+                    interrupt.task_id.as_deref() == Some(task.id.as_str())
+                        || (interrupt.task_id.is_none() && interrupt.node == task.node)
+                })
+                .filter_map(|interrupt| serde_json::to_value(interrupt).ok())
+                .collect();
+            let mut entry = serde_json::Map::new();
+            entry.insert("id".to_string(), serde_json::json!(task.id));
+            entry.insert("name".to_string(), serde_json::json!(task.node));
+            entry.insert(
+                "state".to_string(),
+                task.input
+                    .as_ref()
+                    .map(|input| serde_json::Value::Object(input.clone()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            if let Some(error) = &task.error {
+                entry.insert("error".to_string(), serde_json::json!(error.message));
+            }
+            if let Some(result) = checkpoint.task_results.get(&task.id) {
+                entry.insert("result".to_string(), result.clone());
+            }
+            entry.insert("interrupts".to_string(), serde_json::json!(interrupts));
+            serde_json::Value::Object(entry)
         })
         .collect();
     let payload = serde_json::json!({
