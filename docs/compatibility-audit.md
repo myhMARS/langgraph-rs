@@ -131,22 +131,24 @@ behaviour; these are now implemented and covered by tests:
   feature matrix (none/async/sqlite/redis/postgres/msgpack/python/python-async) builds
   without warnings.
 
-Still open, in rough priority order:
+Still open, in rough priority order (refreshed in round 149; items 1-4 of the previous list are
+implemented — see the round sections below):
 
-1. **Checkpoint v4 task ids.** Python derives task ids as
-   `xxh3_128(checkpoint_id_bytes + ns + step + name + PULL + triggers)`; this crate uses
-   time-based ids. Consequences: cross-engine pending-task identity, resume maps keyed by
-   LangGraph ids, and the LangGraph-schema SQLite table (which stores internal steps because
-   its stored ids were derived from that counter) are not interchangeable.
-2. **Debug stream.** The input-checkpoint record is not emitted, `config.checkpoint_id` is
-   `null` on debug checkpoint records, and debug/checkpoint task entries use the `Send` input
-   as `state`.
-3. **Trigger-accurate bookkeeping.** `versions_seen` approximates per-trigger reads, named
-   barriers are consumed even when the superstep did not read them, and `NamedBarrierValue`
-   re-arms where Python keeps the barrier open.
-4. **Interop edge cases.** Tuple-form `pending_writes` carry no node, `__error__` writes are
-   not rebuilt into a routable failure, and the JSON importer does not decode
-   `channel_values.__interrupt__` (the SQLite reader does).
+1. **Router re-evaluation, not branch replay.** A pause replays the successful siblings by
+   re-running `collect_next_nodes` against the resumed state, whereas LangGraph replays the
+   stored branch write. A router that reads a channel the resumed task writes can pick a
+   different target. Routes themselves (static/conditional edges, `goto`, `Send`) survive.
+2. **Trigger-accurate bookkeeping.** `versions_seen` records the pre-step version of every
+   channel for each executed node (reads are not tracked), which is enough for author
+   inference but not identical to Python's per-trigger map. Named barriers are consumed on a
+   normal superstep only (interrupt paths keep them armed) but not narrowed to read channels.
+3. **Interop edge cases.** Tuple-form `pending_writes` carry no node, so a foreign document
+   with only tuple writes cannot reconstruct failed/pending tasks (sidecar and `__error__`
+   handling cover our own exports). `channel_values.__interrupt__` (`__root__` included) is
+   decoded, `__root__` state is flattened, and control channels are stripped.
+4. **Debug stream payload details.** Checkpoint records (input/loop) and `config.checkpoint_id`
+   are emitted; per-step debug task entries still serialize the `Send` input as `state` and the
+   shape of `result`/`metadata` is not byte-identical to Python.
 5. **Python binding breadth** (unchanged from the historical section): drop-in
    `RunnableConfig` API surface, streaming iteration semantics, and v2 payload details.
 ## v4 task ids and the export version (rounds 130)

@@ -181,11 +181,13 @@ A checkpoint is written only when both a `thread_id` and a checkpointer exist:
 | after a completed superstep | current + 1 | false | false | next scheduled tasks |
 | `interrupt_after` pause | current + 1 | true | false | tasks following the paused node |
 
-Fields: `id` (`{thread_id}-step{step}-{sequence:06}`, sequence from a process-local
-`AtomicU64`), `thread_id`, `step` (completed supersteps), `values` (all channels as one JSON
-object), `next` (`Vec<Task>` with `node`, optional `input`, optional `resume`), `interrupted`,
-`paused_before`, `parent_id` (previous checkpoint, forming the history chain) and
-`created_at_millis`.
+Fields: `id` (UUID-shaped hex: millis + sequence + step + hash, so LangGraph can read it as
+`bytes.fromhex(id.replace("-", ""))`), `thread_id`, `step` (internal superstep counter, one
+above LangGraph's `metadata.step`), `values` (all channels as one JSON object), `next`
+(`Vec<Task>` with `node`, optional `input`, optional `resume`), `interrupted`, `paused_before`,
+`parent_id` (previous checkpoint, forming the history chain) and `created_at_millis`. A pause
+also carries `deferred_routes` (routing seeds of completed siblings), `resume_tasks` (their
+`goto`/`Send` targets) and `completed_tasks` (what `get_state().tasks` reports).
 
 `InMemorySaver` keeps `Mutex<HashMap<thread_id, Vec<Checkpoint>>>` in insertion order: `latest`
 returns the last element, `history` the reversed list (newest first), and a poisoned lock is
@@ -441,9 +443,10 @@ synchronous and hold a `Mutex` around their connection.
 - **Coarse hooks and node-only `Send`.** Only the first matching task is reported, with a `null`
   payload; routers are pure, and `Route` carries plain names, so fan-out with per-task state
   happens in the node via `NodeOutput::send`.
-- **Checkpoint ids are process-local** (`thread-step-sequence`, not UUIDs); `InMemorySaver`
-  keeps everything for the process lifetime with no pruning. Time travel is
-  `resume_from(thread, id, value)`.
+- **Checkpoint ids are UUID-shaped hex** (millis + sequence + step + hash), not the historical
+  `thread-step-sequence` form; `InMemorySaver` keeps everything for the process lifetime with no
+  pruning. Time travel is `resume_from(thread, id, value)`, which writes a `source="fork"`
+  checkpoint unless a resume value is supplied.
 - **Reducer errors are unwrapped**: they surface as `Error::Other` without the node name,
   unlike node errors, which are wrapped in `Error::Node`.
 - **Retry/error timing.** Backoff sleeps happen on the task thread (a parallel superstep's
