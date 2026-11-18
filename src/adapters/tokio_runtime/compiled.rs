@@ -275,14 +275,41 @@ impl<S: State> AsyncCompiledGraph<S> {
                     false
                 };
                 if exists {
+                    // Mirror the sync runtime: a paused thread resumes with the update,
+                    // a finished thread applies the update over its latest state and
+                    // starts a fresh entry run.
+                    let latest = self.saver_latest_in(thread, namespace).await?;
+                    let paused = latest.as_ref().is_some_and(|checkpoint| {
+                        checkpoint.interrupted || !checkpoint.next.is_empty()
+                    });
+                    if paused {
+                        return self
+                            .resume_inner(
+                                thread,
+                                config.checkpoint_id.as_deref(),
+                                None,
+                                Some(updates.into_iter().collect()),
+                                config.checkpoint_ns.as_deref(),
+                            )
+                            .await;
+                    }
+                    let mut values = latest
+                        .map(|checkpoint| checkpoint.values)
+                        .unwrap_or_default();
+                    crate::_internal::state::apply_updates(
+                        &self.schema,
+                        &mut values,
+                        updates
+                            .into_iter()
+                            .map(|(channel, value)| crate::_internal::state::ChannelUpdate {
+                                channel,
+                                value,
+                                node: "<input>".to_string(),
+                            })
+                            .collect(),
+                    )?;
                     return self
-                        .resume_inner(
-                            thread,
-                            config.checkpoint_id.as_deref(),
-                            None,
-                            Some(updates.into_iter().collect()),
-                            config.checkpoint_ns.as_deref(),
-                        )
+                        .execute(StartInput::Values(values), config, &mut sink)
                         .await;
                 }
             }

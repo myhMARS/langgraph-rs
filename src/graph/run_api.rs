@@ -360,6 +360,12 @@ impl<S: State> CompiledGraph<S> {
         )
     }
 
+    /// Replay a thread from a checkpoint without supplying a resume value
+    /// (LangGraph `invoke(None, config)` — the task runs again from the pause).
+    pub fn replay_from(&self, thread_id: &str, checkpoint_id: &str) -> Result<S> {
+        self.resume_inner(thread_id, Some(checkpoint_id), None, None, None, None)
+    }
+
     /// Continue a thread that stopped on an `interrupt_before` / `interrupt_after` hook.
     pub fn continue_thread(&self, thread_id: &str) -> Result<S> {
         self.resume_inner(thread_id, None, None, None, None, None)

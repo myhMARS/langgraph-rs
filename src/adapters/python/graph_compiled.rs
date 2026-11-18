@@ -239,11 +239,14 @@ impl PyCompiledGraph {
         checkpoint_id: String,
         value: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        let value = match value {
-            Some(value) => py_to_value(value)?,
-            None => Value::Null,
+        // `resume_from(..., None)` replays without a resume value, like `invoke(None)`.
+        let result = match value {
+            Some(value) => {
+                let value = py_to_value(value)?;
+                py.detach(|| self.graph.resume_from(&thread_id, &checkpoint_id, value))
+            }
+            None => py.detach(|| self.graph.replay_from(&thread_id, &checkpoint_id)),
         };
-        let result = py.detach(|| self.graph.resume_from(&thread_id, &checkpoint_id, value));
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
