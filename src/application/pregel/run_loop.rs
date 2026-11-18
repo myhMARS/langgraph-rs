@@ -82,6 +82,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 resume,
                 updates,
                 goto: resume_goto,
+                sends: resume_sends,
             } = start
             else {
                 unreachable!("fresh start inputs were resolved above");
@@ -100,6 +101,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 &resume,
                 updates,
                 &resume_goto,
+                &resume_sends,
                 backend.schema(),
             )?;
             let deferred = checkpoint.deferred.clone();

@@ -40,6 +40,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 resume,
                 updates,
                 goto: Vec::new(),
+                sends: Vec::new(),
             },
             &config,
             &mut sink,
@@ -63,6 +64,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 resume: None,
                 updates: None,
                 goto: Vec::new(),
+                sends: Vec::new(),
             },
             &config,
             &mut sink,
@@ -77,6 +79,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         value: Value,
         updates: I,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -87,8 +90,15 @@ impl<S: State> AsyncCompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_command_start(thread_id, Some(value), Some(updates), Vec::new(), config)
-            .await
+        self.resume_command_start(
+            thread_id,
+            Some(value),
+            Some(updates),
+            Vec::new(),
+            sends,
+            config,
+        )
+        .await
     }
 
     /// Continue with goto targets and no resume value using a per-run config.
@@ -97,6 +107,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         updates: I,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -107,7 +118,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_command_start(thread_id, None, Some(updates), goto, config)
+        self.resume_command_start(thread_id, None, Some(updates), goto, sends, config)
             .await
     }
 
@@ -118,6 +129,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         value: Value,
         updates: I,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -128,7 +140,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .into_iter()
             .map(|(channel, value)| (channel.into(), value))
             .collect();
-        self.resume_command_start(thread_id, Some(value), Some(updates), goto, config)
+        self.resume_command_start(thread_id, Some(value), Some(updates), goto, sends, config)
             .await
     }
 
@@ -138,6 +150,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S> {
         for node in &goto {
@@ -157,6 +170,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                 resume,
                 updates,
                 goto,
+                sends,
             },
             &config,
             &mut sink,

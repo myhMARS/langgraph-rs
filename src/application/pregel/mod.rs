@@ -47,6 +47,7 @@ pub(crate) enum StartInput {
         resume: Option<Value>,
         updates: Option<Map<String, Value>>,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
     },
 }
 

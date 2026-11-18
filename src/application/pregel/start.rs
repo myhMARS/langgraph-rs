@@ -96,6 +96,7 @@ pub(crate) fn resolve_resume_start<S: State>(
     resume: &Option<Value>,
     updates: Option<Map<String, Value>>,
     goto: &[String],
+    sends: &[crate::kernel::node::Send],
     schema: &StateSchema,
 ) -> Result<ResumeStart<S>> {
     crate::application::context::load_task_results(&checkpoint.task_results);
@@ -134,6 +135,12 @@ pub(crate) fn resolve_resume_start<S: State>(
         if !tasks.iter().any(|task| &task.node == node) {
             tasks.push(crate::kernel::node::Task::new(node.clone()));
         }
+    }
+    for send in sends {
+        tasks.push(crate::application::pregel::scheduling::send_task(
+            "<command>",
+            send.clone(),
+        )?);
     }
     Ok((values, state, tasks, finish_writes))
 }

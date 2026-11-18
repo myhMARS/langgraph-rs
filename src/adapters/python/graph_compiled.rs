@@ -88,6 +88,7 @@ impl PyCompiledGraph {
                                 thread,
                                 updates.clone(),
                                 targets.clone(),
+                                Vec::new(),
                                 &config,
                             )
                         } else {
@@ -127,26 +128,31 @@ impl PyCompiledGraph {
                     PyTypeError::new_err("invoke(Command(...)) requires thread_id")
                 })?;
                 let (resume, updates) = command.to_resume_command(py)?;
-                let goto = command.goto_targets(py)?;
+                let (goto, sends) = command.goto_parts(py)?;
                 let resume_config = invoke_config.clone();
                 let result = py.detach(|| match resume {
-                    Some(value) if goto.is_empty() => self.graph.resume_with_updates_config(
-                        thread,
-                        value,
-                        updates,
-                        &resume_config,
-                    ),
+                    Some(value) if goto.is_empty() && sends.is_empty() => {
+                        self.graph.resume_with_updates_config(
+                            thread,
+                            value,
+                            updates,
+                            Vec::new(),
+                            &resume_config,
+                        )
+                    }
                     Some(value) => self.graph.resume_with_updates_and_goto_config(
                         thread,
                         value,
                         updates,
                         goto,
+                        sends,
                         &resume_config,
                     ),
                     None => self.graph.resume_continue_with_goto_config(
                         thread,
                         updates,
                         goto,
+                        sends,
                         &resume_config,
                     ),
                 });

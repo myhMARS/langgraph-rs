@@ -167,22 +167,19 @@ impl PyAsyncCompiledGraph {
             Option<crate::Value>,
             Option<serde_json::Map<String, crate::Value>>,
             Vec<String>,
+            Vec<crate::Send>,
         )> = None;
         let mut command: Option<crate::Command> = None;
         if let Some(obj) = input {
             if let Ok(py_command) = obj.extract::<PyRef<PyCommand>>() {
                 let (resume, updates) = py_command.to_resume_command(py)?;
                 let (goto, sends) = py_command.goto_parts(py)?;
-                if !sends.is_empty() {
-                    return Err(PyTypeError::new_err(
-                        "ainvoke Command(goto=Send) is not supported yet",
-                    ));
-                }
                 let command_update = Some(updates.clone());
                 resume_start = Some((
                     resume.clone(),
                     Some(updates.into_iter().collect()),
                     goto.clone(),
+                    sends.clone(),
                 ));
                 command = Some(crate::Command {
                     resume,
@@ -203,7 +200,7 @@ impl PyAsyncCompiledGraph {
         let graph = self.graph.clone();
         let stream_thread = thread.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let result = if let Some((resume, updates, goto)) = resume_start {
+            let result = if let Some((resume, updates, goto, sends)) = resume_start {
                 let thread = stream_thread.as_deref();
                 match thread {
                     Some(thread) => {
@@ -215,6 +212,7 @@ impl PyAsyncCompiledGraph {
                                         thread,
                                         value,
                                         updates.unwrap_or_default(),
+                                        sends.clone(),
                                         &config,
                                     )
                                     .await
@@ -226,6 +224,7 @@ impl PyAsyncCompiledGraph {
                                         value,
                                         updates.unwrap_or_default(),
                                         goto,
+                                        sends.clone(),
                                         &config,
                                     )
                                     .await
@@ -236,6 +235,7 @@ impl PyAsyncCompiledGraph {
                                         thread,
                                         updates.unwrap_or_default(),
                                         goto,
+                                        sends.clone(),
                                         &config,
                                     )
                                     .await

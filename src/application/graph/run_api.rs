@@ -98,6 +98,7 @@ impl<S: State> CompiledGraph<S> {
                 resume: None,
                 updates: Some(updates),
                 goto,
+                sends: Vec::new(),
             },
             &config,
             &mut sink,
@@ -198,6 +199,7 @@ impl<S: State> CompiledGraph<S> {
                 resume,
                 updates,
                 goto,
+                sends: Vec::new(),
             },
             &config,
             &mut filtered,
@@ -396,6 +398,7 @@ impl<S: State> CompiledGraph<S> {
                 resume: Some(value),
                 updates: None,
                 goto: Vec::new(),
+                sends: Vec::new(),
             },
             &config,
             sink,
@@ -561,6 +564,7 @@ impl<S: State> CompiledGraph<S> {
                 resume: Some(value),
                 updates: Some(updates),
                 goto,
+                sends: Vec::new(),
             },
             &config,
             &mut sink,
@@ -579,6 +583,7 @@ impl<S: State> CompiledGraph<S> {
         thread_id: &str,
         value: Value,
         updates: I,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -606,6 +611,7 @@ impl<S: State> CompiledGraph<S> {
         value: Value,
         updates: I,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -630,10 +636,11 @@ impl<S: State> CompiledGraph<S> {
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
-                checkpoint_id: None,
+                checkpoint_id: config.checkpoint_id.clone(),
                 resume: Some(value),
                 updates: Some(updates),
                 goto,
+                sends,
             },
             &config,
             &mut sink,
@@ -647,6 +654,7 @@ impl<S: State> CompiledGraph<S> {
         thread_id: &str,
         updates: I,
         goto: Vec<String>,
+        sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
@@ -671,10 +679,11 @@ impl<S: State> CompiledGraph<S> {
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
-                checkpoint_id: None,
+                checkpoint_id: config.checkpoint_id.clone(),
                 resume: None,
                 updates: Some(updates),
                 goto,
+                sends,
             },
             &config,
             &mut sink,
@@ -726,6 +735,7 @@ impl<S: State> CompiledGraph<S> {
                 resume,
                 updates,
                 goto: Vec::new(),
+                sends: Vec::new(),
             },
             &config,
             &mut sink,
