@@ -226,7 +226,8 @@ pub(crate) fn checkpoint_committed(
     let payload = serde_json::json!({
         "config": config,
         "metadata": {
-            "step": checkpoint.step,
+            // LangGraph exposes `metadata.step` one below our internal counter.
+            "step": checkpoint.step as i64 - 1,
             "source": checkpoint.metadata.get("source"),
             "parents": {},
         },

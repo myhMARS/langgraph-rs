@@ -295,6 +295,7 @@ impl LangGraphSqliteReader {
                 return Ok(checkpoint);
             }
         }
+        // This table stores our internal step (see the saver), so no offset is applied.
         let step = metadata
             .get("step")
             .and_then(Value::as_i64)

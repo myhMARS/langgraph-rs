@@ -8,7 +8,7 @@ use super::AsyncCompiledGraph;
 use crate::_internal::error::{Error, Result};
 use crate::_internal::node::Task;
 use crate::_internal::state::{ChannelUpdate, State, apply_updates, values_to_state};
-use crate::checkpoint::{Checkpoint, infer_as_node, new_checkpoint_id, now_millis};
+use crate::checkpoint::{Checkpoint, infer_as_node, new_checkpoint_id, now_millis, versions_for};
 use crate::graph::StateSnapshot;
 use crate::pregel::scheduling::{collect_next_nodes, dedupe, send_task};
 
@@ -177,7 +177,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             // Validate the task id but keep the checkpoint's pending `next`, matching
             // the sync implementation's preserve-next semantics.
             self.resolve_task_node(thread_id, "", task_id).await?;
-            return self.update_state_in(thread_id, "", updates, None).await;
+            return self
+                .update_state_inner(thread_id, "", updates, None, true)
+                .await;
         }
         let as_node = as_node.map(str::to_owned);
         self.update_state_in(thread_id, "", updates, as_node.as_deref())
@@ -223,6 +225,22 @@ impl<S: State> AsyncCompiledGraph<S> {
         I: IntoIterator<Item = (K, Value)>,
         K: Into<String>,
     {
+        self.update_state_inner(thread_id, namespace, updates, as_node, false)
+            .await
+    }
+
+    async fn update_state_inner<I, K>(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        updates: I,
+        as_node: Option<&str>,
+        preserve_next: bool,
+    ) -> Result<StateSnapshot<S>>
+    where
+        I: IntoIterator<Item = (K, Value)>,
+        K: Into<String>,
+    {
         let checkpoint = self
             .saver_latest_in(thread_id, namespace)
             .await?
@@ -238,10 +256,6 @@ impl<S: State> AsyncCompiledGraph<S> {
                 node: "<update>".to_string(),
             })
             .collect();
-        let updated_channels: Vec<String> = updates
-            .iter()
-            .map(|update| update.channel.clone())
-            .collect();
         apply_updates(&self.schema, &mut values, updates)?;
         let values = self.schema.persisted_values(&values);
         let state = values_to_state::<S>(&values)?;
@@ -250,7 +264,9 @@ impl<S: State> AsyncCompiledGraph<S> {
         } else {
             None
         };
-        let next = if as_node == Some(crate::END) {
+        let next = if preserve_next {
+            checkpoint.next.clone()
+        } else if as_node == Some(crate::END) {
             Vec::new()
         } else if matches!(as_node, Some(crate::START) | Some("__input__")) {
             self.entry_tasks(&state)?
@@ -282,11 +298,18 @@ impl<S: State> AsyncCompiledGraph<S> {
                 None => checkpoint.next.clone(),
             }
         };
-        let id = new_checkpoint_id(thread_id, checkpoint.step);
+        let step = checkpoint.step + 1;
+        let executed_for_versions: Vec<String> = match as_node.or(inferred.as_deref()) {
+            Some(node) if self.nodes.contains_key(node) => vec![node.to_string()],
+            _ => Vec::new(),
+        };
+        let (channel_versions, versions_seen, updated_channels) =
+            versions_for(Some(&checkpoint), &values, step, &executed_for_versions);
+        let id = new_checkpoint_id(thread_id, step);
         let updated = Checkpoint {
             id,
             thread_id: thread_id.to_string(),
-            step: checkpoint.step,
+            step,
             values,
             next,
             // Fresh `source="update"` checkpoint, matching the sync runtime.
@@ -301,8 +324,8 @@ impl<S: State> AsyncCompiledGraph<S> {
             )]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),
-            channel_versions: checkpoint.channel_versions.clone(),
-            versions_seen: checkpoint.versions_seen.clone(),
+            channel_versions,
+            versions_seen,
             updated_channels,
             pending_writes: Vec::new(),
             deferred: checkpoint.deferred.clone(),
