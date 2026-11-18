@@ -19,6 +19,8 @@ pub(crate) struct PauseContext<'a> {
     pub(crate) namespace: &'a str,
     pub(crate) step: usize,
     pub(crate) checkpoint_emit: bool,
+    /// Write a fresh checkpoint instead of updating the previous one in place.
+    pub(crate) force_new: bool,
 }
 
 /// Handle an `interrupt_before` hook: persist the pause and emit its events.
@@ -77,6 +79,7 @@ where
             next_tasks: &paused_tasks,
             writes_by_node: &std::collections::HashMap::new(),
         },
+        context.force_new,
         "loop",
         context.checkpoint_emit,
         sink,

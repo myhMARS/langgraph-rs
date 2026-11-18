@@ -342,7 +342,7 @@ pub(crate) async fn save_fresh_start<S, B, F>(
     persist: bool,
     emit: bool,
     sink: &mut F,
-) -> Result<usize>
+) -> Result<(usize, bool)>
 where
     S: State,
     B: crate::pregel::backend::PregelBackend<S>,
@@ -445,7 +445,7 @@ where
             "loop",
         ));
     }
-    Ok(base_step)
+    Ok((base_step, persist))
 }
 
 /// Attach a pause to the checkpoint the interrupted superstep started from.
@@ -479,6 +479,7 @@ pub(crate) async fn persist_pause<S, B, F>(
     values: &Map<String, Value>,
     step: usize,
     draft: PauseDraft<'_>,
+    force_new: bool,
     source: &str,
     emit: bool,
     sink: &mut F,
@@ -489,7 +490,10 @@ where
     F: FnMut(StreamChunk),
 {
     let _ = next;
-    let Some(mut checkpoint) = previous.take() else {
+    // Durability::Exit can skip this turn's checkpoints; the pause must not then rewrite
+    // the previous turn's checkpoint, so force a new one.
+    let in_place = !force_new && previous.is_some();
+    let Some(mut checkpoint) = previous.take().filter(|_| in_place) else {
         // Durability::Exit skips the input checkpoints, so a pause needs to be written
         // explicitly or it would be lost.
         let next_tasks: &[crate::_internal::node::Task] = draft.next_tasks;
@@ -525,7 +529,16 @@ where
     checkpoint.interrupts = draft.interrupts;
     // The draft always carries the complete pending set: writes applied to `values` are
     // dropped here, writes from the interrupted tick are kept.
-    checkpoint.pending_writes = draft.pending_writes;
+    let mut written_by_node: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let written = draft.pending_writes;
+    for write in &written {
+        written_by_node
+            .entry(write.node.clone())
+            .or_default()
+            .push(write.channel.clone());
+    }
+    checkpoint.pending_writes = written;
     checkpoint.deferred = draft.deferred;
     // Functional-API tasks that finished during the interrupted superstep keep their
     // recorded results so a resume does not re-run them.
@@ -533,12 +546,15 @@ where
         .task_results
         .extend(crate::runtime::context::snapshot_task_results());
     if !draft.executed.is_empty() {
+        // Record the interrupted superstep's nodes and the channels they wrote, so
+        // `versions_seen` and `updated_channels` match a normally committed step.
+
         let (channel_versions, versions_seen, updated_channels) = crate::checkpoint::versions_for(
             Some(&checkpoint),
             &checkpoint.values,
             checkpoint.step,
-            &[],
-            &std::collections::HashMap::new(),
+            draft.executed,
+            &written_by_node,
         );
         checkpoint.channel_versions = channel_versions;
         checkpoint.versions_seen = versions_seen;

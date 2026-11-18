@@ -181,9 +181,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         return Err(Error::other("run aborted by RunControl"));
     }
 
+    let mut pause_force_new = false;
     if fresh {
         context::clear_task_results();
-        step = crate::pregel::checkpointing::save_fresh_start(
+        let (base_step, persisted) = crate::pregel::checkpointing::save_fresh_start(
             backend,
             thread_id.as_deref(),
             &namespace,
@@ -198,6 +199,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             sink,
         )
         .await?;
+        // Exit durability defers this turn's checkpoints; a pause must then be written as a
+        // new checkpoint instead of rewriting the previous turn's.
+        step = base_step;
+        pause_force_new = !persisted;
     }
     // Task ids are hashed from the checkpoint the tick starts from (LangGraph v4 scheme).
     crate::pregel::scheduling::assign_v4_ids(
@@ -244,6 +249,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 namespace: &namespace,
                 step,
                 checkpoint_emit,
+                force_new: pause_force_new,
             };
             let interrupt = crate::pregel::pause::pause_before(
                 backend,
@@ -368,6 +374,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         next_tasks: &next_tasks,
                         writes_by_node: &std::collections::HashMap::new(),
                     },
+                    pause_force_new,
                     "loop",
                     checkpoint_emit,
                     sink,
@@ -492,6 +499,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     next_tasks: &next_tasks,
                     writes_by_node: &writes_by_node,
                 },
+                pause_force_new,
                 "loop",
                 checkpoint_emit,
                 sink,
