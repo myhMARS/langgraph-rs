@@ -95,6 +95,7 @@
 #![allow(clippy::result_large_err)]
 
 mod adapters;
+pub mod application;
 pub mod functional;
 pub mod interop;
 mod kernel;
