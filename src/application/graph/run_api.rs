@@ -583,7 +583,7 @@ impl<S: State> CompiledGraph<S> {
         thread_id: &str,
         value: Value,
         updates: I,
-        sends: Vec<crate::kernel::node::Send>,
+        _sends: Vec<crate::kernel::node::Send>,
         config: &RunConfig,
     ) -> Result<S>
     where
