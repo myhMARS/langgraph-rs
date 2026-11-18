@@ -250,8 +250,9 @@ impl<S: State> AsyncCompiledGraph<S> {
             run.context.clone(),
         );
         let mut adapt = |chunk| sink(chunk);
-        let future =
-            crate::application::pregel::pregel::run_loop(&backend, start, config, &mut adapt, emit);
+        let future = crate::application::pregel::run_loop::run_loop(
+            &backend, start, config, &mut adapt, emit,
+        );
         crate::application::context::with_async_run(run_context, future).await
     }
 

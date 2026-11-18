@@ -12,7 +12,7 @@
 pub(crate) mod backend;
 pub(crate) mod checkpointing;
 pub(crate) mod outcome;
-pub(crate) mod pregel;
+pub(crate) mod run_loop;
 pub(crate) mod scheduling;
 pub(crate) mod start;
 pub(crate) mod step;
@@ -90,7 +90,9 @@ fn execute_with_emit<S: State>(
         max_concurrency: config.max_concurrency,
     };
     let mut adapt = |chunk| sink(chunk);
-    pregel::block_on(pregel::run_loop(&backend, start, config, &mut adapt, emit))
+    run_loop::block_on(run_loop::run_loop(
+        &backend, start, config, &mut adapt, emit,
+    ))
 }
 
 /// Inject managed values (`remaining_steps`, `is_last_step`) before a superstep.
