@@ -20,9 +20,9 @@ use crate::graph::RunConfig;
 use crate::pregel::backend::PregelBackend;
 use crate::pregel::checkpointing::save_checkpoint_via;
 use crate::pregel::outcome::{
-    TaskOutcome, apply_finish_updates, apply_processed_updates, collect_pending_writes,
-    debug_chunk, finish, interrupt_after_node, interrupts_from, merge_interrupted_tasks,
-    process_outcomes, should_save_after_step, should_save_terminal, values_chunk,
+    TaskOutcome, apply_finish_updates, apply_processed_updates, debug_chunk, finish,
+    interrupt_after_node, interrupts_from, merge_interrupted_tasks, process_outcomes,
+    should_save_after_step, should_save_terminal, values_chunk,
 };
 use crate::pregel::scheduling::{collect_next_nodes, schedule_next_tasks};
 use crate::pregel::{StartInput, start, step};
@@ -319,100 +319,33 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         if !interrupts.is_empty() {
             if interrupts.len() == 1 {
                 let interrupted = interrupts.first().expect("one interrupt").clone();
-                let interrupted_ids: HashSet<String> = tasks
-                    .iter()
-                    .zip(&outcomes)
-                    .filter(|(_, outcome)| matches!(outcome, TaskOutcome::Interrupted(_)))
-                    .map(|(task, _)| task.id.clone())
-                    .collect();
-                let mut pending_writes = finish_pending(&finish_updates, backend.schema());
-                pending_writes.extend(
-                    collect_pending_writes(&tasks, &outcomes)
-                        .into_iter()
-                        .filter(|write| backend.schema().persists(&write.channel)),
-                );
-                let successful: Vec<TaskOutcome> = outcomes
-                    .into_iter()
-                    .filter(|outcome| !matches!(outcome, TaskOutcome::Interrupted(_)))
-                    .collect();
-                let processed =
-                    process_outcomes(backend, successful, step, &mut report, sink, emit)?;
-                let written_for_barriers: HashSet<String> = processed
-                    .channel_updates
-                    .iter()
-                    .map(|update| update.channel.clone())
-                    .chain(processed.replacements.iter().map(|(name, _)| name.clone()))
-                    .collect();
-                // The paused checkpoint must still reflect LangGraph's post-step topic
-                // state: topics this superstep rewrote keep their values.
-                backend
-                    .schema()
-                    .clear_step_topics(&mut values, &written_for_barriers);
-                // LangGraph records `versions_seen` for every task of the interrupted
-                // superstep, not just the ones that completed.
-                let executed_for_resume: Vec<String> =
-                    tasks.iter().map(|task| task.node.clone()).collect();
-                // LangGraph aborts the tick before `after_tick`, so a pause keeps only the
-                // interrupted tasks; successful siblings stay as pending writes and their
-                // routes are taken when the resume replays them.
-                let _ = &processed.executed;
-                let mut next_tasks: Vec<Task> = tasks
-                    .iter()
-                    .filter(|task| interrupted_ids.contains(&task.id))
-                    .cloned()
-                    .collect();
-                for task in &mut next_tasks {
-                    task.interrupted = true;
-                }
-                // LangGraph never reaches `apply_writes` when a task interrupts, so named
-                // barriers stay armed until a superstep completes normally.
-
-                crate::pregel::scheduling::assign_v4_ids(
-                    &mut next_tasks,
-                    previous_checkpoint
-                        .as_ref()
-                        .map(|checkpoint| checkpoint.id.as_str()),
-                    &namespace,
-                    step,
-                );
-                crate::pregel::checkpointing::persist_pause(
+                let mut context = crate::pregel::pause::InterruptedStep {
                     backend,
-                    thread_id.as_deref(),
-                    &namespace,
-                    &mut parent,
-                    &mut previous_checkpoint,
-                    &next_tasks,
-                    &values,
+                    thread_id: thread_id.as_deref(),
+                    namespace: &namespace,
                     step,
-                    crate::pregel::checkpointing::PauseDraft {
-                        interrupted: true,
-                        paused_before: false,
-                        interrupts: vec![interrupted.clone()],
-                        pending_writes,
-                        deferred: pending_deferred.clone(),
-                        executed: &executed_for_resume,
-                        values: Some(&values),
-                        next_tasks: &next_tasks,
-                        writes_by_node: &std::collections::HashMap::new(),
-                        raw_input: raw_input.as_ref(),
-                    },
-                    pause_force_new,
-                    "loop",
                     checkpoint_emit,
+                    force_new: pause_force_new,
+                    emit,
+                    values_enabled,
+                    parent: &mut parent,
+                    previous: &mut previous_checkpoint,
+                    values: &mut values,
+                    pending_deferred: &mut pending_deferred,
+                    report: &mut report,
+                    finish_updates: &mut finish_updates,
+                    raw_input: raw_input.as_ref(),
                     sink,
+                    _state: std::marker::PhantomData,
+                };
+                let interrupt = crate::pregel::pause::pause_single_interrupt(
+                    &mut context,
+                    &tasks,
+                    outcomes,
+                    &interrupted,
                 )
                 .await?;
-                if emit {
-                    crate::pregel::pause::emit_pause_events(
-                        sink,
-                        step,
-                        &tasks,
-                        std::slice::from_ref(&interrupted),
-                        &values,
-                        values_enabled,
-                    );
-                }
-                return Err(Error::Interrupt(interrupted));
+                return Err(Error::Interrupt(interrupt));
             }
             let interrupted_task_ids: HashSet<String> = tasks
                 .iter()
