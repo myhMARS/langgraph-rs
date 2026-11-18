@@ -78,7 +78,9 @@ impl<S: State> CompiledGraph<S> {
         let mut states = Vec::new();
         for namespace in namespaces {
             if let Some(checkpoint) = checkpointer.latest_in(thread_id, &namespace)? {
-                states.push(StateSnapshot::from_checkpoint(checkpoint)?);
+                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                snapshot.step = snapshot.step.saturating_sub(1);
+                states.push(snapshot);
             }
         }
         Ok(states)
@@ -342,7 +344,9 @@ impl<S: State> CompiledGraph<S> {
             pending_writes: Vec::new(),
             deferred: checkpoint.deferred.clone(),
         };
-        let snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
+        let mut snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
+        // Readers report `checkpoint.step - 1`; keep this snapshot consistent with them.
+        snapshot.step = snapshot.step.saturating_sub(1);
         checkpointer.put(updated)?;
         Ok(snapshot)
     }

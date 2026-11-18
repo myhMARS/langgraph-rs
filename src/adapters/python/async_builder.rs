@@ -33,9 +33,14 @@ fn async_node_from_python(
                 let resume = context.take_resume();
                 let run_timeout = context.run_timeout();
                 let node_name = name.as_ref().clone();
+                let task_id = crate::runtime::context::current_task_id();
                 let callback_guard = install_langchain_callbacks(py);
+                let task_context = match task_id {
+                    Some(task_id) => TaskContext::new(node_name, resume).with_task_id(task_id),
+                    None => TaskContext::new(node_name, resume),
+                };
                 let (result, custom, messages, usage) = crate::runtime::context::with_task(
-                    TaskContext::new(node_name, resume),
+                    task_context,
                     || -> crate::Result<NodeOutput> {
                         let value = function
                             .as_ref()

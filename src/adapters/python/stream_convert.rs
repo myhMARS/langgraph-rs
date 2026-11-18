@@ -191,13 +191,10 @@ pub(crate) fn convert_stream_chunks(
                     }
                 }
                 StreamChunk::Interrupt { .. } => {
+                    // Recorded only: the shared tail injects it into the values payload or
+                    // emits it standalone, so it is never emitted twice.
                     interrupt_payloads.push(interrupt_payload(py, chunk, v2)?);
                     interrupt_chunks.push(chunk);
-                    if v2 {
-                        converted.extend(chunk_to_py_v2_parts(py, chunk)?);
-                    } else {
-                        converted.push(chunk_to_py_v1(py, chunk, multi_mode)?);
-                    }
                 }
                 _ if chunk.matches_modes(requested) => {
                     convert_regular(&mut converted, &mut values_indices, chunk)?;
