@@ -181,12 +181,52 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         })
         .map(str::to_owned)
         .unwrap_or_else(|| crate::checkpoint::new_checkpoint_id(&thread_id, step));
-    let values = checkpoint
+    let raw_values = checkpoint
         .get("channel_values")
         .or_else(|| checkpoint.get("values"))
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    // LangGraph stores pending interrupts in `channel_values.__interrupt__`; they are not
+    // state channels, so decode them and keep them out of `values`.
+    let mut channel_interrupts: Vec<crate::_internal::error::Interrupt> = Vec::new();
+    let mut collect_channel_interrupts = |entries: &[Value]| {
+        for entry in entries {
+            let Some(entry) = entry.as_object() else {
+                continue;
+            };
+            let Some(id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if channel_interrupts.iter().any(|known| known.id == id) {
+                continue;
+            }
+            channel_interrupts.push(crate::_internal::error::Interrupt {
+                node: String::new(),
+                value: entry.get("value").cloned().unwrap_or(Value::Null),
+                id: id.to_string(),
+                response_schema: entry
+                    .get("response_schema")
+                    .filter(|schema| !schema.is_null())
+                    .cloned(),
+                task_id: None,
+                static_pause: false,
+            });
+        }
+    };
+    for source in [
+        &raw_values,
+        raw_values
+            .get("__root__")
+            .and_then(Value::as_object)
+            .unwrap_or(&Map::new()),
+    ] {
+        if let Some(entries) = source.get("__interrupt__").and_then(Value::as_array) {
+            collect_channel_interrupts(entries);
+        }
+    }
+    let mut values = raw_values;
+    values.retain(|channel, _| !channel.starts_with("__"));
     let parent_id = object
         .get("parent_config")
         .and_then(|parent| parent.get("configurable"))
@@ -319,6 +359,11 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         }
     }
     let mut interrupts = interrupts;
+    for foreign in channel_interrupts {
+        if !interrupts.iter().any(|known| known.id == foreign.id) {
+            interrupts.push(foreign);
+        }
+    }
     for foreign in foreign_interrupts {
         if !interrupts.iter().any(|known| known.id == foreign.id) {
             interrupts.push(foreign);

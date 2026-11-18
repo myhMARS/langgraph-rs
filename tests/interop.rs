@@ -189,6 +189,40 @@ fn imports_failed_tasks_from_error_writes() {
     assert_eq!(error.message, "boom");
 }
 
+#[test]
+fn imports_interrupts_from_channel_values() {
+    let graph = graph();
+    // LangGraph can also carry pending interrupts in `channel_values.__interrupt__`.
+    let document = json!({
+        "config": { "configurable": { "thread_id": "lg-cv", "checkpoint_ns": "", "checkpoint_id": "cp-cv" } },
+        "checkpoint": {
+            "v": 1,
+            "id": "cp-cv",
+            "channel_values": {
+                "value": 5,
+                "__interrupt__": [
+                    { "value": { "ask": "why" }, "id": "int-cv", "response_schema": null }
+                ]
+            },
+            "channel_versions": { "value": "1.0.1" },
+            "versions_seen": {},
+            "updated_channels": ["value"]
+        },
+        "metadata": { "source": "loop", "step": 1 },
+        "parent_config": null,
+        "pending_writes": [],
+        "metadata_extra": null
+    });
+    graph.import_checkpoint("lg-cv", &document).unwrap();
+    let snapshot = graph.get_state("lg-cv").unwrap().unwrap();
+    assert!(snapshot.interrupted);
+    assert_eq!(snapshot.interrupts.len(), 1);
+    assert_eq!(snapshot.interrupts[0].id, "int-cv");
+    // Control channels never leak into state values.
+    assert_eq!(snapshot.values.get("value"), Some(&json!(5)));
+    assert!(snapshot.values.get("__interrupt__").is_none());
+}
+
 #[cfg(feature = "msgpack")]
 #[test]
 fn drops_reserved_control_writes_in_tuple_form() {
