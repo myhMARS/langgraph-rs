@@ -116,8 +116,11 @@ As implemented in `executor::pregel::run_loop`:
 13. **Loop or finish.** Empty `next_tasks` returns the final typed state; otherwise they
     become the next iteration's `tasks`.
 
-If a node raises an interrupt, the checkpoint holds the *pre-superstep* values and the whole
-task list, so a resume replays the entire superstep (see "Interrupt and resume flow").
+If a node raises an interrupt, the checkpoint holds the *pre-superstep* values and only the
+interrupted tasks (`next`); successful siblings keep their writes as pending writes plus their
+routing seeds (`deferred_routes`) and `goto`/`Send` targets (`resume_tasks`). A resume replays
+the interrupted tasks, the stored writes and the stored routes — siblings never run twice (see
+"Interrupt and resume flow").
 
 ## Channel merging
 
