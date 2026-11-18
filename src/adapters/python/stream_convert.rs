@@ -324,6 +324,64 @@ pub(crate) fn chunk_to_py_v2_parts(
     Ok(vec![chunk_to_py_v2(py, chunk)?])
 }
 
+/// Convert a task chunk into LangGraph debug `task` / `task_result` records.
+pub(crate) fn task_debug_parts(
+    py: Python<'_>,
+    chunk: &StreamChunk,
+    v2: bool,
+) -> PyResult<Vec<Py<PyAny>>> {
+    let StreamChunk::Task {
+        step,
+        id,
+        node,
+        input,
+        result,
+        error,
+        ..
+    } = chunk
+    else {
+        return Ok(Vec::new());
+    };
+    let timestamp =
+        crate::kernel::checkpoint::iso_timestamp(crate::kernel::checkpoint::now_millis());
+    let start_payload = serde_json::json!({
+        "id": id,
+        "name": node,
+        "input": input,
+        "triggers": [],
+    });
+    let result_payload = serde_json::json!({
+        "id": id,
+        "name": node,
+        "error": error.as_ref().map(|error| error.message.clone()),
+        "interrupts": [],
+        "result": result,
+    });
+    let mut parts = Vec::new();
+    for (kind, payload) in [("task", start_payload), ("task_result", result_payload)] {
+        if v2 {
+            let data = PyDict::new(py);
+            data.set_item("type", kind)?;
+            data.set_item("timestamp", &timestamp)?;
+            data.set_item("step", step)?;
+            data.set_item("payload", value_to_py(py, &payload)?)?;
+            let part = PyDict::new(py);
+            part.set_item("type", "debug")?;
+            part.set_item("ns", PyTuple::new(py, Vec::<String>::new())?)?;
+            part.set_item("data", data)?;
+            parts.push(part.into_any().unbind());
+        } else {
+            let record = PyDict::new(py);
+            record.set_item("type", kind)?;
+            record.set_item("timestamp", &timestamp)?;
+            record.set_item("step", step)?;
+            record.set_item("payload", value_to_py(py, &payload)?)?;
+            parts.push(record.into_any().unbind());
+        }
+    }
+    Ok(parts)
+}
+
 /// LangGraph v1 chunk conversion that also applies multi-mode tuple wrapping.
 pub(crate) fn chunk_to_py_v1(
     py: Python<'_>,

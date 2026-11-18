@@ -337,9 +337,33 @@ impl PyCompiledGraph {
                 .collect::<Vec<_>>()
         };
         let multi_mode = requested.len() > 1;
+        let debug_mode = requested.contains(&crate::StreamMode::Debug);
         let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
         let mut values_indices = Vec::new();
         for chunk in &chunks {
+            if debug_mode {
+                match chunk {
+                    crate::StreamChunk::Debug { .. } => {
+                        if v2 {
+                            converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+                        } else {
+                            converted.push(chunk_to_py_v1(py, chunk, false)?);
+                        }
+                    }
+                    crate::StreamChunk::Task { .. } => {
+                        converted.extend(task_debug_parts(py, chunk, v2)?);
+                    }
+                    crate::StreamChunk::Usage { .. } | crate::StreamChunk::Interrupt { .. } => {
+                        if v2 {
+                            converted.extend(chunk_to_py_v2_parts(py, chunk)?);
+                        } else {
+                            converted.push(chunk_to_py_v1(py, chunk, false)?);
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             if matches!(chunk, crate::StreamChunk::Values { .. }) {
                 values_indices.push(converted.len());
             }

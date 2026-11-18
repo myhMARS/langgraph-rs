@@ -66,9 +66,15 @@ class AsyncStreamTests(unittest.TestCase):
         )
         debug = [chunk for chunk in chunks if chunk["type"] == "debug"]
         self.assertTrue(debug)
-        self.assertEqual(debug[0]["data"]["type"], "checkpoint")
-        self.assertIn("payload", debug[0]["data"])
-        self.assertIn("timestamp", debug[0]["data"])
+        kinds = {chunk["data"]["type"] for chunk in debug}
+        self.assertIn("checkpoint", kinds)
+        self.assertIn("task", kinds)
+        self.assertIn("task_result", kinds)
+        checkpoint = next(
+            chunk for chunk in debug if chunk["data"]["type"] == "checkpoint"
+        )
+        self.assertIn("payload", checkpoint["data"])
+        self.assertIn("timestamp", checkpoint["data"])
 
 
     def test_astream_can_resume_thread(self):

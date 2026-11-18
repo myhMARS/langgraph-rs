@@ -145,7 +145,10 @@ fn stream_modes_filter_chunks() {
     );
     assert!(debug.iter().all(|chunk| matches!(
         chunk,
-        StreamChunk::Debug { .. } | StreamChunk::Usage { .. } | StreamChunk::Interrupt { .. }
+        StreamChunk::Debug { .. }
+            | StreamChunk::Usage { .. }
+            | StreamChunk::Interrupt { .. }
+            | StreamChunk::Task { .. }
     )));
     assert!(
         !debug
@@ -153,7 +156,7 @@ fn stream_modes_filter_chunks() {
             .any(|chunk| matches!(chunk, StreamChunk::Values { .. }))
     );
     assert!(
-        !debug
+        debug
             .iter()
             .any(|chunk| matches!(chunk, StreamChunk::Task { .. }))
     );

@@ -232,6 +232,10 @@ impl StreamChunk {
         let Some(mode) = self.mode() else {
             return true;
         };
-        modes.contains(&mode)
+        if modes.contains(&mode) {
+            return true;
+        }
+        // `debug` synthesizes task/task_result debug records from task chunks.
+        modes.contains(&StreamMode::Debug) && matches!(mode, StreamMode::Tasks)
     }
 }
