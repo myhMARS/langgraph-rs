@@ -105,6 +105,48 @@ pub struct PyAsyncCompiledGraph {
     saver: Option<Arc<dyn Checkpointer>>,
 }
 
+fn embed_subgraph_states(
+    py: Python<'_>,
+    root: &crate::StateSnapshot<JsonState>,
+    subgraphs: &[crate::StateSnapshot<JsonState>],
+) -> PyResult<Py<PyAny>> {
+    let root_py = snapshot_to_py(py, root)?;
+    if let Ok(root_snapshot) = root_py
+        .bind(py)
+        .extract::<PyRef<crate::adapters::python::types::PyStateSnapshot>>()
+        && let Ok(Some(tasks)) = root_snapshot.dict(py).get_item("tasks")
+        && let Ok(tasks) = tasks.cast::<PyList>()
+    {
+        for task in tasks {
+            let Ok(task_dict) = task.cast::<PyDict>() else {
+                continue;
+            };
+            let Ok(Some(node)) = task_dict.get_item("node") else {
+                continue;
+            };
+            let Ok(node) = node.extract::<String>() else {
+                continue;
+            };
+            let child = subgraphs.iter().find(|snapshot| {
+                snapshot
+                    .checkpoint_ns
+                    .split('|')
+                    .next_back()
+                    .is_some_and(|segment| {
+                        segment == node
+                            || segment
+                                .strip_prefix(&node)
+                                .is_some_and(|rest| rest.starts_with(':'))
+                    })
+            });
+            if let Some(child) = child {
+                task_dict.set_item("state", snapshot_to_py(py, child)?)?;
+            }
+        }
+    }
+    Ok(root_py)
+}
+
 #[pymethods]
 impl PyAsyncCompiledGraph {
     /// Awaitable graph invocation returning the final state dict.
@@ -307,17 +349,28 @@ impl PyAsyncCompiledGraph {
         Ok(stream)
     }
 
-    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]
     fn get_state(
         &self,
         py: Python<'_>,
         thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
+        subgraphs: bool,
     ) -> PyResult<Option<Py<PyAny>>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id =
             thread_id.ok_or_else(|| PyTypeError::new_err("get_state requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
+        if subgraphs {
+            let states = self
+                .graph
+                .get_state_subgraphs(&thread_id)
+                .map_err(|error| to_pyerr(py, error))?;
+            return match states {
+                Some((root, children)) => embed_subgraph_states(py, &root, &children).map(Some),
+                None => Ok(None),
+            };
+        }
         let snapshot = match (
             checkpoint_ns.as_deref(),
             parsed_config.checkpoint_id.as_deref(),
@@ -346,12 +399,13 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable `get_state` for async callers.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]
     fn aget_state<'py>(
         &self,
         py: Python<'py>,
         thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
+        subgraphs: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id =
@@ -361,6 +415,17 @@ impl PyAsyncCompiledGraph {
         let graph = self.graph.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             Python::attach(|py| {
+                if subgraphs {
+                    let states = graph
+                        .get_state_subgraphs(&thread_id)
+                        .map_err(|error| to_pyerr(py, error))?;
+                    return match states {
+                        Some((root, children)) => {
+                            embed_subgraph_states(py, &root, &children).map(Some)
+                        }
+                        None => Ok(None),
+                    };
+                }
                 let snapshot = match (checkpoint_ns.as_deref(), checkpoint_id.as_deref()) {
                     (Some(namespace), Some(id)) => graph.get_state_in_at(&thread_id, namespace, id),
                     (None, Some(id)) => graph.get_state_at(&thread_id, id),
