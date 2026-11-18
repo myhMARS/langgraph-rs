@@ -292,6 +292,7 @@ pub(crate) fn chunk_to_py_v2_parts(
         result,
         error,
         started,
+        interrupts,
         ..
     } = chunk
     {
@@ -344,7 +345,14 @@ pub(crate) fn chunk_to_py_v2_parts(
                 },
             )?,
         )?;
-        finish_data.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+        let interrupt_values: Vec<serde_json::Value> = interrupts
+            .iter()
+            .filter_map(|interrupt| serde_json::to_value(interrupt).ok())
+            .collect();
+        finish_data.set_item(
+            "interrupts",
+            value_to_py(py, &serde_json::Value::Array(interrupt_values))?,
+        )?;
         finish_data.set_item(
             "result",
             match result {
@@ -400,6 +408,7 @@ pub(crate) fn task_debug_parts(
         result,
         error,
         started,
+        interrupts,
         ..
     } = chunk
     else {
@@ -423,7 +432,7 @@ pub(crate) fn task_debug_parts(
                 "id": id,
                 "name": node,
                 "error": error.as_ref().map(|error| error.message.clone()),
-                "interrupts": [],
+                "interrupts": interrupts,
                 "result": result,
             }),
         )]
@@ -656,6 +665,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             result,
             error,
             started,
+            interrupts,
         } => {
             let dict = PyDict::new(py);
             dict.set_item("id", id)?;
@@ -680,7 +690,14 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                         None => py.None(),
                     },
                 )?;
-                dict.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+                let interrupt_values: Vec<serde_json::Value> = interrupts
+                    .iter()
+                    .filter_map(|interrupt| serde_json::to_value(interrupt).ok())
+                    .collect();
+                dict.set_item(
+                    "interrupts",
+                    value_to_py(py, &serde_json::Value::Array(interrupt_values))?,
+                )?;
                 dict.set_item(
                     "result",
                     match result {

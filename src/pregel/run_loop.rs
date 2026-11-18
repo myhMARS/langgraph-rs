@@ -260,6 +260,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     result: None,
                     error: None,
                     started: true,
+                    interrupts: Vec::new(),
                 });
             }
         }
@@ -373,6 +374,29 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                         values: Value::Object(values.clone()),
                     });
                 }
+                if emit {
+                    let id = interrupted
+                        .task_id
+                        .as_deref()
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            tasks
+                                .iter()
+                                .find(|task| task.node == interrupted.node)
+                                .map(|task| task.id.clone())
+                        })
+                        .unwrap_or_else(|| interrupted.node.clone());
+                    sink(StreamChunk::Task {
+                        step,
+                        id,
+                        node: interrupted.node.clone(),
+                        input: None,
+                        result: None,
+                        error: None,
+                        started: false,
+                        interrupts: vec![interrupted.clone()],
+                    });
+                }
                 sink(StreamChunk::Interrupt {
                     node: interrupted.node.clone(),
                     id: interrupted.id.clone(),
@@ -458,6 +482,29 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                     sink(StreamChunk::Values {
                         step,
                         values: Value::Object(values.clone()),
+                    });
+                }
+                if emit {
+                    let id = interrupt
+                        .task_id
+                        .as_deref()
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            tasks
+                                .iter()
+                                .find(|task| task.node == interrupt.node)
+                                .map(|task| task.id.clone())
+                        })
+                        .unwrap_or_else(|| interrupt.node.clone());
+                    sink(StreamChunk::Task {
+                        step,
+                        id,
+                        node: interrupt.node.clone(),
+                        input: None,
+                        result: None,
+                        error: None,
+                        started: false,
+                        interrupts: vec![interrupt.clone()],
                     });
                 }
                 sink(StreamChunk::Interrupt {
@@ -570,6 +617,29 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 sink(StreamChunk::Values {
                     step,
                     values: Value::Object(values.clone()),
+                });
+            }
+            if emit {
+                let id = interrupt
+                    .task_id
+                    .as_deref()
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        tasks
+                            .iter()
+                            .find(|task| task.node == interrupt.node)
+                            .map(|task| task.id.clone())
+                    })
+                    .unwrap_or_else(|| interrupt.node.clone());
+                sink(StreamChunk::Task {
+                    step,
+                    id,
+                    node: interrupt.node.clone(),
+                    input: None,
+                    result: None,
+                    error: None,
+                    started: false,
+                    interrupts: vec![interrupt.clone()],
                 });
             }
             sink(StreamChunk::Interrupt {

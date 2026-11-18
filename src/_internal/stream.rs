@@ -83,6 +83,8 @@ pub enum StreamChunk {
         error: Option<NodeFailure>,
         /// `true` for the start event emitted before the task runs.
         started: bool,
+        /// Interrupts that occurred while the task ran.
+        interrupts: Vec<crate::Interrupt>,
     },
     /// Debug record for a completed superstep (`stream_mode="debug"`).
     Debug {

@@ -140,6 +140,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     result: None,
                     error: Some(failure.clone()),
                     started: false,
+                    interrupts: Vec::new(),
                 });
 
                 match graph.error_handler(&failure.node) {
@@ -235,6 +236,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         result: task_result,
                         error: None,
                         started: false,
+                        interrupts: Vec::new(),
                     });
                 }
                 if output.is_parent() {
