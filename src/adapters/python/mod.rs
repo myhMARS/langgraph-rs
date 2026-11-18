@@ -197,14 +197,6 @@ fn interrupt(
     };
     match crate::application::context::interrupt_with_schema(value, response_schema) {
         Ok(resume) => value_to_py(py, &resume),
-        Err(crate::Error::Interrupt(interrupt)) => {
-            let payload = value_to_py(py, &interrupt.value)?;
-            let schema = match &interrupt.response_schema {
-                Some(schema) => value_to_py(py, schema)?,
-                None => py.None(),
-            };
-            Err(PyErr::new::<GraphInterrupt, _>((payload, schema)))
-        }
         Err(error) => Err(to_pyerr(py, error)),
     }
 }

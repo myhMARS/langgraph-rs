@@ -41,6 +41,22 @@ impl Interrupt {
         }
     }
 
+    /// Create an interrupt with a deterministic id (LangGraph-compatible resume keys).
+    pub(crate) fn with_schema_and_id(
+        node: impl Into<String>,
+        value: Value,
+        response_schema: Option<Value>,
+        id: String,
+    ) -> Self {
+        Self {
+            id,
+            node: node.into(),
+            value,
+            response_schema,
+            task_id: None,
+        }
+    }
+
     /// Create an interrupt with a JSON schema for the expected resume value.
     pub fn with_schema(
         node: impl Into<String>,
@@ -56,6 +72,11 @@ impl Interrupt {
     pub fn resume_from(&self, map: &serde_json::Map<String, Value>) -> Option<Value> {
         map.get(&self.id).cloned()
     }
+}
+
+/// Stable interrupt id derived from a run-scoped seed (xxh3-128, 32 hex chars).
+pub(crate) fn deterministic_interrupt_id(seed: &str) -> String {
+    format!("{:032x}", xxhash_rust::xxh3::xxh3_128(seed.as_bytes()))
 }
 
 fn new_interrupt_id(node: &str) -> String {

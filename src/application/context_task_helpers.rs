@@ -59,6 +59,7 @@ pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Re
                 "interrupt() can only be called from inside a running graph node",
             ));
         };
+        let id = super::next_interrupt_id(context);
         if context.resume_index < context.resume_values.len() {
             let value = context.resume_values[context.resume_index].clone();
             context.resume_index += 1;
@@ -66,10 +67,11 @@ pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Re
             validate_response(&value, response_schema.as_ref())?;
             return Ok(value);
         }
-        Err(Error::Interrupt(Interrupt::with_schema(
+        Err(Error::Interrupt(Interrupt::with_schema_and_id(
             context.node.clone(),
             value,
             response_schema,
+            id,
         )))
     })
 }

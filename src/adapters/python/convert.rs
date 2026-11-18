@@ -156,7 +156,11 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
     match error {
         Error::Interrupt(interrupt) => {
             let payload = value_to_py(py, &interrupt.value).unwrap_or_else(|_| py.None());
-            PyErr::new::<GraphInterrupt, _>((payload,))
+            let schema = match &interrupt.response_schema {
+                Some(schema) => value_to_py(py, schema).unwrap_or_else(|_| py.None()),
+                None => py.None(),
+            };
+            PyErr::new::<GraphInterrupt, _>((payload, schema, interrupt.id.clone()))
         }
         other => PyRuntimeError::new_err(other.to_string()),
     }
@@ -175,7 +179,15 @@ pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
             .and_then(|args| args.get_item(1).ok())
             .filter(|schema| !schema.is_none())
             .and_then(|schema| py_to_value(&schema).ok());
-        Error::Interrupt(Interrupt::with_schema(String::new(), value, schema))
+        let node = crate::application::context::current_node().unwrap_or_default();
+        let id = args
+            .as_ref()
+            .and_then(|args| args.get_item(2).ok())
+            .and_then(|id| id.extract::<String>().ok());
+        match id {
+            Some(id) => Error::Interrupt(Interrupt::with_schema_and_id(node, value, schema, id)),
+            None => Error::Interrupt(Interrupt::with_schema(node, value, schema)),
+        }
     } else {
         Error::other(format!(
             "python node raised {}: {error}",

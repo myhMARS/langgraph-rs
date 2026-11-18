@@ -332,6 +332,18 @@ pub fn current_namespace() -> String {
     current_run().map(|run| run.namespace).unwrap_or_default()
 }
 
+/// Deterministic interrupt id for the current task/step/call index.
+pub(crate) fn next_interrupt_id(context: &mut TaskContext) -> String {
+    let step = CURRENT_STEP.with(|slot| slot.borrow().map(|(step, _)| step).unwrap_or(0));
+    let namespace = current_namespace();
+    let seed = format!(
+        "{namespace}|{step}|{}|{}",
+        context.node, context.interrupt_calls,
+    );
+    context.interrupt_calls += 1;
+    crate::domain::error::deterministic_interrupt_id(&seed)
+}
+
 /// Resume value stamped onto the current task, when replaying an interrupt.
 pub fn current_resume() -> Option<Value> {
     #[cfg(feature = "async")]
@@ -369,6 +381,7 @@ pub(crate) struct TaskContext {
     resume_values: Vec<Value>,
     resume_index: usize,
     resume_consumed: bool,
+    interrupt_calls: usize,
     custom: Vec<Value>,
     messages: Vec<Value>,
     usage: Vec<Usage>,
@@ -383,6 +396,7 @@ impl TaskContext {
             resume_values,
             resume_index: 0,
             resume_consumed: false,
+            interrupt_calls: 0,
             custom: Vec::new(),
             messages: Vec::new(),
             usage: Vec::new(),

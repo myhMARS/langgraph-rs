@@ -202,16 +202,21 @@ impl AsyncContext {
             .resume
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let id = crate::domain::error::deterministic_interrupt_id(&format!(
+            "{}|{}|{}|{}",
+            self.namespace, self.step, self.node, slot.1,
+        ));
         if slot.1 < slot.0.len() {
             let resume = slot.0[slot.1].clone();
             slot.1 += 1;
             crate::application::context::validate_response(&resume, response_schema.as_ref())?;
             return Ok(resume);
         }
-        Err(Error::Interrupt(Interrupt::with_schema(
+        Err(Error::Interrupt(Interrupt::with_schema_and_id(
             self.node.clone(),
             value,
             response_schema,
+            id,
         )))
     }
 
