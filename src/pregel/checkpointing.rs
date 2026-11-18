@@ -312,3 +312,85 @@ pub(crate) async fn save_checkpoint_via<
     *previous = Some(checkpoint);
     Ok(())
 }
+
+/// Write the checkpoints a fresh run starts from and return the first superstep's step.
+///
+/// LangGraph records the raw input in its own `source="input"` checkpoint, then a
+/// post-input checkpoint with the entry tasks, and continues the thread's step counter.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn save_fresh_start<S, B, F>(
+    backend: &B,
+    thread_id: Option<&str>,
+    namespace: &str,
+    addressed: Option<&str>,
+    parent: &mut Option<String>,
+    previous: &mut Option<Checkpoint>,
+    values: &Map<String, Value>,
+    tasks: &[Task],
+    raw_input: Option<&Map<String, Value>>,
+    emit: bool,
+    sink: &mut F,
+) -> Result<usize>
+where
+    S: State,
+    B: crate::pregel::backend::PregelBackend<S>,
+    F: FnMut(StreamChunk),
+{
+    let mut base_step = 0usize;
+    if let Some(thread_id) = thread_id
+        && let Some(latest) = backend
+            .load_checkpoint(thread_id, addressed, namespace)
+            .await?
+    {
+        // Steps are thread-cumulative in LangGraph: a new turn continues one past the
+        // latest checkpoint instead of restarting at zero.
+        base_step = latest.step + 1;
+        *parent = Some(latest.id.clone());
+        *previous = Some(latest);
+    }
+    if let Some(raw) = raw_input {
+        let start_tasks = vec![Task::new(crate::START)];
+        save_checkpoint_via(
+            backend,
+            thread_id,
+            namespace,
+            parent,
+            previous,
+            raw,
+            &start_tasks,
+            base_step,
+            false,
+            false,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            &[],
+            "input",
+            emit,
+            sink,
+        )
+        .await?;
+        base_step += 1;
+    }
+    save_checkpoint_via(
+        backend,
+        thread_id,
+        namespace,
+        parent,
+        previous,
+        values,
+        tasks,
+        base_step,
+        false,
+        false,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        &[],
+        "loop",
+        emit,
+        sink,
+    )
+    .await?;
+    Ok(base_step)
+}

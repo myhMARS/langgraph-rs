@@ -153,70 +153,21 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 
     if fresh {
         context::clear_task_results();
-        let mut base_step = 0usize;
-        if let Some(tid) = thread_id.as_deref() {
-            // Honour an addressed checkpoint so time-travel forks chain from it instead
-            // of from the thread's latest checkpoint.
-            if let Some(latest) = backend
-                .load_checkpoint(tid, config.checkpoint_id.as_deref(), &namespace)
-                .await?
-            {
-                // Steps are thread-cumulative in LangGraph: a new turn continues one
-                // past the latest checkpoint instead of restarting at zero.
-                base_step = latest.step + 1;
-                parent = Some(latest.id.clone());
-                previous_checkpoint = Some(latest);
-            }
-        }
-        if let Some(raw) = raw_input {
-            // LangGraph stores the raw input in its own `source="input"` checkpoint.
-            step = base_step;
-            let start_tasks = vec![Task::new(crate::START)];
-            save_checkpoint_via(
-                backend,
-                thread_id.as_deref(),
-                &namespace,
-                &mut parent,
-                &mut previous_checkpoint,
-                &raw,
-                &start_tasks,
-                step,
-                false,
-                false,
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                &[],
-                "input",
-                checkpoint_emit,
-                sink,
-            )
-            .await?;
-            base_step += 1;
-        }
-        step = base_step;
-        save_checkpoint_via(
+        step = crate::pregel::checkpointing::save_fresh_start(
             backend,
             thread_id.as_deref(),
             &namespace,
+            config.checkpoint_id.as_deref(),
             &mut parent,
             &mut previous_checkpoint,
             &values,
             &tasks,
-            step,
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            "loop",
+            raw_input.as_ref(),
             checkpoint_emit,
             sink,
         )
         .await?;
     }
-
     let mut pending_deferred: Vec<Task> = resume_deferred;
     let mut finish_updates: HashMap<String, Value> = resume_finish
         .into_iter()
