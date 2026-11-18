@@ -148,6 +148,21 @@ impl<S: State> CompiledGraph<S> {
         self.checkpointer.as_ref()
     }
 
+    /// Whether a thread has a paused checkpoint inside `namespace`.
+    ///
+    /// Used to gate subgraph resume: a resume value in scope must only revive the child
+    /// that actually paused, not every sibling subgraph.
+    pub(crate) fn has_pending_in(&self, thread_id: &str, namespace: &str) -> bool {
+        let Some(checkpointer) = self.checkpointer() else {
+            return false;
+        };
+        checkpointer
+            .latest_in(thread_id, namespace)
+            .ok()
+            .flatten()
+            .is_some_and(|checkpoint| checkpoint.interrupted || !checkpoint.next.is_empty())
+    }
+
     /// Export the latest checkpoint of a thread as LangGraph-shaped JSON.
     pub fn export_checkpoint(&self, thread_id: &str) -> Result<Option<Value>> {
         let checkpointer = self
@@ -173,6 +188,20 @@ impl<S: State> CompiledGraph<S> {
     /// Default superstep budget.
     pub fn recursion_limit(&self) -> usize {
         self.recursion_limit
+    }
+
+    /// Render the graph as a compact ASCII map.
+    pub fn to_ascii(&self) -> String {
+        crate::graph::visualize::render_ascii(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
     }
 
     /// Render the graph as a Mermaid `graph TD` diagram.
@@ -206,20 +235,6 @@ impl<S: State> CompiledGraph<S> {
     /// assert!(mermaid.contains("graph TD"));
     /// assert!(mermaid.contains("START --> n_work"));
     /// ```
-    /// Render the graph as a compact ASCII map.
-    pub fn to_ascii(&self) -> String {
-        crate::graph::visualize::render_ascii(crate::graph::visualize::GraphLayout {
-            nodes: self.nodes.keys().map(String::as_str).collect(),
-            edges: &self.edges,
-            conditional: &self.conditional,
-            entry: &self.entry,
-            retries: &self.retries,
-            error_edges: &self.error_edges,
-            interrupt_before: &self.interrupt_before,
-            interrupt_after: &self.interrupt_after,
-        })
-    }
-
     pub fn to_mermaid(&self) -> String {
         crate::graph::visualize::render_mermaid(crate::graph::visualize::GraphLayout {
             nodes: self.nodes.keys().map(String::as_str).collect(),
@@ -252,11 +267,7 @@ impl<S: State> CompiledGraph<S> {
         crate::graph::visualize::dot_to_png(&self.to_dot())
     }
 
-    /// Run the graph to completion and return the final typed state.
-    ///
-    /// `input` is the initial state of a fresh run. Use
-    /// [`CompiledGraph::invoke_updates`] when only a state patch is available.
-    /// Read the latest checkpoint of a thread.
+    /// Look up the node function registered under `name`.
     pub(crate) fn node(&self, name: &str) -> Option<&NodeFn<S>> {
         self.nodes.get(name)
     }
@@ -284,7 +295,7 @@ impl<S: State> CompiledGraph<S> {
         self.error_edges.get(node)
     }
 
-    /// List threads that have at least one checkpoint.
+    /// Declared destination nodes of one node (used to validate `Send`/`goto` targets).
     pub fn destinations_of(&self, node: &str) -> Option<&[String]> {
         self.destinations.get(node).map(Vec::as_slice)
     }

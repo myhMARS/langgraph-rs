@@ -136,7 +136,14 @@ pub(crate) async fn run_async_subgraph<S: State>(
     let thread = context.thread_id().map(str::to_string);
     let parent_namespace = context.namespace();
     let namespace = child_namespace(parent_namespace, &name);
-    let resume = context.take_resume().into_iter().next_back();
+    // Resume only a child that actually paused in this namespace; otherwise a parent
+    // resume value would reload a sibling subgraph's stale checkpoint.
+    let resume = match thread.as_deref() {
+        Some(thread) if child.has_pending_in(thread, &namespace).await => {
+            context.take_resume().into_iter().next_back()
+        }
+        _ => None,
+    };
     let mut config = RunConfig::new().with_checkpoint_ns(namespace.clone());
     if let Some(store) = context.store() {
         config = config.with_store(store);

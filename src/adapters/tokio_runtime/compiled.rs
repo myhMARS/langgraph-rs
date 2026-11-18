@@ -64,7 +64,6 @@ pub(crate) struct AsyncBackend<'a, S: State> {
 }
 
 impl<S: State> AsyncCompiledGraph<S> {
-    /// Timeout policy of one node, when configured.
     /// JSON schema configured for `RunConfig::context`, if any.
     pub fn context_schema(&self) -> Option<&Value> {
         self.context_schema.as_ref()
@@ -548,7 +547,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             .map(|outcome| outcome.state)
     }
 
-    /// Read the latest checkpoint of a thread.
+    /// Static edge targets of one node.
     pub(crate) fn edges_of(&self, node: &str) -> Option<&[String]> {
         self.edges.get(node).map(Vec::as_slice)
     }

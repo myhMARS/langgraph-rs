@@ -55,6 +55,18 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
     }
 
+    /// Whether a thread has a paused checkpoint inside `namespace` (subgraph resume gate).
+    pub(crate) async fn has_pending_in(&self, thread_id: &str, namespace: &str) -> bool {
+        if !self.has_checkpointer() {
+            return false;
+        }
+        self.saver_latest_in(thread_id, namespace)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|checkpoint| checkpoint.interrupted || !checkpoint.next.is_empty())
+    }
+
     pub(crate) async fn saver_history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.history(thread_id).await

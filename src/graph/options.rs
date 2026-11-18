@@ -311,13 +311,13 @@ impl RunConfig {
         self
     }
 
-    /// Select the checkpoint durability policy.
     /// Attach a cooperative run-control handle.
     pub fn with_control(mut self, control: crate::RunControl) -> Self {
         self.control = Some(control);
         self
     }
 
+    /// Select the checkpoint durability policy.
     pub fn with_durability(mut self, durability: Durability) -> Self {
         self.durability = durability;
         self

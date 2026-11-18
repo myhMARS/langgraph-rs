@@ -494,7 +494,14 @@ fn child_namespace(parent: &str, name: &str) -> String {
 fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &str) -> Result<Sub> {
     let thread = crate::runtime::context::current_thread_id();
     let namespace = child_namespace(&crate::runtime::context::current_namespace(), name);
-    let resume = crate::runtime::context::current_resume_last();
+    // Only resume the child when it actually has a paused checkpoint in its namespace;
+    // otherwise a parent resume value would make a sibling subgraph reload stale state.
+    let resume = match thread.as_deref() {
+        Some(thread) if subgraph.has_pending_in(thread, &namespace) => {
+            crate::runtime::context::current_resume_last()
+        }
+        _ => None,
+    };
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
     if let Some(store) = crate::runtime::context::get_store() {
         config = config.with_store(store);
