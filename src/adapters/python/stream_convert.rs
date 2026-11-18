@@ -80,7 +80,13 @@ pub(crate) fn snapshot_to_py(
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             item.set_item("interrupts", task_interrupts)?;
-            item.set_item("state", py.None())?;
+            item.set_item(
+                "state",
+                match &task.state {
+                    Some(state) => value_to_py(py, state)?,
+                    None => py.None(),
+                },
+            )?;
             if let Some(result) = &task.result {
                 item.set_item("result", value_to_py(py, result)?)?;
             }

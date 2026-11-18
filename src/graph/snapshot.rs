@@ -13,6 +13,8 @@ pub struct StateTask {
     pub id: String,
     /// Node to run.
     pub node: String,
+    /// Input passed to the task (`Send` argument), when it overrides state.
+    pub state: Option<Value>,
     /// Failure routed to this task, when it is an error handler.
     pub error: Option<NodeFailure>,
     /// Resume value stamped onto the task (for interrupts).
@@ -108,6 +110,10 @@ impl<S: State> StateSnapshot<S> {
             .map(|task| StateTask {
                 id: task.id.clone(),
                 node: task.node.clone(),
+                state: task
+                    .input
+                    .as_ref()
+                    .map(|input| Value::Object(input.clone())),
                 error: task.error.clone(),
                 resume: task.resume.clone(),
                 result: checkpoint.task_results.get(&task.id).cloned(),

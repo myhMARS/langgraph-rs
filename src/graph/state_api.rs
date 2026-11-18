@@ -78,7 +78,8 @@ impl<S: State> CompiledGraph<S> {
         let mut states = Vec::new();
         for namespace in namespaces {
             if let Some(checkpoint) = checkpointer.latest_in(thread_id, &namespace)? {
-                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                // Child snapshots are live in LangGraph: pending sibling writes are applied.
+                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
                 snapshot.step = snapshot.step.saturating_sub(1);
                 states.push(snapshot);
             }
