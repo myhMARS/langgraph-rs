@@ -317,4 +317,26 @@ half the async per-node cost sits **outside** the adapter - in the Pregel loop a
 returned future. A single-task fast path in `AsyncBackend::run_superstep` was implemented and
 measured (87 vs 105 us/node slope) but it broke `abort_cancels_a_running_async_node` when placed
 outside the abort `select!`; with the branch moved inside the select the gain disappeared into
-measurement noise, so it was reverted rather than kept unproven.
+measurement noise, so it was reverted rather than kept unproven.### Round 9: what a checkpoint save actually costs
+
+Instrumented `save_checkpoint_via`/`build_checkpoint` (removed before commit), 30-node chain,
+32 saves per run, 200 runs:
+
+| segment | us per save |
+| --- | ---: |
+| `persisted_values` (channel clone) | 0.7 |
+| `versions_for` | 1.3 |
+| `next.to_vec()` | 0.2 |
+| **`checkpoint.clone()` before `persist_checkpoint`** | **~6.5** |
+| in-memory saver `put` (measured separately) | 0.1-2.4 |
+| total save | ~9 |
+
+So the dominant cost is not the saver and not `versions_for`: it is the full `Checkpoint` clone
+the writer performs because `PregelBackend::persist_checkpoint` takes the checkpoint by value
+while the loop must keep the same checkpoint as `previous`. A single 30-node run spends
+~276 us of its ~600 us in that clone.
+
+Planned fix (next round): store/pass checkpoints as `Arc<Checkpoint>` (`put(Arc<Checkpoint>)`,
+`previous: Option<Arc<Checkpoint>>`). In-memory savers then push the `Arc` directly, durable
+savers serialise through the `Arc`, and `previous` only needs the two version maps cloned
+(~1.5 us) instead of the whole checkpoint.
