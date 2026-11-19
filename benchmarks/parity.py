@@ -57,6 +57,68 @@ class LgManagedState(TypedDict, total=False):
     value: str
     remaining_steps: RemainingSteps
     is_last_step: IsLastStep
+def run_big_state_scenario() -> list[dict]:
+    """A large (256 KB) channel value must survive every superstep and every checkpoint.
+
+    This covers the value-sharing paths (checkpoint `Arc`, persisted values, snapshot reads):
+    the graph rewrites the blob on each step, and both the final state and a `get_state` read
+    are compared against LangGraph.
+    """
+    results = []
+    blob = "x" * (256 * 1024)
+
+    class LgBigState(TypedDict):
+        blob: str
+        value: int
+
+    def lg_graph():
+        graph = LgStateGraph(LgBigState)
+        for index in range(4):
+            graph.add_node(f"n{index}", lambda state: {"blob": state["blob"], "value": state["value"] + 1})
+            graph.add_edge(f"n{index}", f"n{index + 1}" if index < 3 else END)
+        graph.add_edge(START, "n0")
+        return graph.compile(LgInMemorySaver())
+
+    def rs_graph():
+        graph = rs.StateGraph({"blob": "last_value", "value": "last_value"})
+        for index in range(4):
+            graph.add_node(
+                f"n{index}",
+                lambda state: {"blob": state["blob"], "value": state["value"] + 1},
+            )
+            if index == 0:
+                graph.add_edge(rs.START, f"n{index}")
+            if index < 3:
+                graph.add_edge(f"n{index}", f"n{index + 1}")
+        graph.set_finish_point("n3")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    lg_compiled = lg_graph()
+    rs_compiled = rs_graph()
+    lg_thread = {"configurable": {"thread_id": "parity-lg-big"}}
+    lg_value = lg_compiled.invoke({"blob": blob, "value": 0}, lg_thread)
+    rs_value = rs_compiled.invoke({"blob": blob, "value": 0}, thread_id="parity-rs-big")
+    lg_state = lg_compiled.get_state(lg_thread).values
+    rs_state = rs_compiled.get_state("parity-rs-big").values
+    results.append(
+        {
+            "scenario": "big_state",
+            "rs": {"value": rs_value["value"], "blob_len": len(rs_value["blob"]), "state_len": len(rs_state["blob"])},
+            "lg": {"value": lg_value["value"], "blob_len": len(lg_value["blob"]), "state_len": len(lg_state["blob"])},
+            "equivalent": (
+                rs_value["value"] == lg_value["value"]
+                and rs_value["blob"] == lg_value["blob"]
+                and rs_state["blob"] == lg_state["blob"]
+            ),
+            "bench": {
+                "rs": measure(lambda: rs_compiled.invoke({"blob": blob, "value": 0}, thread_id="parity-rs-big-bench")),
+                "lg": measure(lambda: lg_compiled.invoke({"blob": blob, "value": 0}, {"configurable": {"thread_id": "parity-lg-big-bench"}})),
+            },
+        }
+    )
+    return results
+
+
 def run_reducer_scenario() -> list[dict]:
     """`Annotated[list, operator.add]` must behave the same on both engines.
 
@@ -2229,6 +2291,7 @@ def main() -> None:
     for runner in (
         run_linear_scenarios,
         run_reducer_scenario,
+        run_big_state_scenario,
         run_checkpoint_scenarios,
         run_subgraph_scenario,
         run_subgraph_interrupt_scenario,

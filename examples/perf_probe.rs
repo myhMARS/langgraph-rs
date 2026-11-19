@@ -124,6 +124,32 @@ fn main() {
             started.elapsed().as_nanos() as f64 / 2000.0 / 1000.0
         );
     }
+    {
+        let graph = build(5, true);
+        for _ in 0..120 {
+            graph.run(&input(), &RunConfig::new().with_thread("hist")).unwrap();
+        }
+        let started = Instant::now();
+        for _ in 0..200 {
+            std::hint::black_box(graph.get_state("hist").unwrap());
+        }
+        println!("get_state            = {:.1} us", started.elapsed().as_nanos() as f64 / 200.0 / 1000.0);
+        let started = Instant::now();
+        for _ in 0..200 {
+            std::hint::black_box(graph.get_state_history_filtered("hist", None, Some(1)).unwrap());
+        }
+        println!("history(limit=1)     = {:.1} us", started.elapsed().as_nanos() as f64 / 200.0 / 1000.0);
+        let started = Instant::now();
+        for _ in 0..20 {
+            std::hint::black_box(graph.get_state_history_filtered("hist", None, Some(50)).unwrap());
+        }
+        println!("history(limit=50)    = {:.1} us", started.elapsed().as_nanos() as f64 / 20.0 / 1000.0);
+        let started = Instant::now();
+        for _ in 0..5 {
+            std::hint::black_box(graph.get_state_history("hist").unwrap());
+        }
+        println!("history(full)        = {:.1} us", started.elapsed().as_nanos() as f64 / 5.0 / 1000.0);
+    }
     for k in [1usize, 3, 8] {
         println!("fanout k={k}: {:.1} us", time_fanout(k, 300));
     }

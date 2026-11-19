@@ -528,4 +528,20 @@ unchanged). Appending a version clones only the pointer array; the per-node maps
 the SQLite/LangGraph-format readers that reconstruct `versions_seen` from bare JSON), 119 Python
 tests and parity 35/37 -- the two known differences are unchanged, and every checkpoint-shape
 scenario (`checkpoint_history`, `time_travel`, `sqlite_persistence`, `pending_writes`,
-`update_state`, `snapshot_metadata`) still reports equivalent.
+`update_state`, `snapshot_metadata`) still reports equivalent.### Round 23: a large-state parity scenario, and what history actually costs
+
+Added a `big_state` parity scenario: a 256 KB string channel rewritten on every superstep of a
+4-node graph with an in-memory checkpointer. Both engines must return the same value, blob and
+`get_state` blob; they do, and RS is 2.70x faster there (2.38 ms vs 6.43 ms).
+
+Investigating the weakest remaining scenario (`checkpoint_history`, 1.45x) showed the read path
+is not quadratic in history length: native `get_state` 2.6 us, `history(limit=1)` 5.2 us,
+`history(50)` 132 us and the full 840-checkpoint read 4.0 ms -- i.e. ~3-5 us per snapshot,
+linear. The apparent 168 us/snapshot in the binding came from the *state* growing across
+supersteps (a 600-element `append` log), which both engines must copy per snapshot.
+
+Documented divergence (pre-existing, not caused by these optimisations): LangGraph's
+`get_state_history` returns a lazy generator, our binding returns a list. Iteration works the
+same; `len()`/indexing only work on ours. The parity scenario materialises both sides, so the
+comparison stays valid, and the difference is recorded here rather than silently changing the
+Python API.
