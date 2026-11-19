@@ -400,4 +400,32 @@ Also checked in this round: the async `update_state` gap is not the eager awaita
 Python eager awaitable costs < 1 us, and `aget_state` (same eager path) is 31 us total, while
 `aupdate_state` is ~103 us against ~35 us for the sync API -- so the extra time is inside the
 async update path, not the bridge. The async `resume` phase also fluctuates between 0.94x and
-1.26x across runs; it is tracked as noise until a stable regression appears.
+1.26x across runs; it is tracked as noise until a stable regression appears.### Round 14: in-memory savers skip the `BlockingSaver` wrapper in the async Python API
+
+Root cause of the async binding lag: `AsyncStateGraph.compile(checkpointer=<in-memory saver>)`
+wrapped *every* saver in `BlockingSaver`, so each async read/write paid a `spawn_blocking`
+round trip (~40 us) even though the saver cannot block. The async engine already supports a
+plain sync checkpointer inline (that is how `saver_get`/`saver_put`/`saver_history` fall back),
+so the wrapper is now only installed for savers that can actually block.
+
+Measured (binding, in-memory saver):
+
+| call | before | after |
+| --- | ---: | ---: |
+| `aupdate_state` | 103-114 us | **37 us** |
+| `aget_state` | 51 us | **18 us** |
+| `ainvoke` (1 node) | 579 us | **350 us** |
+
+Cross-engine medians (10 interleaved suites):
+
+| phase | async binding before | after |
+| --- | ---: | ---: |
+| invoke | 1.51x | 1.63x |
+| resume | 0.94-1.26x | 1.32x |
+| state | 1.39x | 1.95x |
+| update_state | 1.05x | 1.79x |
+| stream | 1.40x | 1.96x |
+| batch | 2.31x | 3.53x |
+
+This also settles the round-13 question: the async `update_state` gap was the saver hop, not
+the eager awaitable and not the engine.

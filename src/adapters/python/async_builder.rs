@@ -257,9 +257,16 @@ impl PyAsyncStateGraph {
         let mut builder = self.inner.clone();
         let mut saver = None;
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
-            let adapter =
-                BlockingSaver::new(checkpointer.clone()).map_err(|error| to_pyerr(py, error))?;
-            builder = builder.with_async_checkpointer(Arc::new(adapter));
+            // An in-memory saver cannot block, so the `BlockingSaver` wrapper would only add
+            // a `spawn_blocking` round trip (~40 us) to every read and write. Keep those
+            // savers on the sync path, which the async engine already supports inline.
+            if checkpointer.is_in_memory() {
+                builder = builder.with_checkpointer(checkpointer.clone());
+            } else {
+                let adapter =
+                    BlockingSaver::new(checkpointer.clone()).map_err(|error| to_pyerr(py, error))?;
+                builder = builder.with_async_checkpointer(Arc::new(adapter));
+            }
             saver = Some(checkpointer);
         }
         if let Some(limit) = recursion_limit {
