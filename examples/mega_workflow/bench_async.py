@@ -190,23 +190,16 @@ class NativeAsyncDriver:
         return timings
 
 
-async def summarize(driver, iterations: int) -> tuple[dict[str, int], list[str]]:
-    samples: dict[str, list[int]] = {phase: [] for phase in PHASES}
-    for iteration in range(iterations):
-        timings = await driver.suite(f"{driver.name}-{iteration}")
-        for phase, value in timings.items():
-            samples.setdefault(phase, []).append(value)
-    medians = {phase: _median(values) for phase, values in samples.items() if values}
-    notes: list[str] = []
+def _note(driver) -> list[str]:
     final = getattr(driver, "final", None)
-    if isinstance(final, dict):
-        log_len = final.get("log_len") or len(final.get("log") or [])
-        notes.append(
-            "final count={} sink={} child={} log={}".format(
-                final.get("count"), final.get("sink"), final.get("child"), log_len
-            )
+    if not isinstance(final, dict):
+        return []
+    log_len = final.get("log_len") or len(final.get("log") or [])
+    return [
+        "final count={} sink={} child={} log={}".format(
+            final.get("count"), final.get("sink"), final.get("child"), log_len
         )
-    return medians, notes
+    ]
 
 
 async def main_async(args: argparse.Namespace) -> int:
@@ -221,13 +214,26 @@ async def main_async(args: argparse.Namespace) -> int:
     if not args.skip_native:
         drivers.append(NativeAsyncDriver(args.iterations))
 
+    # Warm up once per engine, then interleave the suites so machine drift is shared.
+    for driver in drivers:
+        await driver.suite(f"{driver.name}-warmup")
+    samples: dict[str, dict[str, list[int]]] = {
+        driver.name: {phase: [] for phase in PHASES} for driver in drivers
+    }
+    for iteration in range(args.iterations):
+        for driver in drivers:
+            timings = await driver.suite(f"{driver.name}-{iteration}")
+            for phase, value in timings.items():
+                samples[driver.name].setdefault(phase, []).append(value)
+
     results: dict[str, dict[str, int]] = {}
     notes: dict[str, list[str]] = {}
     for driver in drivers:
-        medians, note = await summarize(driver, args.iterations)
-        results[driver.name] = medians
-        notes[driver.name] = note
-        print(f"{driver.name}: {medians}", flush=True)
+        results[driver.name] = {
+            phase: _median(values) for phase, values in samples[driver.name].items() if values
+        }
+        notes[driver.name] = _note(driver)
+        print(f"{driver.name}: {results[driver.name]}", flush=True)
 
     print("| Phase | " + " | ".join(results) + " |")
     print("| --- |" + " ---: |" * len(results))

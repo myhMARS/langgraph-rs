@@ -489,7 +489,11 @@ impl PyAsyncCompiledGraph {
             updates.push((key.extract::<String>()?, py_to_value(&value)?));
         }
         let graph = self.graph.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        let in_memory = self
+            .saver
+            .as_ref()
+            .is_some_and(|saver| saver.is_in_memory());
+        let work = async move {
             let result = match checkpoint_ns.as_deref() {
                 Some(namespace) => {
                     graph
@@ -508,10 +512,17 @@ impl PyAsyncCompiledGraph {
                 }
             };
             match result {
-                Ok(snapshot) => Python::attach(|py| snapshot_to_py(py, &snapshot)),
+                Ok(snapshot) => Python::attach(|py| snapshot_to_py(py, &snapshot).map(Some)),
                 Err(error) => Python::attach(|py| Err(to_pyerr(py, error))),
             }
-        })
+        };
+        // An in-memory saver cannot block, so the update completes synchronously; running it
+        // here avoids a Tokio task and an asyncio wakeup per call (~0.3 ms).
+        if in_memory {
+            let result = futures::executor::block_on(work);
+            return immediate_awaitable(py, || result);
+        }
+        pyo3_async_runtimes::tokio::future_into_py(py, work)
     }
 
     /// Awaitably resume from a specific checkpoint id.

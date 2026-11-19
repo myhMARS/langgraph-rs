@@ -218,4 +218,20 @@ Rust suite, the 119 Python binding tests and the mega-workflow examples.
 
 Remaining known gaps: binding `state`/`update_state` are still ~1.5-2x slower than LangGraph
 because snapshots are converted into fresh Python dicts; `aupdate_state` still goes through the
-Tokio bridge because the underlying saver call is async.
+Tokio bridge because the underlying saver call is async.### Round 2 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| `aupdate_state` runs inline for in-memory savers instead of scheduling a Tokio task | `adapters/python/async_graph.rs` | 0.58 -> 0.132 ms per call (4.4x), now faster than LangGraph async (0.33 ms) |
+| Benchmarks warm up once and interleave engines per iteration | `examples/mega_workflow/bench.py`, `bench_async.py` | removes the ±20% drift between runs and whichever engine ran first |
+
+Current per-phase medians (10 interleaved suites, single machine; LangGraph 1.2.22):
+
+| Phase | sync binding | sync native | async binding | async native |
+| --- | ---: | ---: | ---: | ---: |
+| invoke | 4.40x | 19.5x | 1.57x | 22.9x |
+| resume | 6.36x | 24.0x | 1.08x | 10.6x |
+| state | 1.44x | 5.7x | 1.55x | 6.3x |
+| update_state | 1.89x | 8.4x | 1.23x | 9.1x |
+| stream | 4.28x | 11.7x | 1.62x | 11.2x |
+| batch | 6.29x | 19.4x | 2.59x | 18.9x |
