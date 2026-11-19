@@ -61,12 +61,12 @@ a debug build of the same code is 4-5x slower on the Rust side and collapses sev
 
 | Phase | sync binding | sync native | async binding | async native |
 | --- | ---: | ---: | ---: | ---: |
-| invoke | **14.8-16.1x** | 32.6x | **6.09x** | 33.7x |
-| resume | **26.0-28.4x** | 34.1x | 3.32x | 18.2x |
-| state | **42.3-43.3x** | 33.2x | **20.4x** | 29.5x |
-| update_state | **10.0-12.1x** | 19.2x | **6.94x** | 15.4x |
-| stream | **17.6-18.2x** | 16.1x | **5.97x** | 13.6x |
-| batch | **30.1-32.5x** | 33.5x | **8.74x** | 28.4x |
+| invoke | **14.8-16.8x** | 32.6-53.7x | 4.4-5.9x | 33.7-54.8x |
+| resume | **21.5-28.4x** | 34.1-47.9x | 2.5-3.3x | 18.2-32.2x |
+| state | **40.8-43.3x** | 33.2-41.8x | **18.0-30.0x** | 29.5-55.9x |
+| update_state | **8.6-12.1x** | 19.2-27.7x | **5.8-7.2x** | 15.4-23.2x |
+| stream | **16.9-18.2x** | 16.1-23.3x | 4.1-5.0x | 13.6-22.0x |
+| batch | **26.0-32.5x** | 33.5-54.2x | **6.1-8.7x** | 28.4-46.5x |
 
 All six sync-binding phases and five of six async-binding phases are at or above 5x. The remaining
 async outlier is `resume` (3.32x). Its cost decomposes as:
