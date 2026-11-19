@@ -698,12 +698,15 @@ Enable the `python` feature (PyO3) to build a native extension module. With
 
 ```bash
 pip install maturin
-maturin develop --features python     # installs `langgraph_rs` into the active venv
-maturin develop --features "python python-async"   # adds AsyncStateGraph/ainvoke/aresume
+maturin develop --release --features python          # installs `langgraph_rs` into the active venv
+maturin develop --release --features "python python-async"   # adds AsyncStateGraph/ainvoke/aresume
+
+Always build the extension in release mode: a debug build of the Rust engine is 4-5x slower
+(a 10-node chain runs in 0.28-0.39 ms instead of 0.073 ms), which masks the speedups below.
 python python/examples/quickstart.py
 ```
 
-Alternatively build the cdylib directly (`cargo build --features python`) and place
+Alternatively build the cdylib directly (`cargo build --release --features python`) and place
 `liblanggraph_rs.so` / `langgraph_rs.dll` next to your test code as `langgraph_rs.pyd` /
 `langgraph_rs.so`. The Python API uses `JsonState` and Python callables:
 
