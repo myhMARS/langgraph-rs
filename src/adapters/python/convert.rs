@@ -213,7 +213,10 @@ pub(super) fn route_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Route> {
     if obj.is_none() {
         return Ok(Route::end());
     }
-    if let Ok(name) = obj.extract::<String>() {
+    // Type checks first: raise-free lookups avoid building a cleared exception per call, which
+    // matters because routers run once per superstep.
+    if obj.cast::<pyo3::types::PyString>().is_ok() {
+        let name: String = obj.extract()?;
         let name = normalize_node(&name);
         return Ok(if name == crate::END {
             Route::end()
@@ -221,14 +224,14 @@ pub(super) fn route_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Route> {
             Route::node(name)
         });
     }
-    if let Ok(send) = obj.extract::<PyRef<'_, super::types::PySend>>() {
+    if let Ok(send) = obj.cast::<super::types::PySend>().map(|cell| cell.borrow()) {
         return Ok(Route::send(send.to_send(obj.py())?));
     }
     if let Ok(list) = obj.cast::<PyList>() {
         let mut names = Vec::with_capacity(list.len());
         let mut sends = Vec::new();
         for item in list.iter() {
-            if let Ok(send) = item.extract::<PyRef<'_, super::types::PySend>>() {
+            if let Ok(send) = item.cast::<super::types::PySend>().map(|cell| cell.borrow()) {
                 sends.push(send.to_send(obj.py())?);
                 continue;
             }
@@ -248,18 +251,21 @@ pub(super) fn node_output_from_py(obj: &Bound<'_, PyAny>) -> PyResult<NodeOutput
     if obj.is_none() {
         return Ok(NodeOutput::new());
     }
-    if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+    // Type checks first: `extract::<PyRef<..>>()` raises and clears a Python exception when
+    // the object is not a `Command`/`Send`, which used to cost ~5 us per ordinary dict node
+    // result (two failed extracts).
+    if let Ok(command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
         return command.to_output(obj.py());
     }
-    if let Ok(send) = obj.extract::<PyRef<PySend>>() {
+    if let Ok(send) = obj.cast::<PySend>().map(|cell| cell.borrow()) {
         return Ok(NodeOutput::new().send(send.to_send(obj.py())?));
     }
     if let Ok(list) = obj.cast::<PyList>() {
         let mut output = NodeOutput::new();
         for item in list.iter() {
-            if let Ok(send) = item.extract::<PyRef<PySend>>() {
+            if let Ok(send) = item.cast::<PySend>().map(|cell| cell.borrow()) {
                 output = output.send(send.to_send(obj.py())?);
-            } else if let Ok(command) = item.extract::<PyRef<PyCommand>>() {
+            } else if let Ok(command) = item.cast::<PyCommand>().map(|cell| cell.borrow()) {
                 let converted = command.to_output(obj.py())?;
                 let (updates, replaces, goto, sends) = converted.into_parts();
                 for (channel, value) in updates {

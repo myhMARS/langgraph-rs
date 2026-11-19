@@ -614,4 +614,17 @@ exception.
 `update_state` with a config dict 0.084 -> **0.071 ms**, `get_state` 0.031 -> **0.028 ms**
 (workflow thread, warm). Cross-engine ratios for the phases that take config dicts improve
 accordingly; the mega-bench ratios remain load-sensitive (see the caveat in the performance
-report).
+report).### Round 32: node output and router parsing stop raising
+
+`node_output_from_py` probed for `Command`/`Send` with `extract::<PyRef<..>>()` before treating a
+result as a dict; for the common dict case both probes raised and cleared a Python exception.
+`route_from_py` did the same for strings and sends, once per superstep. Both now check the type
+first (`cast::<...>()`).
+
+Per-node profiling (temporary counters, removed): the adapter spent ~8 us/node on a warm simple
+graph, of which **5.3 us was this parse step** -- the two failed extracts. After the change the
+adapter is ~3 us/node and a 10-node linear chain drops 342 -> 280 us.
+
+Mega-workflow ratios (14 iterations): invoke **5.41x**, stream **5.59x**, state 13.96x,
+resume 7.13x, batch 8.78x, update_state 3.59x (absolute 0.12 ms vs LangGraph 0.43 ms).
+Parity stays 36/38 and the 119 Python tests pass.
