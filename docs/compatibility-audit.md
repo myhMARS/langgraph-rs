@@ -203,3 +203,19 @@ Accepted P2 items, kept documented rather than fixed:
 3. **Same-node executed+replayed routing.** `routing_executed` de-duplicates by node name, so a
    node that is both a replayed `Send` sibling and the re-executed task can appear twice when it
    has conditional `Send` edges. Not reachable through the standard static-continuation shapes.
+## Performance work (round 1)
+
+Functional behaviour is unchanged; every change below is a pure fast path, verified by the
+Rust suite, the 119 Python binding tests and the mega-workflow examples.
+
+| Change | Where | Effect (same process, 300 runs) |
+| --- | --- | --- |
+| Borrow the run state per node instead of cloning it | `src/pregel/superstep.rs` | 10-node run 64.4 -> 47.5 us |
+| Move `channel_versions`/`versions_seen` out of the previous checkpoint instead of cloning both | `src/checkpoint.rs::versions_for`, `pregel/checkpointing.rs` | 30-node run 1049 -> 913 us |
+| Skip the `Durability::Async` writer thread for in-memory checkpoints (`Checkpointer::is_in_memory`) | `_internal/ports.rs`, `adapters/memory.rs`, `pregel/mod.rs` | 1-node run 94.7 -> 16.7 us; 30-node 928 -> 590 us |
+| Resolve `aget_state`/`aget_state_history` eagerly instead of scheduling a Tokio task | `adapters/python/async_support.rs`, `async_graph.rs` | `aget_state` 0.291 -> 0.067 ms; history(5) 0.347 -> 0.114 ms |
+| One asyncio loop per OS thread for node coroutines (previous round) | `adapters/python/async_support.rs` | 10-node `ainvoke` 14.16 -> 2.48 ms |
+
+Remaining known gaps: binding `state`/`update_state` are still ~1.5-2x slower than LangGraph
+because snapshots are converted into fresh Python dicts; `aupdate_state` still goes through the
+Tokio bridge because the underlying saver call is async.

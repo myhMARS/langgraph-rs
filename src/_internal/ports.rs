@@ -15,6 +15,12 @@ pub trait Checkpointer: Send + Sync {
     /// Persist a checkpoint.
     fn put(&self, checkpoint: Checkpoint) -> Result<()>;
 
+    /// `true` when `put` cannot block on I/O, so the async durability writer would only
+    /// add a thread and a per-checkpoint clone. In-memory savers override this.
+    fn is_in_memory(&self) -> bool {
+        false
+    }
+
     /// Read a specific checkpoint.
     fn get(&self, thread_id: &str, checkpoint_id: &str) -> Result<Option<Checkpoint>>;
 

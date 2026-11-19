@@ -80,9 +80,13 @@ fn execute_with_emit<S: State>(
     sink: &mut dyn FnMut(StreamChunk),
     emit: bool,
 ) -> Result<RunOutcome<S>> {
+    // The async writer exists to keep slow savers off the run thread; an in-memory saver
+    // cannot block, so spawning a thread and cloning every checkpoint into it is pure
+    // overhead (it dominated short runs).
     let checkpoint_writer = if config.durability == Durability::Async {
         graph
             .checkpointer()
+            .filter(|checkpointer| !checkpointer.is_in_memory())
             .map(|checkpointer| CheckpointWriter::start(checkpointer.clone()))
     } else {
         None

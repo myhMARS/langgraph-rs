@@ -26,6 +26,10 @@ impl InMemorySaver {
 }
 
 impl Checkpointer for InMemorySaver {
+    fn is_in_memory(&self) -> bool {
+        true
+    }
+
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         let mut inner = self
             .inner

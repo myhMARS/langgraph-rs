@@ -92,21 +92,27 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
         );
     };
 
-    let node_state = match &task.input {
+    // Borrow the run state when the task carries no custom input instead of cloning it:
+    // a node only needs `&S`, and the clone is the dominant per-node cost for large states.
+    let owned_state;
+    let node_state: &S = match &task.input {
         Some(input) => match values_to_state::<S>(input) {
-            Ok(state) => state,
+            Ok(state) => {
+                owned_state = state;
+                &owned_state
+            }
             Err(error) => {
                 return failed(task, error.to_string(), 1, Vec::new(), Instant::now());
             }
         },
-        None => state.clone(),
+        None => state,
     };
 
     let cache = graph.cache().cloned();
     let cache_policy = graph.cache_policy(&task.node).cloned();
     let cache_key = match (&cache, &cache_policy) {
         (Some(_), Some(policy)) => {
-            let values = match state_to_values(&node_state) {
+            let values = match state_to_values(node_state) {
                 Ok(values) => values,
                 Err(error) => {
                     return failed(task, error.to_string(), 1, Vec::new(), Instant::now());
@@ -165,12 +171,12 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                 .and_then(|policy| policy.effective_timeout())
         });
         let (result, custom, messages, mut reported) = match timeout {
-            Some(timeout) => run_node_timed(node.clone(), node_state.clone(), task, timeout),
+            Some(timeout) => run_node_timed(node.clone(), (*node_state).clone(), task, timeout),
             None => {
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
                     .with_task_id(task.id.clone())
                     .with_error(task.error.clone());
-                crate::runtime::context::with_task(context, || node(&node_state))
+                crate::runtime::context::with_task(context, || node(node_state))
             }
         };
         usage.append(&mut reported);

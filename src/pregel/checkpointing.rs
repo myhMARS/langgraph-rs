@@ -82,7 +82,7 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) source: &'a str,
     /// Channels each executed node wrote, so `versions_seen` can approximate reads.
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
-    pub(crate) previous: Option<&'a Checkpoint>,
+    pub(crate) previous: Option<&'a mut Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
 }
 
@@ -338,7 +338,7 @@ pub(crate) async fn save_checkpoint_via<
         executed,
         source,
         writes_by_node,
-        previous: previous.as_ref(),
+        previous: previous.as_mut(),
         task_results: crate::runtime::context::snapshot_task_results(),
     });
     backend.persist_checkpoint(checkpoint.clone()).await?;
@@ -513,10 +513,14 @@ where
         // Record the interrupted superstep's nodes and the channels they wrote, so
         // `versions_seen` and `updated_channels` match a normally committed step.
 
+        // `versions_for` takes the maps out of `checkpoint`, so snapshot what it needs
+        // first: this path runs once per pause, not once per superstep.
+        let pause_values = checkpoint.values.clone();
+        let pause_step = checkpoint.step;
         let (channel_versions, versions_seen, updated_channels) = crate::checkpoint::versions_for(
-            Some(&checkpoint),
-            &checkpoint.values,
-            checkpoint.step,
+            Some(&mut checkpoint),
+            &pause_values,
+            pause_step,
             draft.executed,
             &written_by_node,
         );

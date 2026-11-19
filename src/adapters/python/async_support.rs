@@ -91,3 +91,30 @@ pub(crate) fn static_pause_values(
         None => Ok(Some(py.None())),
     }
 }
+
+/// Wrap a **synchronous** result as an awaitable.
+///
+/// `pyo3_async_runtimes::tokio::future_into_py` schedules a Tokio task and wakes the asyncio
+/// loop for every call (~0.3 ms), which dwarfs reading a checkpoint out of memory. State
+/// reads are synchronous in this engine, so evaluate them eagerly and hand back an
+/// already-resolved ``asyncio.Future``; fall back to a Tokio future when no loop is running.
+pub(crate) fn immediate_awaitable<'py, F>(py: Python<'py>, work: F) -> PyResult<Bound<'py, PyAny>>
+where
+    F: FnOnce() -> PyResult<Option<Py<PyAny>>>,
+{
+    let value = match work()? {
+        Some(value) => value,
+        None => py.None(),
+    };
+    match py
+        .import("asyncio")
+        .and_then(|asyncio| asyncio.call_method0("get_running_loop"))
+    {
+        Ok(loop_object) => {
+            let future = loop_object.call_method0("create_future")?;
+            future.call_method1("set_result", (value,))?;
+            Ok(future)
+        }
+        Err(_) => pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(value) }),
+    }
+}

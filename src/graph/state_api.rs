@@ -301,7 +301,7 @@ impl<S: State> CompiledGraph<S> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("update_state"))?;
-        let checkpoint = checkpointer
+        let mut checkpoint = checkpointer
             .latest_in(thread_id, namespace)?
             .ok_or_else(|| {
                 Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
@@ -382,7 +382,7 @@ impl<S: State> CompiledGraph<S> {
         // LangGraph's synthetic update task only has the INTERRUPT trigger, which is not a
         // channel version, so `versions_seen` is left untouched here.
         let (channel_versions, versions_seen, updated_channels) = versions_for(
-            Some(&checkpoint),
+            Some(&mut checkpoint),
             &values,
             step,
             &[],
