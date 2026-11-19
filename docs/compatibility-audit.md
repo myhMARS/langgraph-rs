@@ -253,4 +253,19 @@ authoritative effect size.### Round 4 additions
 | LangChain callback context is built once per OS thread and reused, instead of rebuilding the handler and re-importing `langchain_core.runnables.config` per node | `adapters/python/convert.rs` | binding 10-node `invoke` 0.589 -> 0.513 ms (~7 us per node) |
 
 Latest probe (30-node chain, checkpointer): 529 us per run, 17.2 us per save, fan-out of 3: 71 us,
-fan-out of 8: 93 us, `get_state` 5.3 us, `history(5)` 22.9 us.
+fan-out of 8: 93 us, `get_state` 5.3 us, `history(5)` 22.9 us.### Round 5 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| Async engine also skips its checkpoint-writer task for in-memory savers | `adapters/tokio_runtime/execute.rs` | removes a Tokio task and one channel clone per checkpoint for async graphs (no behaviour change: the saver cannot block) |
+
+Measured bridge costs that bound further gains (Windows, CPython 3.12):
+
+* `pyo3_async_runtimes::tokio::future_into_py` round trip: ~270-300 us per awaited call. This is
+  why every async API that must return a Tokio future (`ainvoke`, `aresume`, `astream`, `abatch`)
+  carries a fixed ~0.3 ms; `aget_state`/`aget_state_history`/`aupdate_state` avoid it through the
+  eager path.
+* Sync `invoke` on a one-node graph: 41 us without a checkpointer, 76-100 us with one, versus
+  7 us / 17 us natively. Of that, ~15 us is fixed call overhead (config parsing, snapshot/output
+  conversion, PyO3 dispatch) and the rest is the per-node Python round trip (state dict, call,
+  output parse, GIL re-acquire).

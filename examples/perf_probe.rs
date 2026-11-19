@@ -75,6 +75,28 @@ fn main() {
             saved / history as f64
         );
     }
+    // same-thread vs fresh-thread cost with a long history
+    let graph = build(1, true);
+    for _ in 0..2000 {
+        graph
+            .run(&input(), &RunConfig::new().with_thread("long"))
+            .unwrap();
+    }
+    let started = Instant::now();
+    for _ in 0..300 {
+        graph
+            .run(&input(), &RunConfig::new().with_thread("long"))
+            .unwrap();
+    }
+    let same = started.elapsed().as_nanos() as f64 / 300.0 / 1000.0;
+    let started = Instant::now();
+    for index in 0..300 {
+        graph
+            .run(&input(), &RunConfig::new().with_thread(format!("fresh{index}")))
+            .unwrap();
+    }
+    let fresh = started.elapsed().as_nanos() as f64 / 300.0 / 1000.0;
+    println!("long-thread same={same:.1} us  fresh={fresh:.1} us  history={}", graph.get_state_history("long").unwrap().len());
     for k in [1usize, 3, 8] {
         println!("fanout k={k}: {:.1} us", time_fanout(k, 300));
     }

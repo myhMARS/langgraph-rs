@@ -204,9 +204,17 @@ impl<S: State> AsyncCompiledGraph<S> {
         sink: &mut (dyn FnMut(StreamChunk) + Send),
         emit: bool,
     ) -> Result<RunOutcome<S>> {
+        // An in-memory saver cannot block, so the writer task (and its channel clone per
+        // checkpoint) is pure overhead - the same fast path the sync backend takes.
+        let in_memory_only = self.async_checkpointer.is_none()
+            && self
+                .checkpointer
+                .as_ref()
+                .is_some_and(|saver| saver.is_in_memory());
         if config.durability != crate::Durability::Async
             || !self.has_checkpointer()
             || config.thread_id.is_none()
+            || in_memory_only
         {
             return self.execute_inner(start, config, sink, None, emit).await;
         }
