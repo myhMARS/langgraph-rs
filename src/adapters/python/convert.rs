@@ -356,9 +356,25 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
         }
         if spec.is_callable() {
             let callable = spec.clone().unbind();
+            // `Annotated[list, operator.add]` is the most common reducer; concatenating two
+            // JSON arrays natively avoids a Python round trip (and two conversions) per
+            // superstep. Anything else falls back to calling the Python callable.
+            let is_operator_add = Python::attach(|py| {
+                py.import("operator")
+                    .and_then(|module| module.getattr("add"))
+                    .is_ok_and(|add| add.is(&callable))
+            });
             out = out.with_channel(
                 name,
                 Channel::reducer(move |current: &Value, incoming: &Value| {
+                    if is_operator_add
+                        && let (Value::Array(left), Value::Array(right)) = (current, incoming)
+                    {
+                        let mut merged = Vec::with_capacity(left.len() + right.len());
+                        merged.extend(left.iter().cloned());
+                        merged.extend(right.iter().cloned());
+                        return Ok(Value::Array(merged));
+                    }
                     Python::attach(|py| {
                         let current =
                             value_to_py(py, current).map_err(|error| pyerr_to_error(py, error))?;

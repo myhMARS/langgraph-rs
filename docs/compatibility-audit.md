@@ -455,4 +455,16 @@ handing it to Tokio. It looked excellent -- `ainvoke` 357 -> **116 us**, `aresum
 (the thread-local node loop is already running there) and (b) a slow synchronous node would
 block the loop instead of running on a Tokio worker. Both are semantic regressions, so the
 `future_into_py` bridge stays; the ~105 us it costs per call is comparable to Python's own
-cross-thread future completion (171 us measured for a thread-per-call hop).
+cross-thread future completion (171 us measured for a thread-per-call hop).### Round 17: `operator.add` reducers stay in Rust
+
+A Python callable reducer used to be invoked for every merge: convert the accumulated value
+*and* the write to Python objects, call the callable, convert the result back. For
+`Annotated[list, operator.add]` (the most common reducer) that is two full list copies plus a
+Python round trip per superstep.
+
+`channel_specs_from_py` now detects `operator.add` when the schema is built; the reducer
+concatenates two JSON arrays natively and only falls back to Python when either side is not an
+array (strings, numbers, dicts), which keeps the semantics identical.
+
+Measured (40-node chain writing one list element per step, binding): **3.45 ms -> 1.67 ms**
+(2.1x). Graphs with other reducers are unchanged, and parity stays 34/36.
