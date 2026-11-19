@@ -590,4 +590,18 @@ used with the state that was already materialised, so the second deserialisation
 
 `update_state` 0.19-0.21 ms -> **0.14 ms** on the mega workflow thread (LangGraph 0.38-0.40 ms),
 i.e. 1.9-2.3x -> **2.7-2.8x**. Verified with the Rust suite, clippy, 119 Python tests and parity
-36/38.
+36/38.### Round 30: one LangChain callback scope per run instead of one per node
+
+Every Python node used to install (and reset) the LangChain callback context variable around
+its call: two Python attribute lookups + two calls per node. The binding now installs the context
+once around the whole run (`CallbackScope`), and `install_langchain_callbacks` skips the per-node
+work while a scope is active on that thread. Parallel nodes run on worker threads, where the
+thread-local flag is false, so they keep their per-node installation and still see the context.
+
+Behaviour check: `test_langchain_callbacks_auto_injected` (a `FakeListChatModel` streamed inside a
+node with `stream_mode="messages"`) still yields `hello world`; the `messages_stream` parity entry
+keeps its pre-existing documented difference, and the full suite is unchanged at 119 tests /
+parity 36-38.
+
+Effect (mega workflow, 14 iterations): invoke 2.55 -> **2.44 ms (5.80x)**, batch 8.11-10.32x,
+resume 7.35x, state 11.39x, stream 4.95x, update_state 2.80x.

@@ -16,6 +16,9 @@ pub(crate) fn invoke(
 ) -> PyResult<Py<PyAny>> {
     let (thread_id, base_config) =
         crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
+    // Install the LangChain callback context once for the whole run: nodes on this thread
+    // then skip their per-node set/reset pair.
+    let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
     let mut invoke_config = base_config.clone();
     if let Some(namespace) = checkpoint_ns.clone() {
         invoke_config = invoke_config.with_checkpoint_ns(namespace);

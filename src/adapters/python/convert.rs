@@ -463,9 +463,55 @@ fn cached_callback_config(py: Python<'_>) -> Option<(Py<PyAny>, Py<PyAny>)> {
     Some(pair)
 }
 
+thread_local! {
+    /// `true` while the binding has installed the LangChain callback context for a whole run,
+    /// so per-node installation can be skipped on this thread.
+    static CALLBACK_SCOPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Installs the LangChain callback context once for a whole graph run.
+///
+/// Nodes executed on this thread then reuse it instead of setting and resetting the context
+/// variable per node (two Python calls each). Parallel nodes run on worker threads, where the
+/// per-node installation still happens.
+pub(super) struct CallbackScope {
+    pair: Option<(Py<PyAny>, Py<PyAny>)>,
+}
+
+impl Drop for CallbackScope {
+    fn drop(&mut self) {
+        if let Some((variable, token)) = self.pair.take() {
+            Python::attach(|py| {
+                let _ = variable
+                    .bind(py)
+                    .call_method1("reset", (token.bind(py),));
+            });
+            CALLBACK_SCOPE.with(|cell| cell.set(false));
+        }
+    }
+}
+
+pub(super) fn begin_callback_scope(py: Python<'_>) -> CallbackScope {
+    if CALLBACK_SCOPE.with(std::cell::Cell::get) {
+        return CallbackScope { pair: None };
+    }
+    match install_langchain_callbacks(py) {
+        Some((variable, token)) => {
+            CALLBACK_SCOPE.with(|cell| cell.set(true));
+            CallbackScope {
+                pair: Some((variable.unbind(), token.unbind())),
+            }
+        }
+        None => CallbackScope { pair: None },
+    }
+}
+
 pub(super) fn install_langchain_callbacks<'py>(
     py: Python<'py>,
 ) -> Option<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    if CALLBACK_SCOPE.with(std::cell::Cell::get) {
+        return None;
+    }
     let (variable, config) = cached_callback_config(py)?;
     let token = variable
         .bind(py)

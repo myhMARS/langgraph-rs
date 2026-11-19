@@ -110,6 +110,7 @@ impl PyCompiledGraph {
             }
         };
         let (thread, mut config) = config_from_py(py, config.or(thread_id))?;
+        let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         if let Some(control) = control {
             config = config.with_control(control.inner.clone());
         }
@@ -191,6 +192,7 @@ impl PyCompiledGraph {
 
     /// Invoke the graph over a list of inputs.
     fn batch(&self, py: Python<'_>, inputs: &Bound<'_, PyAny>) -> PyResult<Vec<Py<PyAny>>> {
+        let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         let list = inputs
             .cast::<PyList>()
             .map_err(|_| PyTypeError::new_err("batch expects a list of state dicts"))?;
