@@ -553,7 +553,11 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
             .or_else(|| checkpoint.get("versions_seen"))
             .or_else(|| object.get("versions_seen"))
             .and_then(Value::as_object)
-            .cloned()
+            .map(|seen| {
+                seen.iter()
+                    .map(|(node, versions)| (node.clone(), std::sync::Arc::new(versions.clone())))
+                    .collect()
+            })
             .unwrap_or_default(),
         updated_channels: extra
             .and_then(|extra| extra.get("updated_channels"))

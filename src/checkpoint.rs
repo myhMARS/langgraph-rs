@@ -27,6 +27,10 @@ pub struct PendingWrite {
     pub replace: bool,
 }
 
+/// Per-node `versions_seen` map: the inner values are shared so cloning a checkpoint does not
+/// deep-copy one entry per executed node.
+pub type VersionsSeen = indexmap::IndexMap<String, std::sync::Arc<Value>>;
+
 /// A snapshot of a graph run, stored between supersteps.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Checkpoint {
@@ -87,7 +91,9 @@ pub struct Checkpoint {
     pub channel_versions: Map<String, Value>,
     /// Per-node seen versions (LangGraph `versions_seen`, simplified).
     #[serde(default)]
-    pub versions_seen: Map<String, Value>,
+    /// Stored behind `Arc` so cloning a checkpoint only bumps reference counts instead of
+    /// deep-copying one entry per executed node.
+    pub versions_seen: VersionsSeen,
     /// Channels whose values changed when this checkpoint was written.
     #[serde(default)]
     pub updated_channels: Vec<String>,
@@ -126,7 +132,7 @@ impl Checkpoint {
             namespace: String::new(),
             task_results: Map::new(),
             channel_versions: Map::new(),
-            versions_seen: Map::new(),
+            versions_seen: indexmap::IndexMap::new(),
             updated_channels: Vec::new(),
             pending_writes: Vec::new(),
             deferred: Vec::new(),
@@ -286,7 +292,7 @@ pub(crate) fn versions_for(
     step: usize,
     executed: &[String],
     written_by_node: &std::collections::HashMap<String, Vec<String>>,
-) -> (Map<String, Value>, Map<String, Value>, Vec<String>) {
+) -> (Map<String, Value>, VersionsSeen, Vec<String>) {
     // The previous checkpoint is shared with the checkpointer (`Arc`), so the version maps
     // are copied rather than taken; they are small next to the values map and this is far
     // cheaper than cloning the whole checkpoint before persisting it.
@@ -325,7 +331,7 @@ pub(crate) fn versions_for(
             .unwrap_or_default();
         let seen = Value::Object(pre_step);
         for node in executed {
-            versions_seen.insert(node.clone(), seen.clone());
+            versions_seen.insert(node.clone(), std::sync::Arc::new(seen.clone()));
         }
     }
     let version = Value::String(version_string(step));

@@ -513,4 +513,19 @@ Two verification gaps were closed instead of adding another micro-optimisation:
   optimised in round 17) and asserts the resulting state is identical; it is, and RS is 5.2x
   faster there.
 
-Parity is now 35/37 equivalent with the same 2 known differences.
+Parity is now 35/37 equivalent with the same 2 known differences.### Round 22: `versions_seen` entries are shared, so checkpoints stop deep-copying them
+
+Profiling the save path again showed `versions_for` at **7.09 us** of the 7.50 us checkpoint
+build: cloning `versions_seen` deep-copies one `Value::Object` per executed node (30 entries on
+a 30-node chain) on every save, and history needs each checkpoint to keep its own copy.
+
+The field is now `VersionsSeen = IndexMap<String, Arc<Value>>` (insertion order preserved,
+serde with the `rc` feature serialises `Arc<T>` exactly like `T`, so the persisted JSON shape is
+unchanged). Appending a version clones only the pointer array; the per-node maps are shared.
+
+`versions_for` 7.09 -> **3.03 us** per save, checkpoint build 7.50 -> **3.46 us**.
+30-node runs: 546 -> ~460-500 us with checkpoints. Verified with the full Rust suite (including
+the SQLite/LangGraph-format readers that reconstruct `versions_seen` from bare JSON), 119 Python
+tests and parity 35/37 -- the two known differences are unchanged, and every checkpoint-shape
+scenario (`checkpoint_history`, `time_travel`, `sqlite_persistence`, `pending_writes`,
+`update_state`, `snapshot_metadata`) still reports equivalent.

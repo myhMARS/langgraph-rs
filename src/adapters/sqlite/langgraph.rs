@@ -265,10 +265,14 @@ impl LangGraphSqliteReader {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let versions_seen = object
+        let versions_seen: crate::checkpoint::VersionsSeen = object
             .get("versions_seen")
             .and_then(Value::as_object)
-            .cloned()
+            .map(|seen| {
+                seen.iter()
+                    .map(|(node, versions)| (node.clone(), std::sync::Arc::new(versions.clone())))
+                    .collect()
+            })
             .unwrap_or_default();
         let updated_channels = object
             .get("updated_channels")
