@@ -1,8 +1,10 @@
-"""``langgraph.checkpoint.base`` has no Rust counterpart.
+"""``langgraph.checkpoint.base`` placeholders.
 
-The extension ships concrete savers (in-memory, SQLite, Redis, Postgres); writing a custom
-saver in Python is not supported. Importing these names works, using them raises
-``NotImplementedError`` with that explanation.
+Subclassing ``BaseCheckpointSaver`` is not how custom savers work with this engine: pass a plain
+object implementing LangGraph's saver protocol (``put`` / ``put_writes`` / ``get_tuple`` /
+``list``) to ``compile(checkpointer=...)`` and the extension bridges to it. LangGraph's own saver
+instances work the same way. The names below only exist so imports keep resolving; using them
+raises ``NotImplementedError`` with that explanation.
 """
 
 from __future__ import annotations
@@ -24,6 +26,9 @@ __all__ = [
 _MISSING = fill_unsupported(
     globals(),
     list(__all__),
-    hint="Use one of the shipped savers instead (InMemorySaver, SqliteSaver, RedisSaver, PostgresSaver).",
+    hint=(
+        "Pass a plain object implementing the LangGraph saver protocol to compile(checkpointer=...) "
+        "instead of subclassing this class."
+    ),
 )
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

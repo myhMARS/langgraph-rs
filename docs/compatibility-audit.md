@@ -833,4 +833,24 @@ usage. `CompiledGraph.stream` now returns a `StreamChunks` object and `StateHist
 `StreamChunks` additionally keeps `len()` and `__getitem__` (the list-like API `langgraph_rs`
 users already had), and its `__iter__` hands back a fresh iterator so existing double-iteration
 code keeps working; LangGraph's generator is single-use instead. The Python suite (130 tests)
-and parity (38/38) both pass. The only documented gap left is Python-side custom savers/stores.
+and parity (38/38) both pass. The only documented gap left is Python-side custom savers/stores.### Round 47: Python checkpointers work through the LangGraph saver protocol
+
+`compile(checkpointer=<object>)` used to accept only the built-in savers. A foreign object with
+`put` / `put_writes` / `get_tuple` / `list` is now wrapped in `PySaver`, which converts between the
+engine's `Checkpoint` and LangGraph's `(config, checkpoint, metadata, parent_config)` tuples. The
+engine-specific scheduling fields (`next`, deferred routes, resume tasks, goto sources, completed
+tasks, task results, pending writes) travel inside `metadata["langgraph_rs"]`; a saver that drops
+unknown metadata keys is rejected with an explicit error instead of silently losing state.
+
+Verified end to end (3 new tests):
+
+| Saver | invoke | resume | `get_state` | `get_state_history` |
+| --- | --- | --- | --- | --- |
+| custom dict-backed Python saver | ok | ok | ok | 6 rows |
+| `langgraph.checkpoint.memory.InMemorySaver` | ok | ok | ok | 6 rows |
+| saver that strips metadata | ok (write) | - | rejected with the `langgraph_rs` hint | - |
+
+`checkpoint_ns` is always present in the config passed to savers (LangGraph reads it directly);
+omitting it for the root namespace was why the reference `InMemorySaver` appeared to accept writes
+but returned nothing. Python suite is now 133 tests; parity stays 38/38; Rust tests and clippy pass.
+Remaining documented difference: Python-side custom **store** implementations.

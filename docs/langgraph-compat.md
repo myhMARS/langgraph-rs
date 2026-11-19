@@ -95,10 +95,15 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
    `state_schema`、`store`、`interrupt_before`、`interrupt_after`、`name`、`version`（`v1`/`v2`）
    均支持；`response_format`、`pre_model_hook`、`post_model_hook`、`context_schema`
    会抛 `NotImplementedError` 并说明，不会静默忽略。
-5. **`langgraph.checkpoint.base` / `langgraph.store.base` 未实现**：对应的 Rust 只提供具体实现，
-   不支持在 Python 里自定义 saver/store。`langgraph_rs.checkpoint.base` 等模块可以 import，
-   但实例化或继承会抛 `NotImplementedError` 并说明原因。
-6. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
+5. **自定义 Python checkpointer 已支持**：`compile(checkpointer=<对象>)` 接受任何实现 LangGraph
+   saver 协议（`put` / `put_writes` / `get_tuple` / `list`）的对象，包括 LangGraph 自带的
+   `InMemorySaver` 等实例。引擎自己的调度字段（`next`、deferred routes、task results 等）
+   放在 `metadata["langgraph_rs"]` 里交给 saver 保存；**会丢弃未知 metadata 键的 saver 不被支持**，
+   读取时会报错说明。`langgraph_rs.checkpoint.base.BaseCheckpointSaver` 仍只是占位类（继承它
+   不会被引擎识别），直接把对象传给 `compile` 即可。
+6. **自定义 Python store 仍未支持**：`langgraph_rs.store.base` 是占位模块，实例化或继承会抛
+   `NotImplementedError`。
+7. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
 ## 5. 如何验证

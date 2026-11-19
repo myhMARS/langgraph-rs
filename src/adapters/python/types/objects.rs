@@ -116,8 +116,15 @@ pub(crate) fn checkpointer_from_py(
     if let Ok(saver) = obj.extract::<PyRef<PyPostgresSaver>>() {
         return Ok(Some(saver.inner.clone() as Arc<dyn Checkpointer>));
     }
+    // A custom saver written against LangGraph's `BaseCheckpointSaver` protocol.
+    if obj.hasattr("get_tuple").unwrap_or(false) && obj.hasattr("put").unwrap_or(false) {
+        return Ok(Some(Arc::new(
+            crate::adapters::python::custom_saver::PySaver::new(obj.clone().unbind()),
+        ) as Arc<dyn Checkpointer>));
+    }
     Err(PyTypeError::new_err(
-        "checkpointer must be a bool or a saver object (InMemorySaver, SqliteSaver, RedisSaver, PostgresSaver)",
+        "checkpointer must be a bool, one of the built-in savers, or an object implementing \
+         LangGraph's `get_tuple`/`put`/`list`/`put_writes` saver protocol",
     ))
 }
 
