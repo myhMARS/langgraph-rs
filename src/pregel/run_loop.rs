@@ -68,7 +68,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         StartInput::Values(_) | StartInput::Updates(_) | StartInput::Gateways { .. }
     );
     let mut parent: Option<String> = None;
-    let mut previous_checkpoint: Option<crate::checkpoint::Checkpoint> = None;
+    let mut previous_checkpoint: Option<crate::checkpoint::SharedCheckpoint> = None;
     let mut skip_interrupt_before = false;
     let mut time_travel = false;
     let mut run_start_step = 0usize;
@@ -126,7 +126,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
                 Error::Checkpoint(format!("no checkpoint found for thread `{resume_thread}`"))
             })?;
         parent = Some(checkpoint.id.clone());
-        previous_checkpoint = Some(checkpoint.clone());
+        previous_checkpoint = Some(std::sync::Arc::new(checkpoint.clone()));
         skip_interrupt_before = checkpoint.paused_before;
         // LangGraph excludes `Command(resume=...)` from time travel but keeps it for other
         // addressed replays (including `Command(update=...)`).

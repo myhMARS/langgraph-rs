@@ -7,7 +7,7 @@ use crate::_internal::node::Task;
 use crate::_internal::state::State;
 use crate::_internal::stream::StreamChunk;
 use crate::Result;
-use crate::checkpoint::{Checkpoint, new_checkpoint_id};
+use crate::checkpoint::new_checkpoint_id;
 use crate::pregel::checkpointing::save_checkpoint_via;
 use crate::pregel::outcome::debug_chunk;
 #[allow(clippy::too_many_arguments)]
@@ -17,7 +17,7 @@ pub(crate) async fn save_fresh_start<S, B, F>(
     namespace: &str,
     addressed: Option<&str>,
     parent: &mut Option<String>,
-    previous: &mut Option<Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     values: &Map<String, Value>,
     tasks: &mut [Task],
     raw_input: Option<&Map<String, Value>>,
@@ -40,7 +40,7 @@ where
         // latest checkpoint instead of restarting at zero.
         base_step = latest.step + 1;
         *parent = Some(latest.id.clone());
-        *previous = Some(latest);
+        *previous = Some(std::sync::Arc::new(latest));
     }
     if let Some(raw) = raw_input {
         let start_tasks = vec![Task::new(crate::START)];
@@ -136,7 +136,7 @@ pub(crate) async fn write_entry_merge<S, B, F>(
     thread_id: Option<&str>,
     namespace: &str,
     parent: &mut Option<String>,
-    previous: &mut Option<Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     values: &Map<String, Value>,
     tasks: &[Task],
     step: usize,
@@ -181,7 +181,7 @@ pub(crate) async fn open_run<S, B, F>(
     namespace: &str,
     addressed: Option<&str>,
     parent: &mut Option<String>,
-    previous: &mut Option<Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     values: &Map<String, Value>,
     tasks: &mut [Task],
     raw_input: Option<&Map<String, Value>>,

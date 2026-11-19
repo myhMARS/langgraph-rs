@@ -141,7 +141,7 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
         }
     }
 
-    async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
+    async fn persist_checkpoint(&self, checkpoint: std::sync::Arc<Checkpoint>) -> Result<()> {
         if let Some(writer) = self.writer {
             writer
                 .send(checkpoint)
@@ -149,7 +149,7 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
             return Ok(());
         }
         if let Some(async_saver) = &self.graph.async_checkpointer {
-            async_saver.put(checkpoint).await?;
+            async_saver.put_shared(checkpoint).await?;
         } else if let Some(saver) = &self.graph.checkpointer {
             crate::pregel::checkpointing::persist_checkpoint(saver.as_ref(), checkpoint, None)?;
         } else {

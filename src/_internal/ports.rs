@@ -21,6 +21,14 @@ pub trait Checkpointer: Send + Sync {
         false
     }
 
+    /// Persist a checkpoint that the run loop still shares.
+    ///
+    /// The default copies, which is what savers that serialise immediately need anyway;
+    /// in-memory savers override it to keep the `Arc` and avoid the deep clone entirely.
+    fn put_shared(&self, checkpoint: std::sync::Arc<Checkpoint>) -> Result<()> {
+        self.put((*checkpoint).clone())
+    }
+
     /// Read a specific checkpoint.
     fn get(&self, thread_id: &str, checkpoint_id: &str) -> Result<Option<Checkpoint>>;
 
@@ -105,6 +113,11 @@ pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T
 pub trait AsyncCheckpointer: Send + Sync {
     /// Persist a checkpoint.
     fn put(&self, checkpoint: Checkpoint) -> BoxFuture<'_, Result<()>>;
+
+    /// Shared variant of [`AsyncCheckpointer::put`]; defaults to a deep copy.
+    fn put_shared(&self, checkpoint: std::sync::Arc<Checkpoint>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.put((*checkpoint).clone()).await })
+    }
     /// Read a specific checkpoint.
     fn get(
         &self,

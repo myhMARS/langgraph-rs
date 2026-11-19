@@ -59,7 +59,7 @@ pub(crate) struct AsyncRunInfo {
 /// Async backend: future joins and awaitable checkpoint I/O.
 pub(crate) struct AsyncBackend<'a, S: State> {
     pub(crate) graph: &'a AsyncCompiledGraph<S>,
-    pub(crate) writer: Option<&'a tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+    pub(crate) writer: Option<&'a tokio::sync::mpsc::UnboundedSender<std::sync::Arc<Checkpoint>>>,
     pub(crate) run: &'a AsyncRunInfo,
 }
 

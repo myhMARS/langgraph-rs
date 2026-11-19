@@ -218,15 +218,15 @@ impl<S: State> AsyncCompiledGraph<S> {
         {
             return self.execute_inner(start, config, sink, None, emit).await;
         }
-        let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Checkpoint>();
+        let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<std::sync::Arc<Checkpoint>>();
         let checkpointer = self.checkpointer.clone();
         let async_saver = self.async_checkpointer.clone();
         let handle = tokio::spawn(async move {
             while let Some(checkpoint) = receiver.recv().await {
                 if let Some(saver) = &async_saver {
-                    let _ = saver.put(checkpoint).await;
+                    let _ = saver.put_shared(checkpoint).await;
                 } else if let Some(saver) = &checkpointer {
-                    let _ = saver.put(checkpoint);
+                    let _ = saver.put_shared(checkpoint);
                 }
             }
         });
@@ -244,7 +244,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         start: StartInput,
         config: &RunConfig,
         sink: &mut (dyn FnMut(StreamChunk) + Send),
-        writer: Option<&tokio::sync::mpsc::UnboundedSender<Checkpoint>>,
+        writer: Option<&tokio::sync::mpsc::UnboundedSender<std::sync::Arc<Checkpoint>>>,
         emit: bool,
     ) -> Result<RunOutcome<S>> {
         let thread_id = config.thread_id.clone();

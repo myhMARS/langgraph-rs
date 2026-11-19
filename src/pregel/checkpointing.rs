@@ -18,16 +18,16 @@ use crate::checkpoint::{Checkpoint, new_checkpoint_id, now_millis};
 /// Checkpoints are sent to one worker thread in superstep order; dropping the writer
 /// flushes the queue and joins, so a finished/interrupted run has all checkpoints.
 pub(crate) struct CheckpointWriter {
-    sender: Option<mpsc::Sender<Checkpoint>>,
+    sender: Option<mpsc::Sender<std::sync::Arc<Checkpoint>>>,
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl CheckpointWriter {
     pub(crate) fn start(checkpointer: Arc<dyn Checkpointer>) -> Self {
-        let (sender, receiver) = mpsc::channel::<Checkpoint>();
+        let (sender, receiver) = mpsc::channel::<std::sync::Arc<Checkpoint>>();
         let handle = std::thread::spawn(move || {
             while let Ok(checkpoint) = receiver.recv() {
-                let _ = checkpointer.put(checkpoint);
+                let _ = checkpointer.put_shared(checkpoint);
             }
         });
         Self {
@@ -36,7 +36,7 @@ impl CheckpointWriter {
         }
     }
 
-    fn submit(&self, checkpoint: Checkpoint) -> Result<()> {
+    fn submit(&self, checkpoint: std::sync::Arc<Checkpoint>) -> Result<()> {
         let Some(sender) = &self.sender else {
             return Err(crate::_internal::error::Error::Checkpoint(
                 "checkpoint writer is already closed".to_string(),
@@ -82,7 +82,7 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) source: &'a str,
     /// Channels each executed node wrote, so `versions_seen` can approximate reads.
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
-    pub(crate) previous: Option<&'a mut Checkpoint>,
+    pub(crate) previous: Option<&'a Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
 }
 
@@ -281,12 +281,12 @@ pub(crate) fn checkpoint_committed(
 /// Persist one checkpoint through a sync checkpointer or the background writer.
 pub(crate) fn persist_checkpoint(
     checkpointer: &dyn Checkpointer,
-    checkpoint: Checkpoint,
+    checkpoint: std::sync::Arc<Checkpoint>,
     writer: Option<&CheckpointWriter>,
 ) -> Result<()> {
     match writer {
         Some(writer) => writer.submit(checkpoint),
-        None => checkpointer.put(checkpoint),
+        None => checkpointer.put_shared(checkpoint),
     }
 }
 
@@ -301,7 +301,7 @@ pub(crate) async fn save_checkpoint_via<
     thread_id: Option<&str>,
     namespace: &str,
     parent: &mut Option<String>,
-    previous: &mut Option<Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     values: &Map<String, Value>,
     next: &[Task],
     step: usize,
@@ -338,10 +338,11 @@ pub(crate) async fn save_checkpoint_via<
         executed,
         source,
         writes_by_node,
-        previous: previous.as_mut(),
+        previous: previous.as_deref(),
         task_results: crate::runtime::context::snapshot_task_results(),
     });
-    backend.persist_checkpoint(checkpoint.clone()).await?;
+    let checkpoint = std::sync::Arc::new(checkpoint);
+    backend.persist_checkpoint(std::sync::Arc::clone(&checkpoint)).await?;
     checkpoint_committed(parent, &checkpoint, sink, emit);
     *previous = Some(checkpoint);
     Ok(())
@@ -387,7 +388,7 @@ pub(crate) async fn persist_pause<S, B, F>(
     thread_id: Option<&str>,
     namespace: &str,
     parent: &mut Option<String>,
-    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     next: &[crate::_internal::node::Task],
     values: &Map<String, Value>,
     step: usize,
@@ -480,6 +481,8 @@ where
         )
         .await;
     };
+    // Pauses are rare: copy the shared checkpoint once so it can be updated in place.
+    let checkpoint = std::sync::Arc::make_mut(&mut checkpoint);
     checkpoint.next = draft.next_tasks.to_vec();
     if let Some(values) = draft.values {
         checkpoint.values = backend.schema().persisted_values(values);
@@ -518,7 +521,7 @@ where
         let pause_values = checkpoint.values.clone();
         let pause_step = checkpoint.step;
         let (channel_versions, versions_seen, updated_channels) = crate::checkpoint::versions_for(
-            Some(&mut checkpoint),
+            Some(checkpoint),
             &pause_values,
             pause_step,
             draft.executed,
@@ -528,7 +531,8 @@ where
         checkpoint.versions_seen = versions_seen;
         checkpoint.updated_channels = updated_channels;
     }
-    backend.persist_checkpoint(checkpoint.clone()).await?;
+    let checkpoint = std::sync::Arc::new(checkpoint.clone());
+    backend.persist_checkpoint(std::sync::Arc::clone(&checkpoint)).await?;
     *previous = Some(checkpoint);
     Ok(())
 }
@@ -539,7 +543,7 @@ where
 /// existing checkpoint, so `get_state` shows them through the live view.
 pub(crate) async fn attach_pending_writes<S, B>(
     backend: &B,
-    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     writes: &[crate::checkpoint::PendingWrite],
 ) -> Result<()>
 where
@@ -549,11 +553,15 @@ where
     if writes.is_empty() {
         return Ok(());
     }
-    let Some(mut checkpoint) = previous.clone() else {
+    let Some(existing) = previous.clone() else {
         return Ok(());
     };
+    // Rare path (a `Command(update=...)` on a finished thread): copy the shared checkpoint
+    // once, then store the new version under the same id.
+    let mut checkpoint = (*existing).clone();
     checkpoint.pending_writes.extend(writes.iter().cloned());
-    backend.persist_checkpoint(checkpoint.clone()).await?;
+    let checkpoint = std::sync::Arc::new(checkpoint);
+    backend.persist_checkpoint(std::sync::Arc::clone(&checkpoint)).await?;
     *previous = Some(checkpoint);
     Ok(())
 }
@@ -566,7 +574,7 @@ pub(crate) async fn write_fork<S, B, F>(
     thread_id: Option<&str>,
     namespace: &str,
     parent: &mut Option<String>,
-    previous: &mut Option<crate::checkpoint::Checkpoint>,
+    previous: &mut Option<crate::checkpoint::SharedCheckpoint>,
     values: &Map<String, Value>,
     tasks: &[crate::_internal::node::Task],
     step: usize,

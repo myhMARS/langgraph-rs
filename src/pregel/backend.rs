@@ -47,7 +47,7 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
     ) -> impl std::future::Future<Output = Result<Option<Checkpoint>>>;
     fn persist_checkpoint(
         &self,
-        checkpoint: Checkpoint,
+        checkpoint: std::sync::Arc<Checkpoint>,
     ) -> impl std::future::Future<Output = Result<()>>;
 }
 
@@ -153,7 +153,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         }
     }
 
-    async fn persist_checkpoint(&self, checkpoint: Checkpoint) -> Result<()> {
+    async fn persist_checkpoint(&self, checkpoint: std::sync::Arc<Checkpoint>) -> Result<()> {
         let Some(checkpointer) = self.graph.checkpointer() else {
             return Ok(());
         };

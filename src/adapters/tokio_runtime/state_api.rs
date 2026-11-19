@@ -276,7 +276,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         I: IntoIterator<Item = (K, Value)>,
         K: Into<String>,
     {
-        let mut checkpoint = self
+        let checkpoint = self
             .saver_latest_in(thread_id, namespace)
             .await?
             .ok_or_else(|| {
@@ -347,7 +347,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         };
         let step = checkpoint.step + 1;
         let (channel_versions, versions_seen, updated_channels) = versions_for(
-            Some(&mut checkpoint),
+            Some(&checkpoint),
             &values,
             step,
             &[],

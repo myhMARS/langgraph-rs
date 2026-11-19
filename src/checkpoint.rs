@@ -281,47 +281,45 @@ pub(crate) fn version_string(_step: usize) -> String {
 
 /// Compute LangGraph-style version metadata for a new checkpoint.
 pub(crate) fn versions_for(
-    previous: Option<&mut Checkpoint>,
+    previous: Option<&Checkpoint>,
     values: &Map<String, Value>,
     step: usize,
     executed: &[String],
     written_by_node: &std::collections::HashMap<String, Vec<String>>,
 ) -> (Map<String, Value>, Map<String, Value>, Vec<String>) {
+    // The previous checkpoint is shared with the checkpointer (`Arc`), so the version maps
+    // are copied rather than taken; they are small next to the values map and this is far
+    // cheaper than cloning the whole checkpoint before persisting it.
+    let mut channel_versions = previous
+        .map(|checkpoint| checkpoint.channel_versions.clone())
+        .unwrap_or_default();
+    let mut versions_seen = previous
+        .map(|checkpoint| checkpoint.versions_seen.clone())
+        .unwrap_or_default();
     let mut updated = Vec::new();
-    let mut pre_step = Map::new();
-    if let Some(checkpoint) = previous.as_deref() {
-        for (channel, value) in values {
-            if checkpoint.values.get(channel) != Some(value) {
-                updated.push(channel.clone());
-            }
+    for (channel, value) in values {
+        if previous.and_then(|checkpoint| checkpoint.values.get(channel)) != Some(value) {
+            updated.push(channel.clone());
         }
-        // The versions every node read before this step: identical for all of them, so
-        // clone it once instead of rebuilding a map per node.
-        pre_step = checkpoint.channel_versions.clone();
     }
-    // Take the maps out of the previous checkpoint instead of cloning them: the previous
-    // checkpoint is replaced by the one being built, so nobody reads them afterwards.
-    let (mut channel_versions, mut versions_seen) = match previous {
-        Some(checkpoint) => (
-            std::mem::take(&mut checkpoint.channel_versions),
-            std::mem::take(&mut checkpoint.versions_seen),
-        ),
-        None => (Map::new(), Map::new()),
-    };
-    let version = Value::String(version_string(step));
-    for channel in &updated {
-        channel_versions.insert(channel.clone(), version.clone());
-    }
+    // LangGraph records, per executed node, the versions of the channels it read *before*
+    // this step. Reads are not tracked, so every executed node records the pre-step map.
     if !executed.is_empty() {
         let _ = written_by_node;
+        let pre_step = previous
+            .map(|checkpoint| checkpoint.channel_versions.clone())
+            .unwrap_or_default();
         let seen = Value::Object(pre_step);
         for node in executed {
             versions_seen.insert(node.clone(), seen.clone());
         }
     }
+    let version = Value::String(version_string(step));
+    for channel in &updated {
+        channel_versions.insert(channel.clone(), version.clone());
+    }
     (channel_versions, versions_seen, updated)
 }
-
 /// Infer the node that last wrote, matching LangGraph's `_infer_as_node`.
 ///
 /// LangGraph picks the node with the highest observed channel version and treats a tie at
@@ -368,6 +366,10 @@ pub(crate) fn infer_as_node(
 }
 
 /// Apply the `before`/`limit` window to a newest-first checkpoint list.
+/// Checkpoints are shared between the run loop and the checkpointer so a save does not
+/// have to deep-clone the whole checkpoint before handing it to the writer.
+pub(crate) type SharedCheckpoint = std::sync::Arc<Checkpoint>;
+
 pub(crate) fn slice_history(
     mut checkpoints: Vec<Checkpoint>,
     before: Option<&str>,

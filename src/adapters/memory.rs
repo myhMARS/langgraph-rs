@@ -15,7 +15,7 @@ use crate::store::{BaseStore, StoreItem, item_matches, namespace_matches, store_
 /// In-memory checkpointer, useful for tests, notebooks and short-lived services.
 #[derive(Debug, Default)]
 pub struct InMemorySaver {
-    inner: Mutex<HashMap<String, Vec<Checkpoint>>>,
+    inner: Mutex<HashMap<String, Vec<std::sync::Arc<Checkpoint>>>>,
 }
 
 impl InMemorySaver {
@@ -31,6 +31,10 @@ impl Checkpointer for InMemorySaver {
     }
 
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
+        self.put_shared(std::sync::Arc::new(checkpoint))
+    }
+
+    fn put_shared(&self, checkpoint: std::sync::Arc<Checkpoint>) -> Result<()> {
         let mut inner = self
             .inner
             .lock()
@@ -67,7 +71,7 @@ impl Checkpointer for InMemorySaver {
         Ok(inner
             .get(thread_id)
             .and_then(|checkpoints| checkpoints.iter().find(|cp| cp.id == checkpoint_id))
-            .cloned())
+            .map(|arc| (**arc).clone()))
     }
 
     fn latest(&self, thread_id: &str) -> Result<Option<Checkpoint>> {
@@ -78,7 +82,7 @@ impl Checkpointer for InMemorySaver {
         Ok(inner
             .get(thread_id)
             .and_then(|checkpoints| checkpoints.last())
-            .cloned())
+            .map(|arc| (**arc).clone()))
     }
 
     fn history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
@@ -88,7 +92,7 @@ impl Checkpointer for InMemorySaver {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         Ok(inner
             .get(thread_id)
-            .map(|checkpoints| checkpoints.iter().rev().cloned().collect())
+            .map(|checkpoints| checkpoints.iter().rev().map(|arc| (**arc).clone()).collect())
             .unwrap_or_default())
     }
 
@@ -110,7 +114,7 @@ impl Checkpointer for InMemorySaver {
                 .iter()
                 .rev()
                 .find(|checkpoint| checkpoint.namespace == namespace)
-                .cloned()
+                .map(|arc| (**arc).clone())
         }))
     }
 
@@ -130,7 +134,7 @@ impl Checkpointer for InMemorySaver {
         };
         // Newest first, namespace-filtered, then windowed: only the selected checkpoints
         // are cloned, so a long thread is not copied for a five-entry page.
-        let mut selected: Vec<&Checkpoint> = checkpoints
+        let mut selected: Vec<&std::sync::Arc<Checkpoint>> = checkpoints
             .iter()
             .rev()
             .filter(|checkpoint| checkpoint.namespace == namespace)
@@ -146,7 +150,7 @@ impl Checkpointer for InMemorySaver {
         if let Some(limit) = limit {
             selected.truncate(limit);
         }
-        Ok(selected.into_iter().cloned().collect())
+        Ok(selected.into_iter().map(|arc| (**arc).clone()).collect())
     }
 
     fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
@@ -161,7 +165,7 @@ impl Checkpointer for InMemorySaver {
                     .iter()
                     .rev()
                     .filter(|checkpoint| checkpoint.namespace == namespace)
-                    .cloned()
+                    .map(|arc| (**arc).clone())
                     .collect()
             })
             .unwrap_or_default())
@@ -197,9 +201,10 @@ impl Checkpointer for InMemorySaver {
         };
         let copies = source
             .into_iter()
-            .map(|mut checkpoint| {
+            .map(|arc| {
+                let mut checkpoint = (*arc).clone();
                 checkpoint.thread_id = target_thread.to_string();
-                checkpoint
+                std::sync::Arc::new(checkpoint)
             })
             .collect::<Vec<_>>();
         inner.insert(target_thread.to_string(), copies);

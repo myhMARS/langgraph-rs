@@ -339,4 +339,23 @@ while the loop must keep the same checkpoint as `previous`. A single 30-node run
 Planned fix (next round): store/pass checkpoints as `Arc<Checkpoint>` (`put(Arc<Checkpoint>)`,
 `previous: Option<Arc<Checkpoint>>`). In-memory savers then push the `Arc` directly, durable
 savers serialise through the `Arc`, and `previous` only needs the two version maps cloned
-(~1.5 us) instead of the whole checkpoint.
+(~1.5 us) instead of the whole checkpoint.### Round 10: checkpoints are shared, not deep-cloned, on the write path
+
+`PregelBackend::persist_checkpoint`, `Checkpointer::put_shared` (new, default = copy) and the
+sync/async writer channels now move `Arc<Checkpoint>` instead of a `Checkpoint` by value:
+
+* `save_checkpoint_via` builds the checkpoint once, wraps it in an `Arc`, hands a clone of the
+  `Arc` to the writer and keeps the same `Arc` as `previous`;
+* `InMemorySaver` stores `Arc<Checkpoint>` (readers still return owned copies, so the public
+  API is unchanged) and overrides `put_shared` to keep the `Arc`;
+* durable savers inherit the default `put_shared`, which copies -- they serialise immediately
+  anyway, so nothing is lost;
+* pause paths (`persist_pause`, `attach_pending_writes`) use `Arc::make_mut`, paying one copy
+  per pause instead of one per superstep;
+* `versions_for` copies the two version maps from the shared previous checkpoint (it can no
+  longer take them), which is far cheaper than cloning the whole checkpoint.
+
+This removes an O(state size) deep clone from every checkpoint write: with a small state the
+wall-clock delta is inside this machine's noise band (±15%), but the clone scaled with the
+state, so larger states and long histories benefit proportionally, and the peak allocation per
+superstep drops by one full checkpoint copy.
