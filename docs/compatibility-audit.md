@@ -372,4 +372,18 @@ same-session comparisons are meaningful.
 
 A regression the new fast path introduced was caught by the unit suite: dynamic schemas return
 `resolve(...) == None` for implicit channels, and the fast path treated that as "skip the
-write". Fixed by inserting the value directly, matching the general path.
+write". Fixed by inserting the value directly, matching the general path.### Round 12: version bumps follow the written channels, not a value comparison
+
+`versions_for` used to decide which channels changed by comparing every channel value with the
+previous checkpoint (`!= Some(value)`, a deep compare). For large channel values that comparison
+cost more than the rest of the save, and it is not what LangGraph does: LangGraph bumps the
+version of every channel that was written in the step.
+
+`versions_for` now derives the changed set from `written_by_node` (the executor already passes
+it) and falls back to the value comparison only when no write information exists (fresh starts
+and synthetic checkpoints).
+
+Measured with the save-segment probe (256 KB channel, 12 saves per run, before removal of the
+instrumentation): checkpoint build per run 205.9 -> 53.2 us, `persisted_values` 118.2 -> 95.6 us
+(the remainder is the one unavoidable value copy). Small states are unchanged; parity stays
+34/36 and the full Rust + Python suites pass.

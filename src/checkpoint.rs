@@ -296,9 +296,23 @@ pub(crate) fn versions_for(
     let mut versions_seen = previous
         .map(|checkpoint| checkpoint.versions_seen.clone())
         .unwrap_or_default();
+    // When the executor reports which channels the nodes wrote, use that instead of a deep
+    // value comparison: it is what LangGraph bumps versions for, and comparing multi-megabyte
+    // values per save is expensive. Paths without write information (fresh starts) fall back
+    // to the value comparison.
+    let written: std::collections::HashSet<&str> = written_by_node
+        .values()
+        .flatten()
+        .map(String::as_str)
+        .collect();
     let mut updated = Vec::new();
     for (channel, value) in values {
-        if previous.and_then(|checkpoint| checkpoint.values.get(channel)) != Some(value) {
+        let changed = if written.is_empty() {
+            previous.and_then(|checkpoint| checkpoint.values.get(channel)) != Some(value)
+        } else {
+            written.contains(channel.as_str())
+        };
+        if changed {
             updated.push(channel.clone());
         }
     }
