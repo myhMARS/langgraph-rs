@@ -657,4 +657,21 @@ Warm `update_state` on the mega workflow thread: 71 -> **66 us**, i.e. 5.8-7.3x 
 (0.09-0.11 ms), where building the resumed checkpoint's task/interrupt snapshot dominates.
 
 Two consecutive suite runs on a quiet machine: invoke 5.42/5.35x, resume 7.35/7.09x,
-state 12.49/10.39x, stream 5.11/5.20x, batch 8.87/8.98x, update_state 3.28/3.16x.
+state 12.49/10.39x, stream 5.11/5.20x, batch 8.87/8.98x, update_state 3.28/3.16x.### Round 36: where the async binding's time actually goes
+
+Temporary counters inside the async node adapter (removed) on a 10-node trivial async graph:
+
+- `ainvoke` total: 1.01 ms, i.e. 101 us per node call in the caller's view
+- inside the node future (attach + Python call + output parse): **28 us** per call
+- per-node work that the adapter itself measures: 28 us; the remaining ~73 us/node happens
+  outside the adapter (async scheduler + Tokio/asyncio plumbing)
+
+A fan-out graph (12 nodes, 3 supersteps) takes 0.77 ms versus 0.94 ms for the 10-node linear
+graph, so the cost is not per superstep: it tracks the serialized node transitions, and the
+checkpointer's `spawn_blocking` is not involved (no checkpointer in that graph).
+
+For comparison, the same nodes through the sync binding cost ~3-8 us each. Closing the async gap
+therefore needs a scheduler-level change (running synchronous node futures inline instead of
+handing each to Tokio), not another adapter micro-optimisation -- and that is exactly the
+experiment that broke async-node semantics when tried earlier (eager polling runs nodes on the
+event-loop thread).
