@@ -497,4 +497,20 @@ in-memory clones the stored handles) plus `from_checkpoint_borrowed` per entry, 
 value map is copied.
 
 `history(5)` 113 -> **109 us**, `aget_state_history(5)` 114 -> **97 us** (10-node thread);
-durable savers keep the default implementation.
+durable savers keep the default implementation.### Round 21: the parity suite now really exercises retries, and covers reducers
+
+Two verification gaps were closed instead of adding another micro-optimisation:
+
+* `retry_policy` benchmarked a graph whose node counter had already been advanced by the
+  equivalence check, so every measured call took the straight-line path and the retry path was
+  never timed. The bench now resets the counter before each measured invoke.
+  With retries actually running, RS completes in **3.3 ms** (2 x 1 ms backoff) while LangGraph
+  takes **~990 ms** for the same `initial_interval=0.001, backoff_factor=1.0` policy -- LangGraph
+  appears to sleep ~0.5 s per retry regardless of the requested interval. Our engine follows the
+  documented seconds semantics; this is recorded as an observed reference-implementation timing
+  anomaly, not something to copy.
+* New `reducer_add` scenario drives `Annotated[list, operator.add]` on both engines (the path
+  optimised in round 17) and asserts the resulting state is identical; it is, and RS is 5.2x
+  faster there.
+
+Parity is now 35/37 equivalent with the same 2 known differences.

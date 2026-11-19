@@ -57,6 +57,59 @@ class LgManagedState(TypedDict, total=False):
     value: str
     remaining_steps: RemainingSteps
     is_last_step: IsLastStep
+def run_reducer_scenario() -> list[dict]:
+    """`Annotated[list, operator.add]` must behave the same on both engines.
+
+    The RS schema uses the callable reducer directly, which is the path that now
+    concatenates lists natively; this scenario keeps it honest against LangGraph.
+    """
+    results = []
+
+    class LgReducedState(TypedDict):
+        log: Annotated[list, operator.add]
+        value: int
+
+    def lg_graph():
+        graph = LgStateGraph(LgReducedState)
+        for index in range(6):
+            graph.add_node(f"n{index}", lambda state: {"log": ["x"], "value": state["value"] + 1})
+            graph.add_edge(f"n{index}", f"n{index + 1}" if index < 5 else END)
+        graph.add_edge(START, "n0")
+        return graph.compile()
+
+    def rs_graph():
+        graph = rs.StateGraph({"log": operator.add, "value": "last_value"})
+        for index in range(6):
+            graph.add_node(
+                f"n{index}",
+                lambda state: {"log": ["x"], "value": state.get("value", 0) + 1},
+            )
+            if index == 0:
+                graph.add_edge(rs.START, f"n{index}")
+            if index < 5:
+                graph.add_edge(f"n{index}", f"n{index + 1}")
+        graph.set_finish_point("n5")
+        return graph.compile()
+
+    lg_compiled = lg_graph()
+    rs_compiled = rs_graph()
+    lg_value = lg_compiled.invoke({"log": [], "value": 0})
+    rs_value = rs_compiled.invoke({"log": [], "value": 0})
+    results.append(
+        {
+            "scenario": "reducer_add",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs_compiled.invoke({"log": [], "value": 0})),
+                "lg": measure(lambda: lg_compiled.invoke({"log": [], "value": 0})),
+            },
+        }
+    )
+    return results
+
+
 WARMUP = 3
 ITERATIONS = 100
 
@@ -424,8 +477,8 @@ def run_linear_scenarios() -> list[dict]:
     )
 
     # Retry policy
-    lg_graph, lg_calls = lg_retry_graph()
-    rs_graph, rs_calls = rs_retry_graph()
+    lg_graph, lg_calls, lg_counter = lg_retry_graph()
+    rs_graph, rs_calls, rs_counter = rs_retry_graph()
     lg_value = lg_graph.invoke({"value": 0})
     rs_value = rs_graph.invoke({"value": 0})
     results.append(
@@ -435,8 +488,11 @@ def run_linear_scenarios() -> list[dict]:
             "lg": {"value": lg_value, "calls": lg_calls()},
             "equivalent": rs_value == lg_value and rs_calls() == lg_calls(),
             "bench": {
-                "rs": measure(lambda: rs_graph.invoke({"value": 0})),
-                "lg": measure(lambda: lg_graph.invoke({"value": 0})),
+                # The node counter is shared across calls, so reset it before each measured
+                # run; otherwise only the first call retries and the bench measures a
+                # straight-line invoke.
+                "rs": measure(lambda: (rs_counter.__setitem__("count", 0), rs_graph.invoke({"value": 0}))[1]),
+                "lg": measure(lambda: (lg_counter.__setitem__("count", 0), lg_graph.invoke({"value": 0}))[1]),
             },
         }
     )
@@ -1665,7 +1721,7 @@ def lg_retry_graph():
     )
     graph.add_edge(START, "flaky")
     graph.add_edge("flaky", END)
-    return graph.compile(), lambda: calls["count"]
+    return graph.compile(), lambda: calls["count"], calls
 
 
 def rs_retry_graph():
@@ -1688,7 +1744,7 @@ def rs_retry_graph():
     )
     graph.set_entry_point("flaky")
     graph.set_finish_point("flaky")
-    return graph.compile(), lambda: calls["count"]
+    return graph.compile(), lambda: calls["count"], calls
 
 
 def run_checkpoint_scenarios() -> list[dict]:
@@ -2172,6 +2228,7 @@ def main() -> None:
     results = []
     for runner in (
         run_linear_scenarios,
+        run_reducer_scenario,
         run_checkpoint_scenarios,
         run_subgraph_scenario,
         run_subgraph_interrupt_scenario,
