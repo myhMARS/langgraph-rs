@@ -374,7 +374,6 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// Python module definition.
 #[pymodule]
 fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     let stream_module = pyo3::types::PyModule::from_code(

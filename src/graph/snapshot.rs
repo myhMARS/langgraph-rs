@@ -67,6 +67,11 @@ impl<S: State> StateSnapshot<S> {
         checkpoint: Checkpoint,
         schema: &crate::_internal::state::StateSchema,
     ) -> Result<Self> {
+        // No pending writes means the base checkpoint already reflects the live state; the
+        // merge below would clone the whole value map just to hand it back.
+        if checkpoint.pending_writes.is_empty() {
+            return Self::from_checkpoint(checkpoint);
+        }
         let mut values = checkpoint.values.clone();
         let mut regular = Vec::new();
         let mut task_results: std::collections::HashMap<String, Map<String, Value>> =

@@ -2,7 +2,6 @@
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::{PyAny, PyDict, PyList, PyString, PyTuple};
-use serde_json::Value;
 
 use super::*;
 use crate::_internal::stream::StreamChunk;
@@ -27,9 +26,12 @@ pub(crate) fn snapshot_to_py(
     )?;
     dict.set_item("checkpoint_ns", snapshot.checkpoint_ns.clone())?;
     // LangGraph exposes the checkpoint metadata (including `step`) on `StateSnapshot`.
-    let mut metadata = snapshot.metadata.clone();
-    metadata.insert("step".to_string(), Value::from(snapshot.step));
-    dict.set_item("metadata", value_to_py(py, &Value::Object(metadata))?)?;
+    let metadata = PyDict::new(py);
+    for (key, value) in &snapshot.metadata {
+        metadata.set_item(key, value_to_py(py, value)?)?;
+    }
+    metadata.set_item("step", snapshot.step)?;
+    dict.set_item("metadata", metadata)?;
     let interrupts = snapshot
         .interrupts
         .iter()

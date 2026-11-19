@@ -282,4 +282,17 @@ cost at all. The bench `state` phase (one `get_state` + one `history(5)`) moved 
 Also measured this round: the async **engine** is as fast as the sync one natively (1 node 7.2 us,
 10 nodes 45 us), so the async binding's fixed ~0.3 ms belongs to `pyo3_async_runtimes`'
 `future_into_py` bridge (double spawn + contextvars restore), not to the Pregel loop; a
-hand-written awaitable would be needed to remove it, which would change cancellation semantics.
+hand-written awaitable would be needed to remove it, which would change cancellation semantics.### Round 7 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| `from_checkpoint_live` returns the base snapshot directly when the checkpoint has no pending writes (it used to clone the whole value map only to discard the copy) | `graph/snapshot.rs` | binding `get_state` 33 -> 29 us |
+| `snapshot_to_py` builds the metadata dict directly instead of cloning the map into a `Value` and converting that | `adapters/python/stream_convert.rs` | binding `get_state_history(5)` 161 -> 142 us |
+
+Investigated and rejected this round (measured, not guessed):
+
+* A hand-written awaitable (thread + `call_soon_threadsafe`) for `ainvoke` would cost ~85 us per
+  call against ~114 us for `pyo3_async_runtimes::future_into_py`; the 29 us saving does not
+  justify losing its cancellation and contextvars handling.
+* asyncio loops are **not** recreated per node: 100 runs x 10 async nodes created 0 new loops,
+  so the remaining ~150 us per async Python node is not loop construction.
