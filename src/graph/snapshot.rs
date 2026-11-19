@@ -3,7 +3,7 @@
 use serde_json::{Map, Value};
 
 use crate::_internal::error::{Interrupt, NodeFailure, Result};
-use crate::_internal::state::{State, values_to_state};
+use crate::_internal::state::State;
 use crate::checkpoint::Checkpoint;
 
 /// A task that is scheduled after a snapshot.
@@ -145,6 +145,9 @@ impl<S: State> StateSnapshot<S> {
                 interrupts: Vec::new(),
             });
         }
+        // Move the value map out before the remaining fields are consumed below.
+        let next = checkpoint.next_nodes();
+        let values = crate::_internal::state::values_to_state_owned::<S>(checkpoint.values)?;
         let config = serde_json::json!({
             "configurable": {
                 "thread_id": checkpoint.thread_id,
@@ -163,8 +166,8 @@ impl<S: State> StateSnapshot<S> {
         });
         let created_at = crate::checkpoint::iso_timestamp(checkpoint.created_at_millis);
         Ok(Self {
-            values: values_to_state::<S>(&checkpoint.values)?,
-            next: checkpoint.next_nodes(),
+            values,
+            next,
             checkpoint_id: checkpoint.id,
             thread_id: checkpoint.thread_id,
             step: checkpoint.step as i64,

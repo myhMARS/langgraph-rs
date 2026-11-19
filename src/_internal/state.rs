@@ -420,6 +420,21 @@ fn default_state_values<S: DeserializeOwned + Default + Serialize + 'static>()
     Ok(defaults)
 }
 
+/// Deserialize owned channel values back into the typed state.
+///
+/// The read paths (`get_state`, history) own the checkpoint's value map, so the merge can
+/// move it instead of copying every channel.
+pub(crate) fn values_to_state_owned<S: DeserializeOwned + Default + Serialize + 'static>(
+    values: Map<String, Value>,
+) -> Result<S> {
+    if values.is_empty() {
+        return Ok(S::default());
+    }
+    let mut merged = default_state_values::<S>()?;
+    merged.extend(values);
+    Ok(serde_json::from_value(Value::Object(merged))?)
+}
+
 /// Deserialize channel values back into the typed state.
 pub(crate) fn values_to_state<S: DeserializeOwned + Default + Serialize + 'static>(
     values: &Map<String, Value>,

@@ -386,4 +386,18 @@ and synthetic checkpoints).
 Measured with the save-segment probe (256 KB channel, 12 saves per run, before removal of the
 instrumentation): checkpoint build per run 205.9 -> 53.2 us, `persisted_values` 118.2 -> 95.6 us
 (the remainder is the one unavoidable value copy). Small states are unchanged; parity stays
-34/36 and the full Rust + Python suites pass.
+34/36 and the full Rust + Python suites pass.### Round 13: snapshots take ownership of the checkpoint's values
+
+`StateSnapshot::from_checkpoint` used to deserialize a *borrowed* value map
+(`values_to_state(&checkpoint.values)`), copying every channel even though the checkpoint was
+already owned. `values_to_state_owned` moves the map into the state (merging schema defaults
+first), and `next` is computed before the map is moved out.
+
+`get_state` 29 -> 26 us, `history(5)` 142 -> 128 us (binding, 15-node thread), all suites and
+parity unchanged.
+
+Also checked in this round: the async `update_state` gap is not the eager awaitable. A pure
+Python eager awaitable costs < 1 us, and `aget_state` (same eager path) is 31 us total, while
+`aupdate_state` is ~103 us against ~35 us for the sync API -- so the extra time is inside the
+async update path, not the bridge. The async `resume` phase also fluctuates between 0.94x and
+1.26x across runs; it is tracked as noise until a stable regression appears.

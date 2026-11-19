@@ -8,23 +8,23 @@ state/history, update_state, stream, batch).
 
 | Phase | langgraph | binding | native |
 | --- | ---: | ---: | ---: |
-| invoke | 14.42 ms | 3.56 ms | 0.29 ms |
-| resume | 4.98 ms | 1.00 ms | 0.13 ms |
-| state | 1.55 ms | 0.61 ms | 0.09 ms |
-| update_state | 0.52 ms | 0.31 ms | 0.04 ms |
-| stream | 14.16 ms | 3.47 ms | 0.55 ms |
-| batch | 29.67 ms | 4.46 ms | 0.59 ms |
+| invoke | 14.46 ms | 3.82 ms | 0.33 ms |
+| resume | 5.00 ms | 1.26 ms | 0.15 ms |
+| state | 1.59 ms | 0.67 ms | 0.10 ms |
+| update_state | 0.50 ms | 0.31 ms | 0.04 ms |
+| stream | 14.17 ms | 4.16 ms | 0.60 ms |
+| batch | 29.07 ms | 4.92 ms | 0.65 ms |
 
 Speedup vs LangGraph:
 
 | Phase | binding | native |
 | --- | ---: | ---: |
-| invoke | 4.05x | 49.85x |
-| resume | 5.00x | 38.91x |
-| state | 2.54x | 17.48x |
-| update_state | 1.68x | 13.04x |
-| stream | 4.08x | 25.89x |
-| batch | 6.65x | 50.38x |
+| invoke | 3.79x | 43.19x |
+| resume | 3.96x | 33.23x |
+| state | 2.38x | 15.80x |
+| update_state | 1.59x | 11.15x |
+| stream | 3.41x | 23.47x |
+| batch | 5.91x | 44.61x |
 
 Final state per engine:
 
