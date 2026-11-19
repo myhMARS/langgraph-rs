@@ -45,7 +45,7 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 | `from langgraph.cache.memory import InMemoryCache` | `from langgraph_rs.cache.memory import InMemoryCache` |
 | `from langgraph.config import get_store, get_stream_writer, get_config` | `from langgraph_rs.config import …` |
 | `from langgraph.func import entrypoint, task` | `from langgraph_rs.func import entrypoint, task` |
-| `from langgraph.managed import IsLastStep, RemainingSteps` | `from langgraph_rs.managed import IsLastStep, RemainingSteps`（见下方说明） |
+| `from langgraph.managed import IsLastStep, RemainingSteps` | `from langgraph_rs.managed import IsLastStep, RemainingSteps` |
 | `from langgraph.prebuilt import create_react_agent, ToolNode, tools_condition` | `from langgraph_rs.prebuilt import …` |
 | `from langgraph.runtime import get_runtime` | `from langgraph_rs.runtime import get_runtime` |
 
@@ -65,7 +65,10 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
-- `create_react_agent`、`ToolNode`、`tools_condition`、`MessagesState`、`add_messages`
+- `create_react_agent`（`prompt` / `state_schema` / `store` / `interrupt_*` / `name` / `version`）、
+  `ToolNode`、`tools_condition`、`MessagesState`、`add_messages`
+- 托管值注解：`remaining_steps: RemainingSteps`、`is_last_step: IsLastStep`（每次超步注入、
+  不写 checkpoint，与 LangGraph 一致）
 - `entrypoint` / `task`（functional API）、`get_store` / `get_stream_writer`
 
 ## 4. 已知差异（迁移前请确认）
@@ -86,14 +89,14 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 2. **`stream()` 返回 `list`**（LangGraph 返回生成器）：迭代结果相同，但不是惰性的，也没有
    `.close()`。需要惰性时用 `astream` 或自行包一层生成器。
 3. **`get_state_history()` 返回惰性 `StateHistory`**（支持 `len()`、索引、迭代），不是生成器。
-4. **`create_react_agent` 签名更窄**：`(model, tools, messages_key=None, checkpointer=None)`；
-   `prompt`、`response_format`、`state_schema`、`store`、hooks 等参数不支持。
+4. **`create_react_agent` 已对齐常用参数**：`prompt`（字符串 / `SystemMessage` / `callable`）、
+   `state_schema`、`store`、`interrupt_before`、`interrupt_after`、`name`、`version`（`v1`/`v2`）
+   均支持；`response_format`、`pre_model_hook`、`post_model_hook`、`context_schema`
+   会抛 `NotImplementedError` 并说明，不会静默忽略。
 5. **`langgraph.checkpoint.base` / `langgraph.store.base` 未实现**：对应的 Rust 只提供具体实现，
    不支持在 Python 里自定义 saver/store。`langgraph_rs.checkpoint.base` 等模块可以 import，
    但实例化或继承会抛 `NotImplementedError` 并说明原因。
-6. `langgraph.managed.IsLastStep` / `RemainingSteps` 在 LangGraph 里是注解类，在 `langgraph_rs`
-   里是通道辅助函数（`is_last_step` / `remaining_steps` 的别名），含义相同但用法略有差别。
-7. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
+6. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
 ## 5. 如何验证

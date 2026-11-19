@@ -351,6 +351,12 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
         if let Ok(spec) = spec.extract::<String>() {
+            // `IsLastStep` / `RemainingSteps` are managed values in LangGraph: injected for
+            // every superstep, never persisted, and only present when declared.
+            if matches!(spec.as_str(), "is_last_step" | "remaining_steps") {
+                out = out.with_managed_values();
+                continue;
+            }
             let spec = match spec.as_str() {
                 "last" | "value" => "last_value".to_string(),
                 "add_messages" | "messages" => "messages".to_string(),

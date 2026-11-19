@@ -809,4 +809,20 @@ engine; it now reads `chunk[0]` like the LangGraph branch does.
 **Result: parity 38/38 scenarios equivalent, 0 known differences.** 124 Python tests, the Rust
 suite and clippy all pass. Remaining documented gaps are the ones that are not observed by parity:
 `create_react_agent`'s narrower signature, no Python-side custom saver/store base classes, and
-`IsLastStep`/`RemainingSteps` being helper functions rather than annotation classes.
+`IsLastStep`/`RemainingSteps` being helper functions rather than annotation classes.### Round 45: `create_react_agent` keywords and managed-value annotations
+
+`create_react_agent` now accepts the LangGraph keywords that real code uses: `prompt` (a string
+becomes a leading system message, a message object is prepended, a callable receives the state and
+returns the complete model input -- verified against LangGraph, which also *replaces* the messages
+for the callable form), plus `state_schema`, `store`, `interrupt_before`, `interrupt_after`,
+`name` and `version` (`v1`/`v2`). `response_format`, `pre_model_hook`, `post_model_hook` and
+`context_schema` raise `NotImplementedError` instead of being silently ignored.
+
+`langgraph.managed.IsLastStep` / `RemainingSteps` are now annotation classes in the shim: a state
+schema that declares them gets the engine's managed values injected per superstep (visible to
+nodes, never persisted), and the annotation maps to the private `is_last_step` / `remaining_steps`
+channels instead of a normal last-value channel. Verified against LangGraph with the same state
+class: both report `remaining_steps=10006`, `is_last_step=False` on the first superstep, and both
+omit them from the returned state.
+
+Six new Python tests cover the prompt forms, the aligned keywords and the loud failures.

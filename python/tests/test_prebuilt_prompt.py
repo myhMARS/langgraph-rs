@@ -1,0 +1,89 @@
+"""`create_react_agent(prompt=...)` follows LangGraph's three forms.
+
+A plain string becomes a leading system message, a `BaseMessage` is prepended as-is, and a
+callable receives the state and returns the complete model input (replacing the state's
+messages). The remaining LangGraph-only keywords must fail loudly instead of being ignored.
+"""
+
+from __future__ import annotations
+
+import typing
+import unittest
+
+import langgraph_rs as lg
+
+
+class _FakeChatModel:
+    """Minimal LangChain-compatible model that records the messages it received."""
+
+    def __init__(self) -> None:
+        self.seen: list[list[str]] = []
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        self.seen.append([message["content"] for message in messages])
+
+        class _Result:
+            def model_dump(self):
+                return {"role": "assistant", "content": "ok"}
+
+        return _Result()
+
+
+class _Message:
+    def __init__(self, content: str, role: str = "system") -> None:
+        self.content = content
+        self.role = role
+
+    def model_dump(self):
+        return {"role": self.role, "content": self.content}
+
+
+@unittest.skipUnless(hasattr(lg, "create_react_agent"), "prebuilt helpers unavailable")
+class ReactAgentPromptTest(unittest.TestCase):
+    def _run(self, prompt=None, **kwargs):
+        model = _FakeChatModel()
+        app = lg.create_react_agent(model, [], prompt=prompt, **kwargs)
+        app.invoke({"messages": [{"role": "user", "content": "hi"}]})
+        return model.seen
+
+    def test_no_prompt_passes_state_messages(self):
+        self.assertEqual(self._run(), [["hi"]])
+
+    def test_string_prompt_becomes_system_message(self):
+        self.assertEqual(self._run("be nice"), [["be nice", "hi"]])
+
+    def test_message_prompt_is_prepended(self):
+        self.assertEqual(self._run(_Message("be strict")), [["be strict", "hi"]])
+
+    def test_callable_prompt_replaces_messages(self):
+        self.assertEqual(
+            self._run(lambda state: [_Message("only-this")]),
+            [["only-this"]],
+        )
+
+    def test_unsupported_keywords_raise(self):
+        model = _FakeChatModel()
+        with self.assertRaises(NotImplementedError):
+            lg.create_react_agent(model, [], response_format={"type": "json_object"})
+        with self.assertRaises(NotImplementedError):
+            lg.create_react_agent(model, [], pre_model_hook=lambda state: state)
+
+    def test_aligned_keywords_are_accepted(self):
+        model = _FakeChatModel()
+        app = lg.create_react_agent(
+            model,
+            [],
+            name="agent",
+            version="v2",
+            interrupt_before=["agent"],
+            store=lg.InMemoryStore(),
+            state_schema=typing.TypedDict("AgentState", {"messages": list}),
+        )
+        self.assertIsNotNone(app)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -129,17 +129,90 @@ pub(super) fn tools_condition(state: &Bound<'_, PyAny>) -> PyResult<String> {
         .unwrap_or_else(|| END.to_string()))
 }
 
+/// How `create_react_agent(prompt=...)` shapes the model input.
+///
+/// LangGraph accepts a string (turned into a system message), a `SystemMessage`, or a callable
+/// that receives the state and returns the complete message list.
+enum PromptSpec {
+    None,
+    Static(serde_json::Value),
+    Callable(Py<PyAny>),
+}
+
+fn prompt_spec(_py: Python<'_>, prompt: Option<&Bound<'_, PyAny>>) -> PyResult<PromptSpec> {
+    let Some(prompt) = prompt else {
+        return Ok(PromptSpec::None);
+    };
+    if prompt.is_none() {
+        return Ok(PromptSpec::None);
+    }
+    if let Ok(text) = prompt.cast::<pyo3::types::PyString>() {
+        let text: String = text.extract()?;
+        return Ok(PromptSpec::Static(serde_json::json!({
+            "role": "system",
+            "content": text,
+        })));
+    }
+    if prompt.is_callable() {
+        return Ok(PromptSpec::Callable(prompt.clone().unbind()));
+    }
+    let dumped = prompt
+        .call_method0("model_dump")
+        .or_else(|_| prompt.call_method0("dict"))?;
+    let value = py_to_value(&dumped)?;
+    Ok(PromptSpec::Static(value))
+}
+
+/// Build the message list handed to the model for this superstep.
+fn prompt_messages(
+    py: Python<'_>,
+    prompt: &PromptSpec,
+    state: &JsonState,
+    messages_key: &str,
+) -> Result<serde_json::Value> {
+    let existing = state.get(messages_key).cloned();
+    match prompt {
+        PromptSpec::None => Ok(existing.unwrap_or_else(|| serde_json::Value::Array(Vec::new()))),
+        PromptSpec::Static(prefix) => {
+            let mut messages = vec![prefix.clone()];
+            if let Some(Some(serde_json::Value::Array(items))) = existing.as_ref().map(Some) {
+                messages.extend(items.iter().cloned());
+            }
+            Ok(serde_json::Value::Array(messages))
+        }
+        PromptSpec::Callable(callable) => {
+            let py_state = value_to_py(py, &serde_json::Value::Object(state.0.clone()))
+                .map_err(|error| pyerr_to_error(py, error))?;
+            let produced = callable
+                .bind(py)
+                .call1((py_state,))
+                .map_err(|error| pyerr_to_error(py, error))?;
+            let items = produced
+                .try_iter()
+                .map_err(|error| pyerr_to_error(py, error))?;
+            let mut messages = Vec::new();
+            for item in items {
+                let item = item.map_err(|error| pyerr_to_error(py, error))?;
+                let dumped = item
+                    .call_method0("model_dump")
+                    .or_else(|_| item.call_method0("dict"))
+                    .unwrap_or_else(|_| item.clone());
+                messages.push(py_to_value(&dumped).map_err(|error| pyerr_to_error(py, error))?);
+            }
+            Ok(serde_json::Value::Array(messages))
+        }
+    }
+}
+
 fn runnable_model_node(
     model: Py<PyAny>,
     messages_key: String,
+    prompt: std::sync::Arc<PromptSpec>,
 ) -> impl Fn(&JsonState) -> Result<NodeOutput> + Send + Sync + 'static {
     let model = std::sync::Arc::new(model);
     move |state: &JsonState| {
         Python::attach(|py| -> Result<NodeOutput> {
-            let messages = state
-                .get(&messages_key)
-                .cloned()
-                .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+            let messages = prompt_messages(py, &prompt, state, &messages_key)?;
             let py_messages =
                 value_to_py(py, &messages).map_err(|error| pyerr_to_error(py, error))?;
             let result = model
@@ -192,23 +265,62 @@ fn guard_react_output(messages_key: &str, output: NodeOutput) -> NodeOutput {
     )
 }
 
-/// Build a minimal ReAct agent from a Python model callable and tools.
+/// Build a ReAct agent, matching LangGraph's `create_react_agent` signature.
 #[pyfunction]
-#[pyo3(signature = (model, tools, messages_key=None, checkpointer=None))]
+#[pyo3(signature = (model, tools, messages_key=None, checkpointer=None, prompt=None, state_schema=None, store=None, interrupt_before=None, interrupt_after=None, version=None, name=None, debug=false, response_format=None, pre_model_hook=None, post_model_hook=None, context_schema=None))]
+#[allow(clippy::too_many_arguments)]
 pub(super) fn create_react_agent(
     py: Python<'_>,
     model: Py<PyAny>,
     tools: &Bound<'_, PyAny>,
     messages_key: Option<String>,
     checkpointer: Option<&Bound<'_, PyAny>>,
+    prompt: Option<&Bound<'_, PyAny>>,
+    state_schema: Option<&Bound<'_, PyAny>>,
+    store: Option<&Bound<'_, PyAny>>,
+    interrupt_before: Option<Vec<String>>,
+    interrupt_after: Option<Vec<String>>,
+    version: Option<String>,
+    name: Option<String>,
+    debug: bool,
+    response_format: Option<&Bound<'_, PyAny>>,
+    pre_model_hook: Option<&Bound<'_, PyAny>>,
+    post_model_hook: Option<&Bound<'_, PyAny>>,
+    context_schema: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<super::graph::PyCompiledGraph> {
+    let _ = debug;
+    for (label, value) in [
+        ("response_format", response_format),
+        ("pre_model_hook", pre_model_hook),
+        ("post_model_hook", post_model_hook),
+        ("context_schema", context_schema),
+    ] {
+        if value.is_some_and(|value| !value.is_none()) {
+            return Err(pyo3::exceptions::PyNotImplementedError::new_err(format!(
+                "create_react_agent({label}=...) is not implemented by the langgraph_rs extension"
+            )));
+        }
+    }
+    if let Some(version) = version.as_deref()
+        && !matches!(version, "v1" | "v2")
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "create_react_agent version must be 'v1' or 'v2', got {version:?}"
+        )));
+    }
+    let prompt = prompt_spec(py, prompt)?;
+    let prompt = std::sync::Arc::new(prompt);
     let mut tool_node = ToolNode::new(tool_definitions(tools)?);
     if let Some(key) = messages_key.clone() {
         tool_node = tool_node.messages_key(key);
     }
     let messages_key = messages_key.unwrap_or_else(|| "messages".to_string());
     let condition_key = messages_key.clone();
-    let schema = StateSchema::dynamic()
+    let base_schema = match state_schema {
+        Some(schema) if !schema.is_none() => super::convert::schema_from_py(Some(schema))?,
+        _ => StateSchema::dynamic(),
+    };
+    let schema = base_schema
         .with_reducer(&messages_key, reducers::messages())
         .with_managed_values();
     let builder = StateGraph::<JsonState>::with_schema(schema);
@@ -217,12 +329,18 @@ pub(super) fn create_react_agent(
             .bind(py)
             .call_method1("bind_tools", (tools,))?
             .unbind();
-        let node = runnable_model_node(bound, messages_key.clone());
+        let node = runnable_model_node(bound, messages_key.clone(), prompt.clone());
         let key = messages_key.clone();
         builder.add_node("agent", move |state: &JsonState| {
             Ok(guard_react_output(&key, node(state)?))
         })
     } else {
+        if !matches!(*prompt, PromptSpec::None) {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "create_react_agent(prompt=...) needs a model with `bind_tools`/`invoke` \
+                 (a LangChain Runnable); a plain callable receives the state instead",
+            ));
+        }
         let node = node_from_python("agent".to_string(), model);
         let key = messages_key.clone();
         builder.add_node("agent", move |state: &JsonState| {
@@ -242,6 +360,20 @@ pub(super) fn create_react_agent(
             options = options.with_checkpointer(created.clone());
             saver = Some(created);
         }
+    }
+    if let Some(nodes) = interrupt_before {
+        options = options.interrupt_before(nodes);
+    }
+    if let Some(nodes) = interrupt_after {
+        options = options.interrupt_after(nodes);
+    }
+    if let Some(name) = name {
+        options = options.with_name(name);
+    }
+    if let Some(store) = store
+        && let Some(store) = super::types::store_from_py(Some(store))?
+    {
+        options = options.with_store(store);
     }
     let compiled = inner
         .compile_with(options)
