@@ -241,5 +241,7 @@ Current per-phase medians (10 interleaved suites, single machine; LangGraph 1.2.
 | Parallel supersteps run on a process-wide worker pool instead of spawning scoped threads per task | `src/pregel/pool.rs`, `pregel/superstep.rs`, `pregel/backend.rs` | fan-out of 3: 200 -> 95 us; fan-out of 8: 471 -> 200 us |
 | Nested runs started from a pool worker fall back to scoped threads (`pool::on_worker` guard) | `pregel/pool.rs`, `pregel/superstep.rs` | prevents self-deadlock when a node invokes a child graph with its own fan-out; covered by `nested_parallel_runs_do_not_deadlock_on_the_worker_pool` |
 
-Mega-workflow native timings after the pool landed (single run): sync invoke 0.53 -> 0.28 ms,
-batch 0.98 -> 0.60 ms, giving 47x / 48x vs LangGraph sync (previously 19x / 19x).
+Mega-workflow native timings after the pool landed (mean of several runs): sync invoke
+0.53 -> 0.28 ms, batch 0.98 -> 0.60 ms. The cross-engine ratio moves with machine load
+(measured 29x-47x for sync invoke across runs), so the probe numbers above are the
+authoritative effect size.
