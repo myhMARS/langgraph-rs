@@ -170,7 +170,7 @@ impl<S: State> StateSnapshot<S> {
         Self::from_parts(&checkpoint, values)
     }
 
-    fn from_parts(checkpoint: &Checkpoint, values: S) -> Result<Self> {
+    pub(crate) fn from_parts(checkpoint: &Checkpoint, values: S) -> Result<Self> {
         let tasks = checkpoint
             .next
             .iter()

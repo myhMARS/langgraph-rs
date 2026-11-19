@@ -581,4 +581,13 @@ copied once more.
 This is one full state copy removed per `update_state` call. The phase remains the weakest of the
 sync binding (~1.9-2.3x) because both engines are sub-millisecond there and the remaining cost is
 the state copy that `update_state` inherently performs (the caller-visible snapshot and the stored
-checkpoint cannot share one map).
+checkpoint cannot share one map).### Round 29: `update_state` reuses the merged state for its snapshot
+
+`update_state` merged the write into an owned map, deserialised it into the typed state (needed
+for `collect_next_nodes`), moved the map into the new checkpoint, and then deserialised the
+checkpoint values *again* to build the returned snapshot. `StateSnapshot::from_parts` is now
+used with the state that was already materialised, so the second deserialisation is gone.
+
+`update_state` 0.19-0.21 ms -> **0.14 ms** on the mega workflow thread (LangGraph 0.38-0.40 ms),
+i.e. 1.9-2.3x -> **2.7-2.8x**. Verified with the Rust suite, clippy, 119 Python tests and parity
+36/38.

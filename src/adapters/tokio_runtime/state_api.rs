@@ -433,7 +433,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             pending_writes: Vec::new(),
             deferred: checkpoint.deferred.clone(),
         };
-        let mut snapshot = StateSnapshot::from_checkpoint_borrowed(&updated)?;
+        let mut snapshot = StateSnapshot::from_parts(&updated, state)?;
         snapshot.step = snapshot.step.saturating_sub(1);
         self.saver_put(updated).await?;
         Ok(snapshot)
