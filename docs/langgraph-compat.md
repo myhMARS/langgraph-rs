@@ -86,9 +86,11 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
    **唯一的例外**：图没有配置 checkpointer 时，`langgraph_rs` 仍然抛 `GraphInterrupt`（LangGraph
    会返回输入状态 + `__interrupt__`）。没有 checkpointer 的暂停无法恢复，实际使用中请配置
    `InMemorySaver`/`SqliteSaver` 等。`GraphInterrupt` 类仍然导出，行为与 LangGraph 的同名异常一致。
-2. **`stream()` 返回 `list`**（LangGraph 返回生成器）：迭代结果相同，但不是惰性的，也没有
-   `.close()`。需要惰性时用 `astream` 或自行包一层生成器。
-3. **`get_state_history()` 返回惰性 `StateHistory`**（支持 `len()`、索引、迭代），不是生成器。
+2. **`stream()` 返回 `StreamChunks`**：可迭代、可 `next()`（与 LangGraph 生成器的用法一致），
+   另外**额外**支持 `len()` 与索引；与生成器的差别只有「可重复迭代」以及
+   `isinstance(..., types.GeneratorType)` 为 False。真正的惰性请用 `astream`。
+3. **`get_state_history()` 返回惰性 `StateHistory`**：同样可迭代、可 `next()`，并额外支持
+   `len()` 与索引（LangGraph 返回生成器）。
 4. **`create_react_agent` 已对齐常用参数**：`prompt`（字符串 / `SystemMessage` / `callable`）、
    `state_schema`、`store`、`interrupt_before`、`interrupt_after`、`name`、`version`（`v1`/`v2`）
    均支持；`response_format`、`pre_model_hook`、`post_model_hook`、`context_schema`

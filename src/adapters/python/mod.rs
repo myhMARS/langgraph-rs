@@ -427,6 +427,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     module.add_class::<PySend>()?;
     module.add_class::<crate::adapters::python::types::PyStateHistory>()?;
+    module.add_class::<crate::adapters::python::types::PyStreamChunks>()?;
     module.add_class::<PyCommand>()?;
     module.add_class::<PyRetryPolicy>()?;
     module.add_class::<PyCachePolicy>()?;

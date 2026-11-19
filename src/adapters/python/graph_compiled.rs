@@ -99,7 +99,7 @@ impl PyCompiledGraph {
         version: Option<String>,
         control: Option<PyRef<'_, crate::adapters::python::types::PyRunControl>>,
         config: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    ) -> PyResult<Py<crate::adapters::python::types::PyStreamChunks>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
             Some("v2") => true,
@@ -187,7 +187,8 @@ impl PyCompiledGraph {
                 .filter(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested))
                 .collect::<Vec<_>>()
         };
-        convert_stream_chunks(py, &chunks, v2, &requested)
+        let converted = convert_stream_chunks(py, &chunks, v2, &requested)?;
+        Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
     }
 
     /// Invoke the graph over a list of inputs.

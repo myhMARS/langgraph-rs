@@ -825,4 +825,12 @@ channels instead of a normal last-value channel. Verified against LangGraph with
 class: both report `remaining_steps=10006`, `is_last_step=False` on the first superstep, and both
 omit them from the returned state.
 
-Six new Python tests cover the prompt forms, the aligned keywords and the loud failures.
+Six new Python tests cover the prompt forms, the aligned keywords and the loud failures.### Round 46: `stream()` and `get_state_history()` speak the generator protocol
+
+LangGraph returns generators from both calls, so `next(stream)` / `next(history)` are normal
+usage. `CompiledGraph.stream` now returns a `StreamChunks` object and `StateHistory` gained a
+`__next__` cursor: both support `for`, `iter()`, `next()` and stay lazy where they were lazy.
+`StreamChunks` additionally keeps `len()` and `__getitem__` (the list-like API `langgraph_rs`
+users already had), and its `__iter__` hands back a fresh iterator so existing double-iteration
+code keeps working; LangGraph's generator is single-use instead. The Python suite (130 tests)
+and parity (38/38) both pass. The only documented gap left is Python-side custom savers/stores.

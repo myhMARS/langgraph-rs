@@ -80,6 +80,6 @@ print("    history:", len(list(graph.get_state_history(config))))
 graph.update_state(config, {"attempts": 99}, as_node="review")
 print("    after update:", graph.get_state(config).values["attempts"])
 
-print("4) streaming values (a list in langgraph_rs, a generator in LangGraph)")
+print("4) streaming values (iterable/next()-able like LangGraph's generator)")
 chunks = graph.stream({"messages": [], "attempts": 0}, {"configurable": {"thread_id": "s"}}, stream_mode="values")
 print("    last chunk:", chunks[-1])

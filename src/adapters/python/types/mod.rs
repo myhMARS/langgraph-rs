@@ -442,5 +442,7 @@ impl PyTimeoutPolicy {
 /// In-memory checkpointer object for `StateGraph.compile(checkpointer=...)`.
 mod objects;
 mod snapshot;
+mod stream_chunks;
 pub(crate) use objects::*;
 pub(crate) use snapshot::PyStateSnapshot;
+pub(crate) use stream_chunks::PyStreamChunks;

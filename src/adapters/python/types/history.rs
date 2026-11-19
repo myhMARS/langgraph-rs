@@ -144,6 +144,8 @@ impl HistoryInner {
 #[pyclass(name = "StateHistory")]
 pub struct PyStateHistory {
     inner: Arc<Mutex<HistoryInner>>,
+    /// Cursor for `next(history)`: LangGraph returns a generator, so callers may pull items.
+    cursor: Mutex<usize>,
 }
 
 impl PyStateHistory {
@@ -155,6 +157,7 @@ impl PyStateHistory {
         limit: Option<usize>,
     ) -> Self {
         Self {
+            cursor: Mutex::new(0),
             inner: Arc::new(Mutex::new(HistoryInner {
                 graph: Some(graph),
                 thread_id,
@@ -170,6 +173,7 @@ impl PyStateHistory {
 
     pub(crate) fn from_items(items: Vec<Py<PyAny>>) -> Self {
         Self {
+            cursor: Mutex::new(0),
             inner: Arc::new(Mutex::new(HistoryInner {
                 graph: None,
                 thread_id: String::new(),
@@ -216,6 +220,27 @@ impl PyStateHistory {
             inner: Arc::clone(&self.inner),
             index: 0,
         }
+    }
+
+    /// Pull the next snapshot, like `next()` on LangGraph's history generator.
+    fn __next__(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        let mut cursor = self
+            .cursor
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("state history cursor poisoned"))?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("state history lock poisoned"))?;
+        let total = inner
+            .total()
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        if *cursor >= total {
+            return Ok(None);
+        }
+        let item = inner.get(py, *cursor)?;
+        *cursor += 1;
+        Ok(Some(item))
     }
 
     /// Materialise the whole history as a list (what the old return type did).
