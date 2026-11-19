@@ -7,23 +7,23 @@ call is awaited (`ainvoke`/`aresume`/`astream`/`abatch`/`aget_state`/`aupdate_st
 
 | Phase | langgraph-async | binding-async | native-async |
 | --- | ---: | ---: | ---: |
-| invoke | 9.41 ms | 5.00 ms | 0.21 ms |
-| resume | 2.43 ms | 2.07 ms | 0.11 ms |
-| state | 0.96 ms | 0.50 ms | 0.03 ms |
-| update_state | 0.39 ms | 0.27 ms | 0.03 ms |
-| stream | 9.09 ms | 5.55 ms | 0.49 ms |
-| batch | 17.68 ms | 6.66 ms | 0.44 ms |
+| invoke | 8.77 ms | 4.94 ms | 0.21 ms |
+| resume | 2.53 ms | 1.79 ms | 0.11 ms |
+| state | 1.09 ms | 0.35 ms | 0.03 ms |
+| update_state | 0.40 ms | 0.19 ms | 0.02 ms |
+| stream | 8.16 ms | 4.14 ms | 0.48 ms |
+| batch | 15.34 ms | 6.24 ms | 0.45 ms |
 
 Speedup vs LangGraph async:
 
 | Phase | binding | native |
 | --- | ---: | ---: |
-| invoke | 1.88x | 44.61x |
-| resume | 1.17x | 21.77x |
-| state | 1.93x | 35.28x |
-| update_state | 1.43x | 14.88x |
-| stream | 1.64x | 18.73x |
-| batch | 2.65x | 40.40x |
+| invoke | 1.78x | 41.70x |
+| resume | 1.41x | 23.33x |
+| state | 3.15x | 41.72x |
+| update_state | 2.10x | 16.59x |
+| stream | 1.97x | 17.02x |
+| batch | 2.46x | 33.83x |
 
 Final state per engine:
 
