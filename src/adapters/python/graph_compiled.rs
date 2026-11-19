@@ -223,7 +223,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -252,7 +252,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -282,7 +282,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -297,7 +297,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match static_pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),

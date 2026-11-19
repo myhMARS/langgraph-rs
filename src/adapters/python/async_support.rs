@@ -73,9 +73,6 @@ pub(crate) fn static_pause_values(
     let crate::Error::Interrupt(interrupt) = error else {
         return Ok(None);
     };
-    if !interrupt.static_pause {
-        return Ok(None);
-    }
     let Some(thread) = thread else {
         return Ok(None);
     };
@@ -86,7 +83,16 @@ pub(crate) fn static_pause_values(
     .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
     match snapshot {
         Some(snapshot) => {
-            crate::adapters::python::convert::json_state_to_py(py, &snapshot.values).map(Some)
+            let values =
+                crate::adapters::python::convert::json_state_to_py(py, &snapshot.values)?;
+            if !interrupt.static_pause {
+                crate::adapters::python::graph_pause::attach_interrupts(
+                    py,
+                    values.bind(py),
+                    std::slice::from_ref(interrupt),
+                )?;
+            }
+            Ok(Some(values))
         }
         None => Ok(Some(py.None())),
     }

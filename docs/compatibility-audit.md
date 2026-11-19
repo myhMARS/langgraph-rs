@@ -773,4 +773,21 @@ workflow:
 So the async binding is not doing extra graph work -- the entire remaining gap is the per-call
 asyncio<->Tokio wake-up (0.165 ms) plus ~12 us per node of async bookkeeping. Any further async
 speed-up would have to remove that wake-up by running nodes on the event-loop thread, which changes
-concurrency semantics and needs an explicit decision.
+concurrency semantics and needs an explicit decision.### Round 43: paused runs return `__interrupt__` like LangGraph
+
+`invoke`, `resume`, `batch` and their async counterparts used to raise `GraphInterrupt` when a
+node called `interrupt()`. LangGraph instead returns the current state with an `__interrupt__`
+list, and a static `interrupt_before`/`interrupt_after` breakpoint returns the state without that
+key. The binding now does the same (`graph_pause::pause_values`), building the payload from the
+persisted snapshot:
+
+```python
+paused = graph.invoke({"messages": []}, config)   # {'...': ..., '__interrupt__': [Interrupt(...)]}
+paused["__interrupt__"][0].value                  # the node's payload
+graph.invoke(Command(resume="ok"), config)        # continues
+```
+
+A graph without a checkpointer still raises `GraphInterrupt`, because the paused state cannot be
+read back; that edge case is documented in `docs/langgraph-compat.md`. 21 interrupt assertions in
+the Python suite were rewritten to the new shape (124 tests pass), parity stays 36/38, and the
+examples use the LangGraph form.

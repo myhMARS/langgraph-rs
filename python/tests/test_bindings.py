@@ -124,9 +124,9 @@ class HumanInTheLoopTests(unittest.TestCase):
         graph.set_finish_point("finish")
         compiled = graph.compile(checkpointer=True)
 
-        with self.assertRaises(lg.GraphInterrupt) as raised:
-            compiled.invoke({"value": 0, "log": []}, thread_id="approval")
-        payload = raised.exception.args[0]
+        result = compiled.invoke({"value": 0, "log": []}, thread_id="approval")
+        self.assertIn("__interrupt__", result)
+        payload = result["__interrupt__"][0].value
         self.assertEqual(payload, {"question": "add how much?"})
 
         snapshot = compiled.get_state("approval")
@@ -147,8 +147,8 @@ class HumanInTheLoopTests(unittest.TestCase):
         graph.set_entry_point("ask")
         graph.set_finish_point("ask")
         compiled = graph.compile(checkpointer=True)
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="edits")
+        result = compiled.invoke({"value": 0}, thread_id="edits")
+        self.assertIn("__interrupt__", result)
         result = compiled.resume_with_updates("edits", 7, {"value": 100})
         self.assertEqual(result["value"], 107)
 
@@ -376,8 +376,8 @@ class PythonApiParityTests(unittest.TestCase):
         graph.set_entry_point("ask")
         graph.set_finish_point("ask")
         compiled = graph.compile(checkpointer=True)
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="cmd-input")
+        result = compiled.invoke({"value": 0}, thread_id="cmd-input")
+        self.assertIn("__interrupt__", result)
         output = compiled.invoke(
             lg.Command(resume=5, update={"value": 10}), thread_id="cmd-input"
         )
@@ -524,9 +524,8 @@ class PythonParityRound2Tests(unittest.TestCase):
         parent.set_finish_point("child")
         compiled = parent.compile(checkpointer=saver)
 
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="py-sub")
-
+        result = compiled.invoke({"value": 0}, thread_id="py-sub")
+        self.assertIn("__interrupt__", result)
         self.assertTrue(compiled.get_state("py-sub")["interrupted"])
         root = compiled.get_state("py-sub", subgraphs=True)
         child_task = next(
@@ -772,8 +771,8 @@ class PythonParityRound2Tests(unittest.TestCase):
             return {"value": head + tail}
 
         compiled = lg.entrypoint(entry).compile(checkpointer=saver, store=store)
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 1}, thread_id="py-functional")
+        result = compiled.invoke({"value": 1}, thread_id="py-functional")
+        self.assertIn("__interrupt__", result)
         self.assertEqual(first_calls, [1])
         self.assertEqual(second_calls, [])
 
@@ -798,8 +797,8 @@ class PythonParityRound2Tests(unittest.TestCase):
         graph.set_finish_point("b")
         compiled = graph.compile(checkpointer=True)
 
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"a": 0, "b": 0}, thread_id="py-multi")
+        result = compiled.invoke({"a": 0, "b": 0}, thread_id="py-multi")
+        self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-multi")
         interrupts = snapshot["interrupts"]
         self.assertEqual(len(interrupts), 2)
@@ -901,8 +900,8 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_entry_point("ask")
             graph.set_finish_point("ask")
             compiled = graph.compile(checkpointer=saver)
-            with self.assertRaises(lg.GraphInterrupt):
-                await compiled.ainvoke({"value": 0}, thread_id="py-async")
+            result = await compiled.ainvoke({"value": 0}, thread_id="py-async")
+            self.assertIn("__interrupt__", result)
             return await compiled.aresume("py-async", 5)
 
         self.assertEqual(asyncio.run(scenario())["value"], 5)
@@ -976,10 +975,10 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("ask")
         compiled = graph.compile(checkpointer=saver)
 
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="py-sequential")
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.resume("py-sequential", 3)
+        result = compiled.invoke({"value": 0}, thread_id="py-sequential")
+        self.assertIn("__interrupt__", result)
+        result = compiled.resume("py-sequential", 3)
+        self.assertIn("__interrupt__", result)
         output = compiled.resume("py-sequential", 4)
         self.assertEqual(output["value"], 7)
 
@@ -1099,8 +1098,8 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("ask")
         compiled = graph.compile(checkpointer=saver)
 
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="py-schema")
+        result = compiled.invoke({"value": 0}, thread_id="py-schema")
+        self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-schema")
         self.assertIn("response_schema", snapshot["interrupts"][0])
         with self.assertRaises(Exception):
@@ -1167,8 +1166,8 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_entry_point("ask")
             graph.set_finish_point("ask")
             compiled = graph.compile(checkpointer=lg.InMemorySaver())
-            with self.assertRaises(lg.GraphInterrupt):
-                await compiled.ainvoke({"value": 0}, thread_id="py-coroutine")
+            result = await compiled.ainvoke({"value": 0}, thread_id="py-coroutine")
+            self.assertIn("__interrupt__", result)
             return await compiled.aresume("py-coroutine", 5)
 
         self.assertEqual(asyncio.run(scenario())["value"], 5)
@@ -1342,8 +1341,8 @@ class AsyncPythonTests(unittest.TestCase):
             return {"value": head + delta}
 
         compiled = lg.entrypoint(entry).compile(checkpointer=saver)
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 1}, thread_id="py-functional-checkpoint")
+        result = compiled.invoke({"value": 1}, thread_id="py-functional-checkpoint")
+        self.assertIn("__interrupt__", result)
         self.assertEqual(calls, [1])
         output = compiled.resume("py-functional-checkpoint", 4)
         self.assertEqual(output["value"], 14)
@@ -1437,8 +1436,8 @@ class AsyncPythonTests(unittest.TestCase):
         graph.add_edge("ask", "finish")
         graph.set_finish_point("finish")
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({}, thread_id="py-task-id")
+        result = compiled.invoke({}, thread_id="py-task-id")
+        self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-task-id")
         task = snapshot["tasks"][0]
         self.assertEqual(task["node"], "ask")
@@ -1566,8 +1565,8 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_entry_point("ask")
         graph.set_finish_point("ask")
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({}, thread_id="py-schema-rich")
+        result = compiled.invoke({}, thread_id="py-schema-rich")
+        self.assertIn("__interrupt__", result)
         with self.assertRaises(Exception):
             compiled.resume("py-schema-rich", {"choice": "no"})
         with self.assertRaises(Exception):
@@ -1858,9 +1857,8 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = parent.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="subgraph")
-
+        result = compiled.invoke({"value": 0}, thread_id="subgraph")
+        self.assertIn("__interrupt__", result)
         def child_langgraph(state):
             return {"value": state["value"] + interrupt("delta")}
 
@@ -1923,9 +1921,8 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"seen": []}, thread_id="send")
-
+        result = compiled.invoke({"seen": []}, thread_id="send")
+        self.assertIn("__interrupt__", result)
         def worker_langgraph(state):
             return {"seen": [state["item"], interrupt("item")]}
 
@@ -1989,9 +1986,8 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({}, thread_id="parallel")
-
+        result = compiled.invoke({}, thread_id="parallel")
+        self.assertIn("__interrupt__", result)
         class ParallelState(TypedDict, total=False):
             left: int
             right: int
@@ -2054,11 +2050,10 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="sequential")
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.resume("sequential", 5)
-
+        result = compiled.invoke({"value": 0}, thread_id="sequential")
+        self.assertIn("__interrupt__", result)
+        result = compiled.resume("sequential", 5)
+        self.assertIn("__interrupt__", result)
         def ask_langgraph(state):
             first = interrupt("first")
             second = interrupt("second")
@@ -2105,9 +2100,8 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="typed")
-
+        result = compiled.invoke({"value": 0}, thread_id="typed")
+        self.assertIn("__interrupt__", result)
         class TypedState(TypedDict):
             value: int
 
@@ -2155,9 +2149,8 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(
             checkpointer=lg.LangGraphSqliteSaver(str(path))
         )
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0}, thread_id="cross")
-
+        result = compiled.invoke({"value": 0}, thread_id="cross")
+        self.assertIn("__interrupt__", result)
         saver = SqliteSaver(sqlite3.connect(path, check_same_thread=False))
 
         def ask_langgraph(state):

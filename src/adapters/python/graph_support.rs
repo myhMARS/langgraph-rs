@@ -111,33 +111,4 @@ pub(crate) fn stream_modes_from_py(
     Ok(Some(modes))
 }
 
-/// LangGraph pauses on `interrupt_before`/`interrupt_after` without raising, so a static
-/// pause error becomes the current state instead of `GraphInterrupt`.
-pub(crate) fn static_pause_values(
-    py: Python<'_>,
-    graph: &crate::graph::CompiledGraph<crate::JsonState>,
-    thread: Option<&str>,
-    namespace: Option<&str>,
-    error: &crate::Error,
-) -> PyResult<Option<Py<PyAny>>> {
-    let crate::Error::Interrupt(interrupt) = error else {
-        return Ok(None);
-    };
-    if !interrupt.static_pause {
-        return Ok(None);
-    }
-    let Some(thread) = thread else {
-        return Ok(None);
-    };
-    let snapshot = match namespace {
-        Some(namespace) => graph.get_state_in(thread, namespace),
-        None => graph.get_state(thread),
-    }
-    .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-    match snapshot {
-        Some(snapshot) => {
-            crate::adapters::python::convert::json_state_to_py(py, &snapshot.values).map(Some)
-        }
-        None => Ok(Some(py.None())),
-    }
-}
+

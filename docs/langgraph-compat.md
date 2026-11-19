@@ -70,10 +70,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 
 ## 4. 已知差异（迁移前请确认）
 
-1. **`interrupt` 在 `invoke` 上的表现**：LangGraph 的 `invoke` 返回带 `__interrupt__` 的状态字典；
-   `langgraph_rs` 抛出 `GraphInterrupt`（异常参数里是 interrupt 的 value）。`stream`、`astream`
-   的行为与 LangGraph 一致，会产出 `__interrupt__` 分片。
-   迁移写法：`try: graph.invoke(...) except GraphInterrupt: ...`，然后照常用 `Command(resume=…)` 继续。
+1. **`interrupt` 在 `invoke`/`resume`/`batch` 上的表现已对齐 LangGraph**（2026-11 对齐）：
+   暂停时不再抛异常，而是返回状态字典并附带 `__interrupt__` 列表；静态断点
+   （`interrupt_before` / `interrupt_after`）只返回状态、不带 `__interrupt__`，与 LangGraph 一致。
+
+   ```python
+   paused = graph.invoke({"messages": []}, config)
+   paused["__interrupt__"][0].value      # 节点传给 interrupt() 的 payload
+   graph.invoke(Command(resume="ok"), config)
+   ```
+
+   **唯一的例外**：图没有配置 checkpointer 时，`langgraph_rs` 仍然抛 `GraphInterrupt`（LangGraph
+   会返回输入状态 + `__interrupt__`）。没有 checkpointer 的暂停无法恢复，实际使用中请配置
+   `InMemorySaver`/`SqliteSaver` 等。`GraphInterrupt` 类仍然导出，行为与 LangGraph 的同名异常一致。
 2. **`stream()` 返回 `list`**（LangGraph 返回生成器）：迭代结果相同，但不是惰性的，也没有
    `.close()`。需要惰性时用 `astream` 或自行包一层生成器。
 3. **`get_state_history()` 返回惰性 `StateHistory`**（支持 `len()`、索引、迭代），不是生成器。

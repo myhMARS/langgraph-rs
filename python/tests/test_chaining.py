@@ -111,8 +111,8 @@ class MessagesStateTests(unittest.TestCase):
         graph.set_finish_point("ask")
         graph.set_finish_point("other")
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
-        with self.assertRaises(lg.GraphInterrupt):
-            compiled.invoke({"value": 0, "log": []}, thread_id="resume-goto")
+        result = compiled.invoke({"value": 0, "log": []}, thread_id="resume-goto")
+        self.assertIn("__interrupt__", result)
         output = compiled.invoke(
             lg.Command(resume=5, goto="other"), thread_id="resume-goto"
         )

@@ -69,14 +69,13 @@ def main() -> None:
     hitl.set_finish_point("review")
     reviewed = hitl.compile(checkpointer=True)
 
-    try:
-        reviewed.invoke({"draft": "", "approved": False}, thread_id="demo")
-    except lg.GraphInterrupt as paused:
-        print("paused with payload:", paused.args[0])
-        snapshot = reviewed.get_state("demo")
-        print("snapshot:", snapshot["interrupted"], snapshot["next"])
-        final = reviewed.resume("demo", {"approved": True})
-        print("resumed:", final)
+    # LangGraph shape: a paused run returns the state plus ``__interrupt__`` instead of raising.
+    paused = reviewed.invoke({"draft": "", "approved": False}, thread_id="demo")
+    print("paused with payload:", paused["__interrupt__"][0].value)
+    snapshot = reviewed.get_state("demo")
+    print("snapshot:", snapshot["interrupted"], snapshot["next"])
+    final = reviewed.resume("demo", {"approved": True})
+    print("resumed:", final)
 
 
 if __name__ == "__main__":

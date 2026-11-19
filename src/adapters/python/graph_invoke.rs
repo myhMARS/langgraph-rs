@@ -72,7 +72,7 @@ pub(crate) fn invoke(
                 });
                 return match result {
                     Ok(state) => json_state_to_py(py, &state),
-                    Err(error) => match static_pause_values(
+                    Err(error) => match crate::adapters::python::graph_pause::pause_values(
                         py,
                         graph,
                         thread_id.as_deref(),
@@ -103,7 +103,7 @@ pub(crate) fn invoke(
                 let result = py.detach(|| graph.run_command(command, &config));
                 return match result {
                     Ok(outcome) => json_state_to_py(py, &outcome.state),
-                    Err(error) => match static_pause_values(
+                    Err(error) => match crate::adapters::python::graph_pause::pause_values(
                         py,
                         graph,
                         thread_id.as_deref(),
@@ -142,7 +142,7 @@ pub(crate) fn invoke(
             });
             return match result {
                 Ok(state) => json_state_to_py(py, &state),
-                Err(error) => match static_pause_values(
+                Err(error) => match crate::adapters::python::graph_pause::pause_values(
                     py,
                     graph,
                     thread_id.as_deref(),
@@ -162,7 +162,7 @@ pub(crate) fn invoke(
             let result = py.detach(|| graph.continue_thread_with_config(thread, &config));
             return match result {
                 Ok(state) => json_state_to_py(py, &state),
-                Err(error) => match static_pause_values(
+                Err(error) => match crate::adapters::python::graph_pause::pause_values(
                     py,
                     graph,
                     thread_id.as_deref(),
@@ -191,7 +191,7 @@ pub(crate) fn invoke(
                 let result = py.detach(|| graph.run_on_thread(thread, updates, &config));
                 return match result {
                     Ok(outcome) => json_state_to_py(py, &outcome.state),
-                    Err(error) => match static_pause_values(
+                    Err(error) => match crate::adapters::python::graph_pause::pause_values(
                         py,
                         graph,
                         thread_id.as_deref(),
@@ -209,7 +209,7 @@ pub(crate) fn invoke(
     let result = py.detach(|| graph.invoke(&state, &config));
     match result {
         Ok(state) => json_state_to_py(py, &state),
-        Err(error) => match static_pause_values(
+        Err(error) => match crate::adapters::python::graph_pause::pause_values(
             py,
             graph,
             thread_id.as_deref(),

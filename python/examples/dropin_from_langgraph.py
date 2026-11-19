@@ -30,7 +30,7 @@ import typing
 
 from langgraph_rs.checkpoint.memory import InMemorySaver
 from langgraph_rs.graph import END, START, StateGraph
-from langgraph_rs.types import Command, GraphInterrupt, interrupt
+from langgraph_rs.types import Command, interrupt
 
 
 class State(typing.TypedDict):
@@ -64,16 +64,11 @@ graph = builder.compile(checkpointer=InMemorySaver())
 
 config = {"configurable": {"thread_id": "dropin-demo"}}
 
-# Difference from LangGraph: LangGraph returns the state with an ``__interrupt__`` entry,
-# langgraph_rs raises ``GraphInterrupt`` with the same information. This is the one place
-# where an import-only switch needs a small code change.
-print("1) invoke stops at the interrupt")
-try:
-    print("   ", graph.invoke({"messages": [], "attempts": 0}, config))
-except GraphInterrupt as interrupted:
-    args = interrupted.args[0] if interrupted.args else None
-    print("    GraphInterrupt:", args)
-    print("    paused state  :", graph.get_state(config).values)
+print("1) invoke stops at the interrupt (same result shape as LangGraph)")
+paused = graph.invoke({"messages": [], "attempts": 0}, config)
+print("    result        :", paused)
+print("    interrupt     :", paused["__interrupt__"][0].value)
+print("    paused state  :", graph.get_state(config).values)
 
 print("2) resume with the LangGraph `Command(resume=...)` shape")
 print("   ", graph.invoke(Command(resume="ok"), config))
