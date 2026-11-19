@@ -734,4 +734,19 @@ release extension as well.
 The one remaining sub-5x cell is async `resume`. Its floor is the bridge, not the graph: awaiting
 an async binding call that fails instantly still costs **0.285 ms**, so a resume whose actual work
 is 0.13 ms (measured through the sync binding) cannot beat 5x against LangGraph's 2.30 ms without
-removing the asyncio<->Tokio hop for that call.
+removing the asyncio<->Tokio hop for that call.### Round 40: the async bridge is one 0.165 ms wake-up, not 0.285 ms
+
+Measuring `await` costs directly on a release extension:
+
+| Await | Cost |
+| --- | ---: |
+| an `immediate_awaitable` call (`aget_state`) | 0.006 ms |
+| a 1-node `ainvoke` (future_into_py) | 0.197 ms |
+| the same through the sync binding | ~0.03 ms |
+
+So the warm bridge is ~0.165 ms and Python's `await` machinery is negligible (0.006 ms). The earlier
+0.285 ms figure came from an error path, which also builds a Python exception with a traceback.
+Async `resume` (0.40-0.55 ms) is therefore ~0.165 ms bridge + ~0.12 ms of work that the same resume
+takes through the sync binding, plus per-node async bookkeeping; against LangGraph's 2.3 ms it sits
+at about 5x, and dips below that only when the machine is loaded (the fixed wake-up does not shrink
+while LangGraph's absolute time grows).

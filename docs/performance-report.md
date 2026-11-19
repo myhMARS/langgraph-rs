@@ -69,10 +69,19 @@ a debug build of the same code is 4-5x slower on the Rust side and collapses sev
 | batch | **30.1-32.5x** | 33.5x | **8.74x** | 28.4x |
 
 All six sync-binding phases and five of six async-binding phases are at or above 5x. The remaining
-async outlier is `resume` (3.32x), whose floor is the asyncio<->Tokio bridge: an `await` on an
-async binding call that finishes instantly (an error path) still costs **0.285 ms**, so the phase is
-dominated by one unavoidable wake-up rather than by graph work (the same resume costs 0.13 ms
-through the sync binding).
+async outlier is `resume` (3.32x). Its cost decomposes as:
+
+| Component | Cost |
+| --- | ---: |
+| one asyncio<->Tokio wake-up (measured warm, via a 1-node `ainvoke`) | ~0.165 ms |
+| the resume work itself (same graph through the sync binding) | ~0.12 ms |
+| per-node async engine overhead (state clone, context, `FuturesUnordered`) | ~0.02-0.15 ms |
+
+An error-path measurement suggests 0.285 ms for the bridge, but that number includes building a
+Python exception with a traceback; the warm figure is ~0.165 ms. `await` itself is free: awaiting an
+`immediate_awaitable` call (`aget_state`) costs 0.006 ms. So the async outlier is one wake-up that
+the sync binding does not pay, and removing it requires running nodes on the event-loop thread,
+which changes async concurrency semantics and has not been adopted.
 
 Segment profiling of a warm `update_state` (66 us on a debug build): read 5.4 us, merge 10.7 us,
 checkpoint build 20.0 us, snapshot 4.5 us, binding glue 30.4 us.
