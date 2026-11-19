@@ -31,13 +31,13 @@ SCHEMA = {
 
 async def _seed(state) -> dict:
     store = lg.get_store()
+    # LangGraph shape: `store.get` returns an `Item`, so the payload lives in `.value`.
     previous = store.get(("mega",), "runs")
     if previous is None:
         runs = 0
-    elif isinstance(previous, dict) and "value" in previous:
-        runs = previous["value"].get("n", 0)
     else:
-        runs = (previous or {}).get("n", 0)
+        payload = previous.value if hasattr(previous, "value") else previous
+        runs = (payload or {}).get("n", 0)
     store.put(("mega",), "runs", {"n": runs + 1})
     return {"log": ["seed"], "count": 0, "sink": 0, "child": 0, "flag": f"runs={runs + 1}"}
 
