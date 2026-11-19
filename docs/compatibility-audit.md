@@ -758,4 +758,19 @@ and of the tail after a fan-in. It now awaits that single future directly (still
 
 An 8-node trivial async graph runs in **0.294 ms** on a release build, i.e. ~12 us per node on top
 of the ~0.165 ms bridge. Android-style suites: invoke 5.93x, state 17.92x, update_state 5.77x,
-batch 6.91x, stream 4.87x, resume 2.60x against LangGraph async.
+batch 6.91x, stream 4.87x, resume 2.60x against LangGraph async.### Round 42: async and sync execute exactly the same work
+
+Temporary counters in the run loop (removed) counted supersteps and task executions for the mega
+workflow:
+
+| Run | supersteps | task executions |
+| --- | ---: | ---: |
+| sync invoke | 11 | 13 |
+| async invoke | 11 | 13 |
+| sync resume | 5 | 5 |
+| async resume | 5 | 5 |
+
+So the async binding is not doing extra graph work -- the entire remaining gap is the per-call
+asyncio<->Tokio wake-up (0.165 ms) plus ~12 us per node of async bookkeeping. Any further async
+speed-up would have to remove that wake-up by running nodes on the event-loop thread, which changes
+concurrency semantics and needs an explicit decision.
