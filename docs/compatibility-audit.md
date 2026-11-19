@@ -604,4 +604,14 @@ keeps its pre-existing documented difference, and the full suite is unchanged at
 parity 36-38.
 
 Effect (mega workflow, 14 iterations): invoke 2.55 -> **2.44 ms (5.80x)**, batch 8.11-10.32x,
-resume 7.35x, state 11.39x, stream 4.95x, update_state 2.80x.
+resume 7.35x, state 11.39x, stream 4.95x, update_state 2.80x.### Round 31: config parsing stops raising for dict configs
+
+`config_from_py` tried `value.extract::<String>()` first, so every LangGraph-style
+`{"configurable": {...}}` config raised and cleared a Python exception before being parsed as a
+dict. A `PyString` type check now selects the fast path, so dict configs parse without the
+exception.
+
+`update_state` with a config dict 0.084 -> **0.071 ms**, `get_state` 0.031 -> **0.028 ms**
+(workflow thread, warm). Cross-engine ratios for the phases that take config dicts improve
+accordingly; the mega-bench ratios remain load-sensitive (see the caveat in the performance
+report).

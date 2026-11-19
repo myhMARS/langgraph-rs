@@ -585,7 +585,10 @@ pub(crate) fn config_from_py(
     if value.is_none() {
         return Ok((None, config));
     }
-    if let Ok(thread) = value.extract::<String>() {
+    // Check the type before extracting: `extract::<String>()` on a dict builds and clears a
+    // Python exception, which is a measurable cost on every config-dict call.
+    if value.cast::<pyo3::types::PyString>().is_ok() {
+        let thread: String = value.extract()?;
         config.thread_id = Some(thread.clone());
         return Ok((Some(thread), config));
     }
