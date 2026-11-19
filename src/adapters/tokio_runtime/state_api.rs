@@ -338,7 +338,11 @@ impl<S: State> AsyncCompiledGraph<S> {
             })
             .collect();
         apply_updates(&self.schema, &mut values, updates)?;
-        let values = self.schema.persisted_values(&values);
+        let values = if self.schema.persists_all(&values) {
+            values
+        } else {
+            self.schema.persisted_values(&values)
+        };
         let state = values_to_state::<S>(&values)?;
         let inferred = if preserve_next || as_node.is_some() || !checkpoint.next.is_empty() {
             None

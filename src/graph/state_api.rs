@@ -353,7 +353,13 @@ impl<S: State> CompiledGraph<S> {
             })
             .collect();
         apply_updates(&self.schema, &mut values, updates)?;
-        let values = self.schema.persisted_values(&values);
+        // A dynamic schema persists every channel, so the copy `persisted_values` would make
+        // is redundant here: the merged map is owned and can move into the checkpoint.
+        let values = if self.schema.persists_all(&values) {
+            values
+        } else {
+            self.schema.persisted_values(&values)
+        };
         let state = values_to_state::<S>(&values)?;
 
         let inferred = if preserve_next || as_node.is_some() || !checkpoint.next.is_empty() {

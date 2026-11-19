@@ -569,4 +569,16 @@ resolved at iteration time. That is now true for us as well -- the async thread-
 that captured the history and then deleted the thread had to materialise it first, and a direct
 LangGraph check (`gen = graph.get_state_history(...)`, `delete_thread`, `len(list(gen)) == 0`)
 confirms the reference implementation behaves identically. Parity stays 36/38 and all 119
-Python tests pass.
+Python tests pass.### Round 28: `update_state` stops copying a fully-persisted state
+
+`update_state` (sync and async) merged the update into a copy of the latest checkpoint, then
+called `persisted_values` -- which, for a schema that persists every channel, is a second full
+copy of the same map -- and then moved the *filtered* copy into the new checkpoint. Since the
+merged map is owned at that point, the filter is now only applied when channels are actually
+excluded (`StateSchema::persists_all`), so the map moves into the checkpoint instead of being
+copied once more.
+
+This is one full state copy removed per `update_state` call. The phase remains the weakest of the
+sync binding (~1.9-2.3x) because both engines are sub-millisecond there and the remaining cost is
+the state copy that `update_state` inherently performs (the caller-visible snapshot and the stored
+checkpoint cannot share one map).

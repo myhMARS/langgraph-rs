@@ -242,6 +242,12 @@ impl StateSchema {
     }
 
     /// Clone of `values` without untracked/ephemeral channels (for checkpoints).
+    /// `true` when every channel in `values` survives checkpointing, so `persisted_values`
+    /// would only copy the map.
+    pub(crate) fn persists_all(&self, values: &Map<String, Value>) -> bool {
+        values.keys().all(|name| self.persists(name))
+    }
+
     pub(crate) fn persisted_values(&self, values: &Map<String, Value>) -> Map<String, Value> {
         values
             .iter()
