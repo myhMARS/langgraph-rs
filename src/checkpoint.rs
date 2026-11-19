@@ -367,6 +367,26 @@ pub(crate) fn infer_as_node(
     Ok(Some(node))
 }
 
+/// Apply the `before`/`limit` window to a newest-first checkpoint list.
+pub(crate) fn slice_history(
+    mut checkpoints: Vec<Checkpoint>,
+    before: Option<&str>,
+    limit: Option<usize>,
+) -> Vec<Checkpoint> {
+    if let Some(before) = before {
+        match checkpoints.iter().position(|checkpoint| checkpoint.id == before) {
+            Some(index) => {
+                checkpoints.drain(0..=index);
+            }
+            None => checkpoints.clear(),
+        };
+    }
+    if let Some(limit) = limit {
+        checkpoints.truncate(limit);
+    }
+    checkpoints
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

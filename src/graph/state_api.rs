@@ -174,19 +174,7 @@ impl<S: State> CompiledGraph<S> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        let all = checkpointer.history_in(thread_id, namespace)?;
-        let mut checkpoints = all;
-        if let Some(before) = before {
-            match checkpoints.iter().position(|cp| cp.id == before) {
-                Some(index) => {
-                    checkpoints.drain(0..=index);
-                }
-                None => checkpoints.clear(),
-            }
-        }
-        if let Some(limit) = limit {
-            checkpoints.truncate(limit);
-        }
+        let checkpoints = checkpointer.history_page_in(thread_id, namespace, before, limit)?;
         checkpoints
             .into_iter()
             .map(|checkpoint| {

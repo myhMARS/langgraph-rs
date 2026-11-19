@@ -479,7 +479,7 @@ fn nested_parallel_runs_do_not_deadlock_on_the_worker_pool() {
             }
             Ok(output)
         })
-        .add_node("leaf", |state: &RouteState| {
+        .add_node("leaf", |_state: &RouteState| {
             Ok(NodeOutput::new().update("log", json!(["leaf"])))
         })
         .add_edge(langgraph_rs::START, "spawn")
@@ -496,7 +496,7 @@ fn nested_parallel_runs_do_not_deadlock_on_the_worker_pool() {
             Ok(output)
         })
         .add_node("inner", move |_state: &RouteState| {
-            let nested = child
+            child
                 .run(&RouteState::default(), &RunConfig::new())
                 .unwrap();
             Ok(NodeOutput::new().update("log", json!(["inner"])))

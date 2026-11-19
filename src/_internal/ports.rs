@@ -35,6 +35,21 @@ pub trait Checkpointer: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Read a page of a thread's history (newest first) instead of the whole history.
+    ///
+    /// The default implementation reads everything and slices it; savers that can seek
+    /// (in-memory vectors, SQL LIMIT) override it so long threads are not cloned fully.
+    fn history_page_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Checkpoint>> {
+        let all = self.history_in(thread_id, namespace)?;
+        Ok(crate::checkpoint::slice_history(all, before, limit))
+    }
+
     /// Newest checkpoint of a thread in a namespace (`""` is the root graph).
     ///
     /// The default implementation ignores namespaces; adapters that store the

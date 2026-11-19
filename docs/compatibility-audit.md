@@ -244,4 +244,13 @@ Current per-phase medians (10 interleaved suites, single machine; LangGraph 1.2.
 Mega-workflow native timings after the pool landed (mean of several runs): sync invoke
 0.53 -> 0.28 ms, batch 0.98 -> 0.60 ms. The cross-engine ratio moves with machine load
 (measured 29x-47x for sync invoke across runs), so the probe numbers above are the
-authoritative effect size.
+authoritative effect size.### Round 4 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| `history_page_in` trait method; `InMemorySaver` clones only the requested page instead of the whole thread history | `_internal/ports.rs`, `checkpoint.rs::slice_history`, `adapters/memory.rs`, `graph/state_api.rs` | probe `get_state_history(limit=5)` 33 -> 23 us |
+| `InMemorySaver::put` checks the newest checkpoint first; a full scan only runs for pause re-writes | `adapters/memory.rs` | removes an O(history) scan from every save on long threads |
+| LangChain callback context is built once per OS thread and reused, instead of rebuilding the handler and re-importing `langchain_core.runnables.config` per node | `adapters/python/convert.rs` | binding 10-node `invoke` 0.589 -> 0.513 ms (~7 us per node) |
+
+Latest probe (30-node chain, checkpointer): 529 us per run, 17.2 us per save, fan-out of 3: 71 us,
+fan-out of 8: 93 us, `get_state` 5.3 us, `history(5)` 22.9 us.

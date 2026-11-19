@@ -415,9 +415,24 @@ pub(super) fn path_map_from_py(path_map: &Bound<'_, PyAny>) -> PyResult<Option<P
     Ok(Some(map))
 }
 
-pub(super) fn install_langchain_callbacks<'py>(
-    py: Python<'py>,
-) -> Option<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+std::thread_local! {
+    /// `(var_child_runnable_config, {"callbacks": [handler]})` per OS thread.
+    ///
+    /// Building the handler and importing `langchain_core.runnables.config` for every node
+    /// call cost ~13 us per node; the contextvar itself is process-wide, so the pair can be
+    /// reused. Nodes still set/reset it per call, which is what LangChain expects.
+    static CALLBACK_CONFIG: std::cell::RefCell<Option<(Py<PyAny>, Py<PyAny>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn cached_callback_config(py: Python<'_>) -> Option<(Py<PyAny>, Py<PyAny>)> {
+    if let Some((variable, config)) = CALLBACK_CONFIG.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|(variable, config)| (variable.clone_ref(py), config.clone_ref(py)))
+    }) {
+        return Some((variable, config));
+    }
     let handler = super::langchain_callback_handler(py, None, None).ok()?;
     let callbacks = PyList::empty(py);
     callbacks.append(handler.bind(py)).ok()?;
@@ -425,8 +440,22 @@ pub(super) fn install_langchain_callbacks<'py>(
     config.set_item("callbacks", callbacks).ok()?;
     let module = py.import("langchain_core.runnables.config").ok()?;
     let variable = module.getattr("var_child_runnable_config").ok()?;
-    let token = variable.call_method1("set", (config,)).ok()?;
-    Some((variable, token))
+    let pair = (variable.unbind(), config.into_any().unbind());
+    CALLBACK_CONFIG.with(|cell| {
+        *cell.borrow_mut() = Some((pair.0.clone_ref(py), pair.1.clone_ref(py)));
+    });
+    Some(pair)
+}
+
+pub(super) fn install_langchain_callbacks<'py>(
+    py: Python<'py>,
+) -> Option<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let (variable, config) = cached_callback_config(py)?;
+    let token = variable
+        .bind(py)
+        .call_method1("set", (config.bind(py),))
+        .ok()?;
+    Some((variable.into_bound(py), token))
 }
 
 pub(super) fn node_from_python(

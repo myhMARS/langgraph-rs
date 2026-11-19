@@ -38,13 +38,24 @@ impl Checkpointer for InMemorySaver {
         let checkpoints = inner.entry(checkpoint.thread_id.clone()).or_default();
         // Writes are keyed by checkpoint id: an interrupt attaches to the checkpoint it
         // paused on, so re-putting the same id updates it instead of duplicating history.
-        match checkpoints
-            .iter_mut()
-            .find(|existing| existing.id == checkpoint.id)
+        // The re-put is virtually always the newest entry, so check that first: scanning the
+        // whole thread on every save made long threads quadratic.
+        if let Some(last) = checkpoints.last_mut()
+            && last.id == checkpoint.id
         {
-            Some(existing) => *existing = checkpoint,
-            None => checkpoints.push(checkpoint),
+            *last = checkpoint;
+            return Ok(());
         }
+        if checkpoint.interrupted || checkpoint.paused_before {
+            if let Some(existing) = checkpoints
+                .iter_mut()
+                .find(|existing| existing.id == checkpoint.id)
+            {
+                *existing = checkpoint;
+                return Ok(());
+            }
+        }
+        checkpoints.push(checkpoint);
         Ok(())
     }
 
@@ -101,6 +112,41 @@ impl Checkpointer for InMemorySaver {
                 .find(|checkpoint| checkpoint.namespace == namespace)
                 .cloned()
         }))
+    }
+
+    fn history_page_in(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<Checkpoint>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(checkpoints) = inner.get(thread_id) else {
+            return Ok(Vec::new());
+        };
+        // Newest first, namespace-filtered, then windowed: only the selected checkpoints
+        // are cloned, so a long thread is not copied for a five-entry page.
+        let mut selected: Vec<&Checkpoint> = checkpoints
+            .iter()
+            .rev()
+            .filter(|checkpoint| checkpoint.namespace == namespace)
+            .collect();
+        if let Some(before) = before {
+            match selected.iter().position(|checkpoint| checkpoint.id == before) {
+                Some(index) => {
+                    selected.drain(0..=index);
+                }
+                None => selected.clear(),
+            };
+        }
+        if let Some(limit) = limit {
+            selected.truncate(limit);
+        }
+        Ok(selected.into_iter().cloned().collect())
     }
 
     fn history_in(&self, thread_id: &str, namespace: &str) -> Result<Vec<Checkpoint>> {
