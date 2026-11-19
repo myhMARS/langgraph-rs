@@ -134,14 +134,14 @@ impl<S: State> AsyncCompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        let history = self.get_state_history_filtered_in(thread_id, namespace, before, None)?;
-        let mut matches: Vec<StateSnapshot<S>> = match filter {
-            Some(filter) => history
-                .into_iter()
-                .filter(|snapshot| metadata_matches(snapshot, filter))
-                .collect(),
-            None => history,
+        let Some(filter) = filter else {
+            return self.get_state_history_filtered_in(thread_id, namespace, before, limit);
         };
+        let mut matches: Vec<StateSnapshot<S>> = self
+            .get_state_history_filtered_in(thread_id, namespace, before, None)?
+            .into_iter()
+            .filter(|snapshot| metadata_matches(snapshot, filter))
+            .collect();
         if let Some(limit) = limit {
             matches.truncate(limit);
         }

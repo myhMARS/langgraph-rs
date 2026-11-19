@@ -134,14 +134,12 @@ impl<S: State> CompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        let history = self.get_state_history_filtered_in(thread_id, namespace, before, None)?;
+        // Without a filter the `limit` can be pushed into the page read: materializing the
+        // whole history first made `get_state_history(limit=5)` scale with the thread.
         let Some(filter) = filter else {
-            let mut history = history;
-            if let Some(limit) = limit {
-                history.truncate(limit);
-            }
-            return Ok(history);
+            return self.get_state_history_filtered_in(thread_id, namespace, before, limit);
         };
+        let history = self.get_state_history_filtered_in(thread_id, namespace, before, None)?;
         let mut matches: Vec<StateSnapshot<S>> = history
             .into_iter()
             .filter(|snapshot| metadata_matches(snapshot, filter))

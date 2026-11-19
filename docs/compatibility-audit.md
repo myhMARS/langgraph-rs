@@ -268,4 +268,18 @@ Measured bridge costs that bound further gains (Windows, CPython 3.12):
 * Sync `invoke` on a one-node graph: 41 us without a checkpointer, 76-100 us with one, versus
   7 us / 17 us natively. Of that, ~15 us is fixed call overhead (config parsing, snapshot/output
   conversion, PyO3 dispatch) and the rest is the per-node Python round trip (state dict, call,
-  output parse, GIL re-acquire).
+  output parse, GIL re-acquire).### Round 6 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| `get_state_history_where*` pushes `limit` into the page read when no metadata filter is given (both sync and async graphs) | `graph/state_api.rs`, `adapters/tokio_runtime/state_api.rs` | binding `get_state_history(limit=1)` 229 -> 37 us, `limit=5` 279 -> 161 us on a 15-node thread |
+
+The previous code materialised the whole history (every `StateSnapshot`, including value
+deserialization and Python conversion) and truncated afterwards, so `limit` did not bound the
+cost at all. The bench `state` phase (one `get_state` + one `history(5)`) moved from 1.17x to
+2.05x of LangGraph sync.
+
+Also measured this round: the async **engine** is as fast as the sync one natively (1 node 7.2 us,
+10 nodes 45 us), so the async binding's fixed ~0.3 ms belongs to `pyo3_async_runtimes`'
+`future_into_py` bridge (double spawn + contextvars restore), not to the Pregel loop; a
+hand-written awaitable would be needed to remove it, which would change cancellation semantics.
