@@ -21,6 +21,14 @@ pub trait Checkpointer: Send + Sync {
         false
     }
 
+    /// `true` when the thread has at least one checkpoint.
+    ///
+    /// Bindings use this instead of building a full `StateSnapshot` just to find out whether
+    /// a thread exists; savers that can answer without materialising a checkpoint override it.
+    fn has_thread(&self, thread_id: &str) -> Result<bool> {
+        Ok(self.latest(thread_id)?.is_some())
+    }
+
     /// Persist a checkpoint that the run loop still shares.
     ///
     /// The default copies, which is what savers that serialise immediately need anyway;

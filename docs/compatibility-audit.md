@@ -428,4 +428,17 @@ Cross-engine medians (10 interleaved suites):
 | batch | 2.31x | 3.53x |
 
 This also settles the round-13 question: the async `update_state` gap was the saver hop, not
-the eager awaitable and not the engine.
+the eager awaitable and not the engine.### Round 15: `has_thread` instead of building a snapshot to test existence
+
+Every `invoke(input, thread_id=...)` and `Command` path first asked
+`graph.get_state(thread)?.is_some()`. That loads the latest checkpoint *and builds a full
+`StateSnapshot`* (values deserialize, task list, config dicts) just to answer a yes/no question.
+
+* `Checkpointer::has_thread` (default: `latest(..).is_some()`) and an O(1) override for
+  `InMemorySaver` (`contains_key`);
+* `CompiledGraph::has_thread` / `has_thread_in` and an async `has_thread`;
+* both Python bindings use them.
+
+Measured (binding, existing thread, repeated `invoke`): sync 116 -> **79-94 us**, async
+`ainvoke` 407 -> **357-367 us**. Cross-engine medians after the change: async binding invoke
+1.63x -> 1.89x, state 1.95x -> 1.70x (noise band), sync unchanged within noise.

@@ -14,6 +14,24 @@ use serde_json::{Map, Value};
 use std::collections::HashSet;
 
 impl<S: State> CompiledGraph<S> {
+    /// `true` when the thread has at least one checkpoint.
+    ///
+    /// Bindings use this instead of building a full snapshot just to branch on existence.
+    pub fn has_thread(&self, thread_id: &str) -> Result<bool> {
+        match self.checkpointer() {
+            Some(checkpointer) => checkpointer.has_thread(thread_id),
+            None => Ok(false),
+        }
+    }
+
+    /// Namespace-scoped variant of [`CompiledGraph::has_thread`].
+    pub fn has_thread_in(&self, thread_id: &str, namespace: &str) -> Result<bool> {
+        match self.checkpointer() {
+            Some(checkpointer) => Ok(checkpointer.latest_in(thread_id, namespace)?.is_some()),
+            None => Ok(false),
+        }
+    }
+
     pub fn get_state(&self, thread_id: &str) -> Result<Option<StateSnapshot<S>>> {
         self.get_state_in(thread_id, "")
     }

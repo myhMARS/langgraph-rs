@@ -84,7 +84,7 @@ impl PyAsyncCompiledGraph {
                 let thread = stream_thread.as_deref();
                 match thread {
                     Some(thread) => {
-                        let exists = graph.get_state(thread).ok().flatten().is_some();
+                        let exists = futures::executor::block_on(graph.has_thread(thread)).unwrap_or(false);
                         match (resume, exists) {
                             (Some(value), _) if goto.is_empty() => {
                                 graph

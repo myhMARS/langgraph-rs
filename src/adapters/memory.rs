@@ -74,6 +74,14 @@ impl Checkpointer for InMemorySaver {
             .map(|arc| (**arc).clone()))
     }
 
+    fn has_thread(&self, thread_id: &str) -> Result<bool> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner.contains_key(thread_id))
+    }
+
     fn latest(&self, thread_id: &str) -> Result<Option<Checkpoint>> {
         let inner = self
             .inner

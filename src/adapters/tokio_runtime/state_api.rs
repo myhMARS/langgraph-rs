@@ -182,6 +182,14 @@ impl<S: State> AsyncCompiledGraph<S> {
             .collect()
     }
 
+    /// `true` when the thread has at least one checkpoint.
+    pub async fn has_thread(&self, thread_id: &str) -> Result<bool> {
+        match &self.checkpointer {
+            Some(checkpointer) => checkpointer.has_thread(thread_id),
+            None => Ok(false),
+        }
+    }
+
     /// Apply state updates without running nodes.
     pub async fn update_state<I, K>(
         &self,

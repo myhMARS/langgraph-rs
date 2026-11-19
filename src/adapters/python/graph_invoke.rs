@@ -46,12 +46,10 @@ pub(crate) fn invoke(
                     .as_deref()
                     .map(|thread| {
                         match config.checkpoint_ns.as_deref() {
-                            Some(namespace) => graph.get_state_in(thread, namespace),
-                            None => graph.get_state(thread),
+                            Some(namespace) => graph.has_thread_in(thread, namespace),
+                            None => graph.has_thread(thread),
                         }
-                        .ok()
-                        .flatten()
-                        .is_some()
+                        .unwrap_or(false)
                     })
                     .unwrap_or(false);
                 let result = py.detach(|| {
@@ -176,12 +174,10 @@ pub(crate) fn invoke(
     }
     if let (Some(obj), Some(thread)) = (input, thread_id.as_deref()) {
         let exists = match config.checkpoint_ns.as_deref() {
-            Some(namespace) => graph.get_state_in(thread, namespace),
-            None => graph.get_state(thread),
+            Some(namespace) => graph.has_thread_in(thread, namespace),
+            None => graph.has_thread(thread),
         }
-        .ok()
-        .flatten()
-        .is_some();
+        .unwrap_or(false);
         if exists {
             let updates = py_to_value(obj)?;
             if let Some(map) = updates.as_object() {
