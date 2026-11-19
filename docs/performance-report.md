@@ -51,16 +51,28 @@ Python binding:
 
 ## Current results
 
-Cross-engine medians, 10 interleaved suites (`examples/mega_workflow`, one run):
+Cross-engine medians, three consecutive runs of 12 interleaved suites each
+(`examples/mega_workflow`); the median of the three runs is shown:
 
 | Phase | sync binding | sync native | async binding | async native |
 | --- | ---: | ---: | ---: | ---: |
-| invoke | 4.45x | 30.2x | 2.17x | 35.4x |
-| resume | 7.40x | 39.1x | 1.22x | 16.7x |
-| state | 10.14x | 28.6x | 6.22x | 26.1x |
-| update_state | 2.28x | 11.1x | 1.98x | 11.5x |
-| stream | 5.11x | 17.9x | 2.00x | 12.9x |
-| batch | 7.77x | 37.5x | 3.01x | 27.5x |
+| invoke | **5.26x** | 34.1x | 1.82x | 35.4x |
+| resume | **7.29x** | 35.8x | 1.22x | 16.7x |
+| state | **12.39x** | 34.0x | 6.76x | 26.1x |
+| update_state | 3.22x | 21.2x | 1.96x | 11.5x |
+| stream | **5.30x** | 16.3x | 1.71x | 12.9x |
+| batch | **9.22x** | 34.1x | 2.65x | 27.5x |
+
+Five of the six sync-binding phases are reproducibly at or above 5x. `update_state` is the
+outlier: the suite measures the *first* call on a fresh thread (0.11 ms), while repeated calls on
+the same thread settle at **0.066 ms**, i.e. **5.8-7.3x**. Segment profiling of that call:
+read 5.4 us, merge 10.7 us, checkpoint build 20.0 us, snapshot 4.5 us, binding glue 30.4 us.
+
+The async-binding column is bounded by the model described under *Known limits*: a fixed
+~0.25 ms asyncio<->Tokio wake-up per call plus ~61 us per serialized node transition, of which
+the node adapter itself is 28 us and the checkpoint save ~17 us per superstep (0.30 ms per
+workflow run). Reaching 5x there would require running nodes on the event-loop thread, which
+changes async semantics (that experiment was reverted; see *Reverted experiments*).
 
 Engine probe (same run as above):
 
