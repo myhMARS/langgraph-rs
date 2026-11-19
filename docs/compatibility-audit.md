@@ -467,4 +467,14 @@ concatenates two JSON arrays natively and only falls back to Python when either 
 array (strings, numbers, dicts), which keeps the semantics identical.
 
 Measured (40-node chain writing one list element per step, binding): **3.45 ms -> 1.67 ms**
-(2.1x). Graphs with other reducers are unchanged, and parity stays 34/36.
+(2.1x). Graphs with other reducers are unchanged, and parity stays 34/36.### Round 18: build snapshots from a borrowed checkpoint
+
+`update_state` (sync and async) built its result with
+`StateSnapshot::from_checkpoint(updated.clone())`, cloning the whole checkpoint -- values,
+`versions_seen`, `channel_versions`, pending writes, task results -- and then moving pieces out
+of the copy. `from_checkpoint` is now split into `from_parts(&Checkpoint, values)` plus two
+constructors: one that moves the value map out of an owned checkpoint (`from_checkpoint`) and
+one that copies only the value map (`from_checkpoint_borrowed`), used by both update paths.
+
+`update_state` 35 -> 33 us, `aupdate_state` 37 -> 32 us (now on par with the sync API);
+cross-engine `update_state` 1.60x -> 2.15x sync / 2.19x async.

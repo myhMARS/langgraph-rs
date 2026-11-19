@@ -423,7 +423,7 @@ impl<S: State> CompiledGraph<S> {
             pending_writes: Vec::new(),
             deferred: checkpoint.deferred.clone(),
         };
-        let mut snapshot = StateSnapshot::from_checkpoint(updated.clone())?;
+        let mut snapshot = StateSnapshot::from_checkpoint_borrowed(&updated)?;
         // Readers report `checkpoint.step - 1`; keep this snapshot consistent with them.
         snapshot.step = snapshot.step.saturating_sub(1);
         checkpointer.put(updated)?;

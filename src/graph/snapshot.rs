@@ -108,7 +108,26 @@ impl<S: State> StateSnapshot<S> {
         Ok(snapshot)
     }
 
-    pub(crate) fn from_checkpoint(checkpoint: Checkpoint) -> Result<Self> {
+    /// Build a snapshot from a checkpoint that must stay usable afterwards.
+    ///
+    /// Only the values map is copied; the remaining fields are borrowed, so this is much
+    /// cheaper than cloning the whole checkpoint just to build a snapshot from the copy.
+    pub(crate) fn from_checkpoint_borrowed(checkpoint: &Checkpoint) -> Result<Self>
+    where
+        S: serde::de::DeserializeOwned + Default + serde::Serialize + 'static,
+    {
+        let values = crate::_internal::state::values_to_state::<S>(&checkpoint.values)?;
+        Self::from_parts(checkpoint, values)
+    }
+
+    pub(crate) fn from_checkpoint(mut checkpoint: Checkpoint) -> Result<Self> {
+        let values = crate::_internal::state::values_to_state_owned::<S>(std::mem::take(
+            &mut checkpoint.values,
+        ))?;
+        Self::from_parts(&checkpoint, values)
+    }
+
+    fn from_parts(checkpoint: &Checkpoint, values: S) -> Result<Self> {
         let tasks = checkpoint
             .next
             .iter()
@@ -145,9 +164,7 @@ impl<S: State> StateSnapshot<S> {
                 interrupts: Vec::new(),
             });
         }
-        // Move the value map out before the remaining fields are consumed below.
         let next = checkpoint.next_nodes();
-        let values = crate::_internal::state::values_to_state_owned::<S>(checkpoint.values)?;
         let config = serde_json::json!({
             "configurable": {
                 "thread_id": checkpoint.thread_id,
@@ -168,8 +185,8 @@ impl<S: State> StateSnapshot<S> {
         Ok(Self {
             values,
             next,
-            checkpoint_id: checkpoint.id,
-            thread_id: checkpoint.thread_id,
+            checkpoint_id: checkpoint.id.clone(),
+            thread_id: checkpoint.thread_id.clone(),
             step: checkpoint.step as i64,
             interrupted: checkpoint.interrupted,
             created_at_millis: checkpoint.created_at_millis,
@@ -179,12 +196,13 @@ impl<S: State> StateSnapshot<S> {
             // breakpoints as interrupts: they are a pause, not a question.
             interrupts: checkpoint
                 .interrupts
-                .into_iter()
+                .iter()
                 .filter(|interrupt| !interrupt.static_pause)
+                .cloned()
                 .collect(),
-            parent_checkpoint_id: checkpoint.parent_id,
-            metadata: checkpoint.metadata,
-            checkpoint_ns: checkpoint.namespace,
+            parent_checkpoint_id: checkpoint.parent_id.clone(),
+            metadata: checkpoint.metadata.clone(),
+            checkpoint_ns: checkpoint.namespace.clone(),
             config,
             parent_config,
         })
