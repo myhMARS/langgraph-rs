@@ -50,7 +50,7 @@ impl PyAsyncCompiledGraph {
         )> = None;
         let mut command: Option<crate::Command> = None;
         if let Some(obj) = input {
-            if let Ok(py_command) = obj.extract::<PyRef<PyCommand>>() {
+            if let Ok(py_command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
                 let (resume, updates) = py_command.to_resume_command(py)?;
                 let (goto, sends) = py_command.goto_parts(py)?;
                 let command_update = Some(updates.clone());
@@ -268,7 +268,7 @@ impl PyAsyncCompiledGraph {
             Vec<crate::Send>,
         )> = None;
         if let Some(obj) = input {
-            if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+            if let Ok(command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
                 let (resume, updates) = command.to_resume_command(py)?;
                 let (goto, sends) = command.goto_parts(py)?;
                 resume_start = Some((resume, Some(updates.into_iter().collect()), goto, sends));

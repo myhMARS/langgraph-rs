@@ -125,7 +125,7 @@ impl PyCompiledGraph {
         let mut streamed = Vec::new();
         let mut handled = false;
         if let Some(obj) = input {
-            if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+            if let Ok(command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
                 let thread = thread.as_deref().ok_or_else(|| {
                     PyTypeError::new_err("stream(Command(...)) requires thread_id")
                 })?;

@@ -441,4 +441,18 @@ Every `invoke(input, thread_id=...)` and `Command` path first asked
 
 Measured (binding, existing thread, repeated `invoke`): sync 116 -> **79-94 us**, async
 `ainvoke` 407 -> **357-367 us**. Cross-engine medians after the change: async binding invoke
-1.63x -> 1.89x, state 1.95x -> 1.70x (noise band), sync unchanged within noise.
+1.63x -> 1.89x, state 1.95x -> 1.70x (noise band), sync unchanged within noise.### Round 16: command detection without raising, and a rejected eager bridge
+
+`Command` inputs were recognised with `obj.extract::<PyRef<PyCommand>>()`, which builds and
+clears a Python exception for every ordinary dict input on the hot path. `obj.cast::<PyCommand>()`
+checks the type without raising: `invoke` without a checkpointer 45 -> 37 us; ainvoke medians
+1.89x -> 2.05x, batch 6.21x -> 7.41x.
+
+Rejected (measured, then reverted): polling the graph future once on the calling thread before
+handing it to Tokio. It looked excellent -- `ainvoke` 357 -> **116 us**, `aresume` 24 us,
+`astream` 143 us, `abatch` 119 us -- but it runs node code on the event loop's thread, so
+(a) async Python nodes fail with "Cannot run the event loop while another loop is running"
+(the thread-local node loop is already running there) and (b) a slow synchronous node would
+block the loop instead of running on a Tokio worker. Both are semantic regressions, so the
+`future_into_py` bridge stays; the ~105 us it costs per call is comparable to Python's own
+cross-thread future completion (171 us measured for a thread-per-call hop).

@@ -29,7 +29,7 @@ pub(crate) fn invoke(
         invoke_config = invoke_config.with_context(py_to_value(context)?);
     }
     if let Some(obj) = input {
-        if let Ok(command) = obj.extract::<PyRef<PyCommand>>() {
+        if let Ok(command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
             let (targets, sends) = command.goto_parts(py)?;
             if (!targets.is_empty() || !sends.is_empty()) && command.resume.is_none() {
                 let updates = command.to_update_map(py)?;
