@@ -158,6 +158,41 @@ let output = graph.invoke(&Counter::default(), &RunConfig::new()).unwrap();
 assert_eq!(output.value, 3);
 ```
 
+## Switching from LangGraph (import-only)
+
+The Python package mirrors the LangGraph module layout, so an existing program only needs its
+`from langgraph.<module> import ...` lines rewritten to `from langgraph_rs.<module> import ...`:
+
+```python
+# LangGraph                          # langgraph_rs
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
+from langgraph.checkpoint.memory import InMemorySaver
+```
+```python
+from langgraph_rs.graph import END, START, StateGraph
+from langgraph_rs.types import Command, interrupt
+from langgraph_rs.checkpoint.memory import InMemorySaver
+```
+
+The graph itself -- `TypedDict` state with `Annotated` reducers, node functions,
+`add_conditional_edges(..., path_map)`, `compile(checkpointer=...)`, the
+`{"configurable": {"thread_id": ...}}` config, `invoke`/`stream`/`get_state`/`update_state`/
+`get_state_history`, and the async `ainvoke`/`astream` calls -- stays untouched. The flat
+`langgraph_rs.StateGraph` namespace keeps working as before.
+
+Assemble the package (release build recommended, debug is 4-5x slower):
+
+```bash
+cargo build --release --features "python python-async sqlite redis postgres msgpack"
+python python/build_package.py --release
+PYTHONPATH=<repo>/target/python python python/examples/dropin_from_langgraph.py
+```
+
+The mapping table, the verified surface and the remaining differences (the `interrupt` result of
+`invoke`, `stream` returning a list, `create_react_agent`'s narrower signature, and the two
+parity scenarios that still differ) are documented in
+[docs/langgraph-compat.md](docs/langgraph-compat.md).
 ## State channel types
 
 A channel is one field of the state and decides how a superstep's writes become the next value:
@@ -706,9 +741,16 @@ Always build the extension in release mode: a debug build of the Rust engine is 
 python python/examples/quickstart.py
 ```
 
-Alternatively build the cdylib directly (`cargo build --release --features python`) and place
-`liblanggraph_rs.so` / `langgraph_rs.dll` next to your test code as `langgraph_rs.pyd` /
-`langgraph_rs.so`. The Python API uses `JsonState` and Python callables:
+Alternatively build the cdylib directly and let the helper assemble the importable package (it
+also provides the LangGraph-style submodules such as `langgraph_rs.graph`):
+
+```powershell
+cargo build --release --features "python python-async sqlite redis postgres msgpack"
+python python/build_package.py --release
+$env:PYTHONPATH = "<repo>\target\python"
+```
+
+The Python API uses `JsonState` and Python callables:
 
 ```python
 import langgraph_rs as lg
