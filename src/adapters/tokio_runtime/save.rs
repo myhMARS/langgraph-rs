@@ -17,6 +17,21 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
     }
 
+    pub(crate) async fn saver_history_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        if let Some(saver) = &self.async_checkpointer {
+            let history = saver.history_in(thread_id, namespace).await?;
+            return Ok(history.into_iter().map(std::sync::Arc::new).collect());
+        }
+        if let Some(checkpointer) = &self.checkpointer {
+            return checkpointer.history_in_shared(thread_id, namespace);
+        }
+        Err(Error::MissingCheckpointer("history"))
+    }
+
     pub(crate) async fn saver_latest_in_shared(
         &self,
         thread_id: &str,

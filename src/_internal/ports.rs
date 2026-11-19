@@ -38,6 +38,43 @@ pub trait Checkpointer: Send + Sync {
         Ok(self.latest_in(thread_id, namespace)?.map(std::sync::Arc::new))
     }
 
+    /// Full history of a thread, newest first, as shared handles.
+    fn history_shared(&self, thread_id: &str) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        Ok(self
+            .history(thread_id)?
+            .into_iter()
+            .map(std::sync::Arc::new)
+            .collect())
+    }
+
+    /// Namespace-scoped variant of [`Checkpointer::history_shared`].
+    fn history_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        Ok(self
+            .history_in(thread_id, namespace)?
+            .into_iter()
+            .map(std::sync::Arc::new)
+            .collect())
+    }
+
+    /// Paged variant of [`Checkpointer::history_in_shared`].
+    fn history_page_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        Ok(self
+            .history_page_in(thread_id, namespace, before, limit)?
+            .into_iter()
+            .map(std::sync::Arc::new)
+            .collect())
+    }
+
     /// `true` when the thread has at least one checkpoint.
     ///
     /// Bindings use this instead of building a full `StateSnapshot` just to find out whether

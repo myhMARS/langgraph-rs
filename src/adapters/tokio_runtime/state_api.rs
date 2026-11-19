@@ -157,8 +157,8 @@ impl<S: State> AsyncCompiledGraph<S> {
         before: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<StateSnapshot<S>>> {
-        let all = futures::executor::block_on(self.saver_history_in(thread_id, namespace))?;
-        let mut checkpoints = all;
+        let mut checkpoints =
+            futures::executor::block_on(self.saver_history_in_shared(thread_id, namespace))?;
         if let Some(before) = before {
             match checkpoints
                 .iter()
@@ -176,7 +176,7 @@ impl<S: State> AsyncCompiledGraph<S> {
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                let mut snapshot = StateSnapshot::from_checkpoint_borrowed(&checkpoint)?;
                 snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(snapshot)
             })

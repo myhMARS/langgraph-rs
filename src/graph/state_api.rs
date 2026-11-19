@@ -191,11 +191,12 @@ impl<S: State> CompiledGraph<S> {
         let checkpointer = self
             .checkpointer()
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
-        let checkpoints = checkpointer.history_page_in(thread_id, namespace, before, limit)?;
+        let checkpoints =
+            checkpointer.history_page_in_shared(thread_id, namespace, before, limit)?;
         checkpoints
             .into_iter()
             .map(|checkpoint| {
-                let mut snapshot = StateSnapshot::from_checkpoint(checkpoint)?;
+                let mut snapshot = StateSnapshot::from_checkpoint_borrowed(&checkpoint)?;
                 snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(snapshot)
             })

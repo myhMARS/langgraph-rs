@@ -487,4 +487,14 @@ stored handle) hand the read path a borrowed checkpoint, and
 value map, and merging pending writes into a fresh map when there are any.
 
 `get_state` 26 -> **16 us**, `aget_state` 51 -> **18 us**, `history(5)` 128 -> **113 us**
-(10-node thread). Durable savers keep the default implementation, so nothing changes for them.
+(10-node thread). Durable savers keep the default implementation, so nothing changes for them.### Round 20: history reads share the stored checkpoints
+
+`get_state_history` called `history_page_in`, which copied every selected checkpoint (values,
+version maps, tasks, pending writes), and then moved the copy into the snapshot. The shared
+handles from round 19 are now used for history too:
+`history_shared`/`history_in_shared`/`history_page_in_shared` (default maps to `Arc::new`,
+in-memory clones the stored handles) plus `from_checkpoint_borrowed` per entry, so only the
+value map is copied.
+
+`history(5)` 113 -> **109 us**, `aget_state_history(5)` 114 -> **97 us** (10-node thread);
+durable savers keep the default implementation.

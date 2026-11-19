@@ -74,6 +74,73 @@ impl Checkpointer for InMemorySaver {
             .map(|arc| (**arc).clone()))
     }
 
+    fn history_shared(&self, thread_id: &str) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner
+            .get(thread_id)
+            .map(|checkpoints| checkpoints.iter().rev().cloned().collect())
+            .unwrap_or_default())
+    }
+
+    fn history_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner
+            .get(thread_id)
+            .map(|checkpoints| {
+                checkpoints
+                    .iter()
+                    .rev()
+                    .filter(|checkpoint| checkpoint.namespace == namespace)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn history_page_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(checkpoints) = inner.get(thread_id) else {
+            return Ok(Vec::new());
+        };
+        let mut selected: Vec<&std::sync::Arc<Checkpoint>> = checkpoints
+            .iter()
+            .rev()
+            .filter(|checkpoint| checkpoint.namespace == namespace)
+            .collect();
+        if let Some(before) = before {
+            match selected
+                .iter()
+                .position(|checkpoint| checkpoint.id == before)
+            {
+                Some(index) => selected.drain(..=index),
+                None => return Ok(Vec::new()),
+            };
+        }
+        if let Some(limit) = limit {
+            selected.truncate(limit);
+        }
+        Ok(selected.into_iter().cloned().collect())
+    }
+
     fn latest_shared(&self, thread_id: &str) -> Result<Option<std::sync::Arc<Checkpoint>>> {
         let inner = self
             .inner
