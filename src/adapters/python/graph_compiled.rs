@@ -392,7 +392,7 @@ impl PyCompiledGraph {
         limit: Option<usize>,
         checkpoint_ns: Option<String>,
         filter: Option<Bound<'_, PyAny>>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    ) -> PyResult<Py<PyAny>> {
         let (thread_id, parsed_config) = config_from_py(py, Some(thread_id))?;
         let filter = match filter {
             Some(filter) => {
@@ -411,32 +411,47 @@ impl PyCompiledGraph {
         let thread_id = thread_id
             .ok_or_else(|| PyTypeError::new_err("get_state_history requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
-        let history = match checkpoint_ns.as_deref() {
-            Some(namespace) => self.graph.get_state_history_where_in(
-                &thread_id,
-                namespace,
-                filter.as_ref(),
-                before.as_deref(),
-                limit,
-            ),
-            None => self.graph.get_state_history_where(
-                &thread_id,
-                filter.as_ref(),
-                before.as_deref(),
-                limit,
-            ),
-        }
-        .map_err(|error| to_pyerr(py, error))?;
-        if checkpoint_ns.is_none() {
-            return history
-                .iter()
-                .map(|snapshot| snapshot_to_py(py, snapshot))
-                .collect();
-        }
-        history
-            .iter()
-            .map(|snapshot| snapshot_to_py(py, snapshot))
-            .collect()
+        let namespace = checkpoint_ns.clone().unwrap_or_default();
+        // Validate the query (missing checkpointer, unknown namespace) the way the eager read
+        // did, without materialising anything: an empty page still performs the lookup.
+        self.graph
+            .history_handles(&thread_id, &namespace, None, Some(0))
+            .map_err(|error| to_pyerr(py, error))?;
+        // A metadata filter cannot be answered from checkpoint handles, so those queries stay
+        // eager; everything else converts snapshots on demand.
+        let history = match filter {
+            Some(filter) => {
+                let snapshots = match checkpoint_ns.as_deref() {
+                    Some(namespace) => self.graph.get_state_history_where_in(
+                        &thread_id,
+                        namespace,
+                        Some(&filter),
+                        before.as_deref(),
+                        limit,
+                    ),
+                    None => self.graph.get_state_history_where(
+                        &thread_id,
+                        Some(&filter),
+                        before.as_deref(),
+                        limit,
+                    ),
+                }
+                .map_err(|error| to_pyerr(py, error))?;
+                let items = snapshots
+                    .iter()
+                    .map(|snapshot| snapshot_to_py(py, snapshot))
+                    .collect::<PyResult<Vec<_>>>()?;
+                crate::adapters::python::types::PyStateHistory::from_items(items)
+            }
+            None => {
+                let source: Arc<dyn crate::adapters::python::types::history::HistorySource> =
+                    self.graph.clone();
+                crate::adapters::python::types::PyStateHistory::new(
+                    source, thread_id, namespace, before, limit,
+                )
+            }
+        };
+        Py::new(py, history).map(|history| history.into_any())
     }
 
     /// Registered node names.

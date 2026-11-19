@@ -203,6 +203,33 @@ impl<S: State> CompiledGraph<S> {
             .collect()
     }
 
+    /// History checkpoint handles without building snapshots.
+    ///
+    /// The Python binding exposes history as a lazy sequence: this is the cheap first step
+    /// (pointer clones for in-memory savers), and each entry is converted on demand.
+    pub(crate) fn history_handles(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("get_state_history"))?;
+        checkpointer.history_page_in_shared(thread_id, namespace, before, limit)
+    }
+
+    /// Build one snapshot from a history handle (step is reported one lower, like `get_state`).
+    pub(crate) fn snapshot_from_handle(
+        &self,
+        handle: &std::sync::Arc<Checkpoint>,
+    ) -> Result<StateSnapshot<S>> {
+        let mut snapshot = StateSnapshot::from_checkpoint_borrowed(handle)?;
+        snapshot.step = snapshot.step.saturating_sub(1);
+        Ok(snapshot)
+    }
+
     /// Write state updates into the latest checkpoint without running nodes.
     ///
     /// With `as_node`, the next tasks are derived from that node's outgoing edges

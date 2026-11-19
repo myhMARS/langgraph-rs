@@ -1273,7 +1273,9 @@ class AsyncPythonTests(unittest.TestCase):
             await compiled.ainvoke({"value": 0}, thread_id="async-thread")
             compiled.copy_thread("async-thread", "async-copy")
             copied = compiled.get_state("async-copy")
-            history = compiled.get_state_history("async-thread")
+            # `get_state_history` is lazy (like LangGraph's generator), so materialise it
+            # before the thread is deleted.
+            history = list(compiled.get_state_history("async-thread"))
             compiled.delete_thread("async-thread")
             deleted = compiled.get_state("async-thread")
             return copied, history, deleted

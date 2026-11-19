@@ -447,29 +447,20 @@ impl PyAsyncCompiledGraph {
         let graph = self.graph.clone();
         immediate_awaitable(py, move || {
             Python::attach(|py| {
-                let snapshots = match checkpoint_ns.as_deref() {
-                    Some(namespace) => graph.get_state_history_filtered_in(
-                        &thread_id,
-                        namespace,
-                        before.as_deref(),
-                        limit,
-                    ),
-                    None => graph.get_state_history_filtered(&thread_id, before.as_deref(), limit),
-                }
-                .map_err(|error| to_pyerr(py, error))?;
-                let list = PyList::empty(py);
-                if checkpoint_ns.is_none() {
-                    for snapshot in snapshots {
-                        list.append(snapshot_to_py(py, &snapshot)?)?;
-                    }
-                    return Ok(list.into_any().unbind());
-                }
-                for snapshot in snapshots {
-                    list.append(snapshot_to_py(py, &snapshot)?)?;
-                }
-                Ok(list.into_any().unbind())
+                let namespace = checkpoint_ns.clone().unwrap_or_default();
+                graph
+                    .history_handles(&thread_id, &namespace, None, Some(0))
+                    .map_err(|error| to_pyerr(py, error))?;
+                let source: std::sync::Arc<
+                    dyn crate::adapters::python::types::history::HistorySource,
+                > = graph.clone();
+                let history = crate::adapters::python::types::PyStateHistory::new(
+                    source, thread_id, namespace, before, limit,
+                );
+                Py::new(py, history)
+                    .map(|history| history.into_any())
+                    .map(Some)
             })
-            .map(Some)
         })
     }
 
@@ -598,25 +589,21 @@ impl PyAsyncCompiledGraph {
         checkpoint_ns: Option<String>,
         before: Option<String>,
         limit: Option<usize>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    ) -> PyResult<Py<PyAny>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id = thread_id
             .ok_or_else(|| PyTypeError::new_err("get_state_history requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
-        let snapshots = match checkpoint_ns.as_deref() {
-            Some(namespace) => self
-                .graph
-                .get_state_history_filtered_in(&thread_id, namespace, before.as_deref(), limit)
-                .map_err(|error| to_pyerr(py, error))?,
-            None => self
-                .graph
-                .get_state_history_filtered(&thread_id, before.as_deref(), limit)
-                .map_err(|error| to_pyerr(py, error))?,
-        };
-        snapshots
-            .iter()
-            .map(|snapshot| snapshot_to_py(py, snapshot))
-            .collect()
+        let namespace = checkpoint_ns.clone().unwrap_or_default();
+        self.graph
+            .history_handles(&thread_id, &namespace, None, Some(0))
+            .map_err(|error| to_pyerr(py, error))?;
+        let source: std::sync::Arc<dyn crate::adapters::python::types::history::HistorySource> =
+            self.graph.clone();
+        let history = crate::adapters::python::types::PyStateHistory::new(
+            source, thread_id, namespace, before, limit,
+        );
+        Py::new(py, history).map(|history| history.into_any())
     }
 
     /// Delete every checkpoint of a thread.

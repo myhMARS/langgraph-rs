@@ -10,6 +10,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
 
+pub(crate) mod history;
+
+pub(crate) use history::PyStateHistory;
+
 use super::convert::{normalize_node, py_to_value, to_pyerr};
 use crate::_internal::node::{NodeOutput, Send};
 use crate::_internal::retry::RetryPolicy;

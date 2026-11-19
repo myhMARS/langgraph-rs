@@ -183,6 +183,40 @@ impl<S: State> AsyncCompiledGraph<S> {
             .collect()
     }
 
+    /// History checkpoint handles without building snapshots (see the sync graph).
+    pub(crate) fn history_handles(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<std::sync::Arc<Checkpoint>>> {
+        let mut handles =
+            futures::executor::block_on(self.saver_history_in_shared(thread_id, namespace))?;
+        if let Some(before) = before {
+            match handles.iter().position(|handle| handle.id == before) {
+                Some(index) => {
+                    handles.drain(0..=index);
+                }
+                None => handles.clear(),
+            }
+        }
+        if let Some(limit) = limit {
+            handles.truncate(limit);
+        }
+        Ok(handles)
+    }
+
+    /// Build one snapshot from a history handle (step reported one lower, like `get_state`).
+    pub(crate) fn snapshot_from_handle(
+        &self,
+        handle: &std::sync::Arc<Checkpoint>,
+    ) -> Result<StateSnapshot<S>> {
+        let mut snapshot = StateSnapshot::from_checkpoint_borrowed(handle)?;
+        snapshot.step = snapshot.step.saturating_sub(1);
+        Ok(snapshot)
+    }
+
     /// `true` when the thread has at least one checkpoint.
     pub async fn has_thread(&self, thread_id: &str) -> Result<bool> {
         match &self.checkpointer {

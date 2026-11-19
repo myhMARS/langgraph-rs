@@ -544,4 +544,29 @@ Documented divergence (pre-existing, not caused by these optimisations): LangGra
 `get_state_history` returns a lazy generator, our binding returns a list. Iteration works the
 same; `len()`/indexing only work on ours. The parity scenario materialises both sides, so the
 comparison stays valid, and the difference is recorded here rather than silently changing the
-Python API.
+Python API.### Round 27: `get_state_history` is lazy, like LangGraph's generator
+
+The binding returned a fully materialised list: every checkpoint of the thread was converted to
+a Python snapshot even when the caller only wanted the newest one. It now returns a `StateHistory`
+sequence that loads checkpoint handles on first access and converts each snapshot on demand
+(cached), with `len()`, positive/negative indexing, iteration and `to_list()` preserved.
+
+Measured on a 420-checkpoint thread (state grows to ~300 entries per checkpoint):
+
+| call | before | after |
+| --- | ---: | ---: |
+| `len(history)` | ~27 ms (full conversion) | **0.037 ms** |
+| `history[0]` (newest snapshot) | ~27 ms | **0.13 ms** |
+| `next(iter(history))` | ~27 ms | **0.11 ms** |
+| `history.to_list()` | 27 ms | 27.6 ms (unchanged; converts everything) |
+
+Both the sync and async graphs use it (`aget_state_history` keeps returning an awaitable that
+resolves to the same object); metadata-filtered queries stay eager because a filter cannot be
+answered from handles alone.
+
+Behaviour verification: LangGraph's `get_state_history` is a generator, so its contents are
+resolved at iteration time. That is now true for us as well -- the async thread-management test
+that captured the history and then deleted the thread had to materialise it first, and a direct
+LangGraph check (`gen = graph.get_state_history(...)`, `delete_thread`, `len(list(gen)) == 0`)
+confirms the reference implementation behaves identically. Parity stays 36/38 and all 119
+Python tests pass.
