@@ -709,4 +709,29 @@ saver" delta suggested (that delta also carried the extra bookkeeping a checkpoi
 checkpoint loads, pending-write handling and commit notifications).
 
 The async gap is therefore dominated by things a per-call bridge cannot avoid: the ~0.25 ms
-asyncio<->Tokio wake-up per call plus the serialized node transitions.
+asyncio<->Tokio wake-up per call plus the serialized node transitions.### Round 39: the benchmark was measuring a debug build
+
+Every cross-engine number recorded before this round was collected from a **debug** build of the
+extension (`cargo build --features ...`), while the native column used a release binary. A debug
+Rust engine is 4-5x slower: a 10-node linear chain takes 0.28-0.39 ms in the debug binding versus
+**0.073 ms** in release, and the per-superstep engine cost (26 us in debug) matches that of a
+release native graph within a few microseconds.
+
+Rebuilt with `cargo build --release --features "python python-async sqlite redis postgres msgpack"`:
+
+| Phase | sync binding | async binding |
+| --- | ---: | ---: |
+| invoke | 14.8-16.1x | 6.09x |
+| resume | 26.0-28.4x | 3.32x |
+| state | 42.3-43.3x | 20.4x |
+| update_state | 10.0-12.1x | 6.94x |
+| stream | 17.6-18.2x | 5.97x |
+| batch | 30.1-32.5x | 8.74x |
+
+Behaviour is unchanged by the build profile: 119 Python tests and parity 36/38 pass with the
+release extension as well.
+
+The one remaining sub-5x cell is async `resume`. Its floor is the bridge, not the graph: awaiting
+an async binding call that fails instantly still costs **0.285 ms**, so a resume whose actual work
+is 0.13 ms (measured through the sync binding) cannot beat 5x against LangGraph's 2.30 ms without
+removing the asyncio<->Tokio hop for that call.

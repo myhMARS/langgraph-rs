@@ -54,19 +54,28 @@ Python binding:
 Cross-engine medians, three consecutive runs of 12 interleaved suites each
 (`examples/mega_workflow`); the median of the three runs is shown:
 
+The extension **must be built in release mode** (`cargo build --release --features ...`) before it is
+copied to `langgraph_rs.pyd`. The numbers below were collected with `target/release/langgraph_rs.dll`;
+a debug build of the same code is 4-5x slower on the Rust side and collapses several phases below
+5x (a debug linear 10-node chain runs in 0.28-0.39 ms versus **0.073 ms** in release).
+
 | Phase | sync binding | sync native | async binding | async native |
 | --- | ---: | ---: | ---: | ---: |
-| invoke | **5.26x** | 34.1x | 1.82x | 35.4x |
-| resume | **7.29x** | 35.8x | 1.22x | 16.7x |
-| state | **12.39x** | 34.0x | 6.76x | 26.1x |
-| update_state | 3.22x | 21.2x | 1.96x | 11.5x |
-| stream | **5.30x** | 16.3x | 1.71x | 12.9x |
-| batch | **9.22x** | 34.1x | 2.65x | 27.5x |
+| invoke | **14.8-16.1x** | 32.6x | **6.09x** | 33.7x |
+| resume | **26.0-28.4x** | 34.1x | 3.32x | 18.2x |
+| state | **42.3-43.3x** | 33.2x | **20.4x** | 29.5x |
+| update_state | **10.0-12.1x** | 19.2x | **6.94x** | 15.4x |
+| stream | **17.6-18.2x** | 16.1x | **5.97x** | 13.6x |
+| batch | **30.1-32.5x** | 33.5x | **8.74x** | 28.4x |
 
-Five of the six sync-binding phases are reproducibly at or above 5x. `update_state` is the
-outlier: the suite measures the *first* call on a fresh thread (0.11 ms), while repeated calls on
-the same thread settle at **0.066 ms**, i.e. **5.8-7.3x**. Segment profiling of that call:
-read 5.4 us, merge 10.7 us, checkpoint build 20.0 us, snapshot 4.5 us, binding glue 30.4 us.
+All six sync-binding phases and five of six async-binding phases are at or above 5x. The remaining
+async outlier is `resume` (3.32x), whose floor is the asyncio<->Tokio bridge: an `await` on an
+async binding call that finishes instantly (an error path) still costs **0.285 ms**, so the phase is
+dominated by one unavoidable wake-up rather than by graph work (the same resume costs 0.13 ms
+through the sync binding).
+
+Segment profiling of a warm `update_state` (66 us on a debug build): read 5.4 us, merge 10.7 us,
+checkpoint build 20.0 us, snapshot 4.5 us, binding glue 30.4 us.
 
 The async-binding column is bounded by the model described under *Known limits*: a fixed
 ~0.25 ms asyncio<->Tokio wake-up per call plus ~61 us per serialized node transition, of which
