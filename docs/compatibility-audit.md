@@ -627,4 +627,14 @@ adapter is ~3 us/node and a 10-node linear chain drops 342 -> 280 us.
 
 Mega-workflow ratios (14 iterations): invoke **5.41x**, stream **5.59x**, state 13.96x,
 resume 7.13x, batch 8.78x, update_state 3.59x (absolute 0.12 ms vs LangGraph 0.43 ms).
-Parity stays 36/38 and the 119 Python tests pass.
+Parity stays 36/38 and the 119 Python tests pass.### Round 33: `update_state` shares the stored checkpoint
+
+`update_state` deep-copied the latest checkpoint (`latest_in`) and then copied its `task_results`
+and `deferred` fields again into the new checkpoint. It now reads the shared handle
+(`latest_in_shared`) and borrows it, cloning only the fields the new checkpoint needs.
+
+Engine segment profiling (temporary counters, removed) for a warm `update_state` on the mega
+workflow thread: total 71 us = read 5.4 + merge 10.7 + checkpoint build 20.0 + snapshot build 4.5
++ binding glue 30.4. LangGraph takes 0.34-0.48 ms for the same call, i.e. **4-6x** depending on
+the run; the mega suite reports lower because it measures the *first* call on a fresh thread
+(0.09-0.18 ms) rather than steady state.
