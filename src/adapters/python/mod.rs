@@ -240,6 +240,9 @@ class LangChainCallbackHandler:
     def __init__(self, model=None, tags=None):
         self.model = model
         self.tags = list(tags or [])
+        # LLM runs that already streamed tokens; a run without tokens still has to reach
+        # the `messages` stream once, the way LangGraph reports non-streaming models.
+        self._streamed = set()
 
     def _emit(self, token, kwargs=None):
         import langgraph_rs
@@ -281,7 +284,32 @@ class LangChainCallbackHandler:
 
     def on_llm_new_token(self, token, **kwargs):
         if isinstance(token, str):
+            run_id = kwargs.get("run_id")
+            if run_id is not None:
+                self._streamed.add(run_id)
             self._emit(token, kwargs)
+
+    def _final_message_text(self, response):
+        try:
+            generation = response.generations[0][0]
+        except Exception:
+            return None
+        message = getattr(generation, "message", None)
+        if message is not None:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for item in content:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                        parts.append(item["text"])
+                return "".join(parts) or None
+            return None
+        text = getattr(generation, "text", None)
+        return text if isinstance(text, str) else None
 
     def on_llm_end(self, response, **kwargs):
         usage = None
@@ -301,6 +329,12 @@ class LangChainCallbackHandler:
             if input_tokens or output_tokens:
                 import langgraph_rs
                 langgraph_rs.record_tokens(int(input_tokens), int(output_tokens))
+        # LangGraph emits the completed message when the model did not stream tokens.
+        run_id = kwargs.get("run_id")
+        if run_id not in self._streamed:
+            text = self._final_message_text(response)
+            if text:
+                self._emit(text, kwargs)
 
     def on_llm_error(self, error, **kwargs):
         pass

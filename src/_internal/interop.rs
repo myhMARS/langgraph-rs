@@ -214,6 +214,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                     .cloned(),
                 task_id: None,
                 static_pause: false,
+                values: None,
             });
         }
     };
@@ -371,6 +372,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
                         .cloned(),
                     task_id: Some(task_id.to_string().into_boxed_str()),
                     static_pause: false,
+                values: None,
                 });
             }
         }

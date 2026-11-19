@@ -73,14 +73,14 @@ pub(crate) fn static_pause_values(
     let crate::Error::Interrupt(interrupt) = error else {
         return Ok(None);
     };
-    let Some(thread) = thread else {
-        return Ok(None);
+    let snapshot = match thread {
+        Some(thread) => match namespace {
+            Some(namespace) => graph.get_state_in(thread, namespace),
+            None => graph.get_state(thread),
+        }
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?,
+        None => None,
     };
-    let snapshot = match namespace {
-        Some(namespace) => graph.get_state_in(thread, namespace),
-        None => graph.get_state(thread),
-    }
-    .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
     match snapshot {
         Some(snapshot) => {
             let values =
@@ -94,7 +94,23 @@ pub(crate) fn static_pause_values(
             }
             Ok(Some(values))
         }
-        None => Ok(Some(py.None())),
+        None => match &interrupt.values {
+            Some(values) => {
+                let values = crate::adapters::python::convert::json_state_to_py(
+                    py,
+                    &crate::JsonState(values.clone()),
+                )?;
+                if !interrupt.static_pause {
+                    crate::adapters::python::graph_pause::attach_interrupts(
+                        py,
+                        values.bind(py),
+                        std::slice::from_ref(interrupt),
+                    )?;
+                }
+                Ok(Some(values))
+            }
+            None => Ok(Some(py.None())),
+        },
     }
 }
 

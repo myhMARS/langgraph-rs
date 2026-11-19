@@ -519,10 +519,6 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
-            # Python's first tick also triggers `__start__`; the binding documents that
-            # `Command(goto=...)` starts at the target only.
-            "known_difference": True,
-            "note": "documented: Command(goto) does not also run the entry point",
             "bench": {
                 "rs": measure(
                     lambda: rs_graph.invoke(
@@ -691,8 +687,8 @@ def run_linear_scenarios() -> list[dict]:
         }
     )
 
-    # LangChain message/token stream. LangGraph captures callbacks automatically;
-    # the binding requires the explicit langchain_callback_handler.
+    # LangChain message/token stream. Both engines inject the callback context around node
+    # calls, so a plain `model.invoke(...)` reaches the `messages` stream without extra setup.
     lg_tokens = lg_message_tokens()
     rs_tokens = rs_message_tokens()
     results.append(
@@ -701,8 +697,6 @@ def run_linear_scenarios() -> list[dict]:
             "rs": rs_tokens,
             "lg": lg_tokens,
             "equivalent": rs_tokens == lg_tokens,
-            "known_difference": True,
-            "note": "binding requires an explicit LangChain callback handler",
             "bench": {
                 "rs": measure(rs_message_tokens),
                 "lg": measure(lg_message_tokens),
@@ -973,11 +967,9 @@ def rs_message_tokens():
     from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
     model = FakeListChatModel(responses=["hello world"])
-    handler = rs.langchain_callback_handler(model="fake")
 
     def node(state):
-        for _ in model.stream("hi", config={"callbacks": [handler]}):
-            pass
+        model.invoke("hi")
         return {"text": "done"}
 
     graph = rs.StateGraph({"text": "last_value"})
@@ -985,12 +977,17 @@ def rs_message_tokens():
     graph.set_entry_point("model")
     graph.set_finish_point("model")
     chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
-    return "".join(
-        payload.get("message", {}).get("content", "")
-        for chunk in chunks
-        for payload in [(chunk[-1] if isinstance(chunk, tuple) else chunk)]
-        if payload.get("type") == "messages"
-    )
+    # v1 message chunks are ``(message, metadata)`` tuples just like LangGraph's; the message
+    # itself is a dict here (the binding exposes plain JSON objects).
+    parts = []
+    for chunk in chunks:
+        if not isinstance(chunk, tuple):
+            continue
+        message = chunk[0]
+        content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+        if content:
+            parts.append(content)
+    return "".join(parts)
 
 
 def _normalize_export(nodes, edges):

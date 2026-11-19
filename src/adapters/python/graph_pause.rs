@@ -55,18 +55,23 @@ pub(crate) fn pause_values(
     let crate::Error::Interrupt(interrupt) = error else {
         return Ok(None);
     };
-    let Some(thread) = thread else {
-        return Ok(None);
+    let snapshot = match thread {
+        Some(thread) => match namespace {
+            Some(namespace) => graph.get_state_in(thread, namespace),
+            None => graph.get_state(thread),
+        }
+        .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?,
+        None => None,
     };
-    let snapshot = match namespace {
-        Some(namespace) => graph.get_state_in(thread, namespace),
-        None => graph.get_state(thread),
-    }
-    .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-    let Some(snapshot) = snapshot else {
-        return Ok(None);
+    // With a checkpointer the paused snapshot is authoritative; without one the engine
+    // attaches the paused values to the interrupt so LangGraph's shape still works.
+    let values = match snapshot {
+        Some(snapshot) => json_state_to_py(py, &snapshot.values)?,
+        None => match &interrupt.values {
+            Some(values) => json_state_to_py(py, &crate::JsonState(values.clone()))?,
+            None => return Ok(None),
+        },
     };
-    let values = json_state_to_py(py, &snapshot.values)?;
     if !interrupt.static_pause {
         attach_interrupts(py, values.bind(py), std::slice::from_ref(interrupt))?;
     }

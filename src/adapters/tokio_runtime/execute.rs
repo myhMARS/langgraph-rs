@@ -470,6 +470,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         response_schema: interrupt.response_schema,
                         task_id: Some(task.id.clone().into_boxed_str()),
                         static_pause: interrupt.static_pause,
+                        values: interrupt.values,
                     });
                 }
                 Err(error) => {

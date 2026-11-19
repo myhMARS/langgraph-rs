@@ -421,6 +421,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
                     .cloned(),
                 task_id: Some(task_id.clone().into_boxed_str()),
                 static_pause: false,
+                values: None,
             });
         }
     }
@@ -537,6 +538,7 @@ fn extract_interrupts(channel_values: &Map<String, Value>) -> Vec<Interrupt> {
                 response_schema,
                 task_id: None,
                 static_pause: false,
+                values: None,
             })
         })
         .collect()

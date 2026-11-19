@@ -57,7 +57,7 @@ async fn async_node_can_return_a_command() {
 }
 
 #[test]
-fn invoke_command_only_runs_goto_nodes() {
+fn invoke_command_runs_entry_point_and_goto_nodes() {
     let graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic())
         .add_node("a", |_state: &JsonState| {
             Ok(NodeOutput::new().update("seeded", json!(1)))
@@ -70,9 +70,11 @@ fn invoke_command_only_runs_goto_nodes() {
         .compile()
         .unwrap();
 
+    // LangGraph schedules `Command(goto=...)` targets in addition to the entry point, so
+    // both nodes run (and the entry node's outgoing edge reaches `b` as well).
     let command = Command::continue_thread().goto("b");
     let output = graph.invoke_command(command, &RunConfig::new()).unwrap();
-    assert_eq!(output.get("seeded"), None);
+    assert_eq!(output.get("seeded"), Some(&json!(1)));
     assert_eq!(output.get("value"), Some(&json!(2)));
 }
 
@@ -98,7 +100,7 @@ async fn async_invoke_command_starts_at_goto_nodes() {
         .invoke_command(command, &RunConfig::new())
         .await
         .unwrap();
-    assert_eq!(output.get("seeded"), None);
+    assert_eq!(output.get("seeded"), Some(&json!(1)));
     assert_eq!(output.get("value"), Some(&json!(2)));
 }
 

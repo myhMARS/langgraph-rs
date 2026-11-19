@@ -72,9 +72,10 @@ pub(crate) fn resolve_fresh_start<S: State>(
                 }
             }
             let state = values_to_state::<S>(&values)?;
-            // A fresh `Command(goto=...)` writes branch targets only; LangGraph does not
-            // write the START trigger, so the entry points are not scheduled.
-            let mut tasks: Vec<crate::_internal::node::Task> = Vec::new();
+            // LangGraph schedules `Command(goto=...)` targets *in addition to* the entry
+            // point, so a fresh run executes both in the first superstep and the entry
+            // node's outgoing edges fire again afterwards.
+            let mut tasks: Vec<crate::_internal::node::Task> = entry_tasks(&state)?;
             for node in crate::pregel::scheduling::dedupe(nodes) {
                 if node == crate::END {
                     continue;

@@ -48,7 +48,8 @@ where
     B: PregelBackend<S>,
     F: FnMut(crate::StreamChunk),
 {
-    let (interrupt, chunk) = interrupt_before_pause(interrupted);
+    let (mut interrupt, chunk) = interrupt_before_pause(interrupted);
+    interrupt.values = Some(values.clone());
     // Routes recorded by an earlier pause must survive a static pause too.
     let inherit = context.first_tick;
     let inherited_routes = previous
@@ -331,7 +332,9 @@ where
             context.values_enabled,
         );
     }
-    Ok(interrupted.clone())
+    let mut paused = interrupted.clone();
+    paused.values = Some(context.values.clone());
+    Ok(paused)
 }
 
 /// Persist the checkpoint for a completed superstep, attaching an `interrupt_after` pause.

@@ -790,4 +790,23 @@ graph.invoke(Command(resume="ok"), config)        # continues
 A graph without a checkpointer still raises `GraphInterrupt`, because the paused state cannot be
 read back; that edge case is documented in `docs/langgraph-compat.md`. 21 interrupt assertions in
 the Python suite were rewritten to the new shape (124 tests pass), parity stays 36/38, and the
-examples use the LangGraph form.
+examples use the LangGraph form.### Round 44: the last two parity differences are gone
+
+`command_goto`: LangGraph schedules `Command(goto=...)` targets **in addition to** the entry point,
+so a fresh run executes both in the first superstep and the entry node's edges fire again
+afterwards. `resolve_fresh_start` now prepends `entry_tasks` to the goto tasks. Verified against
+LangGraph on the same graph: `{'seeded': 1, 'target_runs': 2}` on both engines (the reference
+`target` runs twice -- once from the goto, once through `seed -> target`).
+
+`messages_stream`: the LangChain callback handler only emitted messages on `on_llm_new_token`, so a
+non-streaming `model.invoke("hi")` produced no `messages` chunks. `on_llm_end` now emits the
+completed message when the run did not stream any tokens (tracked per `run_id`), which is what
+LangGraph does. `model.stream(...)` still yields tokens without double-reporting.
+
+The parity harness also extracted the wrong side of the v1 `(message, metadata)` tuple for the Rust
+engine; it now reads `chunk[0]` like the LangGraph branch does.
+
+**Result: parity 38/38 scenarios equivalent, 0 known differences.** 124 Python tests, the Rust
+suite and clippy all pass. Remaining documented gaps are the ones that are not observed by parity:
+`create_react_agent`'s narrower signature, no Python-side custom saver/store base classes, and
+`IsLastStep`/`RemainingSteps` being helper functions rather than annotation classes.

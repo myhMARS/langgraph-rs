@@ -1458,8 +1458,9 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_entry_point("a")
         graph.set_finish_point("b")
         compiled = graph.compile()
+        # LangGraph also schedules the entry point, so `a` runs alongside the goto target.
         output = compiled.invoke(lg.Command(goto="b"))
-        self.assertNotIn("seeded", output)
+        self.assertEqual(output["seeded"], 1)
         self.assertEqual(output["value"], 2)
         with self.assertRaises(Exception):
             compiled.invoke(lg.Command(goto="missing"))

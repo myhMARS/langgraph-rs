@@ -102,8 +102,8 @@ fan-out 3: 141 us   fan-out 8: 146 us
 get_state 2.1-2.5 us   history(5) 15.1 us   history(limit=50) 192 us
 ```
 
-Parity: **36/38 scenarios equivalent**, the two known differences being `command_goto` (the
-binding does not also run the entry point) and `messages_stream` (documented grouping delta).
+Parity: **38/38 scenarios equivalent** -- `command_goto` now also schedules the entry point and
+`messages_stream` reports non-streaming model output, matching LangGraph.
 Non-I/O scenarios are 3-30x faster than LangGraph; the timeout scenarios are bounded by the timer
 and SQLite scenarios by the database.
 
@@ -143,7 +143,7 @@ cargo build --features "python python-async sqlite redis postgres msgpack" --off
 Copy-Item target\debug\langgraph_rs.dll target\python\langgraph_rs.pyd -Force
 $env:PYTHONPATH = "$PWD\target\python"
 python -m unittest discover -s python\tests      # 119 tests
-python benchmarks\parity.py                      # 36/38 equivalent
+python benchmarks\parity.py                      # 38/38 equivalent
 cargo run --release --example perf_probe --features async
 python examples\mega_workflow\bench.py
 python examples\mega_workflow\bench_async.py

@@ -86,17 +86,15 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 2. **`stream()` 返回 `list`**（LangGraph 返回生成器）：迭代结果相同，但不是惰性的，也没有
    `.close()`。需要惰性时用 `astream` 或自行包一层生成器。
 3. **`get_state_history()` 返回惰性 `StateHistory`**（支持 `len()`、索引、迭代），不是生成器。
-4. **`Command(goto=…)` 不会同时执行入口点**（parity 中的 `command_goto` 场景）。
-5. **`messages_stream` 的消息分组**与 LangGraph 不同（parity 中的 `messages_stream` 场景）。
-6. **`create_react_agent` 签名更窄**：`(model, tools, messages_key=None, checkpointer=None)`；
+4. **`create_react_agent` 签名更窄**：`(model, tools, messages_key=None, checkpointer=None)`；
    `prompt`、`response_format`、`state_schema`、`store`、hooks 等参数不支持。
-7. **`langgraph.checkpoint.base` / `langgraph.store.base` 未实现**：对应的 Rust 只提供具体实现，
+5. **`langgraph.checkpoint.base` / `langgraph.store.base` 未实现**：对应的 Rust 只提供具体实现，
    不支持在 Python 里自定义 saver/store。`langgraph_rs.checkpoint.base` 等模块可以 import，
    但实例化或继承会抛 `NotImplementedError` 并说明原因。
-8. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
-   在函数内 `exec` 出来的类无法解析（LangGraph 同样如此）。
-9. `langgraph.managed.IsLastStep` / `RemainingSteps` 在 LangGraph 里是注解类，在 `langgraph_rs`
+6. `langgraph.managed.IsLastStep` / `RemainingSteps` 在 LangGraph 里是注解类，在 `langgraph_rs`
    里是通道辅助函数（`is_last_step` / `remaining_steps` 的别名），含义相同但用法略有差别。
+7. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
+   在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
 ## 5. 如何验证
 
@@ -104,7 +102,7 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 # 124 项 Python 测试，其中 test_package_layout.py 覆盖本包的全部导入路径
 python -m unittest discover -s python/tests
 
-# 与官方 LangGraph 的逐场景对照（36/38 等价，2 项即上面第 4、5 条）
+# 与官方 LangGraph 的逐场景对照（38/38 全部等价）
 python benchmarks/parity.py
 
 # 可运行的迁移示例

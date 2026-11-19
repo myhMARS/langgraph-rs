@@ -32,6 +32,12 @@ pub struct Interrupt {
     /// of surfacing an interrupt error.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub static_pause: bool,
+    /// Channel values at the pause, so a binding can return LangGraph's paused payload even
+    /// when the run has no checkpointer to read the state back from.
+    ///
+    /// Not serialized: the checkpoint already stores the same values.
+    #[serde(skip)]
+    pub values: Option<serde_json::Map<String, Value>>,
 }
 
 impl Interrupt {
@@ -45,6 +51,7 @@ impl Interrupt {
             response_schema: None,
             task_id: None,
             static_pause: false,
+            values: None,
         }
     }
 
@@ -62,6 +69,7 @@ impl Interrupt {
             response_schema,
             task_id: None,
             static_pause: false,
+            values: None,
         }
     }
 
