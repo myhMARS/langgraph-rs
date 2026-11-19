@@ -466,3 +466,48 @@ fn exit_durability_does_not_replay_consumed_routes() {
         .unwrap();
     assert_eq!(output.log, vec!["ok", "ask", "down"]);
 }
+
+#[test]
+fn nested_parallel_runs_do_not_deadlock_on_the_worker_pool() {
+    // A node that invokes a child graph with its own fan-out: the child must not queue on
+    // the same pool the parent is occupying (the guard falls back to scoped threads).
+    let child = StateGraph::<RouteState>::new()
+        .add_node("spawn", |_state: &RouteState| {
+            let mut output = NodeOutput::new();
+            for index in 0..4 {
+                output = output.send(langgraph_rs::Send::with_arg("leaf", json!({ "n": index })));
+            }
+            Ok(output)
+        })
+        .add_node("leaf", |state: &RouteState| {
+            Ok(NodeOutput::new().update("log", json!(["leaf"])))
+        })
+        .add_edge(langgraph_rs::START, "spawn")
+        .set_finish_point("leaf")
+        .compile()
+        .unwrap();
+
+    let parent = StateGraph::<RouteState>::new()
+        .add_node("outer", move |_state: &RouteState| {
+            let mut output = NodeOutput::new();
+            for index in 0..4 {
+                output = output.send(langgraph_rs::Send::with_arg("inner", json!({ "n": index })));
+            }
+            Ok(output)
+        })
+        .add_node("inner", move |_state: &RouteState| {
+            let nested = child
+                .run(&RouteState::default(), &RunConfig::new())
+                .unwrap();
+            Ok(NodeOutput::new().update("log", json!(["inner"])))
+        })
+        .add_edge(langgraph_rs::START, "outer")
+        .set_finish_point("inner")
+        .compile()
+        .unwrap();
+
+    let output = parent
+        .run(&RouteState::default(), &RunConfig::new())
+        .unwrap();
+    assert_eq!(output.state.log.len(), 4);
+}

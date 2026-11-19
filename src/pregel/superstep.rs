@@ -22,7 +22,7 @@ use super::outcome::{TaskFailure, TaskOutcome, TaskResult};
 /// are collected in task order, which keeps merging deterministic. Failures are
 /// returned per task so the executor can decide between error routing and aborting.
 pub(super) fn run_superstep<S: State>(
-    graph: &CompiledGraph<S>,
+    graph: &std::sync::Arc<CompiledGraph<S>>,
     state: &S,
     tasks: &[Task],
     max_concurrency: Option<usize>,
@@ -39,6 +39,10 @@ pub(super) fn run_superstep<S: State>(
             .iter()
             .map(|task| run_task(graph, state, task))
             .collect();
+    }
+
+    if let Some(outcomes) = run_superstep_pooled(graph, state, tasks, workers) {
+        return outcomes;
     }
 
     let run = crate::runtime::context::capture_run_context();
@@ -79,6 +83,113 @@ pub(super) fn run_superstep<S: State>(
         .into_iter()
         .map(|outcome| outcome.expect("every task has an outcome"))
         .collect()
+}
+
+/// Run the workers on the process-wide thread pool.
+///
+/// Spawning a scoped thread per task costs 50-80 us on Windows, so a fan-out of three
+/// trivial nodes spent more time in `CreateThread` than in the graph. Jobs are `'static`,
+/// so each worker receives an `Arc` graph, an owned task list and a cloned state; the
+/// completion channel keeps the "results in task order" contract. Returns `None` when the
+/// pool is unavailable so the caller can fall back to scoped threads.
+fn run_superstep_pooled<S: State>(
+    graph: &std::sync::Arc<CompiledGraph<S>>,
+    state: &S,
+    tasks: &[Task],
+    workers: usize,
+) -> Option<Vec<TaskOutcome>> {
+    if crate::pregel::pool::on_worker() {
+        return None;
+    }
+    let pool = crate::pregel::pool::ThreadPool::global().filter(|pool| pool.size() >= workers)?;
+    let run = crate::runtime::context::capture_run_context();
+    let step = crate::runtime::context::capture_step_context();
+    let collector = crate::runtime::context::current_subgraph_collector();
+    let next = std::sync::Arc::new(AtomicUsize::new(0));
+    let outcomes = std::sync::Arc::new(Mutex::new(
+        (0..tasks.len()).map(|_| None).collect::<Vec<_>>(),
+    ));
+    let graph = std::sync::Arc::clone(graph);
+    let state = std::sync::Arc::new(state.clone());
+    let tasks = std::sync::Arc::new(tasks.to_vec());
+    let (sender, receiver) = std::sync::mpsc::channel::<()>();
+
+    let mut submitted = 0usize;
+    for _ in 0..workers {
+        let run = run.clone();
+        let collector = collector.clone();
+        let next = std::sync::Arc::clone(&next);
+        let outcomes = std::sync::Arc::clone(&outcomes);
+        let graph = std::sync::Arc::clone(&graph);
+        let state = std::sync::Arc::clone(&state);
+        let tasks = std::sync::Arc::clone(&tasks);
+        let sender = sender.clone();
+        let accepted = pool.submit(Box::new(move || {
+            let _worker_guard = crate::pregel::pool::enter_worker();
+            let _run_guard = run.map(crate::runtime::context::install_run_context);
+            let _step_guard = step.map(|(step, managed, limit)| {
+                crate::runtime::context::install_step(step, managed, limit)
+            });
+            let _collector_guard =
+                collector.map(crate::runtime::context::install_subgraph_collector);
+            loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                if index >= tasks.len() {
+                    break;
+                }
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_task(&graph, &state, &tasks[index])
+                }))
+                .unwrap_or_else(|_| {
+                    failed(
+                        &tasks[index],
+                        format!("node `{}` panicked", tasks[index].node),
+                        1,
+                        Vec::new(),
+                        Instant::now(),
+                    )
+                });
+                if let Ok(mut outcomes) = outcomes.lock() {
+                    outcomes[index] = Some(outcome);
+                }
+            }
+            let _ = sender.send(());
+        }));
+        if !accepted {
+            break;
+        }
+        submitted += 1;
+    }
+    drop(sender);
+
+    // Wait for the jobs that were accepted (a closed pool is the only failure mode).
+    for _ in 0..submitted {
+        if receiver.recv().is_err() {
+            break;
+        }
+    }
+    // Drain anything the pool did not take so no task is skipped or run twice.
+    loop {
+        let index = next.fetch_add(1, Ordering::Relaxed);
+        if index >= tasks.len() {
+            break;
+        }
+        let outcome = run_task(&graph, &state, &tasks[index]);
+        if let Ok(mut outcomes) = outcomes.lock() {
+            outcomes[index] = Some(outcome);
+        }
+    }
+    let mut guarded = outcomes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let collected: Vec<Option<TaskOutcome>> = std::mem::take(&mut *guarded);
+    drop(guarded);
+    Some(
+        collected
+            .into_iter()
+            .map(|outcome| outcome.expect("every task has an outcome"))
+            .collect(),
+    )
 }
 
 fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskOutcome {

@@ -54,6 +54,8 @@ pub(crate) trait PregelBackend<S: State>: super::outcome::OutcomeGraph {
 /// Sync backend: scoped OS threads and a blocking checkpointer.
 pub(crate) struct SyncBackend<'a, S: State> {
     pub(crate) graph: &'a CompiledGraph<S>,
+    /// `Arc` view of `graph`, shared with pool workers that need an owned handle.
+    pub(crate) graph_arc: std::sync::Arc<CompiledGraph<S>>,
     pub(crate) writer: Option<&'a crate::pregel::checkpointing::CheckpointWriter>,
     pub(crate) max_concurrency: Option<usize>,
 }
@@ -129,7 +131,7 @@ impl<'a, S: State> PregelBackend<S> for SyncBackend<'a, S> {
         _control: Option<&crate::RunControl>,
     ) -> Result<Vec<TaskOutcome>> {
         Ok(super::superstep::run_superstep(
-            self.graph,
+            &self.graph_arc,
             state,
             tasks,
             self.max_concurrency,

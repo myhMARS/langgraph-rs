@@ -234,4 +234,12 @@ Current per-phase medians (10 interleaved suites, single machine; LangGraph 1.2.
 | state | 1.44x | 5.7x | 1.55x | 6.3x |
 | update_state | 1.89x | 8.4x | 1.23x | 9.1x |
 | stream | 4.28x | 11.7x | 1.62x | 11.2x |
-| batch | 6.29x | 19.4x | 2.59x | 18.9x |
+| batch | 6.29x | 19.4x | 2.59x | 18.9x |### Round 3 additions
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| Parallel supersteps run on a process-wide worker pool instead of spawning scoped threads per task | `src/pregel/pool.rs`, `pregel/superstep.rs`, `pregel/backend.rs` | fan-out of 3: 200 -> 95 us; fan-out of 8: 471 -> 200 us |
+| Nested runs started from a pool worker fall back to scoped threads (`pool::on_worker` guard) | `pregel/pool.rs`, `pregel/superstep.rs` | prevents self-deadlock when a node invokes a child graph with its own fan-out; covered by `nested_parallel_runs_do_not_deadlock_on_the_worker_pool` |
+
+Mega-workflow native timings after the pool landed (single run): sync invoke 0.53 -> 0.28 ms,
+batch 0.98 -> 0.60 ms, giving 47x / 48x vs LangGraph sync (previously 19x / 19x).

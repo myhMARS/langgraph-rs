@@ -14,6 +14,7 @@ pub(crate) mod checkpointing;
 pub(crate) mod fresh;
 pub(crate) mod outcome;
 pub(crate) mod pause;
+pub(crate) mod pool;
 pub(crate) mod run_loop;
 pub(crate) mod scheduling;
 pub(crate) mod start;
@@ -93,6 +94,7 @@ fn execute_with_emit<S: State>(
     };
     let backend = backend::SyncBackend {
         graph,
+        graph_arc: std::sync::Arc::new(graph.clone()),
         writer: checkpoint_writer.as_ref(),
         max_concurrency: config.max_concurrency,
     };

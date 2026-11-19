@@ -75,6 +75,9 @@ fn main() {
             saved / history as f64
         );
     }
+    for k in [1usize, 3, 8] {
+        println!("fanout k={k}: {:.1} us", time_fanout(k, 300));
+    }
     // fixed overhead of state/history reads on a thread with history
     let graph = build(10, true);
     graph
@@ -96,4 +99,43 @@ fn main() {
         "history(5)={:.1} us",
         started.elapsed().as_nanos() as f64 / 300.0 / 1000.0
     );
+}
+fn build_fanout(k: usize) -> langgraph_rs::CompiledGraph<JsonState> {
+    let mut graph = StateGraph::<JsonState>::with_schema(
+        StateSchema::dynamic().with_reducer("log", langgraph_rs::reducers::append()),
+    );
+    graph = graph.add_node("fan", move |_state: &JsonState| {
+        let mut output = langgraph_rs::NodeOutput::new();
+        for index in 0..k {
+            output = output.send(langgraph_rs::Send::with_arg("worker", json!({ "n": index })));
+        }
+        Ok(output)
+    });
+    graph = graph.add_node("worker", |state: &JsonState| {
+        let n = state.get("n").and_then(|value| value.as_i64()).unwrap_or(0);
+        Ok(NodeOutput::new().update("log", json!([n])))
+    });
+    graph = graph
+        .add_edge(langgraph_rs::START, "fan")
+        .set_finish_point("worker");
+    graph
+        .compile_with(CompileOptions::new().with_checkpointer(std::sync::Arc::new(InMemorySaver::new())))
+        .unwrap()
+}
+
+fn time_fanout(k: usize, iterations: usize) -> f64 {
+    let graph = build_fanout(k);
+    // warm up
+    for index in 0..20 {
+        graph
+            .run(&input(), &RunConfig::new().with_thread(format!("w{index}")))
+            .unwrap();
+    }
+    let started = Instant::now();
+    for index in 0..iterations {
+        graph
+            .run(&input(), &RunConfig::new().with_thread(format!("f{index}")))
+            .unwrap();
+    }
+    started.elapsed().as_nanos() as f64 / iterations as f64 / 1000.0
 }
