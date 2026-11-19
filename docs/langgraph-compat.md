@@ -101,8 +101,13 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
    放在 `metadata["langgraph_rs"]` 里交给 saver 保存；**会丢弃未知 metadata 键的 saver 不被支持**，
    读取时会报错说明。`langgraph_rs.checkpoint.base.BaseCheckpointSaver` 仍只是占位类（继承它
    不会被引擎识别），直接把对象传给 `compile` 即可。
-6. **自定义 Python store 仍未支持**：`langgraph_rs.store.base` 是占位模块，实例化或继承会抛
-   `NotImplementedError`。
+6. **自定义 Python store 已支持**：`compile(store=<对象>)` 接受任何实现 LangGraph store 协议
+   （`get` / `put` / `delete` / `search` / `list_namespaces`）的对象，包括 LangGraph 自带的
+   `InMemoryStore`。
+7. **`store.get()` / `store.search()` 的返回结构不同**（最后一个已知差异）：
+   LangGraph 返回 `Item` 对象（`.namespace` / `.key` / `.value` / `.created_at` / `.updated_at`
+   / `.score`），`langgraph_rs` 的 `get` 直接返回 value、`search` 返回 dict 列表；
+   `namespaces()` 返回 list 列表而非 tuple 列表。
 7. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 

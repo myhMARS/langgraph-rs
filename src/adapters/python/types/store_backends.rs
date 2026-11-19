@@ -346,7 +346,12 @@ pub(crate) fn store_from_py(
     if let Ok(store) = obj.extract::<PyRef<'_, PyPostgresStore>>() {
         return Ok(Some(store.store.clone()));
     }
+    // A custom store written against LangGraph's `BaseStore` protocol.
+    if let Some(store) = crate::adapters::python::custom_store::wrap_py_store(obj) {
+        return Ok(Some(store));
+    }
     Err(PyTypeError::new_err(
-        "store must be an InMemoryStore, Store, SqliteStore, RedisStore or PostgresStore object",
+        "store must be an InMemoryStore, Store, SqliteStore, RedisStore, PostgresStore object or \
+         any object implementing LangGraph's `get`/`put`/`search` store protocol",
     ))
 }

@@ -853,4 +853,20 @@ Verified end to end (3 new tests):
 `checkpoint_ns` is always present in the config passed to savers (LangGraph reads it directly);
 omitting it for the root namespace was why the reference `InMemorySaver` appeared to accept writes
 but returned nothing. Python suite is now 133 tests; parity stays 38/38; Rust tests and clippy pass.
-Remaining documented difference: Python-side custom **store** implementations.
+Remaining documented difference: Python-side custom **store** implementations.### Round 48: Python stores work through the LangGraph `BaseStore` protocol
+
+`store_from_py` now wraps a foreign object with `get` / `put` / `search` in `PyStore`
+(`src/adapters/python/custom_store.rs`), so `compile(store=<python object>)` works for custom
+stores and for LangGraph's own `InMemoryStore`. Item payloads are read from whatever the store
+returns: an object with a `value` attribute (LangGraph `Item`), a dict with a `value` key, or a
+bare value; `search` forwards `query`/`limit` as keyword arguments and rebuilds the engine's
+`StoreItem` (falling back to "now" for timestamps the store does not report).
+
+Verified with two new tests: a dict-backed custom store and `langgraph.store.memory.InMemoryStore`
+both round-trip `put`/`get` from inside a node via `get_store()`. Python suite is 135 tests;
+parity stays 38/38; Rust tests and clippy pass.
+
+This exposed one previously undocumented difference: `store.get()` returns the value (not an
+`Item`) and `search` returns dicts rather than `Item`s, and `namespaces()` returns lists instead
+of tuples. That is the last known difference and is now recorded in
+docs/langgraph-compat.md section 4.

@@ -20,6 +20,7 @@
 mod async_graph;
 mod convert;
 mod custom_saver;
+mod custom_store;
 mod graph_pause;
 mod graph;
 mod prebuilt;
