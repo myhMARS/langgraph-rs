@@ -35,6 +35,7 @@ Engine (same process, no Python):
 | 19 | reads share the stored checkpoint (`latest_shared`) | `get_state` 26 → 16 us |
 | 20 | history reads share the stored checkpoints | `history(5)` 113 → 109 us, `aget_state_history(5)` 114 → 97 us |
 | 22 | `versions_seen` entries shared behind `Arc` | `versions_for` 7.09 → 3.03 us/save, checkpoint build 7.50 → 3.46 us |
+| 27 | `get_state_history` returns a lazy `StateHistory` sequence (LangGraph's generator semantics) | `len(history)` on 420 checkpoints ~27 ms → 0.037 ms; `history[0]` ~27 ms → 0.13 ms |
 | 4 | process-wide worker pool for parallel branches | fan-out 8: 471 → ~100-220 us (load dependent) |
 
 Python binding:
@@ -54,12 +55,12 @@ Cross-engine medians, 10 interleaved suites (`examples/mega_workflow`, one run):
 
 | Phase | sync binding | sync native | async binding | async native |
 | --- | ---: | ---: | ---: | ---: |
-| invoke | 4.93x | 50.7x | 1.78x | 41.7x |
-| resume | 6.53x | 48.9x | 1.41x | 23.3x |
-| state | 4.11x | 39.7x | 3.15x | 41.7x |
-| update_state | 2.87x | 16.8x | 2.10x | 16.6x |
-| stream | 7.36x | 24.0x | 1.97x | 17.0x |
-| batch | 9.49x | 40.8x | 2.46x | 33.8x |
+| invoke | 4.45x | 30.2x | 2.17x | 35.4x |
+| resume | 7.40x | 39.1x | 1.22x | 16.7x |
+| state | 10.14x | 28.6x | 6.22x | 26.1x |
+| update_state | 2.28x | 11.1x | 1.98x | 11.5x |
+| stream | 5.11x | 17.9x | 2.00x | 12.9x |
+| batch | 7.77x | 37.5x | 3.01x | 27.5x |
 
 Engine probe (same run as above):
 
@@ -88,8 +89,10 @@ and SQLite scenarios by the database.
   (`values_to_state`): the engine keeps the live map and the checkpoint alive at the same time.
   Removing it requires per-channel `Arc` values in `Checkpoint::values`, which `serde_json::Map`
   cannot express (it only implements its traits for `Map<String, Value>`).
-* **`get_state_history` returns a list**, LangGraph returns a lazy generator. Iteration matches;
-  `len()`/indexing only work on ours. Recorded rather than changed, to avoid breaking callers.
+* **History is lazy** (`StateHistory`): like LangGraph's generator it resolves at iteration time,
+  so deleting a thread before reading an already-obtained history yields nothing (verified
+  against LangGraph). It additionally supports `len()`/indexing, which LangGraph's generator
+  does not.
 * Two documented parity differences above; everything else is byte-identical in the compared
   observable state.
 
