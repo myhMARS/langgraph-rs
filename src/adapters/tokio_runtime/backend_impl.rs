@@ -91,6 +91,22 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
             .max_concurrency
             .filter(|limit| *limit > 0)
             .unwrap_or_else(|| tasks.len().max(1));
+        // A single task per superstep is the common shape (linear graphs and the tail of a
+        // fan-in): drive it directly instead of allocating a `FuturesUnordered` and boxing
+        // every future for each step.
+        if tasks.len() == 1 {
+            let task = &tasks[0];
+            let outcome = match control {
+                Some(control) => tokio::select! {
+                    outcome = self.graph.run_task(task, state, step, self.run) => outcome,
+                    _ = control.wait_aborted() => {
+                        return Err(Error::other("run aborted by RunControl"));
+                    }
+                },
+                None => self.graph.run_task(task, state, step, self.run).await,
+            };
+            return Ok(vec![outcome]);
+        }
         let run = async {
             let mut pending = futures::stream::FuturesUnordered::new();
             let mut remaining = tasks.iter().enumerate();

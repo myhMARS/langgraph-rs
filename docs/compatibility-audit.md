@@ -749,4 +749,13 @@ So the warm bridge is ~0.165 ms and Python's `await` machinery is negligible (0.
 Async `resume` (0.40-0.55 ms) is therefore ~0.165 ms bridge + ~0.12 ms of work that the same resume
 takes through the sync binding, plus per-node async bookkeeping; against LangGraph's 2.3 ms it sits
 at about 5x, and dips below that only when the machine is loaded (the fixed wake-up does not shrink
-while LangGraph's absolute time grows).
+while LangGraph's absolute time grows).### Round 41: single-task supersteps run without `FuturesUnordered` in the async engine
+
+`AsyncBackend::run_superstep` always allocated a `FuturesUnordered`, boxed every task future and
+ran the drain loop, even when a superstep has exactly one task -- the shape of every linear graph
+and of the tail after a fan-in. It now awaits that single future directly (still honouring
+`RunControl` via `tokio::select!`), matching what the sync engine already did.
+
+An 8-node trivial async graph runs in **0.294 ms** on a release build, i.e. ~12 us per node on top
+of the ~0.165 ms bridge. Android-style suites: invoke 5.93x, state 17.92x, update_state 5.77x,
+batch 6.91x, stream 4.87x, resume 2.60x against LangGraph async.
