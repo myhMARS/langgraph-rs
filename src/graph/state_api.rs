@@ -400,23 +400,33 @@ impl<S: State> CompiledGraph<S> {
                             "update_state: `{node}` is not a registered node"
                         )));
                     }
-                    let executed = vec![node.to_string()];
-                    let (targets, router_sends) = collect_next_nodes(
-                        &state,
-                        &executed,
-                        &HashSet::new(),
-                        &[],
-                        |candidate| self.edges_of(candidate),
-                        |candidate| self.conditional_of(candidate),
-                        |candidate| self.nodes.contains_key(candidate),
-                        |candidate| self.destinations_of(candidate),
-                    )?;
-                    let mut tasks: Vec<Task> = dedupe(targets).into_iter().map(Task::new).collect();
-                    for (source, send) in router_sends {
-                        tasks.push(send_task(&source, send)?);
+                    // A node without any outgoing route schedules no follow-up tasks, so the
+                    // router machinery (state borrow, dedupe sets, send conversion) can be
+                    // skipped entirely -- the common case for `as_node=<last node>`.
+                    if self.edges_of(node).is_none_or(<[_]>::is_empty)
+                        && self.conditional_of(node).is_none()
+                        && self.destinations_of(node).is_none_or(<[_]>::is_empty)
+                    {
+                        Vec::new()
+                    } else {
+                        let executed = vec![node.to_string()];
+                        let (targets, router_sends) = collect_next_nodes(
+                            &state,
+                            &executed,
+                            &HashSet::new(),
+                            &[],
+                            |candidate| self.edges_of(candidate),
+                            |candidate| self.conditional_of(candidate),
+                            |candidate| self.nodes.contains_key(candidate),
+                            |candidate| self.destinations_of(candidate),
+                        )?;
+                        let mut tasks: Vec<Task> =
+                            dedupe(targets).into_iter().map(Task::new).collect();
+                        for (source, send) in router_sends {
+                            tasks.push(send_task(&source, send)?);
+                        }
+                        tasks
                     }
-
-                    tasks
                 }
             }
         };

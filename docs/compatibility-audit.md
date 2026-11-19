@@ -646,4 +646,15 @@ conversion**. It now fills the `PyDict` straight from the borrowed map.
 Effect: state conversion per node drops from 1.7 us to well under 1 us on small states and the
 copy disappears entirely for large values (a 4 KB channel was copied per node before). The mega
 workflow ratios (quiet run): invoke **6.17x**, resume 8.30x, state 13.18x, stream **6.05x**,
-batch 11.22x, update_state 3.02x.
+batch 11.22x, update_state 3.02x.### Round 35: `update_state` skips router machinery for a node without successors
+
+When `as_node` names a node with no outgoing edges, no conditional edges and no destinations,
+LangGraph schedules no follow-up tasks. `update_state` still ran the full `collect_next_nodes`
+path (state borrow, dedupe sets, send conversion); it now returns an empty task list directly.
+
+Warm `update_state` on the mega workflow thread: 71 -> **66 us**, i.e. 5.8-7.3x vs LangGraph's
+0.38-0.48 ms. The mega suite reports ~3.2x because it measures the first call on a fresh thread
+(0.09-0.11 ms), where building the resumed checkpoint's task/interrupt snapshot dominates.
+
+Two consecutive suite runs on a quiet machine: invoke 5.42/5.35x, resume 7.35/7.09x,
+state 12.49/10.39x, stream 5.11/5.20x, batch 8.87/8.98x, update_state 3.28/3.16x.
