@@ -869,4 +869,20 @@ parity stays 38/38; Rust tests and clippy pass.
 This exposed one previously undocumented difference: `store.get()` returns the value (not an
 `Item`) and `search` returns dicts rather than `Item`s, and `namespaces()` returns lists instead
 of tuples. That is the last known difference and is now recorded in
-docs/langgraph-compat.md section 4.
+docs/langgraph-compat.md section 4.### Round 49: stores return LangGraph `Item` objects
+
+`store.get()` used to return the bare value and `search()` returned dicts. Both now return a
+`StoreItem` pyclass shaped like LangGraph's `Item`: `.namespace`, `.key`, `.value`, `.created_at` /
+`.updated_at` (ISO-8601), `.score`, plus the `*_millis` fields and `item["field"]` /
+`item[2]` access for older code. `list_namespaces()` (tuple namespaces) is new; the existing
+`namespaces()` (lists) stays. All five backends (memory, `Store`, SQLite, Redis, Postgres) share the
+same helpers.
+
+Store parity scenarios and two unit tests were updated to the LangGraph spelling
+(`.value["value"]`, `store.get(...).value`); the older `item["name"]` lookup keeps working through
+the value fallback.
+
+**Result: parity 38/38, 135 Python tests, Rust suite and clippy all pass, and the compatibility
+document no longer lists any behavioural difference from LangGraph** -- what remains is:
+`stream()`/`get_state_history()` returning an iterable object that is a superset of a generator,
+and four `create_react_agent` keywords that raise `NotImplementedError` instead of being ignored.

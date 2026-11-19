@@ -49,7 +49,7 @@ class CustomStoreTest(unittest.TestCase):
             current = get_store()
             current.put(("users",), "u1", {"name": "ada"})
             found = current.get(("users",), "u1")
-            return {"v": found["name"] if isinstance(found, dict) else found.value["name"]}
+            return {"v": found.value["name"]}
 
         graph = lg.StateGraph({"v": "last_value"})
         graph.add_node("n", node)

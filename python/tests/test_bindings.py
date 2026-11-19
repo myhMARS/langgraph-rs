@@ -554,7 +554,8 @@ class PythonParityRound2Tests(unittest.TestCase):
 
         def remember(state):
             handle = lg.get_store()
-            previous = handle.get(["mem"], "n") or 0
+            found = handle.get(["mem"], "n")
+            previous = found.value if found is not None else 0
             value = previous + 1
             handle.put(["mem"], "n", value)
             return {"value": value}
@@ -566,7 +567,7 @@ class PythonParityRound2Tests(unittest.TestCase):
 
         self.assertEqual(compiled.invoke({"value": 0})["value"], 1)
         self.assertEqual(compiled.invoke({"value": 0})["value"], 2)
-        self.assertEqual(store.get(["mem"], "n"), 2)
+        self.assertEqual(store.get(["mem"], "n").value, 2)
         items = store.search(["mem"])
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["key"], "n")
@@ -1515,7 +1516,7 @@ class AsyncPythonTests(unittest.TestCase):
         store.put(["users", "1"], "name", {"first": "Ada"})
         store.put(["users", "1"], "email", "ada@example.com")
         self.assertEqual(
-            store.get(["users", "1"], "name"), {"first": "Ada"}
+            store.get(["users", "1"], "name").value, {"first": "Ada"}
         )
         items = store.search(["users"], query="first")
         self.assertEqual(len(items), 1)
@@ -1533,7 +1534,7 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("remember")
         compiled = graph.compile(store=store)
         compiled.invoke({})
-        self.assertEqual(store.get(["mem"], "greeting"), "hello")
+        self.assertEqual(store.get(["mem"], "greeting").value, "hello")
         store.delete(["mem"], "greeting")
         self.assertIsNone(store.get(["mem"], "greeting"))
 

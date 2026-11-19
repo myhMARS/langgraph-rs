@@ -443,6 +443,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "postgres")]
     module.add_class::<PyPostgresSaver>()?;
     module.add_class::<PyStore>()?;
+    module.add_class::<crate::adapters::python::types::PyStoreItem>()?;
     module.add_class::<PyInMemoryStore>()?;
     #[cfg(feature = "sqlite")]
     module.add_class::<PySqliteStore>()?;

@@ -1408,7 +1408,7 @@ def rs_sqlite_store_invoke():
     def write(state):
         store = rs.get_store()
         store.put(("parity",), "key", {"value": 7})
-        return {"value": store.get(("parity",), "key")["value"]}
+        return {"value": store.get(("parity",), "key").value["value"]}
 
     graph = rs.StateGraph({"value": "last_value"})
     graph.add_node("write", write)
@@ -1439,7 +1439,7 @@ def rs_store_graph():
     def write(state):
         rs.get_store().put(("parity",), "key", {"value": 7})
         item = rs.get_store().get(("parity",), "key")
-        return {"value": item["value"]}
+        return {"value": item.value["value"]}
 
     graph.add_node("write", write)
     graph.set_entry_point("write")

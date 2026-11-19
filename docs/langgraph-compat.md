@@ -71,7 +71,7 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
   不写 checkpoint，与 LangGraph 一致）
 - `entrypoint` / `task`（functional API）、`get_store` / `get_stream_writer`
 
-## 4. 已知差异（迁移前请确认）
+## 4. 与 LangGraph 的差异（当前状态）
 
 1. **`interrupt` 在 `invoke`/`resume`/`batch` 上的表现已对齐 LangGraph**（2026-11 对齐）：
    暂停时不再抛异常，而是返回状态字典并附带 `__interrupt__` 列表；静态断点
@@ -104,10 +104,12 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 6. **自定义 Python store 已支持**：`compile(store=<对象>)` 接受任何实现 LangGraph store 协议
    （`get` / `put` / `delete` / `search` / `list_namespaces`）的对象，包括 LangGraph 自带的
    `InMemoryStore`。
-7. **`store.get()` / `store.search()` 的返回结构不同**（最后一个已知差异）：
-   LangGraph 返回 `Item` 对象（`.namespace` / `.key` / `.value` / `.created_at` / `.updated_at`
-   / `.score`），`langgraph_rs` 的 `get` 直接返回 value、`search` 返回 dict 列表；
-   `namespaces()` 返回 list 列表而非 tuple 列表。
+7. **`store` 的返回结构已对齐**：`get` 返回 `Item`（`.namespace` / `.key` / `.value` /
+   `.created_at` / `.updated_at` / `.score`，另保留 `created_at_millis`、`updated_at_millis`），
+   `search` 返回 `Item` 列表，`list_namespaces()` 返回 tuple 列表；旧的 `namespaces()`
+   （返回 list 列表）与 `item["字段名"]` 取值仍然可用。
+8. **`create_react_agent` 尚未实现的参数**：`response_format`、`pre_model_hook`、
+   `post_model_hook`、`context_schema` 会抛 `NotImplementedError`（其余参数已对齐）。
 7. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
