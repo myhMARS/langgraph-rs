@@ -295,4 +295,26 @@ Investigated and rejected this round (measured, not guessed):
   call against ~114 us for `pyo3_async_runtimes::future_into_py`; the 29 us saving does not
   justify losing its cancellation and contextvars handling.
 * asyncio loops are **not** recreated per node: 100 runs x 10 async nodes created 0 new loops,
-  so the remaining ~150 us per async Python node is not loop construction.
+  so the remaining ~150 us per async Python node is not loop construction.### Round 8: where an async Python node's time goes
+
+Instrumented `async_node_from_python` with per-segment counters (removed before commit),
+2000 node calls on a 10-node async graph:
+
+| segment | us/node |
+| --- | ---: |
+| `Python::attach` | 1.3 |
+| state dict conversion | 1.8 |
+| callback context install | 1.5 |
+| Python callable invocation | 4.6 |
+| driving the coroutine (`run_until_complete`) | 33.7 |
+| `NodeOutput` parsing | 7.5 |
+| **adapter total** | **54.6** |
+| wait, the remaining wall time per invoke | 721 us |
+
+That is: the Python-side adapter is 55 us/node, while wall time is ~87-115 us/node, so roughly
+half the async per-node cost sits **outside** the adapter - in the Pregel loop as driven by
+`pyo3_async_runtimes`, whose task scope saves/restores `contextvars` around every poll of the
+returned future. A single-task fast path in `AsyncBackend::run_superstep` was implemented and
+measured (87 vs 105 us/node slope) but it broke `abort_cancels_a_running_async_node` when placed
+outside the abort `select!`; with the branch moved inside the select the gain disappeared into
+measurement noise, so it was reverted rather than kept unproven.
