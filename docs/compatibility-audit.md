@@ -637,4 +637,13 @@ Engine segment profiling (temporary counters, removed) for a warm `update_state`
 workflow thread: total 71 us = read 5.4 + merge 10.7 + checkpoint build 20.0 + snapshot build 4.5
 + binding glue 30.4. LangGraph takes 0.34-0.48 ms for the same call, i.e. **4-6x** depending on
 the run; the mega suite reports lower because it measures the *first* call on a fresh thread
-(0.09-0.18 ms) rather than steady state.
+(0.09-0.18 ms) rather than steady state.### Round 34: state conversion no longer clones the whole state map
+
+`json_state_to_py` built `Value::Object(state.0.clone())` and handed it to the generic
+`value_to_py`, i.e. it deep-copied every channel value on **every node call and every snapshot
+conversion**. It now fills the `PyDict` straight from the borrowed map.
+
+Effect: state conversion per node drops from 1.7 us to well under 1 us on small states and the
+copy disappears entirely for large values (a 4 KB channel was copied per node before). The mega
+workflow ratios (quiet run): invoke **6.17x**, resume 8.30x, state 13.18x, stream **6.05x**,
+batch 11.22x, update_state 3.02x.

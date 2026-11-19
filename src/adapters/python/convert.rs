@@ -108,7 +108,13 @@ pub(super) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> 
 }
 
 pub(super) fn json_state_to_py(py: Python<'_>, state: &JsonState) -> PyResult<Py<PyAny>> {
-    value_to_py(py, &Value::Object(state.0.clone()))
+    // Build the dict straight from the borrowed map: wrapping it in `Value::Object` used to
+    // deep-clone every channel value on each node call and snapshot conversion.
+    let dict = PyDict::new(py);
+    for (key, value) in &state.0 {
+        dict.set_item(key, value_to_py(py, value)?)?;
+    }
+    Ok(dict.into_any().unbind())
 }
 
 pub(super) fn state_from_py(obj: Option<&Bound<'_, PyAny>>) -> PyResult<JsonState> {
