@@ -691,4 +691,22 @@ The same nodes through the sync binding cost ~30 us each end to end. The async g
 made of three roughly equal parts: the asyncio<->Tokio wake-up per call, the per-superstep engine
 path, and the per-superstep checkpoint save. `BlockingSaver` is *not* used for in-memory savers
 (already special-cased in the async builder), so the save cost is the sync save path plus async
-bookkeeping, not a thread-pool round trip.
+bookkeeping, not a thread-pool round trip.### Round 38: checkpoint saves are not the async bottleneck
+
+Temporary counters in `save_checkpoint_via` (removed) on an 8-node async graph with an
+`InMemorySaver`:
+
+| Save component | Cost |
+| --- | ---: |
+| `persisted_values` | 2.2 us |
+| `build_checkpoint` (id, versions, task results) | 13.1 us |
+| `put_shared` | 1.4 us |
+| **total** | **16.7 us/save** |
+
+A full async invoke of the mega workflow performs 11 saves totalling **0.30 ms** out of a 3.8 ms
+call, i.e. the saver is ~8% of the async cost, not the dominating term the earlier "saver vs no
+saver" delta suggested (that delta also carried the extra bookkeeping a checkpointer enables:
+checkpoint loads, pending-write handling and commit notifications).
+
+The async gap is therefore dominated by things a per-call bridge cannot avoid: the ~0.25 ms
+asyncio<->Tokio wake-up per call plus the serialized node transitions.
