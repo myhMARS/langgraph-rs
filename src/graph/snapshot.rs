@@ -108,6 +108,49 @@ impl<S: State> StateSnapshot<S> {
         Ok(snapshot)
     }
 
+    /// Borrowed variant of [`StateSnapshot::from_checkpoint_live`].
+    pub(crate) fn from_checkpoint_live_borrowed(
+        checkpoint: &Checkpoint,
+        schema: &crate::_internal::state::StateSchema,
+    ) -> Result<Self> {
+        if checkpoint.pending_writes.is_empty() {
+            return Self::from_checkpoint_borrowed(checkpoint);
+        }
+        let mut values = checkpoint.values.clone();
+        let mut regular = Vec::new();
+        let mut task_results: std::collections::HashMap<String, Map<String, Value>> =
+            std::collections::HashMap::new();
+        for write in &checkpoint.pending_writes {
+            if schema.is_finish_value(&write.channel) {
+                continue;
+            }
+            task_results
+                .entry(write.task_id.clone())
+                .or_default()
+                .insert(write.channel.clone(), write.value.clone());
+            if write.replace {
+                values.insert(write.channel.clone(), write.value.clone());
+            } else {
+                regular.push(crate::_internal::state::ChannelUpdate {
+                    channel: write.channel.clone(),
+                    value: write.value.clone(),
+                    node: write.node.clone(),
+                });
+            }
+        }
+        crate::_internal::state::apply_updates(schema, &mut values, regular)?;
+        let values = crate::_internal::state::values_to_state_owned::<S>(values)?;
+        let mut snapshot = Self::from_parts(checkpoint, values)?;
+        for task in &mut snapshot.tasks {
+            if task.result.is_none() {
+                if let Some(writes) = task_results.remove(&task.id) {
+                    task.result = Some(Value::Object(writes));
+                }
+            }
+        }
+        Ok(snapshot)
+    }
+
     /// Build a snapshot from a checkpoint that must stay usable afterwards.
     ///
     /// Only the values map is copied; the remaining fields are borrowed, so this is much

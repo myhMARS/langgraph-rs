@@ -74,6 +74,32 @@ impl Checkpointer for InMemorySaver {
             .map(|arc| (**arc).clone()))
     }
 
+    fn latest_shared(&self, thread_id: &str) -> Result<Option<std::sync::Arc<Checkpoint>>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner.get(thread_id).and_then(|checkpoints| checkpoints.last()).cloned())
+    }
+
+    fn latest_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Option<std::sync::Arc<Checkpoint>>> {
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(inner.get(thread_id).and_then(|checkpoints| {
+            checkpoints
+                .iter()
+                .rev()
+                .find(|checkpoint| checkpoint.namespace == namespace)
+                .cloned()
+        }))
+    }
+
     fn has_thread(&self, thread_id: &str) -> Result<bool> {
         let inner = self
             .inner

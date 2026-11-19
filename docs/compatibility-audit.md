@@ -477,4 +477,14 @@ constructors: one that moves the value map out of an owned checkpoint (`from_che
 one that copies only the value map (`from_checkpoint_borrowed`), used by both update paths.
 
 `update_state` 35 -> 33 us, `aupdate_state` 37 -> 32 us (now on par with the sync API);
-cross-engine `update_state` 1.60x -> 2.15x sync / 2.19x async.
+cross-engine `update_state` 1.60x -> 2.15x sync / 2.19x async.### Round 19: reads share the stored checkpoint instead of copying it
+
+`get_state` called `latest_in`, which for the in-memory saver deep-copied the whole checkpoint,
+and then built a snapshot from that copy. The saver already stores `Arc<Checkpoint>`, so
+`latest_shared`/`latest_in_shared` (default: wrap `latest` in an `Arc`; in-memory: clone the
+stored handle) hand the read path a borrowed checkpoint, and
+`StateSnapshot::from_checkpoint_live_borrowed` builds the snapshot from it -- copying only the
+value map, and merging pending writes into a fresh map when there are any.
+
+`get_state` 26 -> **16 us**, `aget_state` 51 -> **18 us**, `history(5)` 128 -> **113 us**
+(10-node thread). Durable savers keep the default implementation, so nothing changes for them.

@@ -21,6 +21,23 @@ pub trait Checkpointer: Send + Sync {
         false
     }
 
+    /// Latest checkpoint of a thread, shared rather than copied.
+    ///
+    /// Read paths only need to borrow it for one snapshot build; savers that already store
+    /// `Arc<Checkpoint>` (in-memory) return the stored handle without copying.
+    fn latest_shared(&self, thread_id: &str) -> Result<Option<std::sync::Arc<Checkpoint>>> {
+        Ok(self.latest(thread_id)?.map(std::sync::Arc::new))
+    }
+
+    /// Namespace-scoped variant of [`Checkpointer::latest_shared`].
+    fn latest_in_shared(
+        &self,
+        thread_id: &str,
+        namespace: &str,
+    ) -> Result<Option<std::sync::Arc<Checkpoint>>> {
+        Ok(self.latest_in(thread_id, namespace)?.map(std::sync::Arc::new))
+    }
+
     /// `true` when the thread has at least one checkpoint.
     ///
     /// Bindings use this instead of building a full `StateSnapshot` just to find out whether

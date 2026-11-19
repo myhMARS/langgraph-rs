@@ -24,9 +24,10 @@ impl<S: State> AsyncCompiledGraph<S> {
         thread_id: &str,
         namespace: &str,
     ) -> Result<Option<StateSnapshot<S>>> {
-        match self.saver_latest_in_sync(thread_id, namespace)? {
+        match futures::executor::block_on(self.saver_latest_in_shared(thread_id, namespace))? {
             Some(checkpoint) => {
-                let mut snapshot = StateSnapshot::from_checkpoint_live(checkpoint, &self.schema)?;
+                let mut snapshot =
+                    StateSnapshot::from_checkpoint_live_borrowed(&checkpoint, &self.schema)?;
                 snapshot.step = snapshot.step.saturating_sub(1);
                 Ok(Some(snapshot))
             }
