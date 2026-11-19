@@ -674,4 +674,21 @@ For comparison, the same nodes through the sync binding cost ~3-8 us each. Closi
 therefore needs a scheduler-level change (running synchronous node futures inline instead of
 handing each to Tokio), not another adapter micro-optimisation -- and that is exactly the
 experiment that broke async-node semantics when tried earlier (eager polling runs nodes on the
-event-loop thread).
+event-loop thread).### Round 37: async cost split -- fixed bridge, node work, and checkpoint saves
+
+Temporary counters inside `AsyncCompiledGraph::run_task` (removed) plus targeted measurements on an
+8-node trivial async graph:
+
+| Component | Cost |
+| --- | ---: |
+| fixed cost per `ainvoke` (bridge + future setup), from the n=1 intercept | ~0.25 ms |
+| marginal per node | ~61 us |
+| inside `run_task` (setup 1.2 + future build 1.7 + await 24.9) | 28 us |
+| engine work outside `run_task` | ~33 us/superstep |
+| InMemorySaver vs no saver (+0.243 ms over 8 supersteps) | ~30 us/save |
+
+The same nodes through the sync binding cost ~30 us each end to end. The async gap is therefore
+made of three roughly equal parts: the asyncio<->Tokio wake-up per call, the per-superstep engine
+path, and the per-superstep checkpoint save. `BlockingSaver` is *not* used for in-memory savers
+(already special-cased in the async builder), so the save cost is the sync save path plus async
+bookkeeping, not a thread-pool round trip.
