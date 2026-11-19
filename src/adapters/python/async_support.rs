@@ -26,25 +26,30 @@ wrapper = _timeout_wrapper",
         .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("timeout wrapper missing"))
 }
 
+thread_local! {
+    /// One asyncio loop per OS thread. Creating a loop costs ~1 ms, far more than
+    /// running a node coroutine, so the loop outlives individual node calls.
+    static NODE_LOOP: std::cell::RefCell<Option<Py<PyAny>>> = const { std::cell::RefCell::new(None) };
+}
+
 pub(crate) fn run_timed_awaitable<'py>(
     py: Python<'py>,
     value: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    // Timed nodes reuse a per-thread asyncio loop so the wait_for overhead is not
-    // paid on every attempt; ordinary nodes keep the cheaper asyncio.run path.
-    let asyncio = py.import("asyncio")?;
-    let loop_object = match asyncio
-        .getattr("get_event_loop")
-        .and_then(|get| get.call0())
-    {
-        Ok(loop_object) => loop_object,
-        Err(_) => {
+    NODE_LOOP.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            let asyncio = py.import("asyncio")?;
             let loop_object = asyncio.getattr("new_event_loop")?.call0()?;
             asyncio.getattr("set_event_loop")?.call1((&loop_object,))?;
-            loop_object
+            *slot = Some(loop_object.unbind());
         }
-    };
-    loop_object.call_method1("run_until_complete", (value,))
+        let loop_object = slot
+            .as_ref()
+            .expect("loop installed above")
+            .bind(py);
+        loop_object.call_method1("run_until_complete", (value,))
+    })
 }
 
 /// Attach child subgraph snapshots to the root snapshot (task-id aware).

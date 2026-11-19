@@ -6,6 +6,7 @@ use pyo3::types::PyAny;
 
 use super::*;
 use crate::_internal::state::StateSchema;
+use crate::adapters::python::types::{PyCachePolicy, PyRetryPolicy};
 use crate::Route;
 use crate::runtime::context::TaskContext;
 use crate::tokio_runtime::AsyncStateGraph;
@@ -64,15 +65,11 @@ fn async_node_from_python(
                                     .map_err(|error| pyerr_to_error(py, error))?,
                                 None => value,
                             };
-                            if run_timeout.is_some() {
-                                run_timed_awaitable(py, &value)
-                                    .map_err(|error| pyerr_to_error(py, error))?
-                            } else {
-                                py.import("asyncio")
-                                    .and_then(|asyncio| asyncio.getattr("run"))
-                                    .and_then(|run| run.call1((&value,)))
-                                    .map_err(|error| pyerr_to_error(py, error))?
-                            }
+                            // Reuse the thread's asyncio loop: `asyncio.run` would create and
+                            // tear down a loop per node (~1 ms each), which dominates an
+                            // otherwise sub-millisecond orchestration step.
+                            run_timed_awaitable(py, &value)
+                                .map_err(|error| pyerr_to_error(py, error))?
                         } else {
                             value
                         };
@@ -119,12 +116,18 @@ impl PyAsyncStateGraph {
     }
 
     /// Register a Python callable as an async node.
-    #[pyo3(signature = (name, function, timeout=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, timeout=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_node(
         mut slf: PyRefMut<'_, Self>,
         py: Python<'_>,
         name: String,
         function: Py<PyAny>,
+        retry_policy: Option<PyRef<'_, PyRetryPolicy>>,
+        cache_policy: Option<PyRef<'_, PyCachePolicy>>,
+        error_handler: Option<String>,
+        deferred: bool,
+        destinations: Option<Vec<String>>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
     ) -> PyResult<Py<Self>> {
         let builder = std::mem::replace(
@@ -138,8 +141,23 @@ impl PyAsyncStateGraph {
             Some(seconds) => wrap_async_timeout(py, function, seconds)?,
             None => function,
         };
-        let mut builder =
-            builder.add_node(name.clone(), async_node_from_python(name.clone(), function));
+        let mut builder = builder;
+        if deferred {
+            builder = builder.set_deferred(name.clone());
+        }
+        if let Some(destinations) = destinations {
+            builder = builder.set_destinations(name.clone(), destinations);
+        }
+        builder = builder.add_node(name.clone(), async_node_from_python(name.clone(), function));
+        if let Some(policy) = retry_policy {
+            builder = builder.set_retry(name.clone(), policy.to_policy());
+        }
+        if let Some(policy) = cache_policy {
+            builder = builder.set_cache(name.clone(), policy.to_policy());
+        }
+        if let Some(handler) = error_handler {
+            builder = builder.add_error_edge(name.clone(), normalize_node(&handler));
+        }
         if let Some(policy) = timeout {
             builder = builder.set_timeout(name, policy.to_policy());
         }

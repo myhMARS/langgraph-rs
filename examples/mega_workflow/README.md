@@ -83,3 +83,38 @@ included). `invoke`/`stream`/`batch` include the whole 15-node workflow up to th
 Retry backoff is forced to zero in all three engines so the table measures orchestration rather
 than sleeping. Numbers are single-machine (Windows, Python 3.12, LangGraph 1.2.22) and are
 medians of `--iterations` suites; treat small differences in `state`/`update_state` as noise.
+## Async variant
+
+`bench_async.py` runs the same 15-node workflow with every node defined as `async def` and every
+call awaited (`ainvoke` / `aresume` / `astream` / `abatch` / `aget_state` / `aupdate_state`).
+Sources: `build_lg_async.py`, `build_rs_async.py`, `../mega_workflow_async_native.rs`.
+Report: `MEGA_BENCH_ASYNC.md`.
+
+```powershell
+python examples/mega_workflow/bench_async.py --iterations 10
+cargo run --release --example mega_workflow_async_native --features async -- 10
+```
+
+Last measured medians (10 suites, same machine):
+
+| Phase | LangGraph async | binding async | native async |
+| --- | ---: | ---: | ---: |
+| invoke | 6.62 ms | 3.40 ms (1.94x) | 0.34 ms (19.5x) |
+| resume | 2.18 ms | 1.78 ms (1.22x) | 0.24 ms (9.0x) |
+| state | 0.82 ms | 0.93 ms (0.88x) | 0.16 ms (5.1x) |
+| update_state | 0.31 ms | 0.47 ms (0.66x) | 0.04 ms (7.2x) |
+| stream | 6.44 ms | 3.67 ms (1.76x) | 0.54 ms (12.0x) |
+| batch | 12.32 ms | 4.32 ms (2.85x) | 0.72 ms (17.2x) |
+
+Async notes:
+
+* The binding used to drive every node coroutine through `asyncio.run`, which creates and
+  tears down an event loop per node (~1 ms each). It now reuses one loop per OS thread
+  (`src/adapters/python/async_support.rs`), which cut a 10-node `ainvoke` from ~14 ms to
+  ~2.5 ms and moved the binding from 0.4-0.6x to 1.2-2.9x of LangGraph async.
+* `state`/`update_state` are still slightly slower than LangGraph async because the binding
+  converts snapshots into fresh Python dicts; they are dominated by that conversion, not by
+  orchestration.
+* An async parent cannot embed an async child in the binding (the child would need its own
+  asyncio loop), so `build_rs_async.py` embeds a sync child graph; LangGraph awaits an async
+  child. Native Rust awaits a sync child the same way.
