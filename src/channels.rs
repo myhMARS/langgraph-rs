@@ -164,6 +164,24 @@ impl Channel {
     }
 
     /// Merge `incoming` writes into `current`.
+    /// Apply owned writes, moving the winning value when the channel keeps only one.
+    ///
+    /// `apply` receives `&[Value]` and must clone the winner; the executor owns the writes,
+    /// so this variant avoids that copy (it matters for large channel values).
+    pub(crate) fn apply_owned(
+        &self,
+        current: Option<&Value>,
+        mut incoming: Vec<Value>,
+    ) -> Result<Option<Value>> {
+        match self {
+            Channel::LastValue
+            | Channel::AnyValue
+            | Channel::EphemeralValue
+            | Channel::UntrackedValue => Ok(incoming.pop().or_else(|| current.cloned())),
+            _ => self.apply(current, &incoming),
+        }
+    }
+
     pub(crate) fn apply(
         &self,
         current: Option<&Value>,

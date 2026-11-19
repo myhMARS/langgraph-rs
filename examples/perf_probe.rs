@@ -97,6 +97,33 @@ fn main() {
     }
     let fresh = started.elapsed().as_nanos() as f64 / 300.0 / 1000.0;
     println!("long-thread same={same:.1} us  fresh={fresh:.1} us  history={}", graph.get_state_history("long").unwrap().len());
+    for bytes in [16 * 1024usize, 256 * 1024] {
+        let graph = build_big(10, bytes);
+        let big_input = JsonState::new().with("blob", json!(""));
+        for index in 0..20 {
+            graph.run(&big_input, &RunConfig::new().with_thread(format!("bw{index}"))).unwrap();
+        }
+        let started = Instant::now();
+        for index in 0..200 {
+            graph.run(&big_input, &RunConfig::new().with_thread(format!("b{index}"))).unwrap();
+        }
+        let per_run = started.elapsed().as_nanos() as f64 / 200.0 / 1000.0;
+        let history = graph.get_state_history("b0").unwrap().len();
+        println!(
+            "big state {bytes:>6} bytes: run={per_run:8.1} us  history={history}  per-save={:.1} us",
+            per_run / history as f64
+        );
+        let mut checkpoint = langgraph_rs::Checkpoint::new("cp-big", "probe", 0, serde_json::Map::new());
+        checkpoint.values.insert("blob".to_string(), json!("x".repeat(bytes)));
+        let started = Instant::now();
+        for _ in 0..2000 {
+            std::hint::black_box(checkpoint.clone());
+        }
+        println!(
+            "  Checkpoint::clone({bytes} bytes) = {:.1} us",
+            started.elapsed().as_nanos() as f64 / 2000.0 / 1000.0
+        );
+    }
     for k in [1usize, 3, 8] {
         println!("fanout k={k}: {:.1} us", time_fanout(k, 300));
     }
@@ -122,6 +149,25 @@ fn main() {
         started.elapsed().as_nanos() as f64 / 300.0 / 1000.0
     );
 }
+fn build_big(nodes: usize, bytes: usize) -> langgraph_rs::CompiledGraph<JsonState> {
+    let blob: String = "x".repeat(bytes);
+    let mut graph = StateGraph::<JsonState>::with_schema(StateSchema::dynamic());
+    for index in 0..nodes {
+        let blob = blob.clone();
+        graph = graph.add_node(format!("n{index}"), move |_state: &JsonState| {
+            Ok(NodeOutput::new().set("blob", json!(blob)))
+        });
+    }
+    graph = graph.add_edge(langgraph_rs::START, "n0");
+    for index in 0..nodes.saturating_sub(1) {
+        graph = graph.add_edge(format!("n{index}"), format!("n{}", index + 1));
+    }
+    graph = graph.set_finish_point(format!("n{}", nodes - 1));
+    graph
+        .compile_with(CompileOptions::new().with_checkpointer(std::sync::Arc::new(InMemorySaver::new())))
+        .unwrap()
+}
+
 fn build_fanout(k: usize) -> langgraph_rs::CompiledGraph<JsonState> {
     let mut graph = StateGraph::<JsonState>::with_schema(
         StateSchema::dynamic().with_reducer("log", langgraph_rs::reducers::append()),

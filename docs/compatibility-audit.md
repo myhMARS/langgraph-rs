@@ -358,4 +358,18 @@ sync/async writer channels now move `Arc<Checkpoint>` instead of a `Checkpoint` 
 This removes an O(state size) deep clone from every checkpoint write: with a small state the
 wall-clock delta is inside this machine's noise band (±15%), but the clone scaled with the
 state, so larger states and long histories benefit proportionally, and the peak allocation per
-superstep drops by one full checkpoint copy.
+superstep drops by one full checkpoint copy.### Round 11: move channel writes instead of cloning them
+
+| Change | Where | Effect |
+| --- | --- | --- |
+| `Channel::apply_owned` moves the winning value for `last_value`/`any`/`ephemeral`/`untracked` channels (the executor owns the writes) | `src/channels.rs` | removes one deep copy of every written value per superstep |
+| `apply_updates` handles the single-write case without building the grouping maps, and inserts implicit channels for dynamic schemas directly | `_internal/state.rs` | removes two allocations per node |
+
+Probe after both changes (quiet machine, 30-node chain): run 600 -> **497 us**, per-save
+19 -> **15.5 us**; 16 KB state: 194 -> 176 us. The earlier "big state" numbers (1.5 ms at
+256 KB) mix in the probe node's own 256 KB clones and were measured on a loaded machine; only
+same-session comparisons are meaningful.
+
+A regression the new fast path introduced was caught by the unit suite: dynamic schemas return
+`resolve(...) == None` for implicit channels, and the fast path treated that as "skip the
+write". Fixed by inserting the value directly, matching the general path.

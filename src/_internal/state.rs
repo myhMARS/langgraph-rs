@@ -445,6 +445,32 @@ pub(crate) fn apply_updates(
     values: &mut Map<String, Value>,
     updates: Vec<ChannelUpdate>,
 ) -> Result<()> {
+    // A single write per superstep is the common case: skip building the grouping maps.
+    if updates.len() == 1 {
+        let update = updates.into_iter().next().expect("length checked");
+        let Some(definition) = schema.resolve(&update.channel)? else {
+            // Dynamic schemas accept implicit channels; the write becomes a `last_value`.
+            values.insert(update.channel, update.value);
+            return Ok(());
+        };
+        if let Channel::Topic { accumulate: true } = definition {
+            let mut accumulated = match values.remove(&update.channel) {
+                Some(Value::Array(items)) => items,
+                _ => Vec::new(),
+            };
+            match update.value {
+                Value::Array(items) => accumulated.extend(items),
+                other => accumulated.push(other),
+            }
+            values.insert(update.channel, Value::Array(accumulated));
+            return Ok(());
+        }
+        let current = values.get(&update.channel);
+        if let Some(merged) = definition.apply_owned(current, vec![update.value])? {
+            values.insert(update.channel, merged);
+        }
+        return Ok(());
+    }
     let mut grouped: IndexMap<String, (Vec<Value>, Vec<String>)> = IndexMap::new();
     for update in updates {
         let entry = grouped.entry(update.channel).or_default();
@@ -482,7 +508,7 @@ pub(crate) fn apply_updates(
                     });
                 }
                 let current = values.get(&channel);
-                if let Some(merged) = definition.apply(current, &incoming)? {
+                if let Some(merged) = definition.apply_owned(current, incoming)? {
                     values.insert(channel, merged);
                 }
             }
