@@ -65,6 +65,11 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
+- `langgraph.store.base` 全量面：`tokenize_path` / `get_text_at_path`（路径提取，与 LangGraph
+  逐项对照 189 组用例一致）、`override`、`validate_op_namespace`、`BaseStore`、`Item`/`SearchItem`、
+  `GetOp`/`PutOp`/`SearchOp`/`ListNamespacesOp`、`MatchCondition`、`TTLConfig`、`IndexConfig`、
+  `NotProvided`/`NOT_PROVIDED`、`ensure_embeddings`（函数/异步函数直接包装；provider 字符串与
+  LangGraph 一样需要 langchain 侧支持，否则报错说明）
 - `langgraph.runtime`：`Runtime`（`context`/`store`/`stream_writer`/`heartbeat`/`previous`/
   `execution_info`/`server_info`/`control`）、`get_runtime()`（运行外返回 `DEFAULT_RUNTIME`）、
   `ExecutionInfo`、`ServerInfo`、`BaseStore`、`BaseUser`、`CONF`、`CONFIG_KEY_RUNTIME`、`get_config`

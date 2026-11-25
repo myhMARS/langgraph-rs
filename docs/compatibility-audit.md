@@ -986,4 +986,21 @@ A `dir()` diff against LangGraph is now empty for `runtime`, `cache.base`, `cach
 
 Eight new tests cover the Runtime field list, the outside-a-run default, the in-node values
 (context/store/namespace), `ExecutionInfo` defaults, serializer round trips and rejections, and
-`BaseCache`/`FullKey` subclassing. Python suite is 164 tests; parity stays 38/38.
+`BaseCache`/`FullKey` subclassing. Python suite is 164 tests; parity stays 38/38.### Round 54: `langgraph.store.base` ops, embeddings and path helpers
+
+`store.base` is now complete (an empty `dir()` diff against LangGraph). The two functions that
+actually decide what an embedding-indexed store indexes were ported line by line from LangGraph and
+verified differentially: `tokenize_path` and `get_text_at_path` produced identical output for 189
+(path, object) combinations covering fields, nested fields, `[i]`/`[-1]`/`[*]`, `{a,b}` multi-field
+selection, `*` wildcards, missing keys and non-dict values.
+
+Also added: `override`, `validate_op_namespace` (rejects empty/dotted namespace labels with
+`InvalidNamespaceError`), the batch op dataclasses (`GetOp`, `PutOp`, `SearchOp`,
+`ListNamespacesOp`) with LangGraph's field names and defaults, `MatchCondition`, `TTLConfig`,
+`IndexConfig`, `NotProvided`/`NOT_PROVIDED`, `NamespaceMatchType`/`NamespacePath`/`Result`, and
+`ensure_embeddings` (wraps a sync or async embedding function into LangChain's `Embeddings`
+interface; provider strings raise with an explanation because the provider package is not bundled,
+matching LangGraph's requirement).
+
+Thirteen new tests pin the tokenizer/extractor outputs, the op defaults, namespace validation, the
+`override` marker and the embeddings wrapper. Python suite is 177 tests; parity stays 38/38.
