@@ -1003,4 +1003,29 @@ interface; provider strings raise with an explanation because the provider packa
 matching LangGraph's requirement).
 
 Thirteen new tests pin the tokenizer/extractor outputs, the op defaults, namespace validation, the
-`override` marker and the embeddings wrapper. Python suite is 177 tests; parity stays 38/38.
+`override` marker and the embeddings wrapper. Python suite is 177 tests; parity stays 38/38.### Round 55: `langgraph.channels`
+
+`langgraph.channels` now exists as a package with LangGraph's classes (`LastValue`,
+`LastValueAfterFinish`, `AnyValue`, `EphemeralValue`, `UntrackedValue`, `Topic`,
+`BinaryOperatorAggregate`, `DeltaChannel`, `NamedBarrierValue`, `NamedBarrierValueAfterFinish`) plus
+the per-channel submodules LangGraph ships. Channel objects can be used directly as a state schema:
+
+```python
+graph = StateGraph({"total": BinaryOperatorAggregate(int, operator.add)})
+```
+
+Each class carries `__channel_spec__`, which `schema_from_py` maps onto the engine's channel kinds
+(`last_value`, `any_value`, `ephemeral_value`, `untracked_value`, `topic[_accumulate]`, `delta`,
+`last_value_after_finish`) or, for `BinaryOperatorAggregate`/`DeltaChannel`, onto a Python reducer.
+Barrier channels report `__channel_spec__ = None` and raise `NotImplementedError` at graph-build
+time -- approximating a barrier would silently change scheduling.
+
+Verified: `LastValue`, `Topic(accumulate=True)`, `AnyValue` and `BinaryOperatorAggregate` graphs
+produce LangGraph's results (barrier-free cases compared side by side). One nuance: LangGraph's
+`BinaryOperatorAggregate` no longer seeds from the graph input in 1.2.22 (the channel-instance
+annotation form is deprecated), while the extension applies the reducer to the input exactly like
+LangGraph's `Annotated[..., operator.add]` form -- documented rather than emulated, because the
+`Annotated` behaviour is the supported one.
+
+Seven new tests cover the mappings, accumulation, plain channels, delta reduction and the barrier
+rejection. Python suite is 184 tests; parity stays 38/38; Rust tests and clippy pass.

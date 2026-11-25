@@ -357,6 +357,42 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
     let mut out = StateSchema::dynamic();
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
+        // LangGraph's channel objects (`LastValue`, `Topic`, ...) carry their reducer spec.
+        if let Ok(channel_spec) = spec.getattr("__channel_spec__") {
+            if channel_spec.is_none() {
+                return Err(pyo3::exceptions::PyNotImplementedError::new_err(format!(
+                    "channel `{name}` uses {}, which the langgraph_rs extension does not implement",
+                    spec.get_type().name().map(|n| n.to_string()).unwrap_or_default()
+                )));
+            }
+            if let Ok(text) = channel_spec.extract::<String>() {
+                let channel = kernel.resolve_channel(&text).ok_or_else(|| {
+                    PyValueError::new_err(format!("unknown channel spec `{text}` for `{name}`"))
+                })?;
+                out = out.with_channel(name, channel);
+                continue;
+            }
+            if channel_spec.is_callable() {
+                let callable = channel_spec.clone().unbind();
+                out = out.with_channel(
+                    name,
+                    Channel::reducer(move |current: &Value, incoming: &Value| {
+                        Python::attach(|py| -> Result<Value> {
+                            let left = value_to_py(py, current)
+                                .map_err(|error| crate::Error::other(error.to_string()))?;
+                            let right = value_to_py(py, incoming)
+                                .map_err(|error| crate::Error::other(error.to_string()))?;
+                            let result = callable
+                                .call1(py, (left, right))
+                                .map_err(|error| crate::Error::other(error.to_string()))?;
+                            py_to_value(result.bind(py))
+                                .map_err(|error| crate::Error::other(error.to_string()))
+                        })
+                    }),
+                );
+                continue;
+            }
+        }
         if let Ok(spec) = spec.extract::<String>() {
             // `IsLastStep` / `RemainingSteps` are managed values in LangGraph: injected for
             // every superstep, never persisted, and only present when declared.
