@@ -211,3 +211,15 @@ LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
 4. 自定义 store 的向量索引（`index=`）不在引擎侧实现；`IndexConfig` 等类型可用。
 
 （以上均在差距清单 §4 中逐条说明；未知项不会再静默失败。）
+### 跨引擎 resume 支持矩阵（2026-11）
+
+| 共享方式 | LangGraph 暂停 → rs 恢复 | rs 暂停 → LangGraph 恢复 | 交替继续（新输入） |
+| --- | --- | --- | --- |
+| 同一个 Python saver 对象（如 LG `InMemorySaver`） | ✅ | ✅ | ✅ |
+| LangGraph-schema SQLite（`rs.LangGraphSqliteSaver`） | ✅ | ✅ | —（见下） |
+
+- 共享 saver 对象的写侧使用 UUIDv6 风格、按时间+step 单调递增的 checkpoint id，两个引擎交替写同一线程时
+  LangGraph 才能选中「最新」checkpoint。
+- SQLite saver 保持既有的扁平 id 格式（LangGraph 的任务 id 推导依赖它）；同线程**混写**时的 latest
+  排序仍是已知限制。
+- 暂停恢复依赖：`__root__`、`branch:to:<node>`、`__interrupt__` 写、以及从 `versions_seen` 中剔除待执行节点。

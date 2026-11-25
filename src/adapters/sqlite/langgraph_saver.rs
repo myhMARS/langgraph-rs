@@ -257,7 +257,12 @@ impl LangGraphSqliteSaver {
 }
 
 fn send_task_id(checkpoint_id: &str, node: &str, step: usize, index: usize) -> String {
-    let mut bytes: Vec<u8> = checkpoint_id
+    // Dashes are not part of the value; strip them before grouping nibbles.
+    let hex: String = checkpoint_id
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .collect();
+    let mut bytes: Vec<u8> = hex
         .as_bytes()
         .chunks(2)
         .filter_map(|pair| {

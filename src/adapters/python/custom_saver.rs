@@ -452,19 +452,30 @@ fn checkpoint_from_langgraph_tuple(
     checkpoint.next = next;
     Ok(checkpoint)
 }
-/// Hex checkpoint id LangGraph sees; task ids are derived from it.
+/// UUIDv6-style, time-ordered checkpoint id.
+///
+/// LangGraph picks the latest checkpoint by comparing ids, so ours must sort by wall clock the
+/// same way its `uuid6` values do -- otherwise a thread written by both engines would resume from
+/// the wrong checkpoint.
 fn langgraph_id(checkpoint: &Checkpoint) -> String {
+    // UUIDv6 timestamps are 100ns ticks since 1582-10-15.
+    // Sub-millisecond ticks carry the step so checkpoints of one thread never tie.
+    let ticks = checkpoint
+        .created_at_millis
+        .saturating_mul(10_000)
+        .saturating_add((checkpoint.step as u64).min(9_999))
+        .wrapping_add(0x01b2_1dd2_1381_4000);
+    let time_high = ((ticks >> 28) & 0xffff_ffff) as u32;
+    let time_mid = ((ticks >> 12) & 0xffff) as u16;
+    let time_low = (ticks & 0x0fff) as u16;
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in checkpoint.id.as_bytes() {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!(
-        "{:016x}{:08x}{:08x}",
-        checkpoint.created_at_millis,
-        checkpoint.step,
-        (hash & 0xffff_ffff)
-    )
+    let clock = (((hash >> 48) & 0x3fff) as u16) | 0x8000;
+    let node = hash & 0xffff_ffff_ffff;
+    format!("{time_high:08x}-{time_mid:04x}-6{time_low:03x}-{clock:04x}-{node:012x}")
 }
 
 fn sha1_uuid_like(parts: &[&[u8]]) -> String {
@@ -490,8 +501,12 @@ fn sha1_uuid_like(parts: &[&[u8]]) -> String {
 }
 
 fn id_bytes(checkpoint_id: &str) -> Vec<u8> {
-    checkpoint_id
-        .as_bytes()
+    // Dashes are not part of the value, so strip them before grouping nibbles.
+    let hex: String = checkpoint_id
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .collect();
+    hex.as_bytes()
         .chunks(2)
         .filter_map(|pair| {
             std::str::from_utf8(pair)

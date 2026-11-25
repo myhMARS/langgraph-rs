@@ -1128,4 +1128,23 @@ Verified matrix (two-node graph pausing on `interrupt()`):
 
 `python/tests/test_cross_engine_resume.py` pins all four cases. The previous "saver drops the
 sidecar" test now asserts the fallback path (state + resume still work) instead of an error.
-Python suite is 213 tests; parity stays 38/38; Rust tests and clippy pass.
+Python suite is 213 tests; parity stays 38/38; Rust tests and clippy pass.### Round 60: mixed-writer threads and monotonic checkpoint ids
+
+Two follow-ups after the shared-saver work:
+
+* **Writing**: the Python-saver bridge now emits UUIDv6-style checkpoint ids derived from
+  `created_at_millis` plus the step (`ticks = millis * 10_000 + step`), so ids from both engines sort
+  by wall clock. Without this, a thread continued by both engines resumed from LangGraph's older
+  checkpoint (`{'attempts': 1, ...}` instead of `3`); with it, alternating turns work:
+  `LG -> rs -> LG` produced `{'attempts': 3, 'log': ['lg-step', 'rs-input', 'rs-step', 'lg-input',
+  'lg-step']}`.
+* **Reading**: dashed ids are normalised before the task-id nibble grouping (`id_bytes` now strips
+  non-hex characters), matching LangGraph's derivation.
+
+The LangGraph-schema SQLite saver keeps its previous flat id format on purpose: three existing tests
+(LangGraph resuming our parallel / sequential / `Send` interrupts from a SQLite file) depend on it,
+and switching it to UUIDv6 made LangGraph fail to map its resume values back to our writes. Mixed
+sqlite writers with different id formats therefore remain a known limitation (documented in
+`docs/langgraph-compat.md`); the shared-saver path is fully bidirectional.
+
+Python suite is 213 tests; parity 38/38; Rust tests and clippy pass.
