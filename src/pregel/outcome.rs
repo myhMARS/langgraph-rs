@@ -43,6 +43,7 @@ pub(crate) struct TaskResult {
     pub(crate) node: String,
     pub(crate) output: NodeOutput,
     pub(crate) custom: Vec<Value>,
+    pub(crate) tools: Vec<Value>,
     pub(crate) messages: Vec<Value>,
     pub(crate) usage: Vec<Usage>,
     pub(crate) duration_millis: u64,
@@ -178,6 +179,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     node,
                     output,
                     custom,
+                    tools,
                     messages,
                     usage,
                     duration_millis,
@@ -189,6 +191,12 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 if emit {
                     for value in custom {
                         sink(StreamChunk::Custom {
+                            node: node.clone(),
+                            value,
+                        });
+                    }
+                    for value in tools {
+                        sink(StreamChunk::Tool {
                             node: node.clone(),
                             value,
                         });

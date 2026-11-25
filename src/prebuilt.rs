@@ -143,16 +143,45 @@ impl ToolNode {
                 .unwrap_or_default()
                 .to_string();
             let args = call.get("args").cloned().unwrap_or(Value::Null);
-            let content = match self.tools.get(&name) {
-                Some(tool) => match (tool.run)(args, state) {
-                    Ok(value) => match value {
-                        Value::String(text) => text,
-                        other => other.to_string(),
-                    },
-                    Err(error) => format!("tool `{name}` failed: {error}"),
+            // `stream_mode="tools"` events, mirroring LangGraph's `StreamToolCallHandler`.
+            let _ = crate::runtime::context::push_tool_event(json!({
+                "event": "tool-started",
+                "tool_call_id": id,
+                "tool_name": name,
+                "input": args,
+            }));
+            let (content, failed) = match self.tools.get(&name) {
+                Some(tool) => match (tool.run)(args.clone(), state) {
+                    Ok(value) => (
+                        match value {
+                            Value::String(text) => text,
+                            other => other.to_string(),
+                        },
+                        None,
+                    ),
+                    Err(error) => (format!("tool `{name}` failed: {error}"), Some(error.to_string())),
                 },
-                None => format!("unknown tool `{name}`"),
+                None => (
+                    format!("unknown tool `{name}`"),
+                    Some(format!("unknown tool `{name}`")),
+                ),
             };
+            match failed {
+                Some(message) => {
+                    let _ = crate::runtime::context::push_tool_event(json!({
+                        "event": "tool-error",
+                        "tool_call_id": id,
+                        "message": message,
+                    }));
+                }
+                None => {
+                    let _ = crate::runtime::context::push_tool_event(json!({
+                        "event": "tool-finished",
+                        "tool_call_id": id,
+                        "output": content,
+                    }));
+                }
+            }
             results.push(json!({
                 "role": "tool",
                 "tool_call_id": id,

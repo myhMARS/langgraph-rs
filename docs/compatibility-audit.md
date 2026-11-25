@@ -1461,4 +1461,24 @@ One caveat, documented: the extension's engine does not emit `tools` protocol ev
 `run.tool_calls` stays empty on a real run until tool-call streaming lands; the transformer itself is
 complete and verified against LangGraph's.
 
-Python suite is 314 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 314 tests; parity 38/38; clippy and Rust tests clean.### Round 75: `stream_mode="tools"` emitted by the engine
+
+`ToolCallTransformer` was complete but starved: nothing produced `tools` protocol events. The engine
+now has a first-class `tools` stream mode.
+
+* `StreamChunk::Tool { node, value }`, `StreamMode::Tools` (`"tools"` in `parse`/`as_str`, reported by
+  `StreamChunk::mode()` and `node()`).
+* `TaskContext` gained a `tools` buffer, `with_task` returns it, `TaskResult` carries it, and the
+  outcome loop emits one `StreamChunk::Tool` per buffered event — the same path `custom` values take.
+  The async runtime records them through `AsyncContext::tool_event`.
+* `push_tool_event` (`runtime::context`) is the in-node emit helper, mirroring `push_custom`.
+* Rust `ToolNode::execute` reports `tool-started` (with `tool_call_id`, `tool_name`, `input`) before
+  running a tool and `tool-finished` (`output`) or `tool-error` (`message`) afterwards, matching
+  LangGraph's `StreamToolCallHandler` payloads.
+* The Python binding converts the chunks to `{"type": "tools", ...}` stream parts.
+
+`python/tests/test_tools_stream.py` (5 tests): `stream(stream_mode="tools")` part sequence,
+`ToolCallTransformer` producing a completed handle with the tool output, a failing tool surfacing as
+an errored handle, `messages` staying unaffected, and the async graph path.
+
+Python suite is 319 tests; parity 38/38; clippy and Rust tests clean.

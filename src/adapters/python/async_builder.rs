@@ -40,7 +40,7 @@ fn async_node_from_python(
                     Some(task_id) => TaskContext::new(node_name, resume).with_task_id(task_id),
                     None => TaskContext::new(node_name, resume),
                 };
-                let (result, custom, messages, usage) = crate::runtime::context::with_task(
+                let (result, custom, tools, messages, usage) = crate::runtime::context::with_task(
                     task_context,
                     || -> crate::Result<NodeOutput> {
                         let value = function
@@ -84,6 +84,9 @@ fn async_node_from_python(
                 }
                 for item in custom {
                     let _ = context.custom(item);
+                }
+                for item in tools {
+                    let _ = context.tool_event(item);
                 }
                 for item in messages {
                     let _ = context.message(item);

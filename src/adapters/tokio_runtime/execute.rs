@@ -338,6 +338,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         node: task.node.clone(),
                         output: crate::_internal::node::NodeOutput::from_cached(cached),
                         custom: Vec::new(),
+                        tools: Vec::new(),
                         messages: Vec::new(),
                         usage,
                         duration_millis: 0,
@@ -416,7 +417,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             } else {
                 future.await
             };
-            let (mut reported, custom, messages) = context.take();
+            let (mut reported, custom, tools, messages) = context.take();
             usage.append(&mut reported);
             match result {
                 Ok(output) => {
@@ -454,6 +455,7 @@ impl<S: State> AsyncCompiledGraph<S> {
                         node: task.node.clone(),
                         output,
                         custom,
+                        tools,
                         messages,
                         usage,
                         duration_millis: started.elapsed().as_millis() as u64,

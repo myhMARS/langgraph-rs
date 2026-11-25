@@ -36,6 +36,10 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("type", "custom")?;
             dict.set_item("data", value_to_py(py, value)?)?;
         }
+        StreamChunk::Tool { value, .. } => {
+            dict.set_item("type", "tools")?;
+            dict.set_item("data", value_to_py(py, value)?)?;
+        }
         StreamChunk::Message { node, message, .. } => {
             dict.set_item("type", "messages")?;
             let data = PyList::empty(py);
@@ -416,6 +420,7 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             Ok(data.into_any().unbind())
         }
         StreamChunk::Custom { value, .. } => value_to_py(py, value),
+        StreamChunk::Tool { value, .. } => value_to_py(py, value),
         StreamChunk::Interrupt {
             node,
             id,

@@ -246,6 +246,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     node: task.node.clone(),
                     output: NodeOutput::from_cached(cached),
                     custom: Vec::new(),
+                    tools: Vec::new(),
                     messages: Vec::new(),
                     usage,
                     duration_millis: 0,
@@ -281,7 +282,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                 .timeout_of(&task.node)
                 .and_then(|policy| policy.effective_timeout())
         });
-        let (result, custom, messages, mut reported) = match timeout {
+        let (result, custom, tools, messages, mut reported) = match timeout {
             Some(timeout) => run_node_timed(node.clone(), (*node_state).clone(), task, timeout),
             None => {
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
@@ -325,6 +326,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                     node: task.node.clone(),
                     output,
                     custom,
+                    tools,
                     messages,
                     usage,
                     duration_millis: started.elapsed().as_millis() as u64,
@@ -388,17 +390,20 @@ fn failed(
 ///
 /// The thread keeps running when the timeout fires (Rust cannot cancel a blocking
 /// closure); the run fails with [`Error::Timeout`] and the late result is discarded.
+/// Result of a timed node run: output, custom values, tool events, messages and usage.
+type TimedNodeOutcome = (
+    crate::Result<NodeOutput>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Usage>,
+);
 fn run_node_timed<S: State>(
     node: NodeFn<S>,
     node_state: S,
     task: &Task,
     timeout: Duration,
-) -> (
-    crate::Result<NodeOutput>,
-    Vec<Value>,
-    Vec<Value>,
-    Vec<Usage>,
-) {
+) -> TimedNodeOutcome {
     let (sender, receiver) = std::sync::mpsc::channel();
     let node_name = task.node.clone();
     let resume = task.resume_history.clone();
@@ -427,6 +432,7 @@ fn run_node_timed<S: State>(
                 node: task.node.clone(),
                 millis: timeout.as_millis() as u64,
             }),
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),

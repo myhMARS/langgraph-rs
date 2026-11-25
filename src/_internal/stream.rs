@@ -41,6 +41,13 @@ pub enum StreamChunk {
         /// Payload.
         value: Value,
     },
+    /// A tool-call lifecycle event (`stream_mode="tools"`).
+    Tool {
+        /// Node that ran the tool.
+        node: String,
+        /// `tool-started` / `tool-output-delta` / `tool-finished` / `tool-error` payload.
+        value: Value,
+    },
     /// A node asked for human input.
     Interrupt {
         /// Interrupted node.
@@ -123,6 +130,8 @@ pub enum StreamMode {
     Tasks,
     /// Persisted checkpoint ids.
     Checkpoints,
+    /// Tool-call lifecycle events (`tool-started`, `tool-output-delta`, ...).
+    Tools,
 }
 
 impl StreamMode {
@@ -137,6 +146,7 @@ impl StreamMode {
             "debug" => Self::Debug,
             "tasks" => Self::Tasks,
             "checkpoints" => Self::Checkpoints,
+            "tools" => Self::Tools,
             _ => return None,
         })
     }
@@ -151,6 +161,7 @@ impl StreamMode {
             Self::Debug => "debug",
             Self::Tasks => "tasks",
             Self::Checkpoints => "checkpoints",
+            Self::Tools => "tools",
         }
     }
 }
@@ -189,6 +200,7 @@ impl StreamChunk {
             StreamChunk::Usage { execution } => Some(execution.node.as_str()),
             StreamChunk::Updates { node, .. }
             | StreamChunk::Custom { node, .. }
+            | StreamChunk::Tool { node, .. }
             | StreamChunk::Interrupt { node, .. }
             | StreamChunk::Message { node, .. }
             | StreamChunk::Task { node, .. } => Some(node),
@@ -203,6 +215,7 @@ impl StreamChunk {
             StreamChunk::Values { .. } => Some(StreamMode::Values),
             StreamChunk::Updates { .. } => Some(StreamMode::Updates),
             StreamChunk::Custom { .. } => Some(StreamMode::Custom),
+            StreamChunk::Tool { .. } => Some(StreamMode::Tools),
             StreamChunk::Message { .. } => Some(StreamMode::Messages),
             StreamChunk::Task { .. } => Some(StreamMode::Tasks),
             StreamChunk::Debug { .. } => Some(StreamMode::Debug),

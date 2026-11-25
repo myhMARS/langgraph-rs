@@ -22,6 +22,10 @@ impl crate::runtime::context::AsyncTaskOps for AsyncContext {
         self.custom(value)
     }
 
+    fn push_tool_event(&self, value: Value) -> Result<()> {
+        self.tool_event(value)
+    }
+
     fn push_message(&self, value: Value) -> Result<()> {
         self.message(value)
     }
@@ -78,6 +82,7 @@ pub struct AsyncContext {
 struct Capture {
     usage: Vec<Usage>,
     custom: Vec<Value>,
+    tools: Vec<Value>,
     messages: Vec<Value>,
 }
 
@@ -277,6 +282,17 @@ impl AsyncContext {
         Ok(())
     }
 
+    /// Emit a tool-call lifecycle event (`stream_mode="tools"`) into the graph stream.
+    pub fn tool_event(&self, value: Value) -> Result<()> {
+        self.bump_progress();
+        self.capture
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .tools
+            .push(value);
+        Ok(())
+    }
+
     fn bump_progress(&self) {
         self.progress
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -286,7 +302,7 @@ impl AsyncContext {
         self.progress.clone()
     }
 
-    pub(crate) fn take(&self) -> (Vec<Usage>, Vec<Value>, Vec<Value>) {
+    pub(crate) fn take(&self) -> (Vec<Usage>, Vec<Value>, Vec<Value>, Vec<Value>) {
         let mut capture = self
             .capture
             .lock()
@@ -294,6 +310,7 @@ impl AsyncContext {
         (
             std::mem::take(&mut capture.usage),
             std::mem::take(&mut capture.custom),
+            std::mem::take(&mut capture.tools),
             std::mem::take(&mut capture.messages),
         )
     }

@@ -40,6 +40,7 @@ tokio::task_local! {
 pub(crate) trait AsyncTaskOps: Send + Sync {
     fn interrupt_value(&self, value: Value, schema: Option<Value>) -> Result<Value>;
     fn push_custom(&self, value: Value) -> Result<()>;
+    fn push_tool_event(&self, value: Value) -> Result<()>;
     fn push_message(&self, value: Value) -> Result<()>;
     fn record_usage(&self, usage: crate::_internal::usage::Usage) -> Result<()>;
     fn last_error(&self) -> Option<crate::_internal::error::NodeFailure>;
@@ -190,6 +191,7 @@ pub(crate) struct TaskContext {
     pending_resume: Option<Value>,
     interrupt_calls: usize,
     custom: Vec<Value>,
+    tools: Vec<Value>,
     messages: Vec<Value>,
     usage: Vec<Usage>,
     error: Option<NodeFailure>,
@@ -206,6 +208,7 @@ impl TaskContext {
             pending_resume: None,
             interrupt_calls: 0,
             custom: Vec::new(),
+            tools: Vec::new(),
             messages: Vec::new(),
             usage: Vec::new(),
             error: None,
@@ -234,17 +237,17 @@ impl TaskContext {
 pub(crate) fn with_task<R>(
     context: TaskContext,
     run: impl FnOnce() -> R,
-) -> (R, Vec<Value>, Vec<Value>, Vec<Usage>) {
+) -> (R, Vec<Value>, Vec<Value>, Vec<Value>, Vec<Usage>) {
     let previous = CURRENT_TASK.with(|slot| slot.borrow_mut().replace(context));
     let result = run();
     let context = CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         std::mem::replace(&mut *slot, previous)
     });
-    let (custom, messages, usage) = context
-        .map(|context| (context.custom, context.messages, context.usage))
+    let (custom, tools, messages, usage) = context
+        .map(|context| (context.custom, context.tools, context.messages, context.usage))
         .unwrap_or_default();
-    (result, custom, messages, usage)
+    (result, custom, tools, messages, usage)
 }
 
 /// Failure that caused the current node to be scheduled.
@@ -392,7 +395,7 @@ mod tests {
 
     #[test]
     fn interrupt_without_resume_returns_the_payload() {
-        let (result, _custom, _messages, _usage) =
+        let (result, _custom, _tools, _messages, _usage) =
             with_task(TaskContext::new("ask", Vec::new()), || {
                 interrupt(json!({ "question": "approve?" }))
             });
@@ -409,7 +412,7 @@ mod tests {
 
     #[test]
     fn interrupt_with_resume_value_returns_it() {
-        let (result, _custom, _messages, _usage) =
+        let (result, _custom, _tools, _messages, _usage) =
             with_task(TaskContext::new("ask", vec![json!("yes")]), || {
                 interrupt(json!({ "question": "approve?" }))
             });
@@ -418,7 +421,7 @@ mod tests {
 
     #[test]
     fn custom_values_are_collected() {
-        let (result, custom, messages, usage) =
+        let (result, custom, _tools, messages, usage) =
             with_task(TaskContext::new("emit", Vec::new()), || {
                 custom(json!({ "progress": 0.5 })).unwrap();
                 push_custom(json!("done")).unwrap();

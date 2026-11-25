@@ -393,6 +393,27 @@ pub fn push_custom(value: Value) -> Result<()> {
     })
 }
 
+/// Emit a tool-call lifecycle event (`stream_mode="tools"`) from inside a node.
+///
+/// `ToolNode` uses this to report `tool-started` / `tool-finished` / `tool-error`; the payload is
+/// passed through unchanged.
+pub fn push_tool_event(value: Value) -> Result<()> {
+    #[cfg(feature = "async")]
+    if !has_sync_task()
+        && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_tool_event(value.clone()))
+    {
+        return result;
+    }
+    CURRENT_TASK.with(|slot| match slot.borrow_mut().as_mut() {
+        Some(context) => {
+            context.tools.push(value);
+            Ok(())
+        }
+        None => Err(Error::other(
+            "tool events can only be emitted from inside a running graph node",
+        )),
+    })
+}
 /// Emit a message (for example an LLM token) into the graph stream from inside a node.
 ///
 /// This is the langgraph-rs analogue of LangGraph's `stream_mode="messages"` events;
