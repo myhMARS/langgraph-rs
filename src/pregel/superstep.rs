@@ -282,7 +282,7 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                 .timeout_of(&task.node)
                 .and_then(|policy| policy.effective_timeout())
         });
-        let (result, custom, tools, messages, mut reported) = match timeout {
+        let (result, custom, tools, messages, _writes, mut reported) = match timeout {
             Some(timeout) => run_node_timed(node.clone(), (*node_state).clone(), task, timeout),
             None => {
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
@@ -396,6 +396,7 @@ type TimedNodeOutcome = (
     Vec<Value>,
     Vec<Value>,
     Vec<Value>,
+    Vec<(String, Value)>,
     Vec<Usage>,
 );
 fn run_node_timed<S: State>(
@@ -432,6 +433,7 @@ fn run_node_timed<S: State>(
                 node: task.node.clone(),
                 millis: timeout.as_millis() as u64,
             }),
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),

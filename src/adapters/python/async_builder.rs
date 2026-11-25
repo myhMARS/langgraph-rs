@@ -40,7 +40,7 @@ fn async_node_from_python(
                     Some(task_id) => TaskContext::new(node_name, resume).with_task_id(task_id),
                     None => TaskContext::new(node_name, resume),
                 };
-                let (result, custom, tools, messages, usage) = crate::runtime::context::with_task(
+                let (result, custom, tools, messages, writes, usage) = crate::runtime::context::with_task(
                     task_context,
                     || -> crate::Result<NodeOutput> {
                         let value = function
@@ -91,7 +91,12 @@ fn async_node_from_python(
                 for item in messages {
                     let _ = context.message(item);
                 }
-                result
+                // Writes the node performed itself (`send()` / `push_ui_message`) are merged into
+                // its output so the reducer applies them exactly like a returned value.
+                match result {
+                    Ok(output) => Ok(crate::adapters::python::convert::apply_node_writes(output, writes)),
+                    other => other,
+                }
             })
         })
             as std::pin::Pin<

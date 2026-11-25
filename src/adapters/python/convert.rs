@@ -600,6 +600,42 @@ pub(super) fn context_schema_value(
         "context_schema must be a JSON schema dict or a pydantic/TypedDict class",
     ))
 }
+
+/// Apply the writes a node performed itself to its output, preserving multiple writes per channel.
+///
+/// Several `send()` calls to the same channel arrive as one list, which reducers treat exactly like
+/// the node returning each value in turn.
+pub(super) fn apply_node_writes(
+    mut output: crate::_internal::node::NodeOutput,
+    writes: Vec<(String, serde_json::Value)>,
+) -> crate::_internal::node::NodeOutput {
+    if writes.is_empty() {
+        return output;
+    }
+    let mut grouped: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
+    for (channel, value) in writes {
+        match grouped.iter_mut().find(|(name, _)| *name == channel) {
+            Some((_, values)) => values.push(value),
+            None => grouped.push((channel, vec![value])),
+        }
+    }
+    let existing = output.updates_map().clone();
+    for (channel, values) in grouped {
+        let mut all: Vec<serde_json::Value> = Vec::new();
+        if let Some(previous) = existing.get(&channel) {
+            all.push(previous.clone());
+        }
+        all.extend(values);
+        let value = if all.len() == 1 {
+            all.pop().unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Array(all)
+        };
+        output = output.update(&channel, value);
+    }
+    output
+}
+
 pub(super) fn node_from_python(
     name: String,
     callable: Py<PyAny>,
@@ -613,14 +649,18 @@ pub(super) fn node_from_python(
                 ))
             })?;
             let callback_guard = install_langchain_callbacks(py);
+            // The engine already installed this node's task context; only the channel writes it
+            // performed itself are collected here.
             let result = callable.call1(py, (state_obj,));
+            let writes = crate::runtime::context::take_writes();
             if let Some((variable, token)) = callback_guard {
                 let _ = variable.call_method1("reset", (token,));
             }
             let result = result.map_err(|error| pyerr_to_error(py, error))?;
-            node_output_from_py(result.bind(py)).map_err(|error| {
+            let output = node_output_from_py(result.bind(py)).map_err(|error| {
                 Error::other(format!("node `{name}` returned an invalid output: {error}"))
-            })
+            })?;
+            Ok(apply_node_writes(output, writes))
         })
     }
 }

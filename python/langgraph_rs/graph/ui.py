@@ -1,8 +1,8 @@
 """UI message helpers (LangGraph ``langgraph.graph.ui``).
 
-`push_ui_message` / `delete_ui_message` emit the UI event on the custom stream (LangGraph also
-writes it into a state key through `CONFIG_KEY_SEND`, which the extension does not expose yet), and
-`ui_message_reducer` applies `remove-ui` markers when merging the UI list.
+`push_ui_message` / `delete_ui_message` emit the UI event on the custom stream and write it into
+the state key (LangGraph's `CONFIG_KEY_SEND`), and `ui_message_reducer` applies `remove-ui` markers
+when merging the UI list.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from typing_extensions import TypedDict
 
+from .. import _send as _send_channel
 from ..config import CONF, get_config, get_stream_writer
 
 try:  # pragma: no cover - langchain-core is optional
@@ -86,6 +87,8 @@ def push_ui_message(
     }
 
     writer(event)
+    if state_key:
+        _send_channel(state_key, event)
     return event
 
 
@@ -94,6 +97,8 @@ def delete_ui_message(id: str, *, state_key: str = "ui") -> RemoveUIMessage:
     writer = get_stream_writer()
     event: RemoveUIMessage = {"type": "remove-ui", "id": id}
     writer(event)
+    if state_key:
+        _send_channel(state_key, event)
     return event
 
 

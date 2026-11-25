@@ -397,6 +397,25 @@ fn push_live(chunk: StreamChunk) -> bool {
     sink(wrapped);
     true
 }
+
+/// Write `value` to `channel` from inside a node (LangGraph's `CONFIG_KEY_SEND`).
+///
+/// The write is applied with the node's own updates once the node returns, so the reducer sees it
+/// exactly as if the node had returned it.
+pub fn send(channel: impl Into<String>, value: Value) -> Result<()> {
+    let channel = channel.into();
+    CURRENT_TASK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(context) = slot.as_mut() else {
+            return Err(Error::other(
+                "send() can only be called from inside a running graph node",
+            ));
+        };
+        context.push_write(channel, value);
+        Ok(())
+    })
+}
+
 pub fn push_custom(value: Value) -> Result<()> {
     if push_live(StreamChunk::Custom {
         node: crate::runtime::context::current_node().unwrap_or_default(),

@@ -193,11 +193,18 @@ pub(crate) struct TaskContext {
     custom: Vec<Value>,
     tools: Vec<Value>,
     messages: Vec<Value>,
+    /// Channel writes the node performed itself (LangGraph's `CONFIG_KEY_SEND`).
+    writes: Vec<(String, Value)>,
     usage: Vec<Usage>,
     error: Option<NodeFailure>,
 }
 
 impl TaskContext {
+    /// Record a channel write the node performed itself.
+    pub(crate) fn push_write(&mut self, channel: String, value: Value) {
+        self.writes.push((channel, value));
+    }
+
     pub(crate) fn new(node: impl Into<String>, resume_values: Vec<Value>) -> Self {
         Self {
             node: node.into(),
@@ -210,6 +217,7 @@ impl TaskContext {
             custom: Vec::new(),
             tools: Vec::new(),
             messages: Vec::new(),
+            writes: Vec::new(),
             usage: Vec::new(),
             error: None,
         }
@@ -234,20 +242,42 @@ impl TaskContext {
 
 /// Install `context` for the duration of `run`, returning its result, any custom
 /// stream writes and any consumption records the node reported.
+/// Value returned by [`with_task`]: the node result plus everything its context collected.
+pub(crate) type TaskOutcomeOf<R> =
+    (R, Vec<Value>, Vec<Value>, Vec<Value>, Vec<(String, Value)>, Vec<Usage>);
+
+/// Take (and clear) the channel writes the running node performed itself.
+pub(crate) fn take_writes() -> Vec<(String, Value)> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .map(|context| std::mem::take(&mut context.writes))
+            .unwrap_or_default()
+    })
+}
+
 pub(crate) fn with_task<R>(
     context: TaskContext,
     run: impl FnOnce() -> R,
-) -> (R, Vec<Value>, Vec<Value>, Vec<Value>, Vec<Usage>) {
+) -> TaskOutcomeOf<R> {
     let previous = CURRENT_TASK.with(|slot| slot.borrow_mut().replace(context));
     let result = run();
     let context = CURRENT_TASK.with(|slot| {
         let mut slot = slot.borrow_mut();
         std::mem::replace(&mut *slot, previous)
     });
-    let (custom, tools, messages, usage) = context
-        .map(|context| (context.custom, context.tools, context.messages, context.usage))
+    let (custom, tools, messages, writes, usage) = context
+        .map(|context| {
+            (
+                context.custom,
+                context.tools,
+                context.messages,
+                context.writes,
+                context.usage,
+            )
+        })
         .unwrap_or_default();
-    (result, custom, tools, messages, usage)
+    (result, custom, tools, messages, writes, usage)
 }
 
 /// Failure that caused the current node to be scheduled.
@@ -395,7 +425,7 @@ mod tests {
 
     #[test]
     fn interrupt_without_resume_returns_the_payload() {
-        let (result, _custom, _tools, _messages, _usage) =
+        let (result, _custom, _tools, _messages, _writes, _usage) =
             with_task(TaskContext::new("ask", Vec::new()), || {
                 interrupt(json!({ "question": "approve?" }))
             });
@@ -412,7 +442,7 @@ mod tests {
 
     #[test]
     fn interrupt_with_resume_value_returns_it() {
-        let (result, _custom, _tools, _messages, _usage) =
+        let (result, _custom, _tools, _messages, _writes, _usage) =
             with_task(TaskContext::new("ask", vec![json!("yes")]), || {
                 interrupt(json!({ "question": "approve?" }))
             });
@@ -421,7 +451,7 @@ mod tests {
 
     #[test]
     fn custom_values_are_collected() {
-        let (result, custom, _tools, messages, usage) =
+        let (result, custom, _tools, messages, _writes, usage) =
             with_task(TaskContext::new("emit", Vec::new()), || {
                 custom(json!({ "progress": 0.5 })).unwrap();
                 push_custom(json!("done")).unwrap();

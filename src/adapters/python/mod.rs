@@ -216,6 +216,13 @@ fn interrupt(
     }
 }
 
+/// Write a value to a state channel from inside a node (LangGraph's `CONFIG_KEY_SEND`).
+#[pyfunction]
+fn _send(py: Python<'_>, channel: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    let value = py_to_value(value)?;
+    crate::runtime::context::send(channel, value).map_err(|error| to_pyerr(py, error))
+}
+
 /// Emit a custom value into the stream from inside a node.
 #[pyfunction]
 fn custom(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -535,6 +542,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(is_last_step, module)?)?;
     module.add("GraphBubbleUp", module.py().get_type::<GraphBubbleUp>())?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
+    module.add_function(wrap_pyfunction!(_send, module)?)?;
     module.add("GraphRecursionError", module.py().get_type::<GraphRecursionError>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;

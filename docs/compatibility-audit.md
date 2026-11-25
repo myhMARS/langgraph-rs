@@ -1868,4 +1868,31 @@ Verified against LangGraph: the same graph with `def get_weather(city, unit="c")
 
 Tests: `PlainToolCallTest` covers all four conventions. Divergence count is down to six.
 
-Python suite is 364 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 364 tests; parity 38/38; clippy and Rust tests clean.### Round 90: `push_ui_message` writes state (a node-side send primitive)
+
+LangGraph's `push_ui_message` does two things: it emits the event on the custom stream **and** calls
+`config[CONF][CONFIG_KEY_SEND]([(state_key, evt)])` so the event also lands in the graph state. We
+only did the first half, which is why the divergence list carried "writes no state".
+
+Engine: `TaskContext` gained a `writes` buffer and a `push_write` setter; a new
+`runtime::context::send(channel, value)` free function records a write from inside a node, and
+`take_writes()` drains the buffer. Both Python node wrappers merge the drained writes into the node's
+`NodeOutput` (`apply_node_writes`), grouping repeated writes to one channel into a single list so the
+reducer sees them exactly like the node returning each value.
+
+Binding: `langgraph_rs._send(channel, value)` exposes the primitive (LangGraph's `CONFIG_KEY_SEND`
+equivalent). `python/langgraph_rs/graph/ui.py` now calls it for `push_ui_message` and
+`delete_ui_message`.
+
+Verified against LangGraph on the same workload: two `push_ui_message` calls produce
+`[("1", {"text": "hi"}), ("2", {"text": "there"})]` on both sides, and `delete_ui_message("1")`
+leaves `[]`. `_send` also works for arbitrary channels (`_send("note", "hello")`).
+
+Mistake worth recording: the first version wrapped the node call in a **fresh** `TaskContext`, which
+replaced the engine's own context, so `custom()` / `record_tokens()` / `message()` inside the node
+went into a context that was then discarded — eight existing tests failed with `KeyError: 'custom'`.
+The fix is to reuse the engine's context and only drain the writes.
+
+Tests: `UiMessageStateTest` (push, delete, arbitrary channel). Divergence count is down to five.
+
+Python suite is 367 tests; parity 38/38; clippy and Rust tests clean.

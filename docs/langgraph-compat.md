@@ -223,8 +223,7 @@ python examples/quickstart/compare.py --check-only
    在没有向量索引时做子串匹配（LG 忽略 `query`）。
 4. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
-5. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
-6. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
+5. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
 
 已经消掉的旧差异（保留记录，避免回退）：
 
@@ -235,6 +234,9 @@ python examples/quickstart/compare.py --check-only
 * 无 checkpointer 时 `interrupt` 抛 `GraphInterrupt` → 现在与 LG 一致，返回输入状态 + `__interrupt__`。
 * 普通 callable 收到位置参数 → 现在与 LG 一致：按参数名传关键字（`**kwargs` / 仅关键字参数都支持），
   `def tool(args: dict)` 这种单字典写法仍然收到位置参数。
+* `push_ui_message` 只发流事件、不写 state → 引擎补了「节点内写通道」的原语（`send()`，等价于
+  LG 的 `CONFIG_KEY_SEND`），`push_ui_message` / `delete_ui_message` 现在会把事件写进 `ui` 状态键，
+  同一通道的多次写入按列表交给 reducer；`langgraph_rs._send(channel, value)` 也可直接用。
 
 ### 跨引擎 resume 支持矩阵（2026-11）
 

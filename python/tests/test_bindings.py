@@ -2342,3 +2342,59 @@ class PlainToolCallTest(unittest.TestCase):
             return f"echo:{args['city']}"
 
         self.assertEqual(self._run(echo, {"city": "Rome"})["content"], "echo:Rome")
+
+
+class UiMessageStateTest(unittest.TestCase):
+    """`push_ui_message` writes the state key like LangGraph's `CONFIG_KEY_SEND`."""
+
+    def test_push_ui_message_writes_the_state_key(self):
+        from langgraph_rs.graph import StateGraph
+        from langgraph_rs.graph.ui import push_ui_message, ui_message_reducer
+
+        graph = StateGraph({"ui": ui_message_reducer, "messages": "messages"})
+
+        def node(state):
+            push_ui_message("Chat", {"text": "hi"}, id="1")
+            push_ui_message("Chat", {"text": "there"}, id="2")
+            return {}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        result = graph.compile().invoke({"ui": [], "messages": []})
+        self.assertEqual(
+            [(entry["id"], entry["props"]) for entry in result["ui"]],
+            [("1", {"text": "hi"}), ("2", {"text": "there"})],
+        )
+
+    def test_delete_ui_message_removes_it(self):
+        from langgraph_rs.graph import StateGraph
+        from langgraph_rs.graph.ui import delete_ui_message, push_ui_message, ui_message_reducer
+
+        graph = StateGraph({"ui": ui_message_reducer, "messages": "messages"})
+
+        def node(state):
+            push_ui_message("Chat", {"text": "hi"}, id="1")
+            delete_ui_message("1")
+            return {}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        result = graph.compile().invoke({"ui": [], "messages": []})
+        self.assertEqual(result["ui"], [])
+
+    def test_send_writes_any_channel(self):
+        from langgraph_rs.graph import StateGraph
+
+        graph = StateGraph({"messages": "messages", "note": "last"})
+
+        def node(state):
+            lg._send("note", "hello")
+            return {}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        result = graph.compile().invoke({"messages": []})
+        self.assertEqual(result["note"], "hello")
