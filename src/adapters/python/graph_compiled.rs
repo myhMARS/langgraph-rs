@@ -13,6 +13,8 @@ use super::*;
 pub struct PyCompiledGraph {
     pub(crate) graph: Arc<CompiledGraph<JsonState>>,
     pub(crate) saver: Option<Arc<dyn Checkpointer>>,
+    /// Transformers registered at compile time for `stream_events(version="v3")`.
+    pub(crate) stream_transformers: Vec<Py<PyAny>>,
 }
 
 impl PyCompiledGraph {
@@ -23,6 +25,7 @@ impl PyCompiledGraph {
         Self {
             graph: Arc::new(graph),
             saver,
+            stream_transformers: Vec::new(),
         }
     }
 }
@@ -101,6 +104,10 @@ impl PyCompiledGraph {
         let function = module.getattr("stream_events")?;
         let kwargs = pyo3::types::PyDict::new(py);
         kwargs.set_item("version", version)?;
+        if !slf.stream_transformers.is_empty() {
+            let compiled = pyo3::types::PyList::new(py, slf.stream_transformers.iter().map(|item| item.bind(py)))?;
+            kwargs.set_item("compile_transformers", compiled)?;
+        }
         if let Some(thread_id) = thread_id {
             kwargs.set_item("thread_id", thread_id)?;
         }

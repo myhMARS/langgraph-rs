@@ -337,19 +337,7 @@ def create_tool(
     if callable(name_or_callable) and not isinstance(name_or_callable, str):
         return build(name_or_callable)
     return build(name_or_callable)
-class ToolCallTransformer:
-    """LangGraph middleware that projects `tools` channel events into `ToolCallStream` handles.
-
-    It is part of LangGraph's streaming middleware layer, which the extension does not implement;
-    constructing it raises instead of silently doing nothing.
-    """
-
-    def __init__(self, scope: tuple[str, ...] = ()) -> None:
-        raise NotImplementedError(
-            "ToolCallTransformer is not implemented by the langgraph_rs extension "
-            "(it needs LangGraph's streaming middleware layer)."
-        )
-
+from ._tool_call_transformer import ToolCallTransformer  # noqa: E402
 
 _MISSING = re_export(globals(), ["ToolNode", "tools_condition"])
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

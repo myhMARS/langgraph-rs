@@ -181,7 +181,7 @@ impl PyStateGraph {
 
     /// Validate and compile the graph.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None, context_schema=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None, context_schema=None, transformers=None))]
     fn compile(
         &self,
         py: Python<'_>,
@@ -193,6 +193,7 @@ impl PyStateGraph {
         store: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
         context_schema: Option<&Bound<'_, PyAny>>,
+        transformers: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyCompiledGraph> {
         let mut options = CompileOptions::new();
         if let Some(name) = name {
@@ -235,9 +236,17 @@ impl PyStateGraph {
         let compiled = builder
             .compile_with(options)
             .map_err(|error| to_pyerr(py, error))?;
+        let stream_transformers = match transformers.filter(|value| !value.is_none()) {
+            Some(list) => list
+                .try_iter()?
+                .map(|item| item.map(|item| item.unbind()))
+                .collect::<PyResult<Vec<_>>>()?,
+            None => Vec::new(),
+        };
         Ok(PyCompiledGraph {
             graph: Arc::new(compiled),
             saver,
+            stream_transformers,
         })
     }
 }

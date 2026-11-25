@@ -241,7 +241,7 @@ impl PyAsyncStateGraph {
         Ok(slf.into())
     }
 
-    #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None, interrupt_before=None, interrupt_after=None, name=None))]
+    #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None, interrupt_before=None, interrupt_after=None, name=None, transformers=None))]
     #[allow(clippy::too_many_arguments)]
     fn compile(
         &self,
@@ -253,6 +253,7 @@ impl PyAsyncStateGraph {
         interrupt_before: Option<Vec<String>>,
         interrupt_after: Option<Vec<String>>,
         name: Option<String>,
+        transformers: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyAsyncCompiledGraph> {
         let mut builder = self.inner.clone();
         let mut saver = None;
@@ -288,9 +289,17 @@ impl PyAsyncStateGraph {
             builder = builder.with_name(name);
         }
         let compiled = builder.compile().map_err(|error| to_pyerr(py, error))?;
+        let stream_transformers = match transformers.filter(|value| !value.is_none()) {
+            Some(list) => list
+                .try_iter()?
+                .map(|item| item.map(|item| item.unbind()))
+                .collect::<PyResult<Vec<_>>>()?,
+            None => Vec::new(),
+        };
         Ok(PyAsyncCompiledGraph {
             graph: Arc::new(compiled),
             saver,
+            stream_transformers,
         })
     }
 }

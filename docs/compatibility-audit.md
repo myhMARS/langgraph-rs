@@ -1438,4 +1438,27 @@ compare `values`/`updates`/`custom` and `output` with LangGraph.
 Python suite is 303 tests; parity 38/38; clippy clean.
 
 Remaining in this subsystem: `MessagesTransformer` (needs `ChatModelStream`), `LifecycleTransformer`
-/ `SubgraphTransformer` (subgraph handles), `compile(transformers=...)`, and `ToolCallTransformer`.
+/ `SubgraphTransformer` (subgraph handles), `compile(transformers=...)`, and `ToolCallTransformer`.### Round 74: compile-time transformers and `ToolCallTransformer`
+
+* `compile(transformers=[...])` / async `compile(transformers=[...])` are wired end to end: the
+  compiled graph stores the list (`stream_transformers`) and `stream_events` / `astream_events` merge
+  it as built-ins -> compile-time -> call-site, which is the order LangGraph documents.
+* `ToolCallStream` (`prebuilt/_tool_call_stream.py`) — the per-call handle: `tool_call_id`,
+  `tool_name`, `input`, `output_deltas` (a `StreamChannel`), `output`, `error`, `completed`,
+  `_bind`/`_push_delta`/`_finish`/`_fail`, sync and async iteration.
+* `ToolCallTransformer` (`prebuilt/_tool_call_transformer.py`) — native transformer on the `tools`
+  method: `tool-started` spawns a handle on the `tool_calls` projection, deltas append,
+  `tool-finished` / `tool-error` close it (unwrapping a `ToolMessage` or its serialized form),
+  `finalize` closes stragglers, `fail` marks them failed, and events pass through untouched.
+  `langgraph_rs.prebuilt.ToolCallTransformer` now exposes it instead of raising.
+
+`python/tests/test_tool_call_transformer.py` (11 tests) covers the handle lifecycle, deltas,
+error/finalize/fail paths, namespace filtering, serialized `ToolMessage` unwrapping, compile-time and
+call-site transformer merging, plus a parity case that runs the same event stream through LangGraph's
+transformer and compares every handle field and the delta logs.
+
+One caveat, documented: the extension's engine does not emit `tools` protocol events yet, so
+`run.tool_calls` stays empty on a real run until tool-call streaming lands; the transformer itself is
+complete and verified against LangGraph's.
+
+Python suite is 314 tests; parity 38/38; clippy and Rust tests clean.

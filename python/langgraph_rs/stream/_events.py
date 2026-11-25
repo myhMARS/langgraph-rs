@@ -34,8 +34,12 @@ DEFAULT_TRANSFORMERS: tuple[Callable[[tuple[str, ...]], Any], ...] = (ValuesTran
 
 def _factories(
     extra: Sequence[Callable[[tuple[str, ...]], Any]] | None,
+    compile_time: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
 ) -> list[Callable[[tuple[str, ...]], Any]]:
+    """Built-ins, then the graph's compile-time transformers, then call-site ones."""
     factories = list(DEFAULT_TRANSFORMERS)
+    for transformer in compile_time or ():
+        factories.append(transformer)
     for transformer in extra or ():
         factories.append(transformer)
     return factories
@@ -57,6 +61,7 @@ def stream_events(
     *,
     version: str = "v3",
     transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
+    compile_transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     thread_id: str | None = None,
     **kwargs: Any,
 ) -> GraphRunStream:
@@ -72,7 +77,7 @@ def stream_events(
                 f"stream_events(version='v3') does not accept {rejected!r}; "
                 "v3 owns the stream modes."
             )
-    factories = _factories(transformers)
+    factories = _factories(transformers, compile_transformers)
     mux = StreamMux(factories=factories, is_async=False)
     # `version="v2"` makes every part a `StreamPart` dict (type/ns/data), which is what the
     # protocol conversion expects.
@@ -92,6 +97,7 @@ async def astream_events(
     *,
     version: str = "v3",
     transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
+    compile_transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     thread_id: str | None = None,
     **kwargs: Any,
 ) -> Any:
@@ -105,7 +111,7 @@ async def astream_events(
             raise TypeError(
                 f"astream_events(version='v3') does not accept {rejected!r}; v3 owns the stream modes."
             )
-    factories = _factories(transformers)
+    factories = _factories(transformers, compile_transformers)
     mux = StreamMux(factories=factories, is_async=True)
     graph_iter = graph.astream(
         input,
