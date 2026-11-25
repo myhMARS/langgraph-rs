@@ -21,6 +21,8 @@ from .transformers import (
     CheckpointsTransformer,
     CustomTransformer,
     DebugTransformer,
+    LifecycleTransformer,
+    SubgraphTransformer,
     TasksTransformer,
     UpdatesTransformer,
     ValuesTransformer,
@@ -29,7 +31,11 @@ from .transformers import (
 # LangGraph registers `values` (plus its messages/lifecycle/subgraphs transformers, which the
 # extension does not implement yet) by default; the other capture projections are opt-in through
 # `transformers=` or the graph's compile-time transformers.
-DEFAULT_TRANSFORMERS: tuple[Callable[[tuple[str, ...]], Any], ...] = (ValuesTransformer,)
+DEFAULT_TRANSFORMERS: tuple[Callable[[tuple[str, ...]], Any], ...] = (
+    ValuesTransformer,
+    LifecycleTransformer,
+    SubgraphTransformer,
+)
 
 
 def _factories(
@@ -53,6 +59,15 @@ def _required_modes(factories: Sequence[Callable[[tuple[str, ...]], Any]]) -> li
             if mode not in modes:
                 modes.append(mode)
     return modes
+
+
+def _needs_subgraphs(factories: Sequence[Callable[[tuple[str, ...]], Any]]) -> bool:
+    """Whether the registered transformers need child-namespace events."""
+    for factory in factories:
+        transformer = factory(())
+        if type(transformer).__name__ in {"SubgraphTransformer", "LifecycleTransformer"}:
+            return True
+    return False
 
 
 def stream_events(
@@ -80,15 +95,23 @@ def stream_events(
     factories = _factories(transformers, compile_transformers)
     mux = StreamMux(factories=factories, is_async=False)
     # `version="v2"` makes every part a `StreamPart` dict (type/ns/data), which is what the
-    # protocol conversion expects.
-    graph_iter: Iterator[Any] = graph.stream(
-        input,
-        thread_id=thread_id,
-        stream_mode=_required_modes(factories),
-        version="v2",
-        **kwargs,
-    )
-    return GraphRunStream(graph_iter, mux)
+    # protocol conversion expects; `subgraphs=True` is what surfaces child namespaces.
+    modes = _required_modes(factories)
+    subgraphs = _needs_subgraphs(factories)
+
+    def lazy_stream() -> Iterator[Any]:
+        # Deferred so a graph that fails on the first step reports through the run stream
+        # (`lifecycle` / handle failure) instead of raising before the stream exists.
+        yield from graph.stream(
+            input,
+            thread_id=thread_id,
+            stream_mode=modes,
+            version="v2",
+            subgraphs=subgraphs,
+            **kwargs,
+        )
+
+    return GraphRunStream(lazy_stream(), mux)
 
 
 async def astream_events(
@@ -113,14 +136,21 @@ async def astream_events(
             )
     factories = _factories(transformers, compile_transformers)
     mux = StreamMux(factories=factories, is_async=True)
-    graph_iter = graph.astream(
-        input,
-        thread_id=thread_id,
-        stream_mode=_required_modes(factories),
-        version="v2",
-        **kwargs,
-    )
-    return AsyncGraphRunStream(graph_iter, mux)
+    modes = _required_modes(factories)
+    subgraphs = _needs_subgraphs(factories)
+
+    async def lazy_astream():
+        async for part in graph.astream(
+            input,
+            thread_id=thread_id,
+            stream_mode=modes,
+            version="v2",
+            subgraphs=subgraphs,
+            **kwargs,
+        ):
+            yield part
+
+    return AsyncGraphRunStream(lazy_astream(), mux)
 
 
 from .run_stream import AsyncGraphRunStream  # noqa: E402  (circular-safe tail import)

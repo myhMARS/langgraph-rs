@@ -18,6 +18,298 @@ from .._compat import fill_unsupported
 from ._types import ProtocolEvent, StreamTransformer
 from .stream_channel import StreamChannel
 
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle / subgraph discovery
+# ---------------------------------------------------------------------------
+
+
+def _parse_ns_segment(segment: str) -> tuple[str, str | None]:
+    """Split a namespace segment into `(graph_name, trigger_call_id)`."""
+    name, sep, task_id = segment.partition(":")
+    return name, task_id if sep else None
+
+
+def _status_from_exception(err: BaseException) -> tuple[SubgraphStatus, str | None]:
+    """Map a run exception to a terminal subgraph status."""
+    kind = type(err).__name__
+    if kind == "GraphDrained":
+        return "drained", None
+    if kind == "GraphInterrupt":
+        return "interrupted", None
+    return "failed", str(err)
+
+
+def _terminal_from_result(payload: dict[str, Any]) -> tuple[SubgraphStatus, str | None]:
+    """Map a task result payload to `(status, error)`."""
+    if payload.get("interrupts"):
+        return "interrupted", None
+    error = payload.get("error")
+    if error:
+        return "failed", str(error)
+    return "completed", None
+
+
+class _TasksLifecycleBase(StreamTransformer):
+    """Bookkeeping shared by the lifecycle and subgraph transformers.
+
+    Subgraphs are discovered by watching `tasks` events: the first event at a tracked namespace
+    opens it, and the parent's task result closes it. Subclasses implement `_should_track`,
+    `_on_started` and `_on_terminal`.
+    """
+
+    required_stream_modes = ("tasks",)
+
+    def __init__(self, scope: tuple[str, ...] = ()) -> None:
+        super().__init__(scope)
+        self._seen: set[tuple[str, ...]] = set()
+        self._open: dict[tuple[str, ...], str] = {}
+        self._pending_tool_calls: dict[str, str] = {}
+
+    def _should_track(self, ns: tuple[str, ...]) -> bool:
+        raise NotImplementedError
+
+    def _on_started(
+        self,
+        ns: tuple[str, ...],
+        graph_name: str | None,
+        trigger_call_id: str | None,
+    ) -> None:
+        raise NotImplementedError
+
+    def _on_terminal(
+        self,
+        ns: tuple[str, ...],
+        status: SubgraphStatus,
+        error: str | None,
+    ) -> None:
+        raise NotImplementedError
+
+    def process(self, event: ProtocolEvent) -> bool:
+        if event["method"] != "tasks":
+            return True
+        ns = tuple(event["params"]["namespace"])
+        data = event["params"]["data"]
+        if "result" in data:
+            self._handle_task_result(ns, data)
+        else:
+            self._record_pending_tool_calls(data)
+            self._handle_task_start(ns, data)
+        # Tasks are folded into the synthesized projection, not the raw log.
+        return False
+
+    def _record_pending_tool_calls(self, data: dict[str, Any]) -> None:
+        """Harvest a task's triggering `tool_call_id`, keyed by its task id."""
+        task_id = data.get("id")
+        if not isinstance(task_id, str):
+            return
+        payload = data.get("input")
+        tool_call_id: str | None = None
+        if isinstance(payload, dict) and isinstance(payload.get("tool_call"), dict):
+            candidate = payload["tool_call"].get("id")
+            if isinstance(candidate, str):
+                tool_call_id = candidate
+        elif isinstance(payload, list):
+            for call in payload:
+                if isinstance(call, dict) and isinstance(call.get("id"), str):
+                    tool_call_id = call["id"]
+                    break
+        if tool_call_id is not None:
+            self._pending_tool_calls[task_id] = tool_call_id
+
+    def _handle_task_start(self, ns: tuple[str, ...], data: dict[str, Any]) -> None:
+        if not self._should_track(ns) or ns in self._seen:
+            return
+        self._seen.add(ns)
+        parsed_name, trigger_call_id = _parse_ns_segment(ns[-1])
+        metadata = data.get("metadata") or {}
+        child_lc = metadata.get("lc_agent_name")
+        graph_name = child_lc if child_lc is not None else (parsed_name or None)
+        self._on_started(ns, graph_name, trigger_call_id)
+        if trigger_call_id is not None:
+            self._open[ns] = trigger_call_id
+
+    def _pop_terminal_transitions(
+        self, ns: tuple[str, ...], data: dict[str, Any]
+    ) -> list[tuple[tuple[str, ...], SubgraphStatus, str | None]]:
+        """Return and remove tracked children closed by this task result."""
+        result_id = data.get("id")
+        if not result_id:
+            return []
+        transitions: list[tuple[tuple[str, ...], SubgraphStatus, str | None]] = []
+        for child_ns, parent_task_id in list(self._open.items()):
+            if child_ns[:-1] != ns or parent_task_id != result_id:
+                continue
+            status, error = _terminal_from_result(data)
+            transitions.append((child_ns, status, error))
+            del self._open[child_ns]
+        return transitions
+
+    def _handle_task_result(self, ns: tuple[str, ...], data: dict[str, Any]) -> None:
+        for child_ns, status, error in self._pop_terminal_transitions(ns, data):
+            self._on_terminal(child_ns, status, error)
+
+    def finalize(self) -> None:
+        """Close any tracked namespace still open at run end."""
+        for ns in list(self._open):
+            self._on_terminal(ns, "completed", None)
+        self._open.clear()
+
+    def fail(self, err: BaseException) -> None:
+        """Emit a terminal status for any tracked namespace still open."""
+        status, error = _status_from_exception(err)
+        for ns in list(self._open):
+            self._on_terminal(ns, status, error)
+        self._open.clear()
+
+
+class LifecycleTransformer(_TasksLifecycleBase):
+    """Surface subgraph lifecycle as `lifecycle` protocol events.
+
+    Tracks subgraphs at every depth below `scope`, so a graph -> subgraph -> subgraph chain reports
+    both levels in one flat stream. Native: `run.lifecycle` is a direct attribute.
+    """
+
+    _native = True
+
+    def __init__(self, scope: tuple[str, ...] = ()) -> None:
+        super().__init__(scope)
+        self._channel: StreamChannel[LifecyclePayload] = StreamChannel("lifecycle")
+
+    def init(self) -> dict[str, Any]:
+        return {"lifecycle": self._channel}
+
+    def _should_track(self, ns: tuple[str, ...]) -> bool:
+        depth = len(self.scope)
+        return len(ns) > depth and ns[:depth] == self.scope
+
+    def _on_started(
+        self,
+        ns: tuple[str, ...],
+        graph_name: str | None,
+        trigger_call_id: str | None,
+    ) -> None:
+        if trigger_call_id is None:
+            # Without a task id the parent result can't be correlated; finalize/fail closes it.
+            return
+        payload: LifecyclePayload = {"event": "started", "namespace": list(ns)}
+        if graph_name:
+            payload["graph_name"] = graph_name
+        payload["trigger_call_id"] = trigger_call_id
+        self._channel.push(payload)
+
+    def _on_terminal(
+        self,
+        ns: tuple[str, ...],
+        status: SubgraphStatus,
+        error: str | None,
+    ) -> None:
+        payload: LifecyclePayload = {"event": status, "namespace": list(ns)}
+        if error is not None:
+            payload["error"] = error
+        self._channel.push(payload)
+
+
+class SubgraphTransformer(_TasksLifecycleBase):
+    """Discover direct-child subgraphs as in-process navigation handles.
+
+    Each discovered subgraph gets a `SubgraphRunStream` (or `AsyncSubgraphRunStream`) wrapping a
+    child mini-mux scoped to its namespace; nested subgraphs land on the child handle.
+    """
+
+    _native = True
+    supports_sync = True
+
+    def __init__(self, scope: tuple[str, ...] = ()) -> None:
+        super().__init__(scope)
+        self._log: StreamChannel[Any] = StreamChannel()
+        self._handles: dict[tuple[str, ...], Any] = {}
+        self._mux: Any = None
+
+    def init(self) -> dict[str, Any]:
+        return {"subgraphs": self._log}
+
+    def _on_register(self, mux: Any) -> None:
+        self._mux = mux
+
+    def _should_track(self, ns: tuple[str, ...]) -> bool:
+        # Direct children only; grandchildren belong to the child mini-mux.
+        depth = len(self.scope)
+        return len(ns) == depth + 1 and ns[:depth] == self.scope
+
+    def _on_started(
+        self,
+        ns: tuple[str, ...],
+        graph_name: str | None,
+        trigger_call_id: str | None,
+    ) -> None:
+        if self._mux is None:
+            return
+        try:
+            child_mux = self._mux._make_child(ns)
+        except RuntimeError:
+            return
+        from .run_stream import AsyncSubgraphRunStream, SubgraphRunStream
+
+        handle_cls = AsyncSubgraphRunStream if child_mux.is_async else SubgraphRunStream
+        handle = handle_cls(
+            mux=child_mux,
+            path=ns,
+            graph_name=graph_name,
+            trigger_call_id=trigger_call_id,
+        )
+        self._handles[ns] = handle
+        self._log.push(handle)
+
+    def _on_terminal(
+        self,
+        ns: tuple[str, ...],
+        status: SubgraphStatus,
+        error: str | None,
+    ) -> None:
+        handle = self._handles.get(ns)
+        if handle is None or not self._mark_terminal(handle, status, error):
+            return
+        self._close_or_fail_handle(handle, status, error)
+
+    def _mark_terminal(self, handle: Any, status: SubgraphStatus, error: str | None) -> bool:
+        """Mark a handle terminal once; returns True on the first transition."""
+        if handle._seen_terminal:
+            return False
+        handle.status = status
+        if error is not None and handle.error is None:
+            handle.error = error
+        handle._seen_terminal = True
+        return True
+
+    def _close_or_fail_handle(
+        self, handle: Any, status: SubgraphStatus, error: str | None
+    ) -> None:
+        if handle._mux is None or handle._mux._events._closed:
+            return
+        if status == "failed":
+            handle._mux.fail(RuntimeError(error or "Subgraph failed"))
+        else:
+            handle._mux.close()
+
+    def _handle_for_event(self, event: ProtocolEvent) -> Any:
+        ns = tuple(event["params"]["namespace"])
+        depth = len(self.scope)
+        if len(ns) < depth + 1:
+            return None
+        handle = self._handles.get(ns[: depth + 1])
+        if handle is None or handle._mux is None or handle._mux._events._closed:
+            return None
+        return handle
+
+    def process(self, event: ProtocolEvent) -> bool:
+        keep = super().process(event)
+        handle = self._handle_for_event(event)
+        if handle is not None:
+            handle._observe_event(event)
+            handle._mux.push(event)
+        return keep
 __all__ = [
     "CheckpointsTransformer",
     "CustomTransformer",
@@ -212,9 +504,9 @@ class TasksTransformer(StreamTransformer):
 
 _MISSING = fill_unsupported(
     globals(),
-    ["LifecycleTransformer", "MessagesTransformer", "SubgraphTransformer"],
+    ["MessagesTransformer"],
     hint=(
-        "These transformers need the stream_events(version='v3') run-stream handles; "
-        "use graph.stream(stream_mode=...) meanwhile."
+        "MessagesTransformer needs langchain-core's ChatModelStream; use "
+        "stream_mode='messages' meanwhile."
     ),
 )

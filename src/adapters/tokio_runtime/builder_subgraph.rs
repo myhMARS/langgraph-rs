@@ -171,7 +171,10 @@ pub(crate) async fn run_async_subgraph<S: State>(
                             namespace: inner,
                             chunk,
                         } => StreamChunk::Subgraph {
-                            namespace: format!("{chunk_namespace}|{inner}"),
+                            namespace: crate::graph::subgraph_chunk_namespace(
+                                &chunk_namespace,
+                                &inner,
+                            ),
                             chunk,
                         },
                         other => StreamChunk::Subgraph {

@@ -121,7 +121,8 @@ class StreamEventsTest(unittest.TestCase):
     def test_default_projections_match_langgraph(self):
         app = _graph(rs).compile()
         with app.stream_events(INPUT, version="v3") as run:
-            self.assertEqual(sorted(run.extensions), ["values"])
+            # LangGraph's defaults: `values` plus the lifecycle/subgraph discovery transformers.
+            self.assertEqual(sorted(run.extensions), ["lifecycle", "subgraphs", "values"])
             with self.assertRaises(AttributeError):
                 run.updates
             run.abort()
@@ -150,8 +151,9 @@ class StreamEventsTest(unittest.TestCase):
         ) as run:
             events = list(run)
         methods = {event["method"] for event in events}
+        # `tasks` events are folded into the lifecycle/subgraph projections, not the raw log.
         self.assertEqual(
-            methods, {"values", "updates", "custom", "checkpoints", "debug", "tasks"}
+            methods, {"values", "updates", "custom", "checkpoints", "debug"}
         )
         self.assertEqual([event["seq"] for event in events], sorted(event["seq"] for event in events))
 

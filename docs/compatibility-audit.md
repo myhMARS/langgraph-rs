@@ -1481,4 +1481,28 @@ now has a first-class `tools` stream mode.
 `ToolCallTransformer` producing a completed handle with the tool output, a failing tool surfacing as
 an errored handle, `messages` staying unaffected, and the async graph path.
 
-Python suite is 319 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 319 tests; parity 38/38; clippy and Rust tests clean.### Round 76: subgraph handles, lifecycle events, and a nested-namespace fix
+
+* `SubgraphRunStream` / `AsyncSubgraphRunStream` are real: a handle wraps a child mini-mux whose pump
+  is the parent's, exposes `path` / `graph_name` / `trigger_call_id` / `status` / `error`, and its
+  projections drive the whole run. Nested subgraphs appear on the child handle, like upstream.
+* `_TasksLifecycleBase` + `LifecycleTransformer` + `SubgraphTransformer` port LangGraph's
+  tasks-event bookkeeping: a subgraph opens on the first `tasks` event in its namespace and closes on
+  the parent task result (`completed` / `interrupted` / `failed` / `drained`), with `finalize` / `fail`
+  sweeps for still-open namespaces. `tasks` events are folded into these projections instead of the
+  raw log.
+* `stream_events` now registers `values` + `lifecycle` + `subgraphs` by default (matching upstream)
+  and requests `subgraphs=True` so child namespaces are emitted. The stream is created lazily so a
+  graph that fails on its first step reports through the run stream instead of raising before the
+  stream exists.
+* **Engine bug fixed**: nested subgraph chunks duplicated their parent namespace
+  (`a:1|a:1|b:2`) because the child chunk already carried an absolute namespace and the wrapper
+  prepended the parent again. `graph::subgraph_chunk_namespace` only prepends when the child
+  namespace is not already anchored at the parent's, so a grandchild now reports `('a:1', 'b:2')`
+  exactly like LangGraph.
+
+`python/tests/test_subgraph_stream.py` (8 tests) covers handle discovery, status transitions,
+grandchild nesting, the lifecycle sequence, failure surfacing, the one-segment-per-level namespace
+shape, and compares lifecycle sequences and child graph names with LangGraph.
+
+Python suite is 327 tests; parity 38/38; clippy and Rust tests clean.

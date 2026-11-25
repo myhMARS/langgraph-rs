@@ -543,7 +543,7 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
                     namespace: inner,
                     chunk,
                 } => StreamChunk::Subgraph {
-                    namespace: format!("{chunk_namespace}|{inner}"),
+                    namespace: super::subgraph_chunk_namespace(&chunk_namespace, &inner),
                     chunk,
                 },
                 other => StreamChunk::Subgraph {

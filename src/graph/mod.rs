@@ -70,6 +70,20 @@ pub(crate) fn parent_command_output(
 /// LangGraph nests child namespaces as `<parent>|<node>:<task_id>`. The task id is
 /// optional so the async adapter (which does not carry a task id yet) can share the
 /// same namespace construction while the sync Pregel loop passes the executing task.
+/// Namespace for a chunk forwarded from a subgraph run.
+///
+/// Child chunks already carry an absolute namespace (`a:1|b:2`), so prefixing the parent again
+/// would duplicate it (`a:1|a:1|b:2`). Only prepend when the child namespace is not already
+/// anchored at the parent's.
+pub(crate) fn subgraph_chunk_namespace(parent: &str, inner: &str) -> String {
+    if parent.is_empty() {
+        return inner.to_string();
+    }
+    if inner == parent || inner.starts_with(&format!("{parent}|")) {
+        return inner.to_string();
+    }
+    format!("{parent}|{inner}")
+}
 pub fn subgraph_namespace(parent: &str, name: &str, task_id: Option<&str>) -> String {
     let base = if parent.is_empty() {
         name.to_string()

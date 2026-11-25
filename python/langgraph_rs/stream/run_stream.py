@@ -15,7 +15,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mappin
 from types import MappingProxyType, TracebackType
 from typing import Any, NoReturn
 
-from .._compat import fill_unsupported
 from ._convert import convert_to_protocol_event
 from ._mux import StreamMux
 from ._types import ProtocolEvent
@@ -358,11 +357,80 @@ class AsyncGraphRunStream:
         return self._mux._events.__aiter__()
 
 
-fill_unsupported(
-    globals(),
-    ["AsyncSubgraphRunStream", "SubgraphRunStream"],
-    hint=(
-        "Subgraph handles need the subgraph-discovery pipeline, which is not implemented; "
-        "iterate run.<projection> for the root scope instead."
-    ),
-)
+class _SubgraphRunStreamMixin:
+    """Subgraph metadata plus parent-pump delegation for both lanes.
+
+    A handle is built on a child mini-mux (`StreamMux._make_child`) whose pump is the parent's, so
+    iterating a handle's projections drives the whole run.
+    """
+
+    path: tuple[str, ...]
+    graph_name: str | None
+    trigger_call_id: str | None
+    status: str
+    error: str | None
+    _seen_terminal: bool
+
+
+class SubgraphRunStream(GraphRunStream, _SubgraphRunStreamMixin):
+    """Sync handle for a discovered subgraph."""
+
+    def __init__(
+        self,
+        mux: StreamMux,
+        *,
+        path: tuple[str, ...],
+        graph_name: str | None = None,
+        trigger_call_id: str | None = None,
+    ) -> None:
+        self._parent_pump_fn: Callable[[], bool] | None = mux._pump_fn
+        super().__init__(graph_iter=None, mux=mux, wire_pump=False)
+        self.path = path
+        self.graph_name = graph_name
+        self.trigger_call_id = trigger_call_id
+        self.status = "started"
+        self.error = None
+        self._seen_terminal = False
+
+    def _pump_next(self) -> bool:
+        """Delegate to the parent's pump."""
+        if (
+            self._exhausted
+            or self._seen_terminal
+            or self._mux._events._closed
+            or self._parent_pump_fn is None
+        ):
+            return False
+        return self._parent_pump_fn()
+
+
+class AsyncSubgraphRunStream(AsyncGraphRunStream, _SubgraphRunStreamMixin):
+    """Async handle for a discovered subgraph."""
+
+    def __init__(
+        self,
+        mux: StreamMux,
+        *,
+        path: tuple[str, ...],
+        graph_name: str | None = None,
+        trigger_call_id: str | None = None,
+    ) -> None:
+        self._parent_apump_fn: Callable[[], Awaitable[bool]] | None = mux._apump_fn
+        super().__init__(graph_aiter=None, mux=mux, wire_pump=False)
+        self.path = path
+        self.graph_name = graph_name
+        self.trigger_call_id = trigger_call_id
+        self.status = "started"
+        self.error = None
+        self._seen_terminal = False
+
+    async def _apump_next(self) -> bool:
+        """Delegate to the parent's async pump."""
+        if (
+            self._exhausted
+            or self._seen_terminal
+            or self._mux._events._closed
+            or self._parent_apump_fn is None
+        ):
+            return False
+        return await self._parent_apump_fn()
