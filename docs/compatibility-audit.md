@@ -1225,4 +1225,21 @@ Verified:
 | Python suite / parity / Rust / clippy | 213 tests, 38/38, exit 0, clean |
 
 Documented constraint (unchanged, and different from LangGraph): a subgraph that can pause must be
-compiled with its own checkpointer; the parent saver is not inherited.
+compiled with its own checkpointer; the parent saver is not inherited.### Round 64: cross-engine subgraph resume, and the remaining feature demos
+
+* **Cross-engine subgraph resume verified**: LangGraph paused *inside* its own subgraph
+  (`checkpoint_ns = "sub:98158705-…"`); the extension read the paused state
+  (`{'approved': False, 'draft': 'v1'}`) and `resume(True)` completed the run
+  (`{'approved': True, 'draft': 'v1 [done]'}`). The prefix lookup added in round 62 is what makes
+  this work — LangGraph's task id in the namespace differs from ours.
+* **Examples completed to 8/10**: `routing` (conditional edges + `Command(goto)`) and
+  `checkpointing` (three runs, `update_state` fork, `get_state_history`).
+* **API difference found while writing the checkpointing demo**: the native `invoke(&state)` takes a
+  *complete* state, while the Python binding (like LangGraph) treats the input dict as partial
+  writes that go through the channel reducers. The demo therefore reads `get_state` and merges
+  before invoking; the difference is documented in `examples/checkpointing/README.md`.
+
+| Feature demo | LangGraph | binding | native | binding vs LG | native vs binding |
+| --- | --- | --- | --- | ---: | ---: |
+| routing | 882 µs | 32.9 µs | 19.2 µs | 26.8x | 1.71x |
+| checkpointing | 11380 µs | 171.7 µs | 143.3 µs | 66.3x | 1.20x |
