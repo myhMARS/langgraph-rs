@@ -13,7 +13,7 @@ as helper functions for imperative reads.
 
 from __future__ import annotations
 
-from ._compat import NATIVE, module_getattr, re_export
+from .._compat import NATIVE, module_getattr, re_export
 
 
 class IsLastStep:
@@ -28,3 +28,6 @@ __all__ = ["IsLastStep", "RemainingSteps", "is_last_step", "remaining_steps"]
 
 _MISSING = re_export(globals(), ["is_last_step", "remaining_steps"])
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+# LangGraph ships `langgraph.managed.base` too.
+from . import base  # noqa: E402,F401

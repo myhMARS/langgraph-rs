@@ -65,6 +65,17 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
+- `langgraph.types` 全量：`StreamPart`（7 种分片 TypedDict）、`CheckpointPayload`、`TaskPayload`、
+  `TaskResultPayload`、`CheckpointTask`、`DebugPayload`、`CheckpointMetadata`、`StateUpdate`、
+  `Overwrite`、`GraphOutput`、`TracePolicy`、`CacheKey`、`Durability`、`PregelExecutableTask`、
+  `NS_SEP`、`xxh3_128_hexdigest`（与 LangGraph 同算法、同摘要）、`default_cache_key`、
+  `default_retry_on`、`ensure_valid_checkpointer`、`get_cached_annotated_keys`、`get_update_as_tuples`、
+  `omit_payload`、`AnyMessage`、`Checkpointer`/`BaseCheckpointSaver` 别名
+- `langgraph.prebuilt` 状态 schema：`AgentState`、`AgentStatePydantic`、
+  `AgentStateWithStructuredResponse`、`AgentStateWithStructuredResponsePydantic`
+- `langgraph.graph.state`/`graph.message` 的再导出（`All`、`CachePolicy`、`BaseChannel`、
+  `BinaryOperatorAggregate`、`BranchSpec`、`ChannelRead`、`CONF`、`CONFIG_KEY_SEND`、`Messages`、
+  `REMOVE_ALL_MESSAGES`、`push_message`、`BaseMessage`/`BaseMessageChunk`）
 - `langgraph.channels`：`LastValue`、`LastValueAfterFinish`、`AnyValue`、`EphemeralValue`、
   `UntrackedValue`、`Topic`、`BinaryOperatorAggregate`、`DeltaChannel` 可作为 schema 直接声明
   （`StateGraph({"v": LastValue(int)})`），映射到与 LangGraph 相同的通道语义；子模块

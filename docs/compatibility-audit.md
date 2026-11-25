@@ -1056,4 +1056,30 @@ Six new tests cover the validation node (valid/invalid/unknown tool plus the Lan
 the `ToolRuntime` injection and the encrypted round trip. Python suite is 190 tests; parity stays
 38/38; Rust tests and clippy pass. What is left is the typing-alias tail in `langgraph.types`
 (`StreamPart` variants, `CheckpointPayload`, `StateUpdate`, ...) and a few internal helpers
-(`PregelNode`, `SyncAsyncFuture`); `ToolCallTransformer` remains unimplemented and raises.
+(`PregelNode`, `SyncAsyncFuture`); `ToolCallTransformer` remains unimplemented and raises.### Round 57: `langgraph.types` typing surface and message helpers
+
+The typing tail is filled in: the seven `StreamPart` variants (with LangGraph's exact key sets),
+`CheckpointPayload`, `TaskPayload`, `TaskResultPayload`, `CheckpointTask`, `DebugPayload`,
+`CheckpointMetadata`, `StateUpdate`, `Overwrite`, `GraphOutput`, `TracePolicy`, `CacheKey`,
+`Durability`, `PregelExecutableTask`, `NS_SEP`, `AnyMessage`, plus the helper functions
+`xxh3_128_hexdigest` (same XXH3-128 digest via the `xxhash` package -- verified identical output),
+`default_cache_key`, `default_retry_on`, `ensure_valid_checkpointer`, `get_cached_annotated_keys`,
+`get_update_as_tuples` and `omit_payload` (read from LangGraph's source: it always returns `{}`,
+which the first implementation got wrong -- fixed and pinned by a test).
+
+Also added: `prebuilt` agent state schemas (`AgentState`, `AgentStatePydantic`,
+`AgentStateWithStructuredResponse`, `AgentStateWithStructuredResponsePydantic`), the
+`graph.state`/`graph.message` re-exports (`All`, `CachePolicy`, `BaseChannel`,
+`BinaryOperatorAggregate`, `BranchSpec`, `ChannelRead`, `CONF`, `CONFIG_KEY_SEND`, `Messages`,
+`REMOVE_ALL_MESSAGES`, `push_message`), `func` deprecation warnings,
+`checkpoint.memory.PersistentDict`/`ChannelVersions`/`DeltaChannelHistory`,
+`checkpoint.base.maybe_add_typed_methods` and the `langgraph.managed.base` submodule (which turned
+`managed` into a package).
+
+A 27-module audit now leaves only three categories: names that LangGraph's modules leak from
+`typing`/`langchain_core` (`BaseModel`, `BaseTool`, `Awaitable`, ...), LangGraph-internal classes
+(`PregelNode`, `ChannelWrite`, `SyncAsyncFuture`, `AsyncToolCallWrapper`) and the single feature we
+deliberately do not implement (`ToolCallTransformer`, which raises). Ten new tests cover the stream
+parts, payload key sets, the digest, the cache key, agent state schemas and the message helpers
+(including a direct comparison with LangGraph). Python suite is 200 tests; parity stays 38/38; Rust
+tests and clippy pass.

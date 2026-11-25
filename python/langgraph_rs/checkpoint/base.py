@@ -65,6 +65,7 @@ __all__ = [
     "get_checkpoint_id",
     "get_checkpoint_metadata",
     "get_serializable_checkpoint_metadata",
+    "maybe_add_typed_methods",
     "writes_sort_key",
 ]
 
@@ -121,6 +122,11 @@ def get_serializable_checkpoint_metadata(
 ) -> dict[str, Any]:
     """Metadata with LangGraph-internal keys removed."""
     return get_checkpoint_metadata(config, metadata)
+
+
+def maybe_add_typed_methods(cls: Any) -> Any:
+    """Decorator LangGraph uses to add typed convenience methods; a no-op here."""
+    return cls
 
 
 def writes_sort_key(task_path: str, task_id: str = "", idx: int = 0) -> tuple[str, str, int]:

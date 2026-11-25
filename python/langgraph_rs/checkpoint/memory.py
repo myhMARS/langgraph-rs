@@ -16,12 +16,22 @@ from .base import (
 )
 from .serde import SerializerProtocol
 
+ChannelVersions = dict
+DeltaChannelHistory = list
+
+
+class PersistentDict(dict):
+    """Dict that survives process restarts in LangGraph; here a plain ``dict`` subclass."""
+
 __all__ = [
     "AsyncInMemorySaver",
     "BaseCheckpointSaver",
     "Checkpoint",
     "CheckpointMetadata",
+    "ChannelVersions",
     "CheckpointTuple",
+    "DeltaChannelHistory",
+    "PersistentDict",
     "InMemorySaver",
     "MemorySaver",
     "PendingWrite",

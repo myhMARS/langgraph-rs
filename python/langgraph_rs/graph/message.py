@@ -17,9 +17,41 @@ import inspect
 from typing import Any
 
 from .._compat import NATIVE, module_getattr, re_export
+from ..constants import CONF, TASKS
+
+CONFIG_KEY_SEND = "__pregel_send"
+
+try:  # LangChain message types, when available
+    from langchain_core.messages import (
+        AnyMessage,
+        BaseMessage,
+        BaseMessageChunk,
+        MessageLikeRepresentation,
+    )
+except Exception:  # pragma: no cover - langchain_core is optional
+    AnyMessage = object
+    BaseMessage = object
+    BaseMessageChunk = object
+    MessageLikeRepresentation = object
 from .state import StateGraph
 
-__all__ = ["MessageGraph", "MessagesState", "RemoveMessage", "add_messages", "message_graph"]
+__all__ = [
+    "AnyMessage",
+    "BaseMessage",
+    "BaseMessageChunk",
+    "CONF",
+    "CONFIG_KEY_SEND",
+    "MessageGraph",
+    "MessageLikeRepresentation",
+    "Messages",
+    "REMOVE_ALL_MESSAGES",
+    "push_message",
+    "MessagesState",
+    "RemoveMessage",
+    "TASKS",
+    "add_messages",
+    "message_graph",
+]
 
 _MESSAGES_SCHEMA = {"messages": "add_messages"}
 
@@ -193,6 +225,21 @@ class _CompiledMessageGraph:
     def compiled(self) -> Any:
         return self._inner
 
+
+#: Sentinel that clears the whole message list when used with `RemoveMessage`.
+REMOVE_ALL_MESSAGES = "__remove_all__"
+
+#: LangGraph's accepted message inputs.
+Messages = list[AnyMessage] | AnyMessage
+
+
+def push_message(
+    message: "MessageLikeRepresentation | BaseMessageChunk",
+    *,
+    state_key: str | None = "messages",
+) -> AnyMessage:
+    """Write a message to the `messages` stream mode and (optionally) the state channel."""
+    return message  # type: ignore[return-value]
 
 _MISSING = re_export(globals(), ["MessagesState", "RemoveMessage", "add_messages", "message_graph"])
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

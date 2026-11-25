@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from ._compat import module_getattr, re_export
 from .channels import EphemeralValue, LastValue
+from .warnings import LangGraphDeprecatedSinceV05, LangGraphDeprecatedSinceV10
 
 __all__ = [
     "BaseCache",
     "BaseCheckpointSaver",
     "CACHE_NS_WRITES",
     "EphemeralValue",
+    "LangGraphDeprecatedSinceV05",
+    "LangGraphDeprecatedSinceV10",
     "LastValue",
     "MISSING",
     "PREVIOUS",

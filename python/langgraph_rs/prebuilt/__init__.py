@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from .._compat import module_getattr, re_export
-from .chat_agent_executor import create_react_agent
+from .chat_agent_executor import (
+    AgentState,
+    AgentStatePydantic,
+    AgentStateWithStructuredResponse,
+    AgentStateWithStructuredResponsePydantic,
+    create_react_agent,
+)
 from . import tool_validator  # noqa: F401  (LangGraph's deprecated module path)
 from .tool_node import (
     InjectedState,
@@ -16,6 +22,10 @@ from .tool_node import (
 )
 
 __all__ = [
+    "AgentState",
+    "AgentStatePydantic",
+    "AgentStateWithStructuredResponse",
+    "AgentStateWithStructuredResponsePydantic",
     "InjectedState",
     "InjectedStore",
     "ToolNode",
