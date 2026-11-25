@@ -222,12 +222,14 @@ python examples/quickstart/compare.py --check-only
 4. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
 5. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
    在没有向量索引时做子串匹配（LG 忽略 `query`）。
-6. **`run.messages` 已是分片级，但还不是生成期实时**：`create_react_agent` 现在会调用模型的
-   `stream()` 逐块产出（并按 LangChain 的 `+` 合并成最终消息），`MessagesTransformer` 把每个分片
-   作为 `content-block-delta` 派发，因此句柄在**第一个分片**就出现、`handle.text` 逐块产出
-   （例如 `["Hello", " ", "world"]`）。**剩余差距**：引擎按任务收集消息分片、节点结束后才下发
-   （实测：节点内 3 个分片各间隔 0.2 秒，第一个句柄在 0.6 秒出现），且 `stream()` 在返回前已收集
-   完毕；要做到生成期实时，需要引擎「边产出边下发」+ 绑定层改成拉取式迭代器。
+6. **`run.messages` 在同步路径上已是生成期实时**：`create_react_agent` 调用模型的 `stream()`
+   逐块产出（按 LangChain 的 `+` 合并成最终消息），LangChain 的 token 回调把每个分片推入一个
+   「实时桥」（`langgraph_rs._live`），`stream_events` 在后台线程跑图并边收边发，因此句柄在
+   **第一个分片**就出现、`handle.text` 与生成同步产出。实测：模型每 0.2 秒一块，三个分片分别在
+   0.24 / 0.44 / 0.64 秒到达（此前要到 0.64 秒后才一次性给出）。
+   **仍有的边界**：① `astream_events` 仍走收集式路径，尚未接实时桥；② 节点里直接
+   `rs.message()` / `get_stream_writer()` 产生的分片仍由引擎按任务收集、节点结束后下发（不是
+   token 回调）；③ 实时桥同一时刻只有一个（并发 `stream_events` 共享最新一个）。
 7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
 8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`

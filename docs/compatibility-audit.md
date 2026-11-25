@@ -1658,4 +1658,37 @@ pull-based binding iterator.
 whole-message close with the remaining content, and a `create_react_agent` case asserting
 `["Hello", " ", "world"]` for both `run.messages` and `stream_mode="messages"`).
 
-Python suite is 351 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 351 tests; parity 38/38; clippy and Rust tests clean.### Round 82: live token delivery into `run.messages`
+
+The remaining half of the `run.messages` gap landed: tokens now reach `handle.text` while the model
+is still generating, not when the node finishes.
+
+How it works:
+
+* `langgraph_rs._live.LiveBridge` — a thread-safe queue plus a module-level "active bridge".
+  `langgraph_rs.stream._events` activates one for the duration of a `stream_events` run.
+* LangChain's callback handler (`on_llm_new_token`) already runs on the engine thread as tokens
+  arrive; it now also pushes each token to the active bridge (in addition to the normal
+  `langgraph_rs.message(...)` write, so the engine's own `messages` stream keeps its batches).
+* `stream_events` starts the graph on a worker thread and yields through a generator that drains the
+  bridge while polling the engine's iterator, so `GraphRunStream`'s caller-driven pump receives
+  tokens as they are produced. Engine `messages` parts are dropped when the bridge already carried
+  them, which keeps `handle.text` free of duplicates.
+
+Measured (model emitting three chunks 0.2 s apart):
+
+```
+before: handle at 0.64s, deltas at 0.64 / 0.64 / 0.64
+after:  handle at 0.24s, deltas at 0.24 / 0.44 / 0.64   (i.e. during generation)
+```
+
+`python/tests/test_messages_transformer.py` gained `LiveTokenDeliveryTest`, which asserts the first
+delta is observed *before* the model's `_stream` ends (no timing thresholds, so it is not flaky).
+
+Boundaries left, documented in `docs/langgraph-compat.md`:
+1. `astream_events` still uses the batched iterator — the bridge is sync-only so far.
+2. Chunks written by nodes via `rs.message()` / `get_stream_writer()` are still flushed per node by
+   the engine; only the LangChain token callback is truly live.
+3. One bridge at a time: concurrent `stream_events` runs share the most recent one.
+
+Python suite is 352 tests; parity 38/38; clippy and Rust tests clean.

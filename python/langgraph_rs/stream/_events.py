@@ -11,6 +11,8 @@ subgraph-handle machinery), so a run only exposes the capture projections.
 
 from __future__ import annotations
 
+import queue
+import threading
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
@@ -70,6 +72,90 @@ def _needs_subgraphs(factories: Sequence[Callable[[tuple[str, ...]], Any]]) -> b
     return False
 
 
+def _live_parts(
+    graph: Any,
+    input: Any,
+    bridge: Any,
+    *,
+    thread_id: str | None,
+    modes: list[str],
+    subgraphs: bool,
+    kwargs: dict[str, Any],
+) -> Iterator[Any]:
+    """Yield live `messages` parts while the graph runs, then the engine's own parts.
+
+    The graph runs on a worker thread so this generator can hand out tokens as the callback handler
+    pushes them. Message parts from the engine are dropped once the bridge captured any, since the
+    bridge is the more timely source for the same tokens.
+    """
+    engine: "queue.Queue[Any]" = queue.Queue()
+    result: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            for part in graph.stream(
+                input,
+                thread_id=thread_id,
+                stream_mode=modes,
+                version="v2",
+                subgraphs=subgraphs,
+                **kwargs,
+            ):
+                engine.put(part)
+        except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+            result["error"] = error
+        finally:
+            engine.put(None)
+
+    from .._live import activate, deactivate
+
+    activate(bridge)
+    worker = threading.Thread(target=run, name="langgraph_rs-stream-events", daemon=True)
+    worker.start()
+    try:
+        finished = False
+        deferred: list[Any] = []
+        while True:
+            for payload, metadata in bridge.drain():
+                yield {
+                    "type": "messages",
+                    "ns": (),
+                    "data": (payload, metadata),
+                    "interrupts": (),
+                }
+            try:
+                part = engine.get_nowait()
+            except queue.Empty:
+                if bridge._closed.is_set() and not worker.is_alive():
+                    break
+                continue
+            if part is None:
+                finished = True
+                break
+            if isinstance(part, dict) and part.get("type") == "messages":
+                if bridge.count:
+                    continue
+            deferred.append(part)
+        # Everything the engine produced (non-message parts, plus messages when the bridge was idle).
+        if finished:
+            while True:
+                try:
+                    part = engine.get_nowait()
+                except queue.Empty:
+                    break
+                if part is None:
+                    continue
+                deferred.append(part)
+        for part in deferred:
+            yield part
+        error = result.get("error")
+        if error is not None:
+            raise error
+    finally:
+        deactivate(bridge)
+        worker.join(timeout=5)
+
+
 def stream_events(
     graph: Any,
     input: Any = None,
@@ -78,6 +164,7 @@ def stream_events(
     transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     compile_transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     thread_id: str | None = None,
+    live: bool = True,
     **kwargs: Any,
 ) -> GraphRunStream:
     """Return a `GraphRunStream` the caller drives by iterating its projections."""
@@ -98,6 +185,22 @@ def stream_events(
     # protocol conversion expects; `subgraphs=True` is what surfaces child namespaces.
     modes = _required_modes(factories)
     subgraphs = _needs_subgraphs(factories)
+
+    if live and "messages" in modes:
+        from .._live import LiveBridge
+
+        return GraphRunStream(
+            _live_parts(
+                graph,
+                input,
+                LiveBridge(),
+                thread_id=thread_id,
+                modes=modes,
+                subgraphs=subgraphs,
+                kwargs=kwargs,
+            ),
+            mux,
+        )
 
     def lazy_stream() -> Iterator[Any]:
         # Deferred so a graph that fails on the first step reports through the run stream

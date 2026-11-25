@@ -296,3 +296,55 @@ class ReactAgentStreamingTest(unittest.TestCase):
         self.assertEqual(
             [part["data"][0].get("content") for part in parts], ["Hello", " ", "world"]
         )
+@unittest.skipUnless(_LANGCHAIN, "langchain-core is not installed")
+class LiveTokenDeliveryTest(unittest.TestCase):
+    """Tokens reach `run.messages` while the model is still generating.
+
+    LangChain's callback handler feeds a live bridge, so the first delta arrives before the model's
+    stream ends — the engine's own per-node flush would only deliver it afterwards.
+    """
+
+    def test_first_delta_arrives_before_generation_finishes(self):
+        import time
+
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        finished = {"generation": False}
+
+        class Slow(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+                for chunk in super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    time.sleep(0.05)
+                    yield chunk
+                finished["generation"] = True
+
+        model = Slow(messages=iter([AIMessage(content="Hello world")]))
+        graph = rs.StateGraph({"messages": "messages"})
+
+        def model_node(state):
+            for _chunk in model.stream([HumanMessage(content="hi")]):
+                pass
+            return {"messages": []}
+
+        graph.add_node("model", model_node)
+        graph.set_entry_point("model")
+        graph.set_finish_point("model")
+        app = graph.compile()
+
+        observed_at_first_delta = {}
+        with app.stream_events(
+            {"messages": []}, version="v3", transformers=[MessagesTransformer]
+        ) as run:
+            handle = next(iter(run.messages))
+            for index, _chunk in enumerate(handle.text):
+                if index == 0:
+                    observed_at_first_delta["generation"] = finished["generation"]
+
+        self.assertFalse(
+            observed_at_first_delta["generation"],
+            "the first delta should arrive while the model is still generating",
+        )

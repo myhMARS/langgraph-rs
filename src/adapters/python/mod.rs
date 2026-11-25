@@ -280,7 +280,18 @@ class LangChainCallbackHandler:
         step = langgraph_rs.current_step()
         if step is not None:
             metadata["langgraph_step"] = step
-        langgraph_rs.message({"content": token, "tags": self.tags, "metadata": metadata})
+        payload = {"content": token, "tags": self.tags, "metadata": metadata}
+        # A live `stream_events` run reads tokens straight from this bridge, so `run.messages`
+        # shows deltas while the model is still generating rather than when the node returns.
+        try:
+            import langgraph_rs._live as live
+
+            active = live.active_bridge()
+            if active is not None:
+                active.push(payload, metadata)
+        except Exception:  # pragma: no cover - the shim always ships `_live`
+            pass
+        langgraph_rs.message(payload)
 
     def _pick_model(self, kwargs):
         metadata = kwargs.get("metadata") or {}
