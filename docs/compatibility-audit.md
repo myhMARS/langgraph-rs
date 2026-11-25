@@ -1103,4 +1103,29 @@ the templates, the wrapper objects and the executor alias. Python suite is 209 t
 
 The only remaining gaps are LangGraph-internal symbols (`PregelNode`, `ChannelWrite`,
 `SyncAsyncFuture`, `RunnableCallable`, the msgpack extension constants in `serde.jsonplus`) and
-`ToolCallTransformer`, which raises on purpose because it needs LangGraph's streaming middleware.
+`ToolCallTransformer`, which raises on purpose because it needs LangGraph's streaming middleware.### Round 59: shared-saver cross-engine resume
+
+Resuming each other's paused runs now works with a **single Python saver object** shared by both
+engines (LangGraph's `InMemorySaver`), not only through the LangGraph-schema SQLite saver.
+
+Two changes were needed in `src/adapters/python/custom_saver.rs`:
+
+* **reading**: when a checkpoint has no `metadata["langgraph_rs"]` sidecar (LangGraph wrote it), the
+  bridge rebuilds `next` / `interrupts` from LangGraph's payload -- `branch:to:<node>` channels and
+  the `__interrupt__` pending writes -- instead of raising.
+* **writing**: `put` now publishes a LangGraph-shaped checkpoint (`v: 4`, `__root__`,
+  `branch:to:<node>`, `__pregel_tasks`, `updated_channels`) plus an `__interrupt__` write keyed by
+  the task id LangGraph derives (`langgraph_task_id` / `langgraph_interrupt_entries`, the same
+  helpers the SQLite saver uses). Pending nodes are dropped from `versions_seen`; without that
+  LangGraph considered the node already executed and returned the unchanged state.
+
+Verified matrix (two-node graph pausing on `interrupt()`):
+
+| Sharing | LangGraph pause -> rs resume | rs pause -> LangGraph resume | rs round trip |
+| --- | --- | --- | --- |
+| one `InMemorySaver` object | `{'attempts': 1, 'log': ['rs-ask:yes', 'rs-done']}` | `{'attempts': 1, 'log': ['lg-ask:yes', 'lg-done']}` | ok |
+| LangGraph-schema SQLite | ok | ok | ok |
+
+`python/tests/test_cross_engine_resume.py` pins all four cases. The previous "saver drops the
+sidecar" test now asserts the fallback path (state + resume still work) instead of an error.
+Python suite is 213 tests; parity stays 38/38; Rust tests and clippy pass.

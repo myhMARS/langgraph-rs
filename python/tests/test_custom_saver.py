@@ -103,12 +103,13 @@ class CustomSaverTest(unittest.TestCase):
         self.assertGreaterEqual(len(graph.get_state_history("t1")), 1)
         self.assertGreaterEqual(len(saver.rows), 2)
 
-    def test_saver_that_drops_metadata_is_rejected(self):
+    def test_saver_that_drops_metadata_falls_back_to_the_langgraph_payload(self):
+        # Without the `langgraph_rs` sidecar the engine rebuilds the checkpoint from the
+        # LangGraph-shaped payload (`__root__`, `branch:to:*`, `__interrupt__`), so reading and
+        # resuming keep working instead of raising.
         graph = _graph(_DroppingSaver())
         graph.invoke({"v": 0}, thread_id="t2")
-        with self.assertRaises(Exception) as raised:
-            graph.get_state("t2")
-        self.assertIn("langgraph_rs", str(raised.exception))
+        self.assertEqual(graph.get_state("t2")["values"]["v"], 1)
 
     def test_langgraph_saver_interoperates(self):
         try:

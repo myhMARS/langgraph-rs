@@ -53,88 +53,132 @@ fn config_for<'py>(
     Ok(config)
 }
 
-fn checkpoint_to_py(py: Python<'_>, checkpoint: &Checkpoint) -> PyResult<Py<PyAny>> {
-    let payload = PyDict::new(py);
-    payload.set_item("v", 1)?;
-    payload.set_item("id", &checkpoint.id)?;
-    payload.set_item("ts", checkpoint_timestamp(checkpoint))?;
-    payload.set_item("channel_values", value_to_py(py, &Value::Object(checkpoint.values.clone()))?)?;
-    payload.set_item(
-        "channel_versions",
-        value_to_py(py, &Value::Object(checkpoint.channel_versions.clone()))?,
-    )?;
-    let seen = PyDict::new(py);
-    for (node, versions) in &checkpoint.versions_seen {
-        seen.set_item(node, value_to_py(py, versions)?)?;
+/// LangGraph-shaped `(checkpoint, metadata, channel_versions)` payload.
+///
+/// LangGraph's scheduler reads `__root__`, `branch:to:<node>` and `__interrupt__` out of the
+/// channel values, so they are added here -- the same shape the LangGraph-schema SQLite saver
+/// writes, which is what makes cross-engine resume work.
+fn langgraph_payload(
+    py: Python<'_>,
+    checkpoint: &Checkpoint,
+) -> PyResult<(Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
+    let mut document = crate::interop::checkpoint_to_langgraph(checkpoint);
+    let lg_id = langgraph_id(checkpoint);
+    let interrupt_entries = langgraph_interrupt_entries(&lg_id, checkpoint);
+    if let Some(object) = document.get_mut("checkpoint").and_then(Value::as_object_mut) {
+        object.insert("id".to_string(), Value::String(lg_id.clone()));
+        // LangGraph 1.2 writes v4 checkpoints; keep the payload version in step with it.
+        object.insert("v".to_string(), serde_json::json!(4));
+        let mut root = checkpoint.values.clone();
+        if !checkpoint.interrupts.is_empty() {
+            let interrupts = checkpoint
+                .interrupts
+                .iter()
+                .zip(&interrupt_entries)
+                .map(|(interrupt, (id, _, _))| {
+                    serde_json::json!({
+                        "__langgraph_type__": "Interrupt",
+                        "value": interrupt.value,
+                        "id": id,
+                        "response_schema": interrupt.response_schema,
+                    })
+                })
+                .collect::<Vec<_>>();
+            root.insert("__interrupt__".to_string(), Value::Array(interrupts));
+        }
+        let mut channel_values = serde_json::Map::new();
+        channel_values.insert("__root__".to_string(), Value::Object(root.clone()));
+        for (channel, value) in &root {
+            channel_values.insert(channel.clone(), value.clone());
+        }
+        let mut versions = object
+            .get("channel_versions")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let version = Value::String(crate::checkpoint::version_string(checkpoint.step));
+        for channel in root.keys() {
+            versions
+                .entry(channel.clone())
+                .or_insert_with(|| version.clone());
+        }
+        let mut sends = Vec::new();
+        for task in &checkpoint.next {
+            if let Some(input) = &task.input {
+                sends.push(serde_json::json!({
+                    "__langgraph_type__": "Send",
+                    "node": task.node,
+                    "input": input,
+                }));
+            } else {
+                channel_values.insert(format!("branch:to:{}", task.node), Value::Null);
+                versions.insert(format!("branch:to:{}", task.node), version.clone());
+            }
+        }
+        if !sends.is_empty() {
+            channel_values.insert("__pregel_tasks".to_string(), Value::Array(sends));
+            versions.insert("__pregel_tasks".to_string(), version.clone());
+        }
+        versions.insert("__root__".to_string(), version);
+        // LangGraph only re-runs a pending node when `versions_seen` does not already cover the
+        // channels it reads, so pending nodes are dropped from the map.
+        if let Some(seen) = object.get_mut("versions_seen").and_then(Value::as_object_mut) {
+            for task in &checkpoint.next {
+                seen.remove(&task.node);
+            }
+        }
+        let mut updated = channel_values
+            .keys()
+            .map(|channel| Value::String(channel.clone()))
+            .collect::<Vec<_>>();
+        updated.sort_by_key(Value::to_string);
+        object.insert("updated_channels".to_string(), Value::Array(updated));
+        object.insert("channel_values".to_string(), Value::Object(channel_values));
+        object.insert("channel_versions".to_string(), Value::Object(versions));
     }
-    payload.set_item("versions_seen", seen)?;
-    payload.set_item("updated_channels", PyList::empty(py))?;
-    Ok(payload.into_any().unbind())
-}
-
-fn checkpoint_timestamp(checkpoint: &Checkpoint) -> String {
-    let millis = checkpoint.created_at_millis;
-    let seconds = millis / 1000;
-    let sub = millis % 1000;
-    format!("{seconds}.{sub:03}")
-}
-
-/// Everything LangGraph's checkpoint dict cannot hold.
-fn private_metadata(py: Python<'_>, checkpoint: &Checkpoint) -> PyResult<Py<PyAny>> {
-    let extras = serde_json::json!({
-        "next": checkpoint.next,
-        "deferred_routes": checkpoint.deferred_routes,
-        "resume_tasks": checkpoint.resume_tasks,
-        "goto_sources": checkpoint.goto_sources,
-        "completed_tasks": checkpoint.completed_tasks,
-        "interrupted": checkpoint.interrupted,
-        "paused_before": checkpoint.paused_before,
-        "parent_id": checkpoint.parent_id,
-        "created_at_millis": checkpoint.created_at_millis,
-        "interrupts": checkpoint.interrupts,
-        "task_results": checkpoint.task_results,
-        "pending_writes": checkpoint.pending_writes,
-        "deferred": checkpoint.deferred,
-        "namespace": checkpoint.namespace,
-        "thread_id": checkpoint.thread_id,
-        "step": checkpoint.step,
-    });
-    value_to_py(py, &extras)
-}
-
-fn metadata_to_py(py: Python<'_>, checkpoint: &Checkpoint) -> PyResult<Py<PyAny>> {
-    let metadata = PyDict::new(py);
-    let source = checkpoint
-        .metadata
-        .get("source")
-        .and_then(Value::as_str)
-        .unwrap_or("loop");
-    metadata.set_item("source", source)?;
-    metadata.set_item("step", checkpoint.step)?;
-    metadata.set_item("parents", PyDict::new(py))?;
-    metadata.set_item(PRIVATE_KEY, private_metadata(py, checkpoint)?)?;
-    Ok(metadata.into_any().unbind())
+    if let Some(metadata) = document.get_mut("metadata").and_then(Value::as_object_mut) {
+        // LangGraph's metadata step matches the checkpoint step, like the SQLite saver.
+        metadata.insert("step".to_string(), serde_json::json!(checkpoint.step as i64));
+        metadata
+            .entry("source".to_string())
+            .or_insert_with(|| Value::String("loop".to_string()));
+        metadata
+            .entry("parents".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        metadata.insert(
+            PRIVATE_KEY.to_string(),
+            serde_json::to_value(checkpoint).unwrap_or(Value::Null),
+        );
+    }
+    let checkpoint_value = document.get("checkpoint").cloned().unwrap_or(Value::Null);
+    let metadata_value = document.get("metadata").cloned().unwrap_or(Value::Null);
+    let versions = checkpoint_value
+        .get("channel_versions")
+        .cloned()
+        .unwrap_or(Value::Null);
+    Ok((
+        value_to_py(py, &checkpoint_value)?,
+        value_to_py(py, &metadata_value)?,
+        value_to_py(py, &versions)?,
+    ))
 }
 
 fn checkpoint_from_py(py: Python<'_>, tuple: &Bound<'_, PyAny>, thread: &str) -> Result<Checkpoint> {
-    let checkpoint_obj = tuple
-        .get_item(1)
-        .map_err(|error| saver_error(py, "get_tuple", error))?;
-    let metadata_obj = tuple
-        .get_item(2)
-        .map_err(|error| saver_error(py, "get_tuple", error))?;
-    let payload = py_to_json(&checkpoint_obj)?;
-    let metadata = py_to_json(&metadata_obj)?;
-    let extras = metadata
-        .get(PRIVATE_KEY)
-        .cloned()
-        .ok_or_else(|| {
-            Error::Checkpoint(
-                "the Python saver dropped the metadata `langgraph_rs` key, which carries the \
-                 scheduling state this engine needs; use a saver that stores metadata verbatim"
-                    .to_string(),
-            )
-        })?;
+    let payload = py_to_json(
+        &tuple
+            .get_item(1)
+            .map_err(|error| saver_error(py, "get_tuple", error))?,
+    )?;
+    let metadata = py_to_json(
+        &tuple
+            .get_item(2)
+            .map_err(|error| saver_error(py, "get_tuple", error))?,
+    )?;
+    // Checkpoints written by LangGraph itself carry no engine sidecar; rebuild the scheduling
+    // state from its `branch:to:` channels and `__interrupt__` pending writes instead.
+    let Some(extras) = metadata.get(PRIVATE_KEY).cloned() else {
+        return checkpoint_from_langgraph_tuple(tuple, thread, &payload, &metadata);
+    };
     let field = |name: &str| extras.get(name).cloned().unwrap_or(Value::Null);
     let parse = |name: &str| -> Result<Value> { Ok(field(name)) };
     let to_vec = |name: &str| -> Result<Vec<Value>> {
@@ -164,10 +208,24 @@ fn checkpoint_from_py(py: Python<'_>, tuple: &Bound<'_, PyAny>, thread: &str) ->
             .map(|step| step as usize)
             .or_else(|| metadata.get("step").and_then(Value::as_u64).map(|s| s as usize))
             .unwrap_or_default(),
+        // `__root__` / `branch:to:*` / `__pregel_tasks` are LangGraph scheduling markers, not
+        // user channels; the LangGraph-schema reader filters them the same way.
         values: payload
             .get("channel_values")
             .and_then(Value::as_object)
-            .cloned()
+            .map(|channels| {
+                channels
+                    .iter()
+                    .filter(|(channel, value)| {
+                        !matches!(
+                            channel.as_str(),
+                            "__root__" | "__start__" | "__end__" | "__interrupt__" | "__pregel_tasks"
+                        ) && !channel.starts_with("branch:to:")
+                            && !value.is_null()
+                    })
+                    .map(|(channel, value)| (channel.clone(), value.clone()))
+                    .collect()
+            })
             .unwrap_or_default(),
         next: queue("next")?,
         deferred_routes: queue("deferred_routes")?,
@@ -212,6 +270,307 @@ fn checkpoint_from_py(py: Python<'_>, tuple: &Bound<'_, PyAny>, thread: &str) ->
     })
 }
 
+/// Convert a LangGraph-written checkpoint tuple into this engine's checkpoint.
+fn checkpoint_from_langgraph_tuple(
+    tuple: &Bound<'_, PyAny>,
+    thread: &str,
+    payload: &Value,
+    metadata: &Value,
+) -> Result<Checkpoint> {
+    let channel_values = payload
+        .get("channel_values")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut values = serde_json::Map::new();
+    for root in ["__root__", "__start__"] {
+        if let Some(root) = channel_values.get(root).and_then(Value::as_object) {
+            for (key, value) in root {
+                if key != "__interrupt__" {
+                    values.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+    let mut branch_nodes: Vec<(String, String)> = Vec::new();
+    for (channel, value) in &channel_values {
+        if let Some(node) = channel.strip_prefix("branch:to:") {
+            branch_nodes.push((node.to_string(), String::new()));
+            continue;
+        }
+        if matches!(channel.as_str(), "__root__" | "__start__" | "__end__" | "__interrupt__")
+            || value.is_null()
+        {
+            continue;
+        }
+        values.insert(channel.clone(), value.clone());
+    }
+    let mut pending_writes: Vec<Value> = Vec::new();
+    let mut interrupts: Vec<Value> = Vec::new();
+    let mut write_task_ids: Vec<String> = Vec::new();
+    if let Ok(writes) = tuple.get_item(4)
+        && !writes.is_none()
+        && let Ok(items) = writes.try_iter()
+    {
+        for item in items.flatten() {
+            let Ok(raw) = py_to_json(&item) else {
+                continue;
+            };
+            let Some(parts) = raw.as_array() else {
+                continue;
+            };
+            let task_id = parts
+                .first()
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let channel = parts.get(1).and_then(Value::as_str).unwrap_or_default();
+            let value = parts.get(2).cloned().unwrap_or(Value::Null);
+            if channel == "__interrupt__" {
+                write_task_ids.push(task_id.clone());
+                let entries = match &value {
+                    Value::Array(items) => items.clone(),
+                    other => vec![other.clone()],
+                };
+                for entry in entries {
+                    let object = entry.as_object();
+                    interrupts.push(serde_json::json!({
+                        "node": "",
+                        "value": object
+                            .and_then(|map| map.get("value"))
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        "id": object
+                            .and_then(|map| map.get("id"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        "response_schema": object
+                            .and_then(|map| map.get("response_schema"))
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        "task_id": task_id,
+                        "static_pause": false,
+                    }));
+                }
+                continue;
+            }
+            if channel.starts_with("branch:to:") {
+                continue;
+            }
+            pending_writes.push(serde_json::json!({
+                "task_id": task_id,
+                "node": "",
+                "channel": channel,
+                "value": value,
+                "replace": false,
+            }));
+        }
+    }
+    if branch_nodes.is_empty() {
+        for task_id in &write_task_ids {
+            branch_nodes.push((String::new(), task_id.clone()));
+        }
+    }
+    let mut next: Vec<crate::_internal::node::Task> = Vec::new();
+    for (index, (node, task_id)) in branch_nodes.iter().enumerate() {
+        let id = if task_id.is_empty() {
+            write_task_ids
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| format!("task-{index}"))
+        } else {
+            task_id.clone()
+        };
+        next.push(crate::_internal::node::Task {
+            id,
+            node: node.clone(),
+            input: None,
+            resume: None,
+            resume_history: Vec::new(),
+            error: None,
+            timeout_millis: None,
+            interrupted: !interrupts.is_empty(),
+            triggers: Vec::new(),
+            push_index: None,
+            push: false,
+        });
+    }
+    for (index, interrupt) in interrupts.iter_mut().enumerate() {
+        let task = next.get(index).or_else(|| next.first()).cloned();
+        if let (Some(task), Some(object)) = (task, interrupt.as_object_mut()) {
+            object.insert("node".to_string(), Value::String(task.node.clone()));
+        }
+    }
+    for (index, write) in pending_writes.iter_mut().enumerate() {
+        let task = next.get(index).or_else(|| next.first()).cloned();
+        if let (Some(task), Some(object)) = (task, write.as_object_mut()) {
+            object.insert("node".to_string(), Value::String(task.node.clone()));
+        }
+    }
+    let step = metadata
+        .get("step")
+        .and_then(Value::as_i64)
+        .map(|step| step.max(0) as usize)
+        .unwrap_or_default();
+    let parent_id = tuple
+        .get_item(3)
+        .ok()
+        .filter(|parent| !parent.is_none())
+        .and_then(|parent| {
+            parent
+                .get_item("configurable")
+                .ok()
+                .and_then(|configurable| configurable.get_item("checkpoint_id").ok())
+        })
+        .and_then(|id| id.extract::<String>().ok());
+    let checkpoint_id = payload
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let mut checkpoint = Checkpoint::new(checkpoint_id, thread.to_string(), step, values);
+    checkpoint.parent_id = parent_id;
+    checkpoint.metadata = metadata.as_object().cloned().unwrap_or_default();
+    checkpoint.channel_versions = payload
+        .get("channel_versions")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    checkpoint.versions_seen = payload
+        .get("versions_seen")
+        .and_then(Value::as_object)
+        .map(|map| {
+            map.iter()
+                .map(|(node, versions)| (node.clone(), std::sync::Arc::new(versions.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
+    checkpoint.interrupted = !interrupts.is_empty();
+    checkpoint.interrupts = serde_json::from_value(Value::Array(interrupts)).unwrap_or_default();
+    checkpoint.pending_writes =
+        serde_json::from_value(Value::Array(pending_writes)).unwrap_or_default();
+    checkpoint.next = next;
+    Ok(checkpoint)
+}
+/// Hex checkpoint id LangGraph sees; task ids are derived from it.
+fn langgraph_id(checkpoint: &Checkpoint) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in checkpoint.id.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!(
+        "{:016x}{:08x}{:08x}",
+        checkpoint.created_at_millis,
+        checkpoint.step,
+        (hash & 0xffff_ffff)
+    )
+}
+
+fn sha1_uuid_like(parts: &[&[u8]]) -> String {
+    use sha1::{Digest, Sha1};
+
+    let mut hasher = Sha1::new();
+    for part in parts {
+        hasher.update(part);
+    }
+    let digest = hasher.finalize();
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+fn id_bytes(checkpoint_id: &str) -> Vec<u8> {
+    checkpoint_id
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
+        .collect()
+}
+
+fn langgraph_task_id(checkpoint_id: &str, node: &str, step: usize) -> String {
+    let bytes = id_bytes(checkpoint_id);
+    let trigger = format!("branch:to:{node}");
+    let step = (step + 1).to_string();
+    sha1_uuid_like(&[
+        &bytes,
+        node.as_bytes(),
+        step.as_bytes(),
+        node.as_bytes(),
+        b"__pregel_pull",
+        trigger.as_bytes(),
+    ])
+}
+
+fn langgraph_send_task_id(checkpoint_id: &str, node: &str, step: usize, index: usize) -> String {
+    let bytes = id_bytes(checkpoint_id);
+    let step = (step + 1).to_string();
+    let index = index.to_string();
+    sha1_uuid_like(&[
+        &bytes,
+        node.as_bytes(),
+        step.as_bytes(),
+        node.as_bytes(),
+        b"__pregel_push",
+        index.as_bytes(),
+    ])
+}
+
+/// `(interrupt id, task id, task path)` triples LangGraph expects for a paused checkpoint.
+fn langgraph_interrupt_entries(checkpoint_id: &str, checkpoint: &Checkpoint) -> Vec<(String, String, String)> {
+    let mut send_queues: std::collections::BTreeMap<String, std::collections::VecDeque<(usize, String)>> =
+        std::collections::BTreeMap::new();
+    for (index, task) in checkpoint
+        .next
+        .iter()
+        .filter(|task| task.input.is_some())
+        .enumerate()
+    {
+        let task_id = langgraph_send_task_id(checkpoint_id, &task.node, checkpoint.step, index);
+        send_queues
+            .entry(task.node.clone())
+            .or_default()
+            .push_back((index, task_id));
+    }
+    let mut answered: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    checkpoint
+        .interrupts
+        .iter()
+        .map(|interrupt| {
+            if let Some(queue) = send_queues.get_mut(&interrupt.node)
+                && let Some((index, task_id)) = queue.pop_front()
+            {
+                let key = format!("{}:{}", interrupt.node, task_id);
+                let id = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()));
+                return (id, task_id, format!("~__pregel_push, {index:010}, 0000000000"));
+            }
+            let count = *answered.entry(interrupt.node.clone()).or_insert(0);
+            *answered.get_mut(&interrupt.node).expect("counter") += 1;
+            let task_id = langgraph_task_id(checkpoint_id, &interrupt.node, checkpoint.step);
+            let namespace = format!("{}:{}", interrupt.node, task_id);
+            let key = if count == 0 {
+                namespace
+            } else {
+                format!("{namespace}|{count}")
+            };
+            let id = format!("{:032x}", xxhash_rust::xxh3::xxh3_128(key.as_bytes()));
+            (id, task_id, format!("~__pregel_pull, {}", interrupt.node))
+        })
+        .collect()
+}
 fn saver_error(_py: Python<'_>, method: &str, error: PyErr) -> Error {
     Error::Checkpoint(format!("saved tuples returned by `{method}` are malformed: {error}"))
 }
@@ -228,18 +587,15 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
 impl Checkpointer for PySaver {
     fn put(&self, checkpoint: Checkpoint) -> Result<()> {
         Python::attach(|py| {
+            let lg_id = langgraph_id(&checkpoint);
             let config = config_for(
                 py,
                 &checkpoint.thread_id,
                 &checkpoint.namespace,
-                Some(&checkpoint.id),
+                Some(&lg_id),
             )
             .map_err(|error| Error::Checkpoint(error.to_string()))?;
-            let payload = checkpoint_to_py(py, &checkpoint)
-                .map_err(|error| Error::Checkpoint(error.to_string()))?;
-            let metadata = metadata_to_py(py, &checkpoint)
-                .map_err(|error| Error::Checkpoint(error.to_string()))?;
-            let versions = value_to_py(py, &Value::Object(checkpoint.channel_versions.clone()))
+            let (payload, metadata, versions) = langgraph_payload(py, &checkpoint)
                 .map_err(|error| Error::Checkpoint(error.to_string()))?;
             let put = self
                 .object
@@ -251,6 +607,9 @@ impl Checkpointer for PySaver {
             for write in &checkpoint.pending_writes {
                 self.put_write(py, &checkpoint, write)?;
             }
+            // LangGraph derives pending tasks from these writes, so a pause it can resume needs
+            // the `__interrupt__` entries keyed by its own task ids.
+            self.put_langgraph_writes(py, &checkpoint, &lg_id)?;
             Ok(())
         })
     }
@@ -309,7 +668,7 @@ impl PySaver {
             py,
             &checkpoint.thread_id,
             &checkpoint.namespace,
-            Some(&checkpoint.id),
+            Some(&langgraph_id(checkpoint)),
         )
         .map_err(|error| Error::Checkpoint(error.to_string()))?;
         let writes = PyList::empty(py);
@@ -333,6 +692,72 @@ impl PySaver {
             .map_err(|error| saver_error(py, "put_writes", error))?;
         put.call1((config, writes, write.task_id.clone()))
             .map_err(|error| saver_error(py, "put_writes", error))?;
+        Ok(())
+    }
+
+    /// Publish LangGraph-shaped writes so its scheduler sees the pending tasks and interrupts.
+    fn put_langgraph_writes(
+        &self,
+        py: Python<'_>,
+        checkpoint: &Checkpoint,
+        lg_id: &str,
+    ) -> Result<()> {
+        let config = config_for(
+            py,
+            &checkpoint.thread_id,
+            &checkpoint.namespace,
+            Some(lg_id),
+        )
+        .map_err(|error| Error::Checkpoint(error.to_string()))?;
+        let put = self
+            .object
+            .bind(py)
+            .getattr("put_writes")
+            .map_err(|error| saver_error(py, "put_writes", error))?;
+        let interrupt_class = py
+            .import("langgraph.types")
+            .and_then(|module| module.getattr("Interrupt"))
+            .ok();
+        let entries = langgraph_interrupt_entries(lg_id, checkpoint);
+        for (interrupt, (interrupt_id, task_id, task_path)) in
+            checkpoint.interrupts.iter().zip(entries)
+        {
+            let value = match &interrupt_class {
+                Some(class) => class
+                    .call1((
+                        value_to_py(py, &interrupt.value)
+                            .map_err(|error| Error::Checkpoint(error.to_string()))?,
+                        interrupt_id,
+                    ))
+                    .map_err(|error| saver_error(py, "put_writes", error))?
+                    .unbind(),
+                None => value_to_py(
+                    py,
+                    &serde_json::json!({ "value": interrupt.value, "id": interrupt_id }),
+                )
+                .map_err(|error| Error::Checkpoint(error.to_string()))?,
+            };
+            let list =
+                PyList::new(py, [value]).map_err(|error| Error::Checkpoint(error.to_string()))?;
+            let entry = pyo3::types::PyTuple::new(
+                py,
+                [
+                    value_to_py(py, &Value::String("__interrupt__".to_string()))
+                        .map_err(|error| Error::Checkpoint(error.to_string()))?,
+                    list.into_any().unbind(),
+                ],
+            )
+            .map_err(|error| Error::Checkpoint(error.to_string()))?;
+            let writes =
+                PyList::new(py, [entry]).map_err(|error| Error::Checkpoint(error.to_string()))?;
+            put.call1((
+                config.clone(),
+                writes,
+                task_id.clone(),
+                task_path.clone(),
+            ))
+            .map_err(|error| saver_error(py, "put_writes", error))?;
+        }
         Ok(())
     }
 }

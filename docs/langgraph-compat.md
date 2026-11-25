@@ -195,7 +195,7 @@ LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
 | 状态 | TypedDict/`Annotated` reducer、通道对象（`langgraph.channels`）、托管值（`IsLastStep`/`RemainingSteps`） |
 | 运行 | `invoke`/`stream`/`resume`/`batch` 及异步版本、`__interrupt__` 语义、`RecursionLimit`→`GraphRecursionError` |
 | prebuilt | `ToolNode`、`ValidationNode`、`create_tool`、`ToolRuntime`/`InjectedState`/`InjectedStore` 注入、`create_react_agent`（`prompt`/`state_schema`/`store`/`interrupt_*`/`name`/`version`）、`AgentState*` |
-| 持久化 | 内置 saver 全套、LangGraph-schema SQLite saver（**双向跨引擎恢复**）、自定义 Python saver/store 协议桥接 |
+| 持久化 | 内置 saver 全套、LangGraph-schema SQLite saver（**双向跨引擎恢复**）、自定义 Python saver/store 协议桥接（**共享同一个 Python saver 对象时双向恢复也成立**） |
 | 长期记忆 | `store.get/search` 返回 `Item`、`list_namespaces`、ops/embeddings/路径提取（`tokenize_path`/`get_text_at_path` 与 LG 差分一致） |
 | 序列化 | `JsonPlusSerializer`、`EncryptedSerializer`、`serde` 子模块 |
 | 错误 | `GraphBubbleUp`/`GraphInterrupt`/`GraphDrained`/`NodeError`/`NodeTimeoutError`/`NodeInterrupt`/`ErrorCode` 等全套 |
