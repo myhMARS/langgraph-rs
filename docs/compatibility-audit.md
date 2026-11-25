@@ -1391,4 +1391,27 @@ Python suite is 277 tests; parity 38/38.
 
 Next: the built-in transformers (`ValuesTransformer`, `UpdatesTransformer`, `CustomTransformer`,
 `CheckpointsTransformer`, `DebugTransformer`, `TasksTransformer`, `LifecycleTransformer`), then
-`run_stream` + `stream_events(version="v3")`, then `MessagesTransformer` / `ToolCallTransformer`.
+`run_stream` + `stream_events(version="v3")`, then `MessagesTransformer` / `ToolCallTransformer`.### Round 72: built-in stream transformers (capture family)
+
+Six of LangGraph's built-in transformers are now implemented, each mirroring its upstream
+behaviour: `ValuesTransformer` (channel plus `_latest` / `_interrupted` / `_interrupts` / `error`),
+`CustomTransformer`, `UpdatesTransformer`, `CheckpointsTransformer`, `DebugTransformer` and
+`TasksTransformer`.
+
+All are `_native = True`, declare their `required_stream_modes`, capture only their own protocol
+method, and ignore events from deeper namespaces unless constructed with a matching `scope`.
+`LifecyclePayload` and `SubgraphStatus` are available as payload types.
+
+The package surface now matches LangGraph exactly: `ValuesTransformer` and `MessagesTransformer` are
+reachable through `langgraph_rs.stream.transformers` but not re-exported from the package, as
+upstream.
+
+`python/tests/test_stream_transformers.py` (11 tests) covers per-method capture, namespace scoping,
+ordering, values/interrupt tracking, projection merging, and compares capture results with
+LangGraph for all six transformers.
+
+Still pending in this subsystem: `MessagesTransformer` (needs `ChatModelStream`),
+`LifecycleTransformer` / `SubgraphTransformer` (need subgraph run handles), `run_stream` and
+`stream_events(version="v3")`, then `ToolCallTransformer`.
+
+Python suite is 288 tests; parity 38/38.
