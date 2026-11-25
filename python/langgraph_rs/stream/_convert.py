@@ -10,6 +10,9 @@ from ._types import ProtocolEvent, _ProtocolEventParams
 
 def convert_to_protocol_event(part: Any) -> ProtocolEvent:
     """Convert a v2 `StreamPart` into a `ProtocolEvent`."""
+    if isinstance(part, tuple):
+        # `stream(stream_mode=[...])` shape: `(mode, data)`.
+        part = {"type": part[0], "ns": (), "data": part[1]}
     part_dict = cast(dict[str, Any], part)
     params: _ProtocolEventParams = {
         "namespace": list(part_dict["ns"]),

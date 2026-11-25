@@ -230,6 +230,33 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable stream collection returning a list of chunk dicts.
+    /// `astream_events(version="v3")`: an awaitable resolving to an `AsyncGraphRunStream`.
+    #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None))]
+    fn astream_events<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        input: Option<&Bound<'py, PyAny>>,
+        thread_id: Option<&Bound<'py, PyAny>>,
+        version: &str,
+        transformers: Option<&Bound<'py, PyAny>>,
+        context: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let module = py.import("langgraph_rs.stream._events")?;
+        let function = module.getattr("astream_events")?;
+        let kwargs = pyo3::types::PyDict::new(py);
+        kwargs.set_item("version", version)?;
+        if let Some(thread_id) = thread_id {
+            kwargs.set_item("thread_id", thread_id)?;
+        }
+        if let Some(transformers) = transformers {
+            kwargs.set_item("transformers", transformers)?;
+        }
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            kwargs.set_item("context", context)?;
+        }
+        let graph = slf.into_pyobject(py)?.into_any();
+        function.call((graph, input), Some(&kwargs))
+    }
     #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn astream<'py>(

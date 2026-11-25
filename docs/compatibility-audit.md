@@ -1414,4 +1414,28 @@ Still pending in this subsystem: `MessagesTransformer` (needs `ChatModelStream`)
 `LifecycleTransformer` / `SubgraphTransformer` (need subgraph run handles), `run_stream` and
 `stream_events(version="v3")`, then `ToolCallTransformer`.
 
-Python suite is 288 tests; parity 38/38.
+Python suite is 288 tests; parity 38/38.### Round 73: `stream_events(version="v3")` run streams
+
+The caller-driven run streams are now real, built in Python on top of the extension's own `stream()`:
+
+* `GraphRunStream` / `AsyncGraphRunStream` — pull-based pumping (`_pump_next` / `_apump_next` with
+  the take-a-number condition on the async lane), `output` / `interrupted` / `interrupts`,
+  `extensions`, iteration over the raw protocol log, `interleave`, `abort`, context managers, and
+  LangGraph's "registered projections: ..." `AttributeError` for a missing projection.
+* `CompiledGraph.stream_events(...)` / `AsyncCompiledGraph.astream_events(...)` delegate to
+  `langgraph_rs.stream._events`, which builds a `StreamMux` from `ValuesTransformer` plus any
+  call-site `transformers=`, requests exactly their union of stream modes (`version="v2"` parts),
+  and converts each part with `convert_to_protocol_event`.
+* `run.interrupts` normalizes the v2 `(value, id)` tuples into `langgraph_rs.Interrupt` objects.
+* Like upstream, only `values` is registered by default; `updates`/`custom`/`checkpoints`/`debug`/
+  `tasks` are opt-in through `transformers=` (and raise `AttributeError` otherwise).
+
+`python/tests/test_stream_events.py` (15 tests) covers every projection, default-vs-opt-in
+registration, output/interrupt reporting, the raw protocol log and its `seq` ordering, rejection of
+`version="v2"` and `stream_mode=`, custom transformers, and `astream_events`; the parity cases
+compare `values`/`updates`/`custom` and `output` with LangGraph.
+
+Python suite is 303 tests; parity 38/38; clippy clean.
+
+Remaining in this subsystem: `MessagesTransformer` (needs `ChatModelStream`), `LifecycleTransformer`
+/ `SubgraphTransformer` (subgraph handles), `compile(transformers=...)`, and `ToolCallTransformer`.
