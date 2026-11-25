@@ -86,6 +86,10 @@ name = "subgraph_native"
 path = "examples/subgraph/native_demo.rs"
 
 [[example]]
+name = "async_native"
+path = "examples/async/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 
