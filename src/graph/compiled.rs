@@ -42,6 +42,10 @@ pub struct CompiledGraph<S: State> {
     pub(crate) interrupt_after: HashSet<String>,
     pub(crate) name: Option<String>,
     pub(crate) context_schema: Option<Value>,
+    /// Checkpointer inherited from the parent graph (`add_subgraph` without its own saver).
+    pub(crate) inherited_saver: Arc<std::sync::OnceLock<Arc<dyn Checkpointer>>>,
+    /// Hooks that hand an inherited saver to this graph's own subgraphs.
+    pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
 }
 
 impl<S: State> Clone for CompiledGraph<S> {
@@ -68,6 +72,8 @@ impl<S: State> Clone for CompiledGraph<S> {
             interrupt_after: self.interrupt_after.clone(),
             name: self.name.clone(),
             context_schema: self.context_schema.clone(),
+            inherited_saver: self.inherited_saver.clone(),
+            subgraph_hooks: self.subgraph_hooks.clone(),
         }
     }
 }
@@ -140,12 +146,25 @@ impl<S: State> CompiledGraph<S> {
 
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
-        self.checkpointer.is_some()
+        self.checkpointer().is_some()
     }
 
-    /// The configured checkpointer, if any.
+    /// The configured checkpointer, or the one inherited from the parent graph.
     pub fn checkpointer(&self) -> Option<&Arc<dyn Checkpointer>> {
-        self.checkpointer.as_ref()
+        self.checkpointer
+            .as_ref()
+            .or_else(|| self.inherited_saver.get())
+    }
+
+    /// Adopt the parent graph's checkpointer (LangGraph inherits the saver into subgraphs).
+    pub(crate) fn set_inherited_saver(&self, saver: Arc<dyn Checkpointer>) {
+        if self.checkpointer.is_some() {
+            return;
+        }
+        let _ = self.inherited_saver.set(saver.clone());
+        for hook in &self.subgraph_hooks {
+            hook(&saver);
+        }
     }
 
     /// Whether a thread has a paused checkpoint inside `namespace`.
@@ -158,14 +177,16 @@ impl<S: State> CompiledGraph<S> {
     /// *new* namespace. Matching by prefix is what lets the paused child be found again.
     pub(crate) fn paused_namespace_in(&self, thread_id: &str, base: &str) -> Option<String> {
         let checkpointer = self.checkpointer()?;
-        let mut history = checkpointer.history(thread_id).ok()?;
-        history.sort_by_key(|checkpoint| std::cmp::Reverse(checkpoint.step));
+        let history = checkpointer.history(thread_id).ok()?;
+        // A deeper nested subgraph also starts with `base:`, so pick the *shallowest* paused
+        // namespace (this graph's own) and break ties with the newest step.
         history
             .into_iter()
-            .find(|checkpoint| {
+            .filter(|checkpoint| {
                 (checkpoint.namespace == base || checkpoint.namespace.starts_with(&format!("{base}:")))
                     && (checkpoint.interrupted || !checkpoint.next.is_empty())
             })
+            .min_by_key(|checkpoint| (checkpoint.namespace.len(), usize::MAX - checkpoint.step))
             .map(|checkpoint| checkpoint.namespace)
     }
 

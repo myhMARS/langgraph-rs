@@ -81,6 +81,14 @@ impl<S: State> StateGraph<S> {
             }
         }
 
+        // Subgraphs compiled without their own checkpointer adopt the parent's saver, like
+        // LangGraph (which passes the checkpointer through the run config).
+        if let Some(saver) = &options.checkpointer {
+            for hook in &self.subgraph_hooks {
+                hook(saver);
+            }
+        }
+
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
             None => Entry::Static(self.entry.clone()),
@@ -110,6 +118,8 @@ impl<S: State> StateGraph<S> {
             interrupt_after: options.interrupt_after.into_iter().collect(),
             name: options.name,
             context_schema: options.context_schema,
+            inherited_saver: Arc::new(std::sync::OnceLock::new()),
+            subgraph_hooks: self.subgraph_hooks,
         })
     }
 

@@ -66,6 +66,8 @@ pub struct StateGraph<S: State> {
     pub(crate) destinations: IndexMap<String, Vec<String>>,
     pub(crate) entry: Vec<String>,
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
+    /// Hooks that propagate the parent's saver into subgraph children at compile time.
+    pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
 }
 
 impl<S: State> StateGraph<S> {
@@ -93,6 +95,7 @@ impl<S: State> StateGraph<S> {
             destinations: IndexMap::new(),
             entry: Vec::new(),
             conditional_entry: None,
+            subgraph_hooks: Vec::new(),
         }
     }
 
@@ -285,9 +288,17 @@ impl<S: State> StateGraph<S> {
     /// checkpointer: its final values are published as direct channel replacements for
     /// every channel it changed. Nested interrupts are not supported; an interrupt
     /// raised inside a subgraph surfaces as a node failure.
-    pub fn add_subgraph(self, name: impl Into<String>, subgraph: Arc<CompiledGraph<S>>) -> Self {
+    pub fn add_subgraph(
+        mut self,
+        name: impl Into<String>,
+        subgraph: Arc<CompiledGraph<S>>,
+    ) -> Self {
         let name = name.into();
         let schema = self.schema.clone();
+        // The parent hands its saver to the child at compile time (LangGraph inheritance).
+        let child = subgraph.clone();
+        self.subgraph_hooks
+            .push(Arc::new(move |saver| child.set_inherited_saver(saver.clone())));
         self.add_node(name.clone(), move |state: &S| {
             let before = state_to_values(state)?;
             crate::runtime::context::clear_parent_command();
@@ -313,7 +324,7 @@ impl<S: State> StateGraph<S> {
     /// (`<parent_ns>|<name>`), so an `interrupt()` inside the subgraph pauses the parent
     /// run and a parent resume continues the subgraph from its checkpoint.
     pub fn add_subgraph_mapped<Sub, Input, Output>(
-        self,
+        mut self,
         name: impl Into<String>,
         subgraph: Arc<CompiledGraph<Sub>>,
         input: Input,
@@ -326,6 +337,9 @@ impl<S: State> StateGraph<S> {
     {
         let name = name.into();
         let schema = self.schema.clone();
+        let child = subgraph.clone();
+        self.subgraph_hooks
+            .push(Arc::new(move |saver| child.set_inherited_saver(saver.clone())));
         self.add_node(name.clone(), move |state: &S| {
             let sub_state = input(state)?;
             crate::runtime::context::clear_parent_command();

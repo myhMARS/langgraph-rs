@@ -147,6 +147,7 @@ pub(crate) async fn run_async_subgraph<S: State>(
         None => None,
     };
     let resume_namespace = paused_in.clone().unwrap_or_else(|| namespace.clone());
+
     let resume = match thread.as_deref() {
         Some(_) if paused_in.is_some() => context.take_resume().into_iter().next_back(),
         _ => None,

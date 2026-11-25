@@ -219,7 +219,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             return self.execute_inner(start, config, sink, None, emit).await;
         }
         let (writer, mut receiver) = tokio::sync::mpsc::unbounded_channel::<std::sync::Arc<Checkpoint>>();
-        let checkpointer = self.checkpointer.clone();
+        let checkpointer = self.checkpointer().cloned();
         let async_saver = self.async_checkpointer.clone();
         let handle = tokio::spawn(async move {
             while let Some(checkpoint) = receiver.recv().await {

@@ -63,8 +63,8 @@ python examples/subgraph/compare.py --iterations 200 --runs 3
 子图里调用 `interrupt()`、由父图 `resume()` 继续，这一路径已经可用（见
 [`docs/compatibility-audit.md`](../../docs/compatibility-audit.md) 第 62、63 轮），但有一个前提：
 
-> **子图必须自己带 checkpointer**（`sub.compile(checkpointer=...)`），父图的 saver 不会自动继承。
-> 这一点与 LangGraph 不同。
+> 子图**可以不传** `checkpointer`：父图编译时的 saver 会自动继承给子图（与 LangGraph 一致），
+> 嵌套多层同样成立。
 
 暂停发生在字图时，父图的 `resume(thread, value)` 会把值传进子图、在子图原来的命名空间里继续，
 然后父图接着跑后续节点。

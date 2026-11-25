@@ -53,6 +53,8 @@ pub struct AsyncStateGraph<S: State> {
     pub(crate) recursion_limit: Option<usize>,
     pub(crate) context_schema: Option<serde_json::Value>,
     pub(crate) name: Option<String>,
+    /// Hooks handing the parent's saver to async subgraph children at compile time.
+    pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
 }
 
 impl<S: State> Default for AsyncStateGraph<S> {
@@ -93,6 +95,7 @@ impl<S: State> AsyncStateGraph<S> {
             recursion_limit: None,
             context_schema: None,
             name: None,
+            subgraph_hooks: Vec::new(),
         }
     }
 
@@ -201,13 +204,17 @@ impl<S: State> AsyncStateGraph<S> {
 
     /// Embed an async subgraph as a node (child checkpoint namespace, nested interrupts).
     pub fn add_subgraph(
-        self,
+        mut self,
         name: impl Into<String>,
         subgraph: Arc<AsyncCompiledGraph<S>>,
     ) -> Self {
         let name = name.into();
         let node_name = name.clone();
         let child = subgraph;
+        let hook_child = child.clone();
+        self.subgraph_hooks.push(std::sync::Arc::new(move |saver: &std::sync::Arc<dyn Checkpointer>| {
+            hook_child.set_inherited_saver(saver.clone())
+        }));
         let schema = self.schema.clone();
         self.add_node(name, move |state: S, context: AsyncContext| {
             let child = child.clone();
@@ -471,6 +478,13 @@ impl<S: State> AsyncStateGraph<S> {
             }
         }
 
+        // Async subgraphs inherit the parent's saver, like the sync engine.
+        if let Some(saver) = self.checkpointer.clone() {
+            for hook in &self.subgraph_hooks {
+                hook(&saver);
+            }
+        }
+
         let entry = match self.conditional_entry {
             Some(edge) => Entry::Conditional(edge),
             None => Entry::Static(self.entry.clone()),
@@ -500,6 +514,8 @@ impl<S: State> AsyncStateGraph<S> {
                 .unwrap_or_else(crate::graph::default_recursion_limit),
             context_schema: self.context_schema,
             name: self.name,
+            inherited_saver: std::sync::Arc::new(std::sync::OnceLock::new()),
+            subgraph_hooks: self.subgraph_hooks,
         })
     }
 }

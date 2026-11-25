@@ -44,6 +44,11 @@ pub struct AsyncCompiledGraph<S: State> {
     pub(crate) recursion_limit: usize,
     pub(crate) context_schema: Option<Value>,
     pub(crate) name: Option<String>,
+    /// Checkpointer inherited from the parent async graph.
+    pub(crate) inherited_saver:
+        std::sync::Arc<std::sync::OnceLock<std::sync::Arc<dyn Checkpointer>>>,
+    /// Hooks handing an inherited saver to this graph's own subgraphs.
+    pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
 }
 
 /// Where a run starts from.
@@ -176,7 +181,25 @@ impl<S: State> AsyncCompiledGraph<S> {
 
     /// Returns `true` when checkpointing is enabled.
     pub fn has_checkpointer(&self) -> bool {
-        self.checkpointer.is_some() || self.async_checkpointer.is_some()
+        self.checkpointer().is_some() || self.async_checkpointer.is_some()
+    }
+
+    /// The configured or inherited checkpointer.
+    pub fn checkpointer(&self) -> Option<&std::sync::Arc<dyn Checkpointer>> {
+        self.checkpointer
+            .as_ref()
+            .or_else(|| self.inherited_saver.get())
+    }
+
+    /// Adopt the parent graph's checkpointer (async parity with the sync engine).
+    pub(crate) fn set_inherited_saver(&self, saver: std::sync::Arc<dyn Checkpointer>) {
+        if self.checkpointer.is_some() {
+            return;
+        }
+        let _ = self.inherited_saver.set(saver.clone());
+        for hook in &self.subgraph_hooks {
+            hook(&saver);
+        }
     }
 
     /// Run the graph over several inputs concurrently (bounded by `max_concurrency`).

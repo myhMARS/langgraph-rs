@@ -10,7 +10,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) async fn saver_put(&self, checkpoint: Checkpoint) -> Result<()> {
         if let Some(saver) = &self.async_checkpointer {
             saver.put(checkpoint).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.put(checkpoint)
         } else {
             Err(Error::MissingCheckpointer("save_checkpoint"))
@@ -26,7 +26,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             let history = saver.history_in(thread_id, namespace).await?;
             return Ok(history.into_iter().map(std::sync::Arc::new).collect());
         }
-        if let Some(checkpointer) = &self.checkpointer {
+        if let Some(checkpointer) = self.checkpointer() {
             return checkpointer.history_in_shared(thread_id, namespace);
         }
         Err(Error::MissingCheckpointer("history"))
@@ -41,7 +41,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             let checkpoint = saver.latest_in(thread_id, namespace).await?;
             return Ok(checkpoint.map(std::sync::Arc::new));
         }
-        if let Some(checkpointer) = &self.checkpointer {
+        if let Some(checkpointer) = self.checkpointer() {
             return checkpointer.latest_in_shared(thread_id, namespace);
         }
         Err(Error::MissingCheckpointer("latest"))
@@ -54,7 +54,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Option<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.get(thread_id, checkpoint_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.get(thread_id, checkpoint_id)
         } else {
             Err(Error::MissingCheckpointer("get"))
@@ -64,7 +64,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) async fn saver_latest(&self, thread_id: &str) -> Result<Option<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.latest(thread_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.latest(thread_id)
         } else {
             Err(Error::MissingCheckpointer("latest"))
@@ -78,7 +78,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Option<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.latest_in(thread_id, namespace).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.latest_in(thread_id, namespace)
         } else {
             Err(Error::MissingCheckpointer("latest_in"))
@@ -92,14 +92,17 @@ impl<S: State> AsyncCompiledGraph<S> {
         if !self.has_checkpointer() {
             return None;
         }
-        let mut history = self.saver_history(thread_id).await.ok()?;
-        history.sort_by_key(|checkpoint| std::cmp::Reverse(checkpoint.step));
+        let history = self.saver_history(thread_id).await.ok()?;
+        // Prefer the shallowest paused namespace (this graph's own) over deeper nested ones.
         history
             .into_iter()
-            .find(|checkpoint| {
+            .filter(|checkpoint| {
                 (checkpoint.namespace == base
                     || checkpoint.namespace.starts_with(&format!("{base}:")))
                     && (checkpoint.interrupted || !checkpoint.next.is_empty())
+            })
+            .min_by_key(|checkpoint| {
+                (checkpoint.namespace.len(), usize::MAX - checkpoint.step)
             })
             .map(|checkpoint| checkpoint.namespace)
     }
@@ -108,7 +111,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) async fn saver_history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.history(thread_id).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.history(thread_id)
         } else {
             Err(Error::MissingCheckpointer("history"))
@@ -122,7 +125,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     ) -> Result<Vec<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {
             saver.history_in(thread_id, namespace).await
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.history_in(thread_id, namespace)
         } else {
             Err(Error::MissingCheckpointer("history_in"))
@@ -140,7 +143,7 @@ impl<S: State> AsyncCompiledGraph<S> {
     pub(crate) fn saver_threads_sync(&self) -> Result<Vec<String>> {
         if let Some(saver) = &self.async_checkpointer {
             futures::executor::block_on(saver.threads())
-        } else if let Some(checkpointer) = &self.checkpointer {
+        } else if let Some(checkpointer) = self.checkpointer() {
             checkpointer.threads()
         } else {
             Err(Error::MissingCheckpointer("threads"))

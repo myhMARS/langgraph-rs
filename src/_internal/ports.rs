@@ -7,6 +7,12 @@ use super::error::Result;
 use super::usage::NodeExecution;
 use crate::checkpoint::Checkpoint;
 
+/// Hook that hands a parent's checkpointer to a subgraph compiled without one.
+pub(crate) type SaverHook = std::sync::Arc<dyn Fn(&std::sync::Arc<dyn Checkpointer>) + Send + Sync>;
+
+/// A list of [`SaverHook`]s.
+pub(crate) type SaverHooks = Vec<SaverHook>;
+
 /// Storage backend for checkpoints.
 ///
 /// Implementations can persist to memory, a file, Redis, Postgres, ... The engine only

@@ -1301,4 +1301,28 @@ scoreless tail, `index=` overrides, `embed_query` usage and `filter` interaction
 Known differences, both documented: field paths do not support `*` wildcards, and embeddings run per
 `put` instead of being batched across a batch of ops.
 
-Python suite is 232 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 232 tests; parity 38/38; clippy and Rust tests clean.### Round 68: subgraphs inherit the parent checkpointer
+
+LangGraph passes its saver through the run config, so `add_node("sub", subgraph_without_saver)` still
+checkpoints the child. The extension required an explicit saver on every pausable subgraph; that
+difference is gone.
+
+Implementation:
+
+* `CompiledGraph` / `AsyncCompiledGraph` carry `inherited_saver: Arc<OnceLock<Arc<dyn Checkpointer>>>`
+  and `subgraph_hooks`; `checkpointer()` prefers the graph's own saver and falls back to the
+  inherited one, so `has_checkpointer`, `paused_namespace_in`, load/persist and the async saver
+  dispatch all work unchanged.
+* `add_subgraph` / `add_subgraph_mapped` register a hook; `compile_with` hands its saver to every
+  child, and `set_inherited_saver` recurses so grandchildren inherit too.
+* The async runtime had two places reading the raw `checkpointer` field (`persist_checkpoint`,
+  the durability writer); both now use the accessor — without that the child's pause was never
+  written, which is why async resume used to re-pause.
+* `paused_namespace_in` now prefers the **shallowest** matching namespace: a nested child
+  (`sub:<task>|inner:<task>`) also starts with `sub:`, and picking it resumed a graph in the wrong
+  namespace (`node review is not registered in this graph`).
+
+Verified by `python/tests/test_subgraph_inheritance.py` (4 tests): single-level inheritance,
+two-level nesting, an explicitly saved child keeping its own saver, and a LangGraph parity case.
+
+Python suite is 236 tests; parity 38/38; clippy and Rust tests clean.

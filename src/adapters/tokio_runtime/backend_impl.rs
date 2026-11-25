@@ -166,7 +166,7 @@ impl<'a, S: State> crate::pregel::backend::PregelBackend<S> for AsyncBackend<'a,
         }
         if let Some(async_saver) = &self.graph.async_checkpointer {
             async_saver.put_shared(checkpoint).await?;
-        } else if let Some(saver) = &self.graph.checkpointer {
+        } else if let Some(saver) = self.graph.checkpointer() {
             crate::pregel::checkpointing::persist_checkpoint(saver.as_ref(), checkpoint, None)?;
         } else {
             return Err(Error::MissingCheckpointer("persist_checkpoint"));

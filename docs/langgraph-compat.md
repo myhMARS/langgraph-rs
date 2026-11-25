@@ -230,5 +230,5 @@ LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
   同一线程内 `Send` 扇出产生的中断，LangGraph 也能用 `Command(resume={id: value})` 逐个恢复。
 - 子图（`checkpoint_ns = "sub:<task_id>"`）同样双向可用：LangGraph 在子图里暂停后，本引擎能读到
   `{'approved': False, 'draft': 'v1'}` 并 `resume(True)` 走完到 `{'approved': True, 'draft': 'v1 [done]'}`。
-  注意子图必须**各自带 checkpointer**（父 saver 不继承），这一点与 LangGraph 不同。
+  子图**继承父图的 checkpointer**（与 LangGraph 一致）：子图不传 `checkpointer` 时会自动采用父图编译时的 saver，嵌套多层同样成立。
 - 暂停恢复依赖：`__root__`、`branch:to:<node>`、`__interrupt__` 写、以及从 `versions_seen` 中剔除待执行节点。
