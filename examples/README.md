@@ -17,9 +17,9 @@
 | 功能 | 目录 | LangGraph 参考 | binding | native | 文档 |
 | --- | --- | :---: | :---: | :---: | :---: |
 | 快速开始：状态图 + 条件循环 | [`quickstart/`](quickstart/) | ✅ | ✅ | ✅ | [README](quickstart/README.md) |
-| 状态与 reducer（append / 自定义 / MessageGraph） | `state_reducers/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 状态与 reducer（append / 自定义 / last-value） | [`state_reducers/`](state_reducers/) | ✅ | ✅ | ✅ | [README](state_reducers/README.md) |
 | 条件路由与 `Command(goto)` | `routing/` | ⏳ | ⏳ | ⏳ | ⏳ |
-| 人机协同：`interrupt` / resume | `interrupt/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 人机协同：`interrupt` / resume | [`interrupt/`](interrupt/) | ✅ | ✅ | ✅ | [README](interrupt/README.md) |
 | 流式输出：`stream` / `astream` 各模式 | `streaming/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 持久化：savers / 时间旅行 / 断点续跑 | `checkpointing/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 子图与 `Send` 扇出 | `subgraph/` | ⏳ | ⏳ | ⏳ | ⏳ |

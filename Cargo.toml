@@ -70,6 +70,14 @@ name = "quickstart_native"
 path = "examples/quickstart/native_demo.rs"
 
 [[example]]
+name = "state_reducers_native"
+path = "examples/state_reducers/native_demo.rs"
+
+[[example]]
+name = "interrupt_native"
+path = "examples/interrupt/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 
