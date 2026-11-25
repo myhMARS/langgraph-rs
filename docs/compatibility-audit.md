@@ -960,4 +960,30 @@ and an `InjectedStore` tool writes into a Python store attached via `compile(sto
 tests cover schema hiding, both injections, plain-callable keyword injection and the
 LangGraph-vs-extension comparison.
 
-Python suite is 156 tests; parity stays 38/38; Rust tests and clippy pass.
+Python suite is 156 tests; parity stays 38/38; Rust tests and clippy pass.### Round 53: `runtime`, `checkpoint.serde`, `cache.base` and `store.base`
+
+`langgraph.runtime` now matches LangGraph: `Runtime` is a dataclass with LangGraph's eight fields
+(plus the extension's `namespace`), `ExecutionInfo`/`ServerInfo` mirror theirs, and `get_runtime()`
+builds a `Runtime` from the current run (context, store, stream writer, thread/namespace) and
+returns `DEFAULT_RUNTIME` outside a graph -- previously it returned the raw native mapping or
+`None`. `get_config`, `BaseStore`, `BaseUser`, `CONF` and `CONFIG_KEY_RUNTIME` are exported too.
+
+New modules:
+
+* `checkpoint/serde.py`: `JsonPlusSerializer` (JSON plus tagged `bytes`/`datetime`/`set`; tuples
+  become lists, msgpack payload kinds are rejected, unserialisable objects raise `TypeError`),
+  `SerializerProtocol`, `Serializable`.
+* `cache/base.py`: `BaseCache` (ABC with `get`/`set`/`clear`), `FullKey`, `Namespace`, `ValueT`;
+  `cache/memory.py` re-exports them like LangGraph does.
+* `store/base.py`: `BaseStore` is a real ABC now (subclassing works) with `Item`/`SearchItem`
+  mirrors; the previous placeholder docstring ("custom Python stores are not supported") was stale
+  and is gone -- custom store objects still work through the protocol bridge.
+
+A `dir()` diff against LangGraph is now empty for `runtime`, `cache.base`, `cache.memory`,
+`checkpoint.serde`. `store.base` still lacks the embeddings/ops surface (`IndexConfig`,
+`Embeddings`, `GetOp`/`PutOp`/`SearchOp`/`ListNamespacesOp`, `get_text_at_path`, `tokenize_path`,
+`TTLConfig`, ...) -- that is the next target.
+
+Eight new tests cover the Runtime field list, the outside-a-run default, the in-node values
+(context/store/namespace), `ExecutionInfo` defaults, serializer round trips and rejections, and
+`BaseCache`/`FullKey` subclassing. Python suite is 164 tests; parity stays 38/38.
