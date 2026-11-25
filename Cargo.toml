@@ -82,6 +82,10 @@ name = "streaming_native"
 path = "examples/streaming/native_demo.rs"
 
 [[example]]
+name = "subgraph_native"
+path = "examples/subgraph/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 

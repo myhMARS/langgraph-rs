@@ -87,7 +87,17 @@ impl PyStateGraph {
         if let Some(schema) = input_schema {
             graph = graph.set_node_input_schema(name.clone(), py_to_value(schema)?);
         }
-        graph = graph.add_node(name.clone(), node_from_python(name.clone(), function));
+        // LangGraph lets a compiled subgraph be registered with `add_node(name, subgraph)`; route
+        // it to the subgraph path so both spellings behave the same.
+        let subgraph = function
+            .bind(slf.py())
+            .extract::<PyRef<'_, PyCompiledGraph>>()
+            .ok()
+            .map(|child| child.graph.clone());
+        graph = match subgraph {
+            Some(child) => graph.add_subgraph(name.clone(), child),
+            None => graph.add_node(name.clone(), node_from_python(name.clone(), function)),
+        };
         if let Some(policy) = retry_policy {
             graph = graph.set_retry(name.clone(), policy.to_policy());
         }

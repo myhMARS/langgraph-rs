@@ -22,7 +22,7 @@
 | 人机协同：`interrupt` / resume | [`interrupt/`](interrupt/) | ✅ | ✅ | ✅ | [README](interrupt/README.md) |
 | 流式输出：`stream` / 各 stream mode | [`streaming/`](streaming/) | ✅ | ✅ | ✅ | [README](streaming/README.md) |
 | 持久化：savers / 时间旅行 / 断点续跑 | `checkpointing/` | ⏳ | ⏳ | ⏳ | ⏳ |
-| 子图与 `Send` 扇出 | `subgraph/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 子图与 `Send` 扇出 | [`subgraph/`](subgraph/) | ✅ | ✅ | ✅ | [README](subgraph/README.md) |
 | 工具：`ToolNode` / `create_react_agent` / 参数注入 | `tools/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 异步：`ainvoke` / `astream` / 并发超步 | `async/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 长期记忆：store 读写与命名空间 | `store/` | ⏳ | ⏳ | ⏳ | ⏳ |
