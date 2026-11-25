@@ -231,8 +231,10 @@ python examples/quickstart/compare.py --check-only
    `rs.message()` / `get_stream_writer()` 的分片直接下发，不再等节点结束；绑定层新增拉取式
    `stream_live()`（图在后台线程跑，`poll()` 逐个取）。实测：节点内每 0.2 秒写一片，句柄在
    0.20 秒出现、分片 0.20 / 0.26 / 0.45 到达。实时桥按 `thread_id` 注册，并发 run 互不串流。
-   **仍有的边界**：① 上述实时下发目前只在同步 `stream_events` 上生效，`astream_events` 里模型
-   token 是实时的、节点自写分片仍按节点批量；② 普通 `stream()` 仍是一次性收集（保持既有语义）。
+   **异步侧**：`astream(live_sink=callback)` 已支持，回调在引擎线程被逐块调用（实测 0.03 / 0.23
+   秒到达）；`astream_events` 里模型 token 也实时（回调桥），但**节点自写分片经 `astream_events`
+   仍按节点批量**，异步 lane 的接线尚未完成。
+   **仍有的边界**：普通 `stream()` 仍是一次性收集（保持既有语义）。
 7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
 8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`

@@ -57,6 +57,7 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         backend.context_schema(),
         config.stream_subgraphs,
         backend.collector(),
+        config.live_sink.clone(),
     )?;
 
     if thread_id.is_some() && !backend.has_checkpointer() {

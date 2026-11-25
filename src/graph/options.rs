@@ -252,6 +252,17 @@ pub struct RunConfig {
     pub stream_modes: Option<Vec<crate::_internal::stream::StreamMode>>,
     /// Cooperative abort flag checked between supersteps.
     pub control: Option<crate::RunControl>,
+    /// Receives node-produced chunks immediately (live streaming); internal.
+    pub live_sink: Option<crate::runtime::context::LiveSink>,
+}
+
+impl RunConfig {
+    /// Install a sink that receives node-produced chunks as they happen (live streaming).
+    #[must_use]
+    pub fn with_live_sink(mut self, sink: crate::runtime::context::LiveSink) -> Self {
+        self.live_sink = Some(sink);
+        self
+    }
 }
 
 impl std::fmt::Debug for RunConfig {

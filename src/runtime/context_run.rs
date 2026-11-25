@@ -64,8 +64,9 @@ pub(crate) fn install_run(
     namespace: String,
     store: Option<std::sync::Arc<dyn BaseStore>>,
     context: Option<Value>,
+    live_sink: Option<LiveSink>,
 ) -> RunGuard {
-    let live_sink = take_pending_live_sink().or_else(current_live_sink);
+    let live_sink = live_sink.or_else(take_pending_live_sink).or_else(current_live_sink);
     let previous = CURRENT_RUN.with(|slot| {
         slot.borrow_mut().replace(RunContext {
             thread_id,

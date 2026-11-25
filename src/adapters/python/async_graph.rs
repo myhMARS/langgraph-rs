@@ -266,7 +266,7 @@ impl PyAsyncCompiledGraph {
         let graph = slf.into_pyobject(py)?.into_any();
         function.call((graph, input), Some(&kwargs))
     }
-    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None, live_sink=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn astream<'py>(
         &self,
@@ -277,6 +277,7 @@ impl PyAsyncCompiledGraph {
         stream_mode: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
         version: Option<String>,
+        live_sink: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
@@ -288,6 +289,7 @@ impl PyAsyncCompiledGraph {
             }
         };
         let (thread, mut config) = super::convert::config_from_py(py, thread_id)?;
+
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
@@ -296,7 +298,25 @@ impl PyAsyncCompiledGraph {
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Values]);
-        let config = config.with_stream_modes(requested.clone());
+        let mut config = config.with_stream_modes(requested.clone());
+        if let Some(callback) = live_sink.filter(|value| !value.is_none()) {
+            // Node-produced chunks go straight to the caller instead of being buffered per node.
+            let callback = callback.clone().unbind();
+            let modes = requested.clone();
+            let sink: crate::runtime::context::LiveSink =
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    move |chunk: crate::_internal::stream::StreamChunk| {
+                        Python::attach(|py| {
+                            if let Ok(parts) = convert_stream_chunks(py, &[chunk], true, &modes)
+                                && let Some(part) = parts.into_iter().next()
+                            {
+                                let _ = callback.bind(py).call1((part,));
+                            }
+                        });
+                    },
+                ));
+            config = config.with_live_sink(sink);
+        }
         let mut resume_start: Option<(
             Option<crate::Value>,
             Option<serde_json::Map<String, crate::Value>>,

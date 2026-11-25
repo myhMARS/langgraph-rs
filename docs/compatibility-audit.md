@@ -1743,4 +1743,27 @@ Model tokens through `create_react_agent`: 0.23 / 0.43 / 0.63.
 Boundaries left: `astream_events` still uses the collected `astream` (model tokens live via the
 bridge, node writes batched), and plain `stream()` keeps its eager semantics.
 
+Python suite is 355 tests; parity 38/38; clippy and Rust tests clean.### Round 85: live sink reachable from a run config
+
+The live sink no longer depends on a thread-local handshake: `RunConfig` carries it
+(`with_live_sink`), `run_loop` hands it to `step::begin_run`, and `install_run` prefers it over the
+pending thread-local and the enclosing context. That makes live output reachable from the **async**
+lane, where the run starts on a runtime thread the caller never touches.
+
+`AsyncCompiledGraph.astream(..., live_sink=callback)` wraps the Python callable into a `LiveSink`
+that converts each chunk with `convert_stream_chunks` and calls it on the engine thread. Verified:
+
+```
+astream(stream_mode=["messages"], live_sink=cb)            -> [0.03, 0.23]
+astream(stream_mode=["values","tasks","messages"], subgraphs=True, live_sink=cb) -> [0.0, 0.2]
+```
+
+Status of the remaining gap: `astream_events` still delivers node-written chunks at node end. The
+async event lane now passes a `live_sink` into `astream`, but the chunks do not surface before the
+node finishes, so the wiring is incomplete — the sync lane (`stream_events`) remains the one with
+full liveness for both model tokens and node writes. Model tokens stay live on the async lane through
+the callback bridge (measured 0.22 / 0.37 / 0.51 for a model emitting three chunks 0.15 s apart).
+
+Also: `step::begin_run` grew a parameter and now carries `#[allow(clippy::too_many_arguments)]`.
+
 Python suite is 355 tests; parity 38/38; clippy and Rust tests clean.

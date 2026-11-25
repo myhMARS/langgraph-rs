@@ -269,9 +269,13 @@ async def _live_aparts(
     kwargs: dict[str, Any],
 ) -> AsyncIterator[Any]:
     """Async twin of `_live_parts`: tokens are yielded while the model is still generating."""
-    loop = asyncio.get_running_loop()
-    engine: asyncio.Queue[Any] = asyncio.Queue()
+    # A thread-safe queue: the live sink is called from an engine thread, and the async lane must
+    # not depend on which loop owns the consumer.
+    engine: "queue.Queue[Any]" = queue.Queue()
     result: dict[str, Any] = {}
+
+    def sink(part: Any) -> None:
+        engine.put(part)
 
     async def run() -> None:
         try:
@@ -281,13 +285,14 @@ async def _live_aparts(
                 stream_mode=modes,
                 version="v2",
                 subgraphs=subgraphs,
+                live_sink=sink,
                 **kwargs,
             ):
-                engine.put_nowait(part)
+                engine.put(part)
         except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
             result["error"] = error
         finally:
-            engine.put_nowait(None)
+            engine.put(None)
 
     from .._live import activate, deactivate
 
@@ -305,10 +310,8 @@ async def _live_aparts(
                 }
             try:
                 part = engine.get_nowait()
-            except asyncio.QueueEmpty:
-                await asyncio.sleep(0)
-                if not task.done() and engine.empty():
-                    await asyncio.sleep(0.005)
+            except queue.Empty:
+                await asyncio.sleep(0.001)
                 continue
             if part is None:
                 break
@@ -318,7 +321,7 @@ async def _live_aparts(
         while True:
             try:
                 part = engine.get_nowait()
-            except asyncio.QueueEmpty:
+            except queue.Empty:
                 break
             if part is not None:
                 deferred.append(part)

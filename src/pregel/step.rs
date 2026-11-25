@@ -114,6 +114,7 @@ impl RunSetup {
 }
 
 /// Validate context, install the run scope and optional subgraph chunk collector.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn begin_run(
     thread_id: Option<String>,
     namespace: String,
@@ -122,6 +123,7 @@ pub(crate) fn begin_run(
     context_schema: Option<&Value>,
     stream_subgraphs: bool,
     collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::stream::StreamChunk>>>>,
+    live_sink: Option<crate::runtime::context::LiveSink>,
 ) -> Result<RunSetup> {
     // A new run must not inherit a parent command left by an unconsumed goto_parent.
     crate::runtime::context::clear_parent_command();
@@ -130,7 +132,7 @@ pub(crate) fn begin_run(
             Error::validation(format!("context does not match context_schema: {error}"))
         })?;
     }
-    let run = crate::runtime::context::install_run(thread_id, namespace, store, context);
+    let run = crate::runtime::context::install_run(thread_id, namespace, store, context, live_sink);
     let collector = collector.or_else(|| {
         stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
     });
