@@ -310,6 +310,215 @@ class SubgraphTransformer(_TasksLifecycleBase):
             handle._observe_event(event)
             handle._mux.push(event)
         return keep
+
+class MessagesTransformer(StreamTransformer):
+    """Capture messages events as `ChatModelStream` handles.
+
+    `run.messages` yields one handle per chat-model call; each handle exposes `.text`, `.reasoning`,
+    `.tool_calls`, `.usage` and `.output`.
+
+    Three input shapes are handled:
+
+    1. v3 protocol events (dict with `"event"`), routed to a handle by `metadata["run_id"]`.
+    2. A whole `BaseMessage` payload, replayed through `message_to_events` into a completed handle.
+    3. The extension's own `messages` stream parts, which carry plain message dicts: whole messages
+       take the same replay path, and `AIMessageChunk` dicts are accumulated per node and flushed as
+       a completed handle when the run ends (the engine does not emit token-level v3 events yet).
+    """
+
+    _native = True
+    required_stream_modes = ("messages",)
+
+    def __init__(self, scope: tuple[str, ...] = ()) -> None:
+        super().__init__(scope)
+        self._log: StreamChannel[Any] = StreamChannel()
+        self._by_run: dict[str, Any] = {}
+        self._ignored_runs: set[str] = set()
+        self._pump_fn: Callable[[], bool] | None = None
+        self._apump_fn: Callable[[], Awaitable[bool]] | None = None
+        self._scope_list: list[str] = list(scope)
+        # Extension bridge: accumulated chunk dicts per node, flushed on finalize/fail.
+        self._pending: dict[str, list[dict[str, Any]]] = {}
+        self._pending_meta: dict[str, str | None] = {}
+
+    def init(self) -> dict[str, Any]:
+        return {"messages": self._log}
+
+    def _bind_pump(self, fn: Callable[[], bool]) -> None:
+        """Wire the sync pull callback."""
+        self._pump_fn = fn
+
+    def _bind_apump(self, fn: Callable[[], Awaitable[bool]]) -> None:
+        """Wire the async pull callback."""
+        self._apump_fn = fn
+
+    def _make_stream(self, *, node: str | None, message_id: str | None) -> Any:
+        """Create a sync or async `ChatModelStream`, wiring whichever pump is bound."""
+        try:
+            from langchain_core.language_models.chat_model_stream import (
+                AsyncChatModelStream,
+                ChatModelStream,
+            )
+        except Exception:  # pragma: no cover - langchain-core absent
+            raise RuntimeError(
+                "MessagesTransformer requires langchain-core's ChatModelStream; "
+                "use stream_mode='messages' instead."
+            ) from None
+        if self._apump_fn is not None:
+            stream = AsyncChatModelStream(namespace=[], node=node, message_id=message_id)
+            stream.set_arequest_more(self._apump_fn)
+            return stream
+        if self._pump_fn is not None:
+            stream = ChatModelStream(namespace=[], node=node, message_id=message_id)
+            stream.set_request_more(self._pump_fn)
+            return stream
+        return AsyncChatModelStream(namespace=[], node=node, message_id=message_id)
+
+    def process(self, event: ProtocolEvent) -> bool:
+        if event["method"] != "messages":
+            return True
+        params = event["params"]
+        if params["namespace"] != self._scope_list:
+            return True
+
+        payload, metadata = params["data"]
+        metadata = metadata or {}
+        node = metadata.get("langgraph_node")
+        run_id = str(metadata.get("run_id", ""))
+
+        if isinstance(payload, dict) and "event" in payload:
+            self._route_protocol_event(payload, run_id=run_id, node=node)
+        elif self._is_message_object(payload):
+            if self._is_chunk_object(payload):
+                return True  # v1 chunk tuples are not projected (LangGraph behaviour)
+            self._route_whole_message(payload, node=node)
+        elif isinstance(payload, dict) and self._looks_like_message(payload):
+            # Extension bridge: our engine serializes messages to plain dicts.
+            if self._is_chunk_dict(payload):
+                self._accumulate(payload, node=node)
+            else:
+                self._route_whole_message(self._to_message(payload), node=node)
+        return True
+
+    @staticmethod
+    def _is_message_object(payload: Any) -> bool:
+        try:
+            from langchain_core.messages import BaseMessage
+        except Exception:  # pragma: no cover - langchain-core absent
+            return False
+        return isinstance(payload, BaseMessage)
+
+    @staticmethod
+    def _is_chunk_object(payload: Any) -> bool:
+        try:
+            from langchain_core.messages import AIMessageChunk
+        except Exception:  # pragma: no cover
+            return False
+        return isinstance(payload, AIMessageChunk)
+
+    @staticmethod
+    def _looks_like_message(payload: dict[str, Any]) -> bool:
+        return "content" in payload and (
+            "role" in payload or "type" in payload or "tool_calls" in payload
+        )
+
+    @staticmethod
+    def _is_chunk_dict(payload: dict[str, Any]) -> bool:
+        kind = str(payload.get("type") or payload.get("role") or "")
+        return "Chunk" in kind
+
+    @staticmethod
+    def _to_message(payload: dict[str, Any]) -> Any:
+        """Build a LangChain message from our serialized dict."""
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+        kind = str(payload.get("type") or payload.get("role") or "ai")
+        content = payload.get("content", "")
+        if "Chunk" in kind:
+            return AIMessage(content=content)
+        if kind in {"human", "user"}:
+            return HumanMessage(content=content)
+        if kind in {"system", "SystemMessage"}:
+            return SystemMessage(content=content)
+        if kind in {"tool", "ToolMessage"}:
+            return ToolMessage(content=content, tool_call_id=str(payload.get("tool_call_id", "")))
+        return AIMessage(
+            content=content,
+            tool_calls=payload.get("tool_calls") or [],
+        )
+
+    def _accumulate(self, payload: dict[str, Any], *, node: str | None) -> None:
+        key = str(payload.get("id") or node or "")
+        self._pending.setdefault(key, []).append(payload)
+        self._pending_meta[key] = node
+
+    def _flush_pending(self, *, error: BaseException | None = None) -> None:
+        """Emit one completed handle per accumulated chat-model call."""
+        from langchain_core.messages import AIMessage
+
+        for key, chunks in list(self._pending.items()):
+            node = self._pending_meta.get(key)
+            content = "".join(str(chunk.get("content") or "") for chunk in chunks)
+            message = AIMessage(content=content, id=key or None)
+            stream = self._make_stream(node=node, message_id=message.id)
+            if error is None:
+                self._route_whole_message(message, node=node, stream=stream, push=False)
+            else:
+                stream.fail(error)
+            self._log.push(stream)
+        self._pending.clear()
+        self._pending_meta.clear()
+
+    def _route_protocol_event(
+        self, event: dict[str, Any], *, run_id: str, node: str | None
+    ) -> None:
+        event_type = event.get("event")
+        if event_type == "message-start":
+            if event.get("role") == "tool":
+                self._ignored_runs.add(run_id)
+                return
+            message_id = event.get("message_id")
+            stream = self._make_stream(
+                node=node, message_id=str(message_id) if message_id is not None else None
+            )
+            self._by_run[run_id] = stream
+            self._log.push(stream)
+            stream.dispatch(event)
+        elif run_id in self._ignored_runs:
+            if event_type == "message-finish":
+                self._ignored_runs.discard(run_id)
+        elif run_id in self._by_run:
+            stream = self._by_run[run_id]
+            stream.dispatch(event)
+            if event_type == "message-finish":
+                del self._by_run[run_id]
+
+    def _route_whole_message(
+        self, message: Any, *, node: str | None, stream: Any = None, push: bool = True
+    ) -> None:
+        from langchain_core.language_models._compat_bridge import message_to_events
+
+        message_id = getattr(message, "id", None)
+        if stream is None:
+            stream = self._make_stream(node=node, message_id=message_id)
+        for event in message_to_events(message, message_id=message_id):
+            stream.dispatch(event)
+        if push:
+            self._log.push(stream)
+
+    def finalize(self) -> None:
+        """Flush accumulated chunks, then reset routing state."""
+        self._flush_pending()
+        self._by_run.clear()
+        self._ignored_runs.clear()
+
+    def fail(self, err: BaseException) -> None:
+        """Propagate the run error to open and accumulated streams."""
+        for stream in list(self._by_run.values()):
+            stream.fail(err)
+        self._by_run.clear()
+        self._ignored_runs.clear()
+        self._flush_pending(error=err)
 __all__ = [
     "CheckpointsTransformer",
     "CustomTransformer",
@@ -502,11 +711,3 @@ class TasksTransformer(StreamTransformer):
         return True
 
 
-_MISSING = fill_unsupported(
-    globals(),
-    ["MessagesTransformer"],
-    hint=(
-        "MessagesTransformer needs langchain-core's ChatModelStream; use "
-        "stream_mode='messages' meanwhile."
-    ),
-)

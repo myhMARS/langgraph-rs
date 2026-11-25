@@ -1505,4 +1505,29 @@ Python suite is 319 tests; parity 38/38; clippy and Rust tests clean.### Round 7
 grandchild nesting, the lifecycle sequence, failure surfacing, the one-segment-per-level namespace
 shape, and compares lifecycle sequences and child graph names with LangGraph.
 
-Python suite is 327 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 327 tests; parity 38/38; clippy and Rust tests clean.### Round 77: `MessagesTransformer` — the stream subsystem is complete
+
+`MessagesTransformer` (the last missing piece of `langgraph.stream`) is implemented on top of
+langchain-core's own `ChatModelStream`:
+
+* v3 content-block protocol events (`message-start` / `content-block-*` / `message-finish`) are routed
+  to a handle by `metadata["run_id"]`; tool-role messages are ignored, exactly like upstream.
+* Whole `BaseMessage` payloads are replayed through `message_to_events` into a completed handle.
+* Extension bridge: the engine serializes messages to plain dicts, so message dicts take the replay
+  path and `AIMessageChunk` dicts are accumulated per call and flushed as one completed handle when
+  the run ends (the engine has no token-level v3 events yet). Handles created this way carry the
+  joined text and a synthesized `AIMessage` id, which is what `run.messages` exposes today.
+* `_bind_pump` / `_bind_apump` wire the run pump into each handle on both lanes.
+
+`python/tests/test_messages_transformer.py` (9 tests) covers the protocol lifecycle, tool-role
+filtering, whole messages, per-call chunk accumulation, separate calls, namespace scoping, a real
+graph emitting chunks through `message()`, and two parity cases against LangGraph (protocol events
+and whole messages).
+
+`dir(langgraph_rs.stream)` now covers `dir(langgraph.stream)` completely (0 missing names).
+
+Python suite is 336 tests; parity 38/38; clippy and Rust tests clean.
+
+Documented divergence: LangGraph's `run.messages` is token-live only when the model layer emits v3
+content-block events; the extension's engine does not, so chunked messages surface as one completed
+handle at run end instead of a live stream.
