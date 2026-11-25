@@ -23,9 +23,9 @@
 | 流式输出：`stream` / 各 stream mode | [`streaming/`](streaming/) | ✅ | ✅ | ✅ | [README](streaming/README.md) |
 | 持久化：savers / 时间旅行 / 断点续跑 | [`checkpointing/`](checkpointing/) | ✅ | ✅ | ✅ | [README](checkpointing/README.md) |
 | 子图与 `Send` 扇出 | [`subgraph/`](subgraph/) | ✅ | ✅ | ✅ | [README](subgraph/README.md) |
-| 工具：`ToolNode` / `create_react_agent` / 参数注入 | `tools/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 工具：`ToolNode` / 参数注入（`InjectedState`） | [`tools/`](tools/) | ✅ | ✅ | ✅ | [README](tools/README.md) |
 | 异步：`ainvoke` / 并发超步 / 消费统计 | [`async/`](async/) | ✅ | ✅ | ✅ | [README](async/README.md) |
-| 长期记忆：store 读写与命名空间 | `store/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 长期记忆：store 读写与命名空间 | [`store/`](store/) | ✅ | ✅ | ✅ | [README](store/README.md) |
 
 图例：✅ 已完成 · ⏳ 计划中（按上表顺序补齐）
 

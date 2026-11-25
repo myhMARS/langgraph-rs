@@ -74,6 +74,8 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                     let py_args =
                         value_to_py(py, &args).map_err(|error| pyerr_to_error(py, error))?;
                     let result = if injected.is_empty() {
+                        // Plain callables receive the argument mapping as one positional value
+                        // (a documented difference from LangChain's `@tool` binding).
                         function
                             .call1(py, (py_args,))
                             .map_err(|error| pyerr_to_error(py, error))?

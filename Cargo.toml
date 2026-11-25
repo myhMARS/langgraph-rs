@@ -98,6 +98,14 @@ name = "checkpointing_native"
 path = "examples/checkpointing/native_demo.rs"
 
 [[example]]
+name = "tools_native"
+path = "examples/tools/native_demo.rs"
+
+[[example]]
+name = "store_native"
+path = "examples/store/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 
