@@ -214,9 +214,11 @@ python examples/quickstart/compare.py --check-only
 
 ### 有意保留的差异（全部有测试与文档）
 
-1. **引擎内部类**（`PregelNode`、`ChannelWrite`、`ChannelWriteEntry`、`SyncAsyncFuture`）保持
-   可导入的占位：使用即抛错并提示改用 `StateGraph.compile()`。这些是 LangGraph 的私有执行布局，
-   扩展跑自己的引擎。
+1. **引擎内部类为可导入占位**：LG 1.2.22 里只有 `NodeBuilder` / `Pregel` 在 `langgraph.pregel`
+   公开，`ChannelWrite` / `ChannelWriteEntry` 仅在私有模块 `langgraph.pregel._write`，`PregelNode` /
+   `SyncAsyncFuture` 连私有路径都没有。我们把这六个名字都做成可导入占位（同名路径
+   `langgraph_rs.pregel._write` 也在），实例化即抛 `NotImplementedError` 并提示改用
+   `StateGraph.compile()` —— 属于**超集**，不会让迁移里的 import 失败。
 2. **原生 `invoke(&state)` 传完整状态**：绑定层与 LangGraph 一样把 `invoke(dict)` 视为经 reducer
    的部分写入；原生 Rust API 需要完整状态。
 3. **store 超集（只剩 `ttl`）**：`InMemoryStore` 接受 `ttl`，LG 的 `InMemoryStore` 对 `ttl` 抛
@@ -225,6 +227,11 @@ python examples/quickstart/compare.py --check-only
 4. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`）：
    除生成器用法外还支持 `len()`/下标；`next()` 与 LG 一样可用，因此不构成兼容性问题。
 5. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
+
+> **本轮结论（第 6 节终版）**：除上述 5 条外，已无可消除的差异。其中 3 条是超集（内部类占位、
+> `ttl`、可重复迭代对象），1 条是原生 Rust API 的设计取舍（完整状态），1 条是环境限制
+> （`RemoteGraph` 无实盘）。此前记录过的 6 条差异（`run.messages` 实时性、未声明键、无 saver 中断、
+> 普通 callable 传参、`push_ui_message` 写 state、store `query` 语义）都已对齐并有测试锁定。
 
 已经消掉的旧差异（保留记录，避免回退）：
 

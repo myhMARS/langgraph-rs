@@ -9,14 +9,28 @@ from __future__ import annotations
 
 from .._compat import fill_unsupported, module_getattr
 
-__all__ = ["NodeBuilder", "Pregel", "debug", "main", "protocol", "remote"]
+__all__ = [
+    "ChannelWrite",
+    "ChannelWriteEntry",
+    "NodeBuilder",
+    "Pregel",
+    "PregelNode",
+    "SyncAsyncFuture",
+    "debug",
+    "main",
+    "protocol",
+    "remote",
+]
 
+# LangGraph keeps these in private modules (`langgraph.pregel._write`, ...); they are importable
+# there, so the same names exist here for import compatibility even though the extension runs its
+# own engine.
 _MISSING = fill_unsupported(
     globals(),
-    ["NodeBuilder", "Pregel"],
+    ["ChannelWrite", "ChannelWriteEntry", "NodeBuilder", "Pregel", "PregelNode", "SyncAsyncFuture"],
     hint="Use the compiled graph returned by StateGraph.compile() instead.",
 )
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
 
 # LangGraph's package re-exports its internal submodules.
-from . import debug, main, protocol, remote  # noqa: E402,F401
+from . import _write, debug, main, protocol, remote  # noqa: E402,F401

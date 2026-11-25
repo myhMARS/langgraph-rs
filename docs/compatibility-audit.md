@@ -1925,4 +1925,35 @@ four items plus the `RemoteGraph` caveat, and item 4 was reworded: `StreamChunks
 (the generator protocol) in addition to `len()`/indexing, so it is a superset rather than an
 incompatibility — verified with `next(app.stream(...))`.
 
-Python suite is 370 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 370 tests; parity 38/38; clippy and Rust tests clean.### Round 92: closing verification for the divergence layer
+
+Final pass over the whole layer, with the evidence re-collected in this round rather than quoted from
+earlier notes.
+
+**Verification run**
+
+| Check | Result |
+| --- | --- |
+| Python suite | **372 tests, all passing** |
+| Parity benchmark | 38/38 scenarios equivalent, 0 known differences |
+| Migration examples | 10/10 `compare.py --check-only` → `identical` (11th is the liveness harness) |
+| Streaming liveness harness | 4/4 PASS (`examples/streaming-liveness/compare.py --check`) |
+| Rust tests | `cargo test --all-targets --features "async msgpack sqlite"` clean |
+| Clippy | `--all-targets --all-features -- -D warnings` clean |
+
+**Each remaining item re-checked against LangGraph 1.2.22**
+
+* Internal engine classes: `langgraph.pregel` publicly exports only `NodeBuilder` and `Pregel`;
+  `ChannelWrite` / `ChannelWriteEntry` live in the private `langgraph.pregel._write`; `PregelNode` and
+  `SyncAsyncFuture` are not importable from any public module. We now provide all four names (plus a
+  `langgraph_rs.pregel._write` path) as importable placeholders that raise `NotImplementedError` with
+  a `StateGraph.compile()` hint — a superset, and `PregelPlaceholderTest` locks it in.
+* `ttl`: LangGraph's `InMemoryStore.put(..., ttl=…)` raises `NotImplementedError`; ours accepts it.
+* `stream()`: LangGraph returns a generator (`next()` works, no `len()`); `StreamChunks` supports
+  `next()` as well as `len()`/indexing.
+* Native `invoke(&state)`: Rust API design, no LangGraph counterpart to compare.
+* `RemoteGraph`: no live deployment available in this environment.
+
+`docs/langgraph-compat.md` section 6 now carries a closing statement: five retained differences (three
+supersets, one Rust API choice, one environment limit) and a list of the six differences that were
+closed in this layer, each with the test that locks it in.

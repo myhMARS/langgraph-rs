@@ -88,3 +88,26 @@ class LangGraphParityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PregelPlaceholderTest(unittest.TestCase):
+    """Internal engine classes stay importable and raise with guidance when used."""
+
+    def test_internal_classes_are_importable(self):
+        from langgraph_rs.pregel import (
+            ChannelWrite,
+            ChannelWriteEntry,
+            PregelNode,
+            SyncAsyncFuture,
+        )
+        from langgraph_rs.pregel._write import ChannelWrite as PrivateChannelWrite
+
+        self.assertIs(ChannelWrite, PrivateChannelWrite)
+        for name in (ChannelWrite, ChannelWriteEntry, PregelNode, SyncAsyncFuture):
+            self.assertTrue(callable(name))
+
+    def test_using_them_raises_with_a_hint(self):
+        from langgraph_rs.pregel import ChannelWrite
+
+        with self.assertRaises(NotImplementedError) as raised:
+            ChannelWrite([])
+        self.assertIn("StateGraph.compile()", str(raised.exception))
