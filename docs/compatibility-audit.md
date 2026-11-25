@@ -1372,4 +1372,23 @@ LangGraph on the same inputs. Python suite is 263 tests; parity 38/38.
 
 Next steps (in order): `_mux.py` (StreamMux + registration), `transformers.py` (built-ins),
 `run_stream.py` bound to the engine's chunk stream, then `compile(transformers=...)` and
-`ToolCallTransformer`.
+`ToolCallTransformer`.### Round 71: `StreamMux` event dispatcher
+
+Second step of the `langgraph.stream` port: the dispatcher the public transformers run on.
+
+* `langgraph_rs.stream._mux.StreamMux` — registration (`factories=` vs pre-built `transformers=`),
+  `before_builtins` ordering, projection merging with owner attribution and conflict `ValueError`,
+  `native_keys`, `transformer_by_key`, sync `push` / async `apush`, `close`/`fail` and
+  `aclose`/`afail`, `bind_pump`/`bind_apump` propagation, `_make_child` mini-muxes (factories only,
+  no `seq` assignment) and named-channel auto-forwarding (`custom:` prefix for user channels, plain
+  name for `_native` ones).
+* `langgraph_rs.stream._convert.convert_to_protocol_event` — v2 stream part → `ProtocolEvent`.
+
+`python/tests/test_stream_mux.py` (14 tests) covers the contract and compares dispatch output
+(`seq`, method, data) and channel forwarding against LangGraph's mux on the same inputs.
+
+Python suite is 277 tests; parity 38/38.
+
+Next: the built-in transformers (`ValuesTransformer`, `UpdatesTransformer`, `CustomTransformer`,
+`CheckpointsTransformer`, `DebugTransformer`, `TasksTransformer`, `LifecycleTransformer`), then
+`run_stream` + `stream_events(version="v3")`, then `MessagesTransformer` / `ToolCallTransformer`.
