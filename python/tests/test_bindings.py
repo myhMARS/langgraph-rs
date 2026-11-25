@@ -2263,3 +2263,29 @@ class AsyncPythonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class DeclaredSchemaInputTest(unittest.TestCase):
+    """A declared schema drops unknown input keys, like LangGraph."""
+
+    def test_interrupt_without_checkpointer_returns_the_payload(self):
+        graph = lg.StateGraph({"messages": "messages"})
+        graph.add_node("node", lambda state: {"messages": [], "answer": lg.interrupt({"q": "ok?"})})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile()
+
+        result = app.invoke({"messages": []})
+        self.assertIn("__interrupt__", result)
+        self.assertEqual(result["__interrupt__"][0].value, {"q": "ok?"})
+
+    def test_react_agent_drops_extra_input_keys(self):
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        class Fake(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        agent = lg.create_react_agent(Fake(messages=iter([AIMessage(content="hi")])), [])
+        result = agent.invoke({"messages": [{"role": "user", "content": "go"}], "extra_key": 42})
+        self.assertEqual(sorted(result.keys()), ["messages"])

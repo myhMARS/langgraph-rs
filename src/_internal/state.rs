@@ -98,11 +98,15 @@ impl StateSchema {
         values
             .into_iter()
             .filter(|(name, _)| {
-                !self.private_channels.contains(name)
-                    && self
-                        .input_channels
-                        .as_ref()
-                        .is_none_or(|allowed| allowed.contains(name.as_str()))
+                if self.private_channels.contains(name) {
+                    return false;
+                }
+                if let Some(allowed) = self.input_channels.as_ref() {
+                    return allowed.contains(name.as_str());
+                }
+                // A declared (strict) schema declares its input keys; LangGraph drops the rest
+                // instead of carrying unknown keys through the run.
+                self.allow_implicit_channels || self.channels.contains_key(name)
             })
             .collect()
     }

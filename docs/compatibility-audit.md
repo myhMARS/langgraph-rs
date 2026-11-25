@@ -1818,4 +1818,28 @@ PASS  node messages (async):  deltas=['a', 'b'] first_before_node_end=True
 PASS  interrupt on live path: interrupted=True interrupts=1
 ```
 
-Python suite is 358 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 358 tests; parity 38/38; clippy and Rust tests clean.### Round 88: auditing the divergence list against real LangGraph
+
+Each "intentional divergence" was re-checked by running the same workload on LangGraph 1.2.22. Three
+of the ten turned out to be wrong — one stale, two genuinely fixable.
+
+* **`interrupt` without a checkpointer (was #8) — stale.** LangGraph returns the input state plus
+  `__interrupt__`; so do we, on both `invoke` and `stream`. The claim that we raised `GraphInterrupt`
+  no longer held, so the entry is gone.
+* **`create_react_agent` extra input keys (was #3) — fixed.** LangGraph's default agent state declares
+  only `messages`, so `{"messages": ..., "extra_key": 42}` comes back as `["messages"]`. Ours kept
+  `extra_key`. Root cause was broader than the agent: `StateSchema::filter_input` filtered only
+  private/input-schema channels, so *any* declared schema kept unknown input keys. It now drops them
+  when the schema is strict (`!allow_implicit_channels`), matching LangGraph for every declared
+  schema, while dynamic schemas keep accepting anything.
+* **`run.messages` not live (was #6) — no longer a divergence.** The streaming work in rounds 81-87
+  made model tokens, node-written messages and custom events live on both lanes; the entry moved to
+  a "differences that were closed" list so it cannot silently regress.
+
+Remaining seven are deliberate and documented: engine internals as placeholders, native
+`invoke(&state)` requiring a complete state, positional args for plain callables, the store superset,
+repeatable `stream()`/history objects, `push_ui_message` not writing state (no `CONFIG_KEY_SEND`),
+and `RemoteGraph` not exercised against a live deployment.
+
+Tests added: `DeclaredSchemaInputTest` (no-saver interrupt payload, react agent dropping extra keys).
+Python suite is 360 tests; parity 38/38; clippy and Rust tests clean.

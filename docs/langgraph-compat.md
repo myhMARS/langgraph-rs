@@ -215,38 +215,26 @@ python examples/quickstart/compare.py --check-only
 ### 有意保留的差异（全部有测试与文档）
 
 1. **引擎内部类**（`PregelNode`、`ChannelWrite`、`ChannelWriteEntry`、`SyncAsyncFuture`）保持
-   可导入的占位：使用即抛错并提示改用 `StateGraph.compile()`。
+   可导入的占位：使用即抛错并提示改用 `StateGraph.compile()`。这些是 LangGraph 的私有执行布局，
+   扩展跑自己的引擎。
 2. **原生 `invoke(&state)` 传完整状态**：绑定层与 LangGraph 一样把 `invoke(dict)` 视为经 reducer
    的部分写入；原生 Rust API 需要完整状态。
-3. **`create_react_agent` 无 `state_schema` 时接受额外键**：LangGraph 会丢弃它们。
-4. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
-5. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
+3. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
+4. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
    在没有向量索引时做子串匹配（LG 忽略 `query`）。
-6. **`run.messages` 在同步路径上已是生成期实时**：`create_react_agent` 调用模型的 `stream()`
-   逐块产出（按 LangChain 的 `+` 合并成最终消息），LangChain 的 token 回调把每个分片推入一个
-   「实时桥」（`langgraph_rs._live`），`stream_events` 在后台线程跑图并边收边发，因此句柄在
-   **第一个分片**就出现、`handle.text` 与生成同步产出。实测：模型每 0.2 秒一块，三个分片分别在
-   0.24 / 0.44 / 0.64 秒到达（此前要到 0.64 秒后才一次性给出）。
-   **节点自己写的分片也已经实时**：引擎新增了「实时 sink」（`RunContext.live_sink`），节点里
-   `rs.message()` / `get_stream_writer()` 的分片直接下发，不再等节点结束；绑定层新增拉取式
-   `stream_live()`（图在后台线程跑，`poll()` 逐个取）。实测：节点内每 0.2 秒写一片，句柄在
-   0.20 秒出现、分片 0.20 / 0.26 / 0.45 到达。实时桥按 `thread_id` 注册，并发 run 互不串流。
-   **自定义事件同样实时**：`get_stream_writer()` 的输出在 `stream_events` / `astream_events` 的
-   `run.custom` 上逐条到达（实测 0.01 / 0.16 秒，节点尚未结束）。
-   **同步与异步都已实时**（模型 token、节点自写消息、custom 事件），异步 lane 用独立线程跑图避免
-   堵住消费方事件循环。
-   **中断在实时路径上也正确上报**：实时路径把中断作为 `updates` 分片（含 `__interrupt__`）给出，
-   `run.interrupted` / `run.interrupts` 与收集路径一致。
-   **回归校验**：`examples/streaming-liveness/compare.py --check` 用「首条数据早于节点结束」的
-   顺序断言覆盖上述三条实时通道 + 中断上报，可随时重跑。
-   **仍有的边界**：普通 `stream()` 仍是一次性收集（保持既有语义）；`values` / `tasks` 这类按 step
-   组装的流仍按 step 边界给出。
-7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
+5. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
-8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`
-   （无 saver 的暂停本也无法恢复）。
-9. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
-10. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
+6. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
+7. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
+
+已经消掉的旧差异（保留记录，避免回退）：
+
+* `run.messages` 非实时 → 现在同步/异步都实时（模型 token、节点自写消息、custom 事件）；见
+  `examples/streaming-liveness/compare.py`。
+* `create_react_agent` 无 `state_schema` 时接受额外键 → 现在与 LG 一致地丢弃未声明键；声明的
+  schema 同样只接受自己声明的输入键。
+* 无 checkpointer 时 `interrupt` 抛 `GraphInterrupt` → 现在与 LG 一致，返回输入状态 + `__interrupt__`。
+
 ### 跨引擎 resume 支持矩阵（2026-11）
 
 | 共享方式 | LangGraph 暂停 → rs 恢复 | rs 暂停 → LangGraph 恢复 | 交替继续（新输入） |

@@ -564,7 +564,9 @@ pub(super) fn create_react_agent(
     let condition_key = messages_key.clone();
     let base_schema = match state_schema {
         Some(schema) if !schema.is_none() => super::convert::schema_from_py(Some(schema))?,
-        _ => StateSchema::dynamic(),
+        // LangGraph's default agent state declares only `messages` (+ managed values), so extra
+        // input keys are dropped instead of being carried through the run.
+        _ => StateSchema::new(),
     };
     let schema = base_schema
         .with_reducer(&messages_key, reducers::messages())
