@@ -1325,4 +1325,30 @@ Implementation:
 Verified by `python/tests/test_subgraph_inheritance.py` (4 tests): single-level inheritance,
 two-level nesting, an explicitly saved child keeping its own saver, and a LangGraph parity case.
 
-Python suite is 236 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 236 tests; parity 38/38; clippy and Rust tests clean.### Round 69: public type aliases and module surfaces
+
+An API diff over `langgraph.types`, `langgraph.func` and `langgraph.checkpoint.serde.jsonplus`
+showed the remaining gaps were mostly *surface* rather than behaviour. Fixed:
+
+* `StreamMode` and `All` are now the same `Literal` aliases LangGraph uses (they were placeholder
+  classes), and `StreamWriter` is `collections.abc.Callable[[Any], None]` — all three compare equal to
+  LangGraph's objects (see `python/tests/test_type_aliases.py`).
+* `DeprecatedKwargs` (empty TypedDict) and the `MISSING` sentinel now exist in `langgraph_rs.types`.
+* `langgraph.func` now covers LangGraph's public surface completely (diff = 0 names): real
+  re-exports (`BaseCache`, `BaseCheckpointSaver`, `BaseStore`, `CachePolicy`, `RetryPolicy`,
+  `TimeoutPolicy`, `StreamMode`), typing helpers (`Any`, `Awaitable`, `Callable`, `Generic`,
+  `Sequence`, `TypeVar`, `Unpack`, `cast`, `dataclass`, `functools`, `get_args`, `get_origin`,
+  `inspect`, `overload`, `timedelta`, `warnings`), type variables (`ContextT`, `P`, `R`, `S`, `T`)
+  and a working `get_runnable_for_entrypoint` (returns an `invoke`/`ainvoke` wrapper).
+* `langgraph.middleware` exists as an empty module, like LangGraph 1.2's.
+* `jsonplus` exports the eight messagepack `EXT_*` extension ids with LangGraph's values.
+* `Pregel`, `PregelNode`, `ChannelWrite`, `ChannelWriteEntry`, `SyncAsyncFuture` stay importable
+  placeholders that raise with the "use the compiled graph" hint.
+
+Remaining subsystem gap, measured rather than guessed: `langgraph.stream` (19 public symbols:
+`GraphRunStream`, `AsyncGraphRunStream`, `StreamChannel`, `ProtocolEvent`, `StreamTransformer` and
+the built-in transformers) plus `compile(transformers=...)`. `ToolCallTransformer` is one member of
+it. That is a multi-round feature, not a shim fix; the extension's own seven `stream_mode`s are
+unaffected.
+
+Python suite is 247 tests; parity 38/38; clippy clean.

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable as AbcCallable
+from typing import Any, Literal, Protocol, TypedDict
+
 from ._compat import fill_unsupported, module_getattr, re_export
 from .warnings import LangGraphDeprecatedSinceV10, LangGraphDeprecatedSinceV11
 from .types_extra import (
@@ -103,6 +106,34 @@ __all__ = [
     "xxh3_128_hexdigest",
 ]
 
-_MISSING = re_export(globals(), ["All", "CachePolicy", "Command", "GraphInterrupt", "Interrupt", "PregelTask", "RetryPolicy", "RunControl", "Send", "StateSnapshot", "StreamMode", "StreamWriter", "Task", "TimeoutPolicy", "interrupt"])
+# Runtime values (the extension's classes) are re-exported, but the *type* surface matches
+# LangGraph: `StreamMode` / `All` are `Literal` aliases and `StreamWriter` is a callable type.
+_MISSING = re_export(globals(), ["CachePolicy", "Command", "GraphInterrupt", "Interrupt", "PregelTask", "RetryPolicy", "RunControl", "Send", "StateSnapshot", "Task", "TimeoutPolicy", "interrupt"])
+fill_unsupported(globals(), _MISSING)
+
+StreamMode = Literal[
+    "values", "updates", "checkpoints", "tasks", "debug", "messages", "custom"
+]
+"""How the stream method should emit outputs (LangGraph's `StreamMode`)."""
+
+All = Literal["*"]
+"""Send every node's output (`Command(goto=All)`)."""
+
+StreamWriter = AbcCallable[[Any], None]
+"""Writes a value to the `custom` stream from inside a node."""
+
+MISSING: Any = object()
+"""Sentinel for "argument not provided" (LangGraph's `MISSING`)."""
+
+
+class DeprecatedKwargs(TypedDict, total=False):
+    """Deprecated keyword arguments accepted for compatibility."""
+
+
+class SendProtocol(Protocol):
+    """Minimal shape of a `Send` (node name + argument)."""
+
+    node: str
+    arg: Any
 fill_unsupported(globals(), _MISSING)
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
