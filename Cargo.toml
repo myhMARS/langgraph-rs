@@ -90,6 +90,14 @@ name = "async_native"
 path = "examples/async/native_demo.rs"
 
 [[example]]
+name = "routing_native"
+path = "examples/routing/native_demo.rs"
+
+[[example]]
+name = "checkpointing_native"
+path = "examples/checkpointing/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 
