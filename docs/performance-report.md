@@ -11,8 +11,8 @@ Three independent measurements are used, because each answers a different questi
 
 | Tool | What it measures | Command |
 | --- | --- | --- |
-| `examples/perf_probe.rs` | engine internals: one run, fan-out, saves, reads, history | `cargo run --release --example perf_probe --features async` |
-| `examples/mega_workflow/bench*.py` | the same large workflow (nodes, reducers, subgraph, interrupts, cache, retry, deferred) on LangGraph, the Python binding and the native API, interleaved, with warmup and medians | `python examples/mega_workflow/bench.py` |
+| `benchmarks/rust/perf_probe.rs` | engine internals: one run, fan-out, saves, reads, history | `cargo run --release --example perf_probe --features async` |
+| `benchmarks/mega_workflow/bench*.py` | the same large workflow (nodes, reducers, subgraph, interrupts, cache, retry, deferred) on LangGraph, the Python binding and the native API, interleaved, with warmup and medians | `python benchmarks/mega_workflow/bench.py` |
 | `benchmarks/parity.py` | behaviour equivalence **and** per-scenario timing for 38 scenarios | `python benchmarks/parity.py` |
 
 The machine is a Windows developer workstation; absolute numbers move by ±15% between runs, so
@@ -52,7 +52,7 @@ Python binding:
 ## Current results
 
 Cross-engine medians, three consecutive runs of 12 interleaved suites each
-(`examples/mega_workflow`); the median of the three runs is shown:
+(`benchmarks/mega_workflow`); the median of the three runs is shown:
 
 The extension **must be built in release mode** (`cargo build --release --features ...`) before it is
 copied to `langgraph_rs.pyd`. The numbers below were collected with `target/release/langgraph_rs.dll`;
@@ -145,6 +145,6 @@ $env:PYTHONPATH = "$PWD\target\python"
 python -m unittest discover -s python\tests      # 119 tests
 python benchmarks\parity.py                      # 38/38 equivalent
 cargo run --release --example perf_probe --features async
-python examples\mega_workflow\bench.py
-python examples\mega_workflow\bench_async.py
+python benchmarks\mega_workflow\bench.py
+python benchmarks\mega_workflow\bench_async.py
 ```

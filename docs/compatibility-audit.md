@@ -223,7 +223,7 @@ Tokio bridge because the underlying saver call is async.### Round 2 additions
 | Change | Where | Effect |
 | --- | --- | --- |
 | `aupdate_state` runs inline for in-memory savers instead of scheduling a Tokio task | `adapters/python/async_graph.rs` | 0.58 -> 0.132 ms per call (4.4x), now faster than LangGraph async (0.33 ms) |
-| Benchmarks warm up once and interleave engines per iteration | `examples/mega_workflow/bench.py`, `bench_async.py` | removes the ±20% drift between runs and whichever engine ran first |
+| Benchmarks warm up once and interleave engines per iteration | `benchmarks/mega_workflow/bench.py`, `bench_async.py` | removes the ±20% drift between runs and whichever engine ran first |
 
 Current per-phase medians (10 interleaved suites, single machine; LangGraph 1.2.22):
 

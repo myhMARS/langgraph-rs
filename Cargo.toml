@@ -57,6 +57,26 @@ postgres = ["dep:postgres", "dep:tokio-postgres"]
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 
+# Benchmark and comparison sources live under `benchmarks/`; only the targets are declared here.
 [[bench]]
 name = "bench_rust"
+path = "benchmarks/rust/bench_rust.rs"
 harness = false
+
+# Per-feature examples: each feature keeps its LangGraph reference, the Python binding and the
+# native Rust version side by side under `examples/<feature>/`.
+[[example]]
+name = "quickstart_native"
+path = "examples/quickstart/native_demo.rs"
+
+[[example]]
+name = "perf_probe"
+path = "benchmarks/rust/perf_probe.rs"
+
+[[example]]
+name = "mega_workflow_native"
+path = "benchmarks/rust/mega_workflow_native.rs"
+
+[[example]]
+name = "mega_workflow_async_native"
+path = "benchmarks/rust/mega_workflow_async_native.rs"

@@ -6,7 +6,7 @@
 //! ```
 //!
 //! Prints `FINAL ...` and one `PHASE=<name>:<ns>` line per phase, which
-//! `examples/mega_workflow/bench_async.py` parses.
+//! `benchmarks/mega_workflow/bench_async.py` parses.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

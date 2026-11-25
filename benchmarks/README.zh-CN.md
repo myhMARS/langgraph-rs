@@ -23,7 +23,7 @@
 
 实现：
 
-- Rust 原生：[`benches/bench_rust.rs`](../benches/bench_rust.rs)，运行
+- Rust 原生：[`benchmarks/rust/bench_rust.rs`](rust/bench_rust.rs)，运行
   `cargo bench --bench bench_rust`。
 - Python LangGraph：[`python/benchmarks/bench.py`](../python/benchmarks/bench.py)
   （`--engine langgraph`），针对 LangGraph 1.2.x。

@@ -1,4 +1,4 @@
-//! Mega workflow (pure Rust) mirroring `examples/mega_workflow/build_lg.py` and
+//! Mega workflow (pure Rust) mirroring `benchmarks/mega_workflow/build_lg.py` and
 //! `build_rs.py`: same nodes, same order, same work per suite.
 //!
 //! ```text
@@ -9,7 +9,7 @@
 //!
 //! Run it with `cargo run --release --example mega_workflow`. It prints the number of
 //! nanoseconds for each phase and a machine-readable `PHASE=<name>:<ns>` line pair for the
-//! Python driver in `examples/mega_workflow/bench.py`.
+//! Python driver in `benchmarks/mega_workflow/bench.py`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

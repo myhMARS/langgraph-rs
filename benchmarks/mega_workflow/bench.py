@@ -1,18 +1,30 @@
-"""Async twin of ``bench.py``: LangGraph vs Rust binding vs Rust native.
+"""Compare one long workflow across LangGraph, the Rust binding and Rust native.
 
-Same 15-node workflow, same phases, but every node is an ``async def`` and every call is
-awaited (``ainvoke`` / ``aresume`` / ``astream`` / ``abatch`` / ``aget_state`` ...).
+The workflow (see ``build_lg.py`` / ``build_rs.py`` / ``../mega_workflow_native.rs``)
+exercises, in a single suite:
+
+* a loop built from conditional edges (``grow`` runs three times),
+* ``Send`` fan-out with three workers joined back into ``join``,
+* node-level caching, a retried failure and an always-failing node with an error handler,
+* a deferred node and an embedded child graph with explicit input/output mapping,
+* an ``interrupt`` that pauses the run and a resume that completes it,
+* ``get_state`` / ``get_state_history``, ``update_state``, ``stream`` and ``batch``.
+
+Each phase is timed separately so a slow phase does not hide the others.
 
 Usage::
 
-    python examples/mega_workflow/bench_async.py --iterations 10
-    python examples/mega_workflow/bench_async.py --iterations 10 --skip-native
+    python benchmarks/mega_workflow/bench.py --iterations 20
+    python benchmarks/mega_workflow/bench.py --iterations 20 --skip-native
+
+The Rust binding must be importable (``PYTHONPATH=<repo>/target/python``); the native
+side is built with ``cargo build --release --example mega_workflow_native``.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import json
 import os
 import statistics
 import subprocess
@@ -31,52 +43,55 @@ def _median(samples: list[int]) -> int:
     return int(statistics.median(samples))
 
 
-class LangGraphAsyncDriver:
-    name = "langgraph-async"
+class LangGraphDriver:
+    name = "langgraph"
+    color = "python-langgraph"
 
     def __init__(self) -> None:
-        import build_lg_async  # noqa: PLC0415
+        import build_lg  # noqa: PLC0415 - local example module
 
-        bundle = build_lg_async.build()
+        self.build_lg = build_lg
+        bundle = build_lg.build()
         self.graph = bundle["graph"]
         self.Command = bundle["Command"]
-        from langgraph.errors import GraphInterrupt  # noqa: PLC0415
-
-        self.GraphInterrupt = GraphInterrupt
+        self.GraphInterrupt = self._interrupt_type()
 
     @staticmethod
-    def _cfg(thread: str) -> dict:
+    def _interrupt_type():
+        from langgraph.errors import GraphInterrupt  # noqa: PLC0415
+
+        return GraphInterrupt
+
+    def _cfg(self, thread: str) -> dict:
         return {"configurable": {"thread_id": thread}}
 
-    async def suite(self, thread: str) -> dict:
+    def suite(self, thread: str) -> dict:
         graph = self.graph
         cfg = self._cfg(thread)
         timings: dict[str, int] = {}
 
         started = time.perf_counter_ns()
-        await graph.ainvoke(dict(INPUT), cfg)
+        graph.invoke(dict(INPUT), cfg)
         timings["invoke"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        self.final = await graph.ainvoke(self.Command(resume="go"), cfg)
+        self.final = graph.invoke(self.Command(resume="go"), cfg)
         timings["resume"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        snapshot = await graph.aget_state(cfg)
-        history = [entry async for entry in graph.aget_state_history(cfg, limit=5)]
+        snapshot = graph.get_state(cfg)
+        history = list(graph.get_state_history(cfg, limit=5))
         self.step, self.history = snapshot.metadata["step"], len(history)
         timings["state"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        await graph.aupdate_state(cfg, {"count": 99}, as_node="done")
+        graph.update_state(cfg, {"count": 99}, as_node="done")
         timings["update_state"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
         chunks = 0
         try:
-            async for _chunk in graph.astream(
-                dict(INPUT), self._cfg(thread + "-stream"), stream_mode="values"
-            ):
+            for _ in graph.stream(dict(INPUT), self._cfg(thread + "-stream"), stream_mode="values"):
                 chunks += 1
         except self.GraphInterrupt:
             pass
@@ -84,55 +99,54 @@ class LangGraphAsyncDriver:
         timings["stream"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        batched = await graph.abatch([dict(INPUT), dict(INPUT)], self._cfg(thread + "-batch"))
+        batched = graph.batch([dict(INPUT), dict(INPUT)], self._cfg(thread + "-batch"))
         self.batch = len(batched)
         timings["batch"] = time.perf_counter_ns() - started
 
         return timings
 
 
-class BindingAsyncDriver:
-    name = "binding-async"
+class BindingDriver:
+    name = "binding"
+    color = "python-binding"
 
     def __init__(self) -> None:
         import langgraph_rs as lg  # noqa: PLC0415
 
-        bundle = __import__("build_rs_async").build()
+        self.lg = lg
+        bundle = __import__("build_rs").build()
         self.graph = bundle["graph"]
         self.GraphInterrupt = lg.GraphInterrupt
 
-    async def suite(self, thread: str) -> dict:
+    def suite(self, thread: str) -> dict:
         graph = self.graph
         timings: dict[str, int] = {}
 
         started = time.perf_counter_ns()
         try:
-            await graph.ainvoke(dict(INPUT), thread_id=thread)
+            graph.invoke(dict(INPUT), thread_id=thread)
         except self.GraphInterrupt:
             pass
         timings["invoke"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        self.final = await graph.aresume(thread, "go")
+        self.final = graph.resume(thread, "go")
         timings["resume"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        snapshot = await graph.aget_state(thread)
-        history = await graph.aget_state_history(thread, limit=5)
+        snapshot = graph.get_state(thread)
+        history = graph.get_state_history(thread, limit=5)
         self.step, self.history = snapshot["step"], len(history)
         timings["state"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        await graph.aupdate_state(thread, {"count": 99}, as_node="done")
+        graph.update_state(thread, {"count": 99}, as_node="done")
         timings["update_state"] = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
         chunks = 0
         try:
-            streamed = await graph.astream(
-                dict(INPUT), thread_id=thread + "-stream", stream_mode="values"
-            )
-            chunks = len(streamed)
+            chunks = len(graph.stream(dict(INPUT), thread_id=thread + "-stream", stream_mode="values"))
         except self.GraphInterrupt:
             chunks = 0
         self.chunks = chunks
@@ -140,40 +154,40 @@ class BindingAsyncDriver:
 
         started = time.perf_counter_ns()
         try:
-            batched = await graph.abatch([dict(INPUT), dict(INPUT)])
+            batched = graph.batch([dict(INPUT), dict(INPUT)])
             self.batch = len(batched)
         except self.GraphInterrupt:
+            # Both inputs pause at `ask`; the batch surfaces the interrupt.
             self.batch = 0
         timings["batch"] = time.perf_counter_ns() - started
 
         return timings
 
 
-class NativeAsyncDriver:
-    name = "native-async"
+class NativeDriver:
+    name = "native"
+    color = "rust-native"
 
     def __init__(self, iterations: int, release: bool = True) -> None:
         self.iterations = iterations
         profile = ["--release"] if release else []
         subprocess.run(
-            ["cargo", "build", "--example", "mega_workflow_async_native", *profile, "--features", "async"],
+            ["cargo", "build", "--example", "mega_workflow_native", *profile, "--features", "async"],
             cwd=REPO,
             check=True,
             stdout=subprocess.DEVNULL,
         )
         binary = REPO / "target" / ("release" if release else "debug") / "examples"
-        exe = "mega_workflow_async_native.exe" if os.name == "nt" else "mega_workflow_async_native"
+        exe = "mega_workflow_native.exe" if os.name == "nt" else "mega_workflow_native"
         self.binary = binary / exe
 
-    async def suite(self, thread: str) -> dict:
-        output = await asyncio.to_thread(
-            lambda: subprocess.run(
-                [str(self.binary), str(self.iterations)],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-        )
+    def suite(self, thread: str) -> dict:
+        output = subprocess.run(
+            [str(self.binary), str(self.iterations)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
         timings: dict[str, int] = {}
         for line in output.splitlines():
             if line.startswith("FINAL "):
@@ -202,27 +216,34 @@ def _note(driver) -> list[str]:
     ]
 
 
-async def main_async(args: argparse.Namespace) -> int:
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--iterations", type=int, default=10, help="suites measured per engine")
+    parser.add_argument("--skip-native", action="store_true", help="skip the cargo example")
+    parser.add_argument("--skip-lg", action="store_true", help="skip the reference LangGraph run")
+    args = parser.parse_args()
+
     if str(REPO / "target" / "python") not in sys.path:
         sys.path.insert(0, str(REPO / "target" / "python"))
     sys.path.insert(0, str(HERE))
 
     drivers = []
     if not args.skip_lg:
-        drivers.append(LangGraphAsyncDriver())
-    drivers.append(BindingAsyncDriver())
+        drivers.append(LangGraphDriver())
+    drivers.append(BindingDriver())
     if not args.skip_native:
-        drivers.append(NativeAsyncDriver(args.iterations))
+        drivers.append(NativeDriver(args.iterations))
 
-    # Warm up once per engine, then interleave the suites so machine drift is shared.
+    # Warm up once per engine, then interleave the suites so machine drift hits every
+    # engine the same way instead of inflating whichever engine ran first.
     for driver in drivers:
-        await driver.suite(f"{driver.name}-warmup")
+        driver.suite(f"{driver.name}-warmup")
     samples: dict[str, dict[str, list[int]]] = {
         driver.name: {phase: [] for phase in PHASES} for driver in drivers
     }
     for iteration in range(args.iterations):
         for driver in drivers:
-            timings = await driver.suite(f"{driver.name}-{iteration}")
+            timings = driver.suite(f"{driver.name}-{iteration}")
             for phase, value in timings.items():
                 samples[driver.name].setdefault(phase, []).append(value)
 
@@ -235,36 +256,37 @@ async def main_async(args: argparse.Namespace) -> int:
         notes[driver.name] = _note(driver)
         print(f"{driver.name}: {results[driver.name]}", flush=True)
 
-    print("| Phase | " + " | ".join(results) + " |")
+    header = f"| Phase | {' | '.join(results)} |"
+    print(header)
     print("| --- |" + " ---: |" * len(results))
     for phase in PHASES:
         cells = []
-        for medians in results.values():
+        for name, medians in results.items():
             value = medians.get(phase)
             cells.append("-" if value is None else f"{value / 1_000_000:.2f} ms")
         print(f"| {phase} | {' | '.join(cells)} |")
 
-    base_name = "langgraph-async"
-    if base_name in results:
-        print("\nSpeedup vs LangGraph async (higher is faster):")
+    if "langgraph" in results:
+        print("\nSpeedup vs LangGraph (higher is faster):")
         print("| Phase | binding | native |")
         print("| --- | ---: | ---: |")
         for phase in PHASES:
-            base = results[base_name].get(phase)
+            lg_value = results["langgraph"].get(phase)
             row = [phase]
-            for name in ("binding-async", "native-async"):
+            for name in ("binding", "native"):
                 value = results.get(name, {}).get(phase)
-                row.append("-" if not (base and value) else f"{base / value:.2f}x")
+                row.append("-" if not (lg_value and value) else f"{lg_value / value:.2f}x")
             print(f"| {row[0]} | {row[1]} | {row[2]} |")
 
-    report = HERE / "MEGA_BENCH_ASYNC.md"
+    report = HERE / "MEGA_BENCH.md"
     lines = [
-        "# Mega workflow benchmark (async)",
+        "# Mega workflow benchmark",
         "",
-        f"Generated by `python examples/mega_workflow/bench_async.py --iterations {args.iterations}`.",
+        f"Generated by `python benchmarks/mega_workflow/bench.py --iterations {args.iterations}`.",
         "",
-        "Same 15-node workflow as `MEGA_BENCH.md`, but every node is `async def` and every",
-        "call is awaited (`ainvoke`/`aresume`/`astream`/`abatch`/`aget_state`/`aupdate_state`).",
+        "All three engines run the same 15-node workflow per suite (loop, Send fan-out, cache,",
+        "retry, error handler, deferred node, embedded child graph, interrupt+resume,",
+        "state/history, update_state, stream, batch).",
         "",
         "| Phase | " + " | ".join(results) + " |",
         "| --- |" + " ---: |" * len(results),
@@ -275,14 +297,14 @@ async def main_async(args: argparse.Namespace) -> int:
             value = medians.get(phase)
             cells.append("-" if value is None else f"{value / 1_000_000:.2f} ms")
         lines.append(f"| {phase} | {' | '.join(cells)} |")
-    if base_name in results:
-        lines += ["", "Speedup vs LangGraph async:", "", "| Phase | binding | native |", "| --- | ---: | ---: |"]
+    if "langgraph" in results:
+        lines += ["", "Speedup vs LangGraph:", "", "| Phase | binding | native |", "| --- | ---: | ---: |"]
         for phase in PHASES:
-            base = results[base_name].get(phase)
+            lg_value = results["langgraph"].get(phase)
             row = [phase]
-            for name in ("binding-async", "native-async"):
+            for name in ("binding", "native"):
                 value = results.get(name, {}).get(phase)
-                row.append("-" if not (base and value) else f"{base / value:.2f}x")
+                row.append("-" if not (lg_value and value) else f"{lg_value / value:.2f}x")
             lines.append(f"| {row[0]} | {row[1]} | {row[2]} |")
     lines += ["", "Final state per engine:", ""]
     for name, note in notes.items():
@@ -290,15 +312,6 @@ async def main_async(args: argparse.Namespace) -> int:
     report.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\nReport written to {report}")
     return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--iterations", type=int, default=10, help="suites measured per engine")
-    parser.add_argument("--skip-native", action="store_true", help="skip the cargo example")
-    parser.add_argument("--skip-lg", action="store_true", help="skip the reference LangGraph run")
-    args = parser.parse_args()
-    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

@@ -48,8 +48,8 @@ cargo build --features "python python-async sqlite redis postgres msgpack"
 Copy-Item target\debug\langgraph_rs.dll target\python\langgraph_rs.pyd -Force
 $env:PYTHONPATH = (Resolve-Path .).Path + "\target\python"
 
-python examples/mega_workflow/bench.py --iterations 10
-python examples/mega_workflow/bench.py --iterations 10 --skip-native   # Python only
+python benchmarks/mega_workflow/bench.py --iterations 10
+python benchmarks/mega_workflow/bench.py --iterations 10 --skip-native   # Python only
 cargo run --release --example mega_workflow_native -- 10                # native only
 ```
 
@@ -91,7 +91,7 @@ Sources: `build_lg_async.py`, `build_rs_async.py`, `../mega_workflow_async_nativ
 Report: `MEGA_BENCH_ASYNC.md`.
 
 ```powershell
-python examples/mega_workflow/bench_async.py --iterations 10
+python benchmarks/mega_workflow/bench_async.py --iterations 10
 cargo run --release --example mega_workflow_async_native --features async -- 10
 ```
 
