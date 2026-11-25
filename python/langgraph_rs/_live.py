@@ -22,7 +22,9 @@ from typing import Any
 __all__ = ["LiveBridge", "active_bridge", "activate", "deactivate"]
 
 _LOCK = threading.Lock()
-_ACTIVE: LiveBridge | None = None
+# Bridges by `thread_id`; a run without one uses the `None` bucket. Keying by thread keeps
+# concurrent runs from stealing each other's tokens.
+_ACTIVE: dict[str | None, "LiveBridge"] = {}
 
 
 class LiveBridge:
@@ -68,22 +70,20 @@ class LiveBridge:
         self._queue.put(None)
 
 
-def active_bridge() -> LiveBridge | None:
-    """The bridge the callback handler should push to, if any."""
-    return _ACTIVE
+def active_bridge(thread_id: str | None = None) -> LiveBridge | None:
+    """The bridge for `thread_id`, if a run is streaming tokens for it."""
+    return _ACTIVE.get(thread_id)
 
 
-def activate(bridge: LiveBridge) -> None:
-    """Install `bridge` as the active target (replacing any previous one)."""
-    global _ACTIVE
+def activate(bridge: LiveBridge, thread_id: str | None = None) -> None:
+    """Register `bridge` for `thread_id` (replacing any previous one)."""
     with _LOCK:
-        _ACTIVE = bridge
+        _ACTIVE[thread_id] = bridge
 
 
-def deactivate(bridge: LiveBridge) -> None:
-    """Remove `bridge` if it is still the active one."""
-    global _ACTIVE
+def deactivate(bridge: LiveBridge, thread_id: str | None = None) -> None:
+    """Remove `bridge` if it is still registered for `thread_id`."""
     with _LOCK:
-        if _ACTIVE is bridge:
-            _ACTIVE = None
+        if _ACTIVE.get(thread_id) is bridge:
+            del _ACTIVE[thread_id]
     bridge.close()

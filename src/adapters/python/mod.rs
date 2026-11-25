@@ -286,7 +286,7 @@ class LangChainCallbackHandler:
         try:
             import langgraph_rs._live as live
 
-            active = live.active_bridge()
+            active = live.active_bridge(langgraph_rs.current_thread_id())
             if active is not None:
                 active.push(payload, metadata)
         except Exception:  # pragma: no cover - the shim always ships `_live`

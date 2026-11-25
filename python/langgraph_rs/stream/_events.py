@@ -11,9 +11,10 @@ subgraph-handle machinery), so a run only exposes the capture projections.
 
 from __future__ import annotations
 
+import asyncio
 import queue
 import threading
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any
 
 from ._convert import convert_to_protocol_event
@@ -109,7 +110,7 @@ def _live_parts(
 
     from .._live import activate, deactivate
 
-    activate(bridge)
+    activate(bridge, thread_id)
     worker = threading.Thread(target=run, name="langgraph_rs-stream-events", daemon=True)
     worker.start()
     try:
@@ -152,7 +153,7 @@ def _live_parts(
         if error is not None:
             raise error
     finally:
-        deactivate(bridge)
+        deactivate(bridge, thread_id)
         worker.join(timeout=5)
 
 
@@ -217,6 +218,84 @@ def stream_events(
     return GraphRunStream(lazy_stream(), mux)
 
 
+async def _live_aparts(
+    graph: Any,
+    input: Any,
+    bridge: Any,
+    *,
+    thread_id: str | None,
+    modes: list[str],
+    subgraphs: bool,
+    kwargs: dict[str, Any],
+) -> AsyncIterator[Any]:
+    """Async twin of `_live_parts`: tokens are yielded while the model is still generating."""
+    loop = asyncio.get_running_loop()
+    engine: asyncio.Queue[Any] = asyncio.Queue()
+    result: dict[str, Any] = {}
+
+    async def run() -> None:
+        try:
+            async for part in graph.astream(
+                input,
+                thread_id=thread_id,
+                stream_mode=modes,
+                version="v2",
+                subgraphs=subgraphs,
+                **kwargs,
+            ):
+                engine.put_nowait(part)
+        except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
+            result["error"] = error
+        finally:
+            engine.put_nowait(None)
+
+    from .._live import activate, deactivate
+
+    activate(bridge, thread_id)
+    task = asyncio.ensure_future(run())
+    deferred: list[Any] = []
+    try:
+        while True:
+            for payload, metadata in bridge.drain(timeout=0.0):
+                yield {
+                    "type": "messages",
+                    "ns": (),
+                    "data": (payload, metadata),
+                    "interrupts": (),
+                }
+            try:
+                part = engine.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0)
+                if not task.done() and engine.empty():
+                    await asyncio.sleep(0.005)
+                continue
+            if part is None:
+                break
+            if isinstance(part, dict) and part.get("type") == "messages" and bridge.count:
+                continue
+            deferred.append(part)
+        while True:
+            try:
+                part = engine.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if part is not None:
+                deferred.append(part)
+        for part in deferred:
+            yield part
+        error = result.get("error")
+        if error is not None:
+            raise error
+    finally:
+        deactivate(bridge, thread_id)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except BaseException:  # noqa: BLE001,S110 - cleanup
+                pass
+
 async def astream_events(
     graph: Any,
     input: Any = None,
@@ -225,6 +304,7 @@ async def astream_events(
     transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     compile_transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
     thread_id: str | None = None,
+    live: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Async counterpart; returns an `AsyncGraphRunStream` wrapping the async stream."""
@@ -241,6 +321,22 @@ async def astream_events(
     mux = StreamMux(factories=factories, is_async=True)
     modes = _required_modes(factories)
     subgraphs = _needs_subgraphs(factories)
+
+    if live and "messages" in modes:
+        from .._live import LiveBridge
+
+        return AsyncGraphRunStream(
+            _live_aparts(
+                graph,
+                input,
+                LiveBridge(),
+                thread_id=thread_id,
+                modes=modes,
+                subgraphs=subgraphs,
+                kwargs=kwargs,
+            ),
+            mux,
+        )
 
     async def lazy_astream():
         async for part in graph.astream(

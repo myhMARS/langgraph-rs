@@ -227,9 +227,10 @@ python examples/quickstart/compare.py --check-only
    「实时桥」（`langgraph_rs._live`），`stream_events` 在后台线程跑图并边收边发，因此句柄在
    **第一个分片**就出现、`handle.text` 与生成同步产出。实测：模型每 0.2 秒一块，三个分片分别在
    0.24 / 0.44 / 0.64 秒到达（此前要到 0.64 秒后才一次性给出）。
-   **仍有的边界**：① `astream_events` 仍走收集式路径，尚未接实时桥；② 节点里直接
-   `rs.message()` / `get_stream_writer()` 产生的分片仍由引擎按任务收集、节点结束后下发（不是
-   token 回调）；③ 实时桥同一时刻只有一个（并发 `stream_events` 共享最新一个）。
+   同步与异步（`stream_events` / `astream_events`）都已接实时桥；实时桥按 `thread_id` 注册，
+   因此并发 run 互不串流（无 `thread_id` 的 run 共用同一个桶）。
+   **仍有的边界**：节点里直接 `rs.message()` / `get_stream_writer()` 产生的分片仍由引擎按任务
+   收集、节点结束后下发（只有 LangChain 的 token 回调是生成期实时的）。
 7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
 8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`

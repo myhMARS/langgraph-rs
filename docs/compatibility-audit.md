@@ -1691,4 +1691,21 @@ Boundaries left, documented in `docs/langgraph-compat.md`:
    the engine; only the LangChain token callback is truly live.
 3. One bridge at a time: concurrent `stream_events` runs share the most recent one.
 
-Python suite is 352 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 352 tests; parity 38/38; clippy and Rust tests clean.### Round 83: live tokens on the async lane, and per-run isolation
+
+* `astream_events` now uses the live bridge too (`_live_aparts`): the graph runs as an asyncio task,
+  the generator drains the bridge while polling the engine iterator, and engine `messages` parts are
+  dropped when the bridge carried them. Measured with a model emitting three chunks 0.2 s apart:
+  handle at 0.26 s, deltas at 0.26 / 0.44 / 0.64 — i.e. during generation, same as the sync lane.
+* Bridges are now keyed by `thread_id` (`_live.activate(bridge, thread_id)`,
+  `active_bridge(current_thread_id())`), so two concurrent runs no longer exchange tokens. Runs
+  without a `thread_id` share the `None` bucket.
+
+Tests: `AsyncLiveTokenDeliveryTest` asserts the first async delta arrives before the model's
+`_stream` ends (no timing thresholds), and `ConcurrentLiveRunsTest` runs two thread-keyed runs in
+parallel and asserts each `run.messages` only saw its own text.
+
+Remaining, documented: chunks written by nodes via `rs.message()` / `get_stream_writer()` are still
+flushed by the engine when the node finishes — only the LangChain token callback is generation-time.
+
+Python suite is 354 tests; parity 38/38; clippy and Rust tests clean.

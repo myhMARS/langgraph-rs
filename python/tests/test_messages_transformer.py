@@ -348,3 +348,111 @@ class LiveTokenDeliveryTest(unittest.TestCase):
             observed_at_first_delta["generation"],
             "the first delta should arrive while the model is still generating",
         )
+@unittest.skipUnless(_LANGCHAIN, "langchain-core is not installed")
+class AsyncLiveTokenDeliveryTest(unittest.TestCase):
+    """The async run stream also delivers tokens while the model is generating."""
+
+    def test_first_async_delta_arrives_before_generation_finishes(self):
+        import time
+
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        finished = {"generation": False}
+
+        class Slow(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+                for chunk in super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    time.sleep(0.05)
+                    yield chunk
+                finished["generation"] = True
+
+        async def scenario():
+            model = Slow(messages=iter([AIMessage(content="Hello world")]))
+            graph = rs.AsyncStateGraph({"messages": "messages"})
+
+            async def node(state):
+                for _chunk in model.stream([{"role": "user", "content": "hi"}]):
+                    pass
+                return {"messages": []}
+
+            graph.add_node("node", node)
+            graph.set_entry_point("node")
+            graph.set_finish_point("node")
+            app = graph.compile()
+
+            run = await app.astream_events(
+                {"messages": []}, version="v3", transformers=[MessagesTransformer]
+            )
+            observed = {}
+            async for handle in run.messages:
+                index = 0
+                async for _chunk in handle.text:
+                    if index == 0:
+                        observed["generation"] = finished["generation"]
+                    index += 1
+                break
+            return observed
+
+        observed = asyncio.run(scenario())
+        self.assertFalse(
+            observed.get("generation", True),
+            "the first async delta should arrive while the model is still generating",
+        )
+@unittest.skipUnless(_LANGCHAIN, "langchain-core is not installed")
+class ConcurrentLiveRunsTest(unittest.TestCase):
+    """Concurrent runs do not exchange tokens (bridges are keyed by `thread_id`)."""
+
+    def test_two_runs_keep_their_own_tokens(self):
+        import threading
+        import time
+
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        class Slow(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+                for chunk in super()._stream(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    time.sleep(0.02)
+                    yield chunk
+
+        def run_one(thread_id, text, out):
+            model = Slow(messages=iter([AIMessage(content=text)]))
+            graph = rs.StateGraph({"messages": "messages"})
+
+            def node(state):
+                for _chunk in model.stream([{"role": "user", "content": "hi"}]):
+                    pass
+                return {"messages": []}
+
+            graph.add_node("node", node)
+            graph.set_entry_point("node")
+            graph.set_finish_point("node")
+            app = graph.compile(checkpointer=rs.InMemorySaver())
+            with app.stream_events(
+                {"messages": []},
+                version="v3",
+                thread_id=thread_id,
+                transformers=[MessagesTransformer],
+            ) as run:
+                chunks: list[str] = []
+                for handle in run.messages:
+                    chunks.extend(handle.text)
+                out[thread_id] = "".join(chunks)
+
+        out: dict[str, str] = {}
+        workers = [
+            threading.Thread(target=run_one, args=("t1", "alpha beta", out)),
+            threading.Thread(target=run_one, args=("t2", "gamma delta", out)),
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=30)
+        self.assertEqual(out, {"t1": "alpha beta", "t2": "gamma delta"})
