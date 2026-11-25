@@ -885,4 +885,27 @@ the value fallback.
 **Result: parity 38/38, 135 Python tests, Rust suite and clippy all pass, and the compatibility
 document no longer lists any behavioural difference from LangGraph** -- what remains is:
 `stream()`/`get_state_history()` returning an iterable object that is a superset of a generator,
-and four `create_react_agent` keywords that raise `NotImplementedError` instead of being ignored.
+and four `create_react_agent` keywords that raise `NotImplementedError` instead of being ignored.### Round 50: `MessageGraph` and Python subclassing of `StateGraph`
+
+`langgraph.graph.MessageGraph` was missing. It is now a thin Python subclass of the Rust
+`StateGraph` with exactly one `messages` channel (`add_messages`), so its checkpoints stay
+structurally identical to LangGraph's:
+
+* nodes receive the message list (not the state mapping) and may return a single message, a list
+  of messages, or `{}` for "no update";
+* `invoke`/`ainvoke` accept a message list (LangGraph form) or `{"messages": [...]}` and return the
+  resulting **list** of messages, rehydrated to `HumanMessage`/`AIMessage` objects when
+  `langchain_core` is available;
+* `stream(..., stream_mode="updates")` yields node-keyed chunks like LangGraph; the default mode
+  stays `langgraph_rs`'s value chunks.
+
+Verified against LangGraph with the same graph (node returning one message and a list of messages):
+both produce `['HumanMessage:ping', 'AIMessage:pong', 'AIMessage:extra', 'AIMessage:single']`.
+
+To support this, the `StateGraph` pyclass is now declared `subclass`, so user code can subclass the
+builder (a LangGraph pattern). `MessageGraph`'s builder methods return `self` so chaining keeps the
+subclass type. Six new tests cover invoke shape, node input shape, dict input, updates-mode
+streaming, `isinstance(graph, StateGraph)` and interrupt pauses (which return the state mapping with
+`__interrupt__` so both the messages and the interrupt stay readable).
+
+Python suite is 141 tests; parity stays 38/38; Rust tests and clippy pass.

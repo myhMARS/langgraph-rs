@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from .._compat import module_getattr, re_export
-from .message import MessagesState, add_messages, message_graph
+from .message import MessageGraph, MessagesState, add_messages, message_graph
 from .state import CompiledGraph, CompiledStateGraph, StateGraph
 
 __all__ = [
     "CompiledGraph",
     "CompiledStateGraph",
     "END",
+    "MessageGraph",
     "MessagesState",
     "START",
     "StateGraph",

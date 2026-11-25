@@ -17,7 +17,7 @@ use crate::*;
 // ---------------------------------------------------------------------------
 
 /// A mutable graph builder.
-#[pyclass(name = "StateGraph")]
+#[pyclass(name = "StateGraph", subclass)]
 pub struct PyStateGraph {
     inner: crate::StateGraph<JsonState>,
 }
