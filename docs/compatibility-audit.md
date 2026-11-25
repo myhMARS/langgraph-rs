@@ -1565,4 +1565,36 @@ have.
 One real feature gap is left: `pregel.remote.RemoteGraph`. `langgraph_sdk` is installed in this
 environment, so it is implementable as a thin client; that is the next round's work.
 
-Python suite is 336 tests; parity 38/38; clippy clean.
+Python suite is 336 tests; parity 38/38; clippy clean.### Round 79: `RemoteGraph` — the last feature gap
+
+`langgraph_rs.pregel.remote` now exists with a working `RemoteGraph` / `RemoteException`.
+
+* Construction mirrors upstream: `RemoteGraph(assistant_id, url=..., api_key=..., headers=...,
+  client=..., sync_client=..., config=..., name=...)`. Passing `url` builds the SDK clients;
+  injecting `client` / `sync_client` skips that (which is how the tests drive it).
+* `stream` / `astream` translate the SDK's `StreamPart` chunks: `version="v2"` yields the same
+  `{"type", "ns", "data", "interrupts"}` parts the extension's own `stream()` produces (the namespace
+  is decoded from the SDK event name), `version="v1"` yields payloads, `(mode, payload)` pairs or
+  `(ns, mode, payload)` triples depending on `stream_mode` / `subgraphs`. `error*` chunks raise
+  `RemoteException`.
+* `invoke` / `ainvoke` drive `stream(stream_mode="values")` and return the last state, like upstream.
+* `get_state` / `get_state_history` / `update_state` (+ async) delegate to the SDK's `threads` API,
+  forwarding `thread_id`, `checkpoint_id`, `subgraphs`, `as_node`, `limit` and `headers`;
+  `get_graph` / `aget_graph` delegate to `assistants`.
+* `with_config` / `copy` return configured copies; a missing client raises `ValueError` with what to
+  pass.
+
+`python/tests/test_remote_graph.py` (11 tests) covers invoke/stream shapes (v1, v2, single and
+multiple modes, namespaces), error propagation, async streaming, state read/write/history, graph
+introspection, the missing-client error and config copying, all through injected fake SDK clients
+(there is no live deployment in this environment).
+
+Also added the real `convert_to_messages` / `message_chunk_to_message` helpers on
+`langgraph_rs.graph.message`.
+
+After this round every importable `langgraph.*` module has a counterpart except LangGraph's internal
+engine modules, whose leftover `dir()` entries are that module's own imports (`pregel.main`,
+`pregel.debug`, `pregel.protocol`, `graph.state`, `prebuilt.tool_node`, `chat_agent_executor`,
+`tool_validator`, `managed.base`, `pregel.remote`).
+
+Python suite is 347 tests; parity 38/38; clippy and Rust tests clean.

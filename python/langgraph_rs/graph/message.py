@@ -33,6 +33,17 @@ except Exception:  # pragma: no cover - langchain_core is optional
     BaseMessage = object
     BaseMessageChunk = object
     MessageLikeRepresentation = object
+from ..warnings import LangGraphDeprecatedSinceV10  # noqa: F401
+
+try:  # pragma: no cover - langchain-core is optional
+    from langchain_core.messages import convert_to_messages, message_chunk_to_message  # noqa: F401
+except Exception:  # pragma: no cover
+    def convert_to_messages(messages: Any, **kwargs: Any) -> list[Any]:
+        raise ImportError("convert_to_messages requires langchain-core")
+
+    def message_chunk_to_message(chunk: Any) -> Any:
+        raise ImportError("message_chunk_to_message requires langchain-core")
+
 from .state import StateGraph
 
 __all__ = [

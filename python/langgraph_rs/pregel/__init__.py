@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .._compat import fill_unsupported, module_getattr
 
-__all__ = ["NodeBuilder", "Pregel", "debug", "main", "protocol"]
+__all__ = ["NodeBuilder", "Pregel", "debug", "main", "protocol", "remote"]
 
 _MISSING = fill_unsupported(
     globals(),
@@ -19,4 +19,4 @@ _MISSING = fill_unsupported(
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
 
 # LangGraph's package re-exports its internal submodules.
-from . import debug, main, protocol  # noqa: E402,F401
+from . import debug, main, protocol, remote  # noqa: E402,F401
