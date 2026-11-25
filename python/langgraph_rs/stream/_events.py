@@ -227,7 +227,9 @@ def stream_events(
     modes = _required_modes(factories)
     subgraphs = _needs_subgraphs(factories)
 
-    if live and "messages" in modes:
+    # Only the token/custom lanes need live delivery; values/tasks-only runs keep the
+    # collected path (their chunk shapes are assembled per step and ordered with it).
+    if live and ("messages" in modes or "custom" in modes):
         from .._live import LiveBridge
 
         return GraphRunStream(
@@ -277,18 +279,23 @@ async def _live_aparts(
     def sink(part: Any) -> None:
         engine.put(part)
 
-    async def run() -> None:
+    async def drive() -> None:
+        async for part in graph.astream(
+            input,
+            thread_id=thread_id,
+            stream_mode=modes,
+            version="v2",
+            subgraphs=subgraphs,
+            live_sink=sink,
+            **kwargs,
+        ):
+            engine.put(part)
+
+    def run() -> None:
+        # The graph gets its own loop on its own thread: driving it on the consumer's loop would
+        # keep the loop busy and the live sink could only be drained once the node finished.
         try:
-            async for part in graph.astream(
-                input,
-                thread_id=thread_id,
-                stream_mode=modes,
-                version="v2",
-                subgraphs=subgraphs,
-                live_sink=sink,
-                **kwargs,
-            ):
-                engine.put(part)
+            asyncio.run(drive())
         except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
             result["error"] = error
         finally:
@@ -297,7 +304,8 @@ async def _live_aparts(
     from .._live import activate, deactivate
 
     activate(bridge, thread_id)
-    task = asyncio.ensure_future(run())
+    task = threading.Thread(target=run, name="langgraph_rs-astream", daemon=True)
+    task.start()
     deferred: list[Any] = []
     try:
         while True:
@@ -317,7 +325,8 @@ async def _live_aparts(
                 break
             if isinstance(part, dict) and part.get("type") == "messages" and bridge.count:
                 continue
-            deferred.append(part)
+            # Engine parts are produced in order, so hand them out as they arrive.
+            yield part
         while True:
             try:
                 part = engine.get_nowait()
@@ -332,12 +341,7 @@ async def _live_aparts(
             raise error
     finally:
         deactivate(bridge, thread_id)
-        if not task.done():
-            task.cancel()
-            try:
-                await task
-            except BaseException:  # noqa: BLE001,S110 - cleanup
-                pass
+        task.join(timeout=5)
 
 async def astream_events(
     graph: Any,
@@ -365,7 +369,9 @@ async def astream_events(
     modes = _required_modes(factories)
     subgraphs = _needs_subgraphs(factories)
 
-    if live and "messages" in modes:
+    # Only the token/custom lanes need live delivery; values/tasks-only runs keep the
+    # collected path (their chunk shapes are assembled per step and ordered with it).
+    if live and ("messages" in modes or "custom" in modes):
         from .._live import LiveBridge
 
         return AsyncGraphRunStream(

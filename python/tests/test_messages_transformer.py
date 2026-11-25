@@ -493,3 +493,84 @@ class NodeWriteLivenessTest(unittest.TestCase):
             "the first delta should arrive while the node is still running",
         )
         self.assertEqual(observed["text"], "ab")
+
+class AsyncNodeWriteLivenessTest(unittest.TestCase):
+    """The async lane also hands out node-written chunks before the node finishes."""
+
+    def test_first_async_delta_precedes_node_completion(self):
+        import asyncio
+        import time
+
+        async def scenario():
+            graph = rs.AsyncStateGraph({"messages": "messages"})
+            finished = {"node": False}
+
+            async def node(state):
+                for piece in ("a", "b"):
+                    rs.message({"type": "AIMessageChunk", "id": "m1", "content": piece})
+                    await asyncio.sleep(0.05)
+                finished["node"] = True
+                return {"messages": []}
+
+            graph.add_node("node", node)
+            graph.set_entry_point("node")
+            graph.set_finish_point("node")
+            app = graph.compile()
+
+            run = await app.astream_events(
+                {"messages": []}, version="v3", transformers=[MessagesTransformer]
+            )
+            observed = {"text": ""}
+            async for handle in run.messages:
+                index = 0
+                async for chunk in handle.text:
+                    if index == 0:
+                        observed["finished"] = finished["node"]
+                    observed["text"] += chunk
+                    index += 1
+                break
+            return observed
+
+        observed = asyncio.run(scenario())
+        self.assertFalse(
+            observed["finished"],
+            "the first async delta should arrive while the node is still running",
+        )
+        self.assertEqual(observed["text"], "ab")
+
+
+class CustomLivenessTest(unittest.TestCase):
+    """`get_stream_writer()` output is delivered to `run.custom` while the node runs."""
+
+    def test_custom_values_arrive_before_the_node_finishes(self):
+        import time
+
+        from langgraph_rs.stream.transformers import CustomTransformer
+
+        graph = rs.StateGraph({"messages": "messages"})
+        finished = {"node": False}
+
+        def node(state):
+            writer = rs.get_stream_writer()
+            for piece in ("x", "y"):
+                writer({"progress": piece})
+                time.sleep(0.05)
+            finished["node"] = True
+            return {"messages": []}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile()
+
+        seen = []
+        with app.stream_events(
+            {"messages": []}, version="v3", transformers=[CustomTransformer]
+        ) as run:
+            for payload in run.custom:
+                seen.append((payload, finished["node"]))
+
+        self.assertEqual([payload for payload, _ in seen], [{"progress": "x"}, {"progress": "y"}])
+        self.assertFalse(
+            seen[0][1], "the first custom payload should arrive while the node is still running"
+        )

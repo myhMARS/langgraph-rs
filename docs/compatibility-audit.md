@@ -1766,4 +1766,33 @@ the callback bridge (measured 0.22 / 0.37 / 0.51 for a model emitting three chun
 
 Also: `step::begin_run` grew a parameter and now carries `#[allow(clippy::too_many_arguments)]`.
 
-Python suite is 355 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 355 tests; parity 38/38; clippy and Rust tests clean.### Round 86: async node writes and custom events are live
+
+Two fixes closed the gap left after round 85.
+
+1. **The async lane was deferring engine parts.** `_live_aparts` appended parts to `deferred` and only
+   yielded them after the loop ended — the same bug that had been fixed in the sync twin. Yielding
+   them immediately fixed node-written chunks: deltas at 0.02 / 0.23 / 0.43 with `node finished=False`.
+   The graph also moved onto its own thread with its own event loop (`asyncio.run` in a worker
+   thread) so a busy consumer loop cannot starve the driver.
+2. **The live path was gated on the `messages` mode.** `stream_events` only took the live route when
+   `"messages"` was among the requested modes, so `get_stream_writer()` output (`custom` mode) was
+   still batched. The gate is now `"messages" in modes or "custom" in modes`.
+
+Widening it to *every* mode was tried first and broke two existing expectations
+(`run.interrupted` stayed false, and a failing child subgraph leaked a message before the error), so
+the gate stops at the token/custom lanes; `values` / `tasks` stay on the collected path where they are
+assembled and ordered per step.
+
+Measured after both fixes:
+
+```
+sync  custom writer : 0.01 / 0.16   (node still running)
+async custom writer : 0.01 / 0.17   (node still running)
+async node messages : 0.02 / 0.23 / 0.43 with node finished=False
+```
+
+Tests: `AsyncNodeWriteLivenessTest` and `CustomLivenessTest` added (both assert "first item before the
+node finished", no timing thresholds).
+
+Python suite is 357 tests; parity 38/38; clippy and Rust tests clean.
