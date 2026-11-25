@@ -535,6 +535,35 @@ __all__ = [
 
 _logger = logging.getLogger(__name__)
 
+# Names LangGraph's module also exposes: its own imports of the message/stream types.
+try:  # pragma: no cover - langchain-core is optional
+    from langchain_core.language_models.chat_model_stream import (  # noqa: F401
+        AsyncChatModelStream,
+        ChatModelStream,
+    )
+    from langchain_core.messages import AIMessageChunk, BaseMessage  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
+try:  # pragma: no cover - langchain_protocol is optional
+    from langchain_protocol.protocol import LifecycleCause, MessagesData  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
+try:  # pragma: no cover
+    from ..errors import GraphDrained, GraphInterrupt  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
+try:  # pragma: no cover - langchain-core is optional
+    from langchain_core.language_models._compat_bridge import message_to_events  # noqa: F401
+    from langchain_core.messages import ToolMessage  # noqa: F401
+except Exception:  # pragma: no cover
+    pass
+
+from .run_stream import AsyncSubgraphRunStream, SubgraphRunStream  # noqa: E402,F401
+
+
 SubgraphStatus = Literal["started", "completed", "failed", "interrupted", "drained"]
 """Status of a subgraph run."""
 

@@ -15,6 +15,15 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mappin
 from types import MappingProxyType, TracebackType
 from typing import Any, NoReturn
 
+try:  # LangGraph marks the v3 run streams as beta; keep the same module surface.
+    from langchain_core._api import beta
+except Exception:  # pragma: no cover - langchain-core absent
+    def beta(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
 from ._convert import convert_to_protocol_event
 from ._mux import StreamMux
 from ._types import ProtocolEvent

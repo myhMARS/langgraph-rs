@@ -137,3 +137,28 @@ class SendProtocol(Protocol):
     arg: Any
 fill_unsupported(globals(), _MISSING)
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+# LangGraph also exposes these langchain-core / pydantic names from its `types` module.
+try:  # pragma: no cover - langchain-core is optional
+    from langchain_core.runnables import Runnable, RunnableConfig  # noqa: F401
+
+    __all__.extend(["Runnable", "RunnableConfig"])
+except Exception:  # pragma: no cover
+    pass
+
+try:  # pragma: no cover - pydantic is optional
+    from pydantic import TypeAdapter, ValidationError  # noqa: F401
+
+    __all__.extend(["TypeAdapter", "ValidationError"])
+except Exception:  # pragma: no cover
+    pass
+
+try:  # pragma: no cover - Python 3.12+
+    from typing import TypeAliasType  # noqa: F401
+except ImportError:  # pragma: no cover
+    try:
+        from typing_extensions import TypeAliasType  # noqa: F401
+    except ImportError:
+        pass
+else:
+    if "TypeAliasType" not in __all__:
+        __all__.append("TypeAliasType")

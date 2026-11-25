@@ -1530,4 +1530,39 @@ Python suite is 336 tests; parity 38/38; clippy and Rust tests clean.
 
 Documented divergence: LangGraph's `run.messages` is token-live only when the model layer emits v3
 content-block events; the extension's engine does not, so chunked messages surface as one completed
-handle at run end instead of a live stream.
+handle at run end instead of a live stream.### Round 78: missing modules from the full-tree API diff
+
+A diff over every importable `langgraph.*` module (minus stdlib re-exports) listed what was still
+absent. This round adds the genuinely missing modules and the cheap re-export surfaces:
+
+* `langgraph_rs.version` (`__version__` from package metadata).
+* `langgraph_rs.typing` (`StateT`, `StateT_co`, `StateT_contra`, `InputT`, `OutputT`, `ContextT`,
+  `ContextT_contra`, `NodeInputT`, `NodeInputT_contra`, `StateLike`).
+* `langgraph_rs.utils` + `utils.config` (`ensure_config`, `patch_configurable`, `get_config`,
+  `get_store`) + `utils.runnable` (`RunnableCallable` with `invoke`/`ainvoke`, `RunnableLike`).
+* `langgraph_rs._config` with the merging `ensure_config` / `patch_configurable` implementation.
+* `langgraph_rs.pregel.types` (the deprecated re-export module, including
+  `LangGraphDeprecatedSinceV10`).
+* `langgraph_rs.managed` + `managed.base` (`ManagedValue`, `ManagedValueSpec`,
+  `ManagedValueMapping`, `PregelScratchpad`, `is_managed_value`) and `managed.is_last_step`
+  (`IsLastStep`, `RemainingSteps` and their managers).
+* `langgraph_rs.graph.ui` (`UIMessage`, `RemoveUIMessage`, `push_ui_message`,
+  `delete_ui_message`, `ui_message_reducer`). The helpers emit on the custom stream; writing the
+  event into a state key needs `CONFIG_KEY_SEND`, which the engine does not expose yet, so that half
+  is documented rather than faked.
+* `langgraph_rs.prebuilt.interrupt` (`HumanInterruptConfig`, `ActionRequest`, `HumanInterrupt`,
+  `HumanResponse`).
+* Re-export surfaces LangGraph's modules carry: `types.Runnable`/`RunnableConfig`/`TypeAdapter`/
+  `ValidationError`/`TypeAliasType`, `stream.run_stream.beta`, and the message/stream names in
+  `stream.transformers`.
+
+What remains is no longer feature surface: the leftover diff entries are LangGraph's *internal*
+modules re-exporting their own imports (`pregel.main` with 163 names, `pregel.debug`,
+`pregel.protocol`, `prebuilt.tool_node`, `chat_agent_executor`, `tool_validator`). Matching those
+would mean mirroring LangGraph's private engine layout, which the extension deliberately does not
+have.
+
+One real feature gap is left: `pregel.remote.RemoteGraph`. `langgraph_sdk` is installed in this
+environment, so it is implementable as a thin client; that is the next round's work.
+
+Python suite is 336 tests; parity 38/38; clippy clean.

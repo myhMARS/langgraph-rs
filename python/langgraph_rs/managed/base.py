@@ -1,15 +1,42 @@
-"""LangGraph ``langgraph.managed.base`` (internal) equivalents."""
+"""Managed value base types (LangGraph ``langgraph.managed.base``)."""
 
 from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["ManagedValue"]
+__all__ = [
+    "is_managed_value",
+    "ManagedValue",
+    "ManagedValueMapping",
+    "ManagedValueSpec",
+    "PregelScratchpad",
+]
+
+
+class PregelScratchpad:
+    """State a managed value sees when it is computed."""
+
+    step: int = 0
+    stop: int = 0
 
 
 class ManagedValue:
-    """Duck-typed base of LangGraph's managed values (annotation marker)."""
+    """Base marker for managed channel values."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.args = args
-        self.kwargs = kwargs
+    managed_name: str = ""
+
+    @staticmethod
+    def get(scratchpad: PregelScratchpad) -> Any:  # pragma: no cover - overridden upstream
+        raise NotImplementedError
+
+
+ManagedValueSpec = Any
+"""A managed value spec: the marker class or an annotation carrying one."""
+
+def is_managed_value(value: Any) -> bool:
+    """Whether `value` is a managed value spec (a `ManagedValue` subclass)."""
+    return isinstance(value, type) and issubclass(value, ManagedValue)
+
+
+ManagedValueMapping = dict[str, ManagedValueSpec]
+"""Mapping of channel name to managed value spec."""
