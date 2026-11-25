@@ -65,6 +65,12 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
+- `langgraph.prebuilt` 工具构建与包装：`create_tool`（函数/装饰器/Runnable 三种形态，名称/描述/schema/
+  行为与 LG 逐项一致）、`ToolCallRequest`、`ToolCallWithContext`、`ToolCallWrapper`、`ToolInvocationError`、
+  `msg_content_output`、`get_all_basemodel_annotations`、错误文案模板常量、`TOOL_MESSAGE_BLOCK_TYPES`、
+  `create_tool_calling_executor`（= `create_react_agent`）、`StructuredResponse`/`Prompt`/`LanguageModelLike`
+- `store.base.embed`（embedding 辅助命名空间，可 `from ... import embed` 也可子模块 import）
+- `func` 的 `coerce_timeout_policy` / `is_async_callable` / `identifier` / `sync_timeout_unsupported`
 - `langgraph.types` 全量：`StreamPart`（7 种分片 TypedDict）、`CheckpointPayload`、`TaskPayload`、
   `TaskResultPayload`、`CheckpointTask`、`DebugPayload`、`CheckpointMetadata`、`StateUpdate`、
   `Overwrite`、`GraphOutput`、`TracePolicy`、`CacheKey`、`Durability`、`PregelExecutableTask`、

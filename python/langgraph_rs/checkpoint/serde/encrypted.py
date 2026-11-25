@@ -11,8 +11,9 @@ import base64
 from typing import Any
 
 from . import JsonPlusSerializer
+from .base import CipherProtocol, SerializerProtocol
 
-__all__ = ["EncryptedSerializer"]
+__all__ = ["CipherProtocol", "EncryptedSerializer", "SerializerProtocol"]
 
 
 class EncryptedSerializer:

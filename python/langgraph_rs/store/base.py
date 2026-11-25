@@ -414,4 +414,18 @@ def ensure_embeddings(
     return _EmbeddingsLambda(embed)
 
 
+# LangGraph exposes its embedding helpers as the submodule `store.base.embed`.
+import sys as _sys
+import types as _types
+
+embed = _types.ModuleType(__name__ + ".embed")
+embed.ensure_embeddings = ensure_embeddings
+embed.EmbeddingsLambda = _EmbeddingsLambda
+embed.Embeddings = Embeddings
+embed.EmbeddingsFunc = EmbeddingsFunc
+embed.AEmbeddingsFunc = AEmbeddingsFunc
+_sys.modules[embed.__name__] = embed
+
+__all__.append("embed")
+
 __getattr__ = module_getattr(__name__, globals(), [])

@@ -9,7 +9,10 @@ from __future__ import annotations
 from typing import Annotated, Any, TypedDict
 
 from .._compat import module_getattr, re_export
+from ..errors import ErrorCode, create_error_message
 from ..graph.message import add_messages
+from ..runtime import Runtime
+from .tool_node import ToolCallWithContext
 from ..managed import IsLastStep, RemainingSteps
 
 try:  # LangChain message schema, when available
@@ -22,7 +25,17 @@ __all__ = [
     "AgentStatePydantic",
     "AgentStateWithStructuredResponse",
     "AgentStateWithStructuredResponsePydantic",
+    "ErrorCode",
+    "LanguageModelLike",
+    "Runtime",
+    "ToolCallWithContext",
+    "create_error_message",
+    "Prompt",
+    "StateSchema",
+    "StateSchemaType",
+    "StructuredResponse",
     "create_react_agent",
+    "create_tool_calling_executor",
 ]
 
 
@@ -60,5 +73,21 @@ class AgentStateWithStructuredResponsePydantic(AgentStatePydantic):
         self.structured_response = values.get("structured_response")
 
 
+try:  # pragma: no cover - pydantic is normally available through langchain_core
+    from pydantic import BaseModel as _BaseModel
+except Exception:  # pragma: no cover
+    _BaseModel = object
+
+#: LangGraph's structured-response type (`dict` or a pydantic model).
+StructuredResponse = dict | _BaseModel
+
+#: Accepted `prompt` / `model` shapes (kept as aliases for annotations).
+Prompt = Any
+LanguageModelLike = Any
+StateSchema = Any
+StateSchemaType = Any
+
 _MISSING = re_export(globals(), ["create_react_agent"])
+#: Deprecated LangGraph name for `create_react_agent`.
+create_tool_calling_executor = globals().get("create_react_agent")
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

@@ -1082,4 +1082,25 @@ A 27-module audit now leaves only three categories: names that LangGraph's modul
 deliberately do not implement (`ToolCallTransformer`, which raises). Ten new tests cover the stream
 parts, payload key sets, the digest, the cache key, agent state schemas and the message helpers
 (including a direct comparison with LangGraph). Python suite is 200 tests; parity stays 38/38; Rust
-tests and clippy pass.
+tests and clippy pass.### Round 58: `create_tool`, tool-call wrappers and the last public helpers
+
+`langgraph.prebuilt` gained LangGraph's tool-construction surface: `create_tool` (callable, both
+decorator forms, and a named Runnable), `ToolCallRequest`, `ToolCallWithContext`, `ToolCallWrapper`,
+`ToolInvocationError`, `msg_content_output`, `get_all_basemodel_annotations`, the four error-message
+templates and `TOOL_MESSAGE_BLOCK_TYPES`, plus `create_tool_calling_executor` (an alias of
+`create_react_agent`, as in LangGraph) and the `StructuredResponse`/`Prompt`/`LanguageModelLike`
+aliases. `create_tool(add)` was compared with LangGraph's own: identical name, description, argument
+schema and result.
+
+Also added: `store.base.embed` as a real importable namespace (both `from ... import embed` and
+`import langgraph_rs.store.base.embed` work), `func.coerce_timeout_policy`/`is_async_callable`/
+`identifier`/`sync_timeout_unsupported`, and the `ToolCallWithContext`/`Runtime`/`ErrorCode`/
+`create_error_message` re-exports in `prebuilt.chat_agent_executor`.
+
+Nine new tests cover the three `create_tool` forms, the LangGraph comparison, the message converter,
+the templates, the wrapper objects and the executor alias. Python suite is 209 tests; parity stays
+38/38; Rust tests and clippy pass.
+
+The only remaining gaps are LangGraph-internal symbols (`PregelNode`, `ChannelWrite`,
+`SyncAsyncFuture`, `RunnableCallable`, the msgpack extension constants in `serde.jsonplus`) and
+`ToolCallTransformer`, which raises on purpose because it needs LangGraph's streaming middleware.
