@@ -184,3 +184,30 @@ python python/examples/dropin_from_langgraph.py
 
 `benchmarks/parity.py` 用同一份工作流分别跑 LangGraph 与 `langgraph_rs`，逐场景比较状态、步骤数、
 事件顺序；新增场景时它会自动把差异暴露出来。
+## 5. 对齐状态小结（2026-11）
+
+经过 9 轮补齐后，`langgraph_rs` 在**不改动图结构**（通道名、reducer 语义、checkpoint 形状与
+LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
+
+| 领域 | 覆盖内容 |
+| --- | --- |
+| 建图 | `StateGraph`（含 Python 继承）、`MessageGraph`、`START`/`END`、条件边、`Send`、`Command` |
+| 状态 | TypedDict/`Annotated` reducer、通道对象（`langgraph.channels`）、托管值（`IsLastStep`/`RemainingSteps`） |
+| 运行 | `invoke`/`stream`/`resume`/`batch` 及异步版本、`__interrupt__` 语义、`RecursionLimit`→`GraphRecursionError` |
+| prebuilt | `ToolNode`、`ValidationNode`、`create_tool`、`ToolRuntime`/`InjectedState`/`InjectedStore` 注入、`create_react_agent`（`prompt`/`state_schema`/`store`/`interrupt_*`/`name`/`version`）、`AgentState*` |
+| 持久化 | 内置 saver 全套、LangGraph-schema SQLite saver（**双向跨引擎恢复**）、自定义 Python saver/store 协议桥接 |
+| 长期记忆 | `store.get/search` 返回 `Item`、`list_namespaces`、ops/embeddings/路径提取（`tokenize_path`/`get_text_at_path` 与 LG 差分一致） |
+| 序列化 | `JsonPlusSerializer`、`EncryptedSerializer`、`serde` 子模块 |
+| 错误 | `GraphBubbleUp`/`GraphInterrupt`/`GraphDrained`/`NodeError`/`NodeTimeoutError`/`NodeInterrupt`/`ErrorCode` 等全套 |
+| 类型 | `langgraph.types` 全量（`StreamPart` 7 种、payload 类型、`xxh3_128_hexdigest` 等） |
+
+**已知且有意保留的差异**
+
+1. 引擎内部类（`PregelNode`、`ChannelWrite`、`SyncAsyncFuture`、`RunnableCallable`、msgpack 扩展常量）
+   LG 内部使用，不对应公开 API。
+2. `ToolCallTransformer` 需要 LangGraph 的流式中间件层，未实现——**构造即抛 `NotImplementedError`**。
+3. `create_react_agent` 的 `response_format`/`pre_model_hook`/`post_model_hook`/`context_schema`
+   抛 `NotImplementedError`（其余参数已对齐）。
+4. 自定义 store 的向量索引（`index=`）不在引擎侧实现；`IndexConfig` 等类型可用。
+
+（以上均在差距清单 §4 中逐条说明；未知项不会再静默失败。）
