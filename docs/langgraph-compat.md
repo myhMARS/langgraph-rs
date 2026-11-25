@@ -164,7 +164,7 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
    `.created_at` / `.updated_at` / `.score`，另保留 `created_at_millis`、`updated_at_millis`），
    `search` 返回 `Item` 列表，`list_namespaces()` 返回 tuple 列表；旧的 `namespaces()`
    （返回 list 列表）与 `item["字段名"]` 取值仍然可用。
-8. **`create_react_agent` 尚未实现的参数**：`response_format`、`pre_model_hook`、
+8. **`create_react_agent` 的参数已全部实现**：
    `post_model_hook`、`context_schema` 会抛 `NotImplementedError`（其余参数已对齐）。
 9. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
@@ -206,7 +206,7 @@ LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
 1. 引擎内部类（`PregelNode`、`ChannelWrite`、`SyncAsyncFuture`、`RunnableCallable`、msgpack 扩展常量）
    LG 内部使用，不对应公开 API。
 2. `ToolCallTransformer` 需要 LangGraph 的流式中间件层，未实现——**构造即抛 `NotImplementedError`**。
-3. `create_react_agent` 的 `response_format`/`pre_model_hook`/`post_model_hook`/`context_schema`
+3. ~~`create_react_agent` 的 `response_format`/`pre_model_hook`/`post_model_hook`/`context_schema`~~（已实现）
    抛 `NotImplementedError`（其余参数已对齐）。
 4. 自定义 store 的向量索引（`index=`）不在引擎侧实现；`IndexConfig` 等类型可用。
 
