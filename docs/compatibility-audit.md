@@ -1627,4 +1627,35 @@ channels, sync/async execution, interrupts and resume, prebuilt agents and tools
 backends with cross-engine resume, long-term memory with vector search, serialization, the v3 stream
 subsystem including transformers, and the remote-server client — is implemented, tested against
 LangGraph on the same workloads, and documented, with every remaining difference deliberate and
-recorded.
+recorded.### Round 81: `run.messages` at delta level
+
+The last recorded divergence was that `run.messages` produced one completed handle per chat-model
+call. Two of the three layers needed to close it landed this round.
+
+* **Model node streams**: `runnable_model_node` now calls the model's `stream()` when it exists,
+  aggregates the chunks with LangChain's `+` into the final message (falling back to `invoke` when
+  streaming fails or is unsupported), so `create_react_agent` produces real chunks instead of a
+  single message. Tokens reach the `messages` stream through the existing LangChain callback handler;
+  pushing them again from Rust duplicated every chunk (`['Hello','Hello',' ',' ','world','world']`),
+  so that extra push was removed.
+* **Transformer dispatches deltas**: `MessagesTransformer` opens a `ChatModelStream` on the *first*
+  chunk, emits `message-start` / `content-block-start`, dispatches every chunk as its own
+  `content-block-delta`, and closes with `content-block-finish` / `message-finish` (at run end, on
+  failure, or when a whole message for the same id arrives — filling in any content the deltas had
+  not covered). Handle dicts emitted by the engine's callback (`{"content": token, ...}`, no `type`)
+  are recognised as chunks.
+
+Measured behaviour now: a model inside `create_react_agent` yields `run.messages` → one handle whose
+`text` streams `["Hello", " ", "world"]`.
+
+Still open (measured, not guessed): the engine buffers a task's message chunks and sinks them when
+the **node finishes** — a node emitting three chunks 0.2 s apart produces the first handle at 0.6 s —
+and `stream()` collects everything before returning, so a consumer cannot yet receive tokens while
+the model is generating. Closing that needs the engine to flush chunks as they are produced plus a
+pull-based binding iterator.
+
+`python/tests/test_messages_transformer.py` grew to 15 tests (live-delta dispatch, handle-before-end,
+whole-message close with the remaining content, and a `create_react_agent` case asserting
+`["Hello", " ", "world"]` for both `run.messages` and `stream_mode="messages"`).
+
+Python suite is 351 tests; parity 38/38; clippy and Rust tests clean.

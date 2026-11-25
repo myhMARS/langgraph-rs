@@ -380,6 +380,58 @@ fn prompt_messages(
     }
 }
 
+/// Run the model, streaming chunks when it supports `stream`.
+///
+/// Returns the final message (the aggregated chunks when streaming worked, otherwise the model's
+/// `invoke` result) together with whether streaming produced anything. Each chunk is forwarded on
+/// the graph's `messages` stream so `stream_mode="messages"` and `run.messages` see it.
+fn streamed_model_result(
+    py: Python<'_>,
+    model: &Bound<'_, PyAny>,
+    messages: &Bound<'_, PyAny>,
+) -> Result<(Py<PyAny>, bool)> {
+    let can_stream = model
+        .hasattr("stream")
+        .unwrap_or(false);
+    if can_stream {
+        if let Ok(iterator) = model.call_method1("stream", (messages.clone(),)) {
+            if let Ok(chunks) = iterator.try_iter() {
+                let mut accumulated: Option<Py<PyAny>> = None;
+                let mut first_error: Option<pyo3::PyErr> = None;
+                for chunk in chunks {
+                    let Ok(chunk) = chunk else {
+                        break;
+                    };
+                    // Tokens reach the `messages` stream through the LangChain callback handler
+                    // (`on_llm_new_token`); pushing here too would duplicate every chunk.
+                    accumulated = Some(match accumulated {
+                        None => chunk.unbind(),
+                        Some(previous) => match previous
+                            .bind(py)
+                            .call_method1("__add__", (chunk.clone(),))
+                        {
+                            Ok(combined) => combined.unbind(),
+                            Err(error) => {
+                                first_error = Some(error);
+                                previous
+                            }
+                        },
+                    });
+                    if first_error.is_some() {
+                        break;
+                    }
+                }
+                if let Some(accumulated) = accumulated {
+                    return Ok((accumulated, true));
+                }
+            }
+        }
+    }
+    let result = model
+        .call_method1("invoke", (messages.clone(),))
+        .map_err(|error| pyerr_to_error(py, error))?;
+    Ok((result.unbind(), false))
+}
 fn runnable_model_node(
     model: Py<PyAny>,
     messages_key: String,
@@ -392,14 +444,15 @@ fn runnable_model_node(
             let messages = prompt_messages(py, &prompt, state, &messages_key)?;
             let py_messages =
                 value_to_py(py, &messages).map_err(|error| pyerr_to_error(py, error))?;
-            let result = model
-                .bind(py)
-                .call_method1("invoke", (py_messages.clone_ref(py),))
-                .map_err(|error| pyerr_to_error(py, error))?;
+            // Stream the model when it supports it, forwarding each chunk on the `messages`
+            // stream and aggregating the chunks into the final message (LangChain's `+`).
+            let (result, streamed) = streamed_model_result(py, model.bind(py), py_messages.bind(py))?;
             let dumped = result
+                .bind(py)
                 .call_method0("model_dump")
-                .or_else(|_| result.call_method0("dict"))
+                .or_else(|_| result.bind(py).call_method0("dict"))
                 .map_err(|error| pyerr_to_error(py, error))?;
+            let _ = streamed;
             let value = py_to_value(&dumped).map_err(|error| pyerr_to_error(py, error))?;
             let message = match value {
                 serde_json::Value::Array(mut values) => {
@@ -418,7 +471,7 @@ fn runnable_model_node(
             if let (Some(structured), false) = (structured.as_ref().as_ref(), has_calls) {
                 let parsed = structured
                     .bind(py)
-                    .call_method1("invoke", (py_messages,))
+                    .call_method1("invoke", (py_messages.clone_ref(py),))
                     .map_err(|error| pyerr_to_error(py, error))?;
                 let dumped = parsed
                     .call_method0("model_dump")

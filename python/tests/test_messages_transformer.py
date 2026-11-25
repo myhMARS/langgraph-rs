@@ -64,6 +64,18 @@ def _protocol_events():
     ]
 
 
+def _collect_chunks(handle):
+    """The individual text deltas a handle yields (empty when the lane is async-only)."""
+    text = handle.text
+
+    async def drain():
+        return [chunk async for chunk in text]
+
+    if hasattr(text, "__await__"):
+        return asyncio.run(drain())
+    return list(text)
+
+
 def _collect_text(handle):
     """Resolve a handle's text projection on whichever lane it was created on."""
     text = handle.text
@@ -130,7 +142,7 @@ class MessagesTransformerTest(unittest.TestCase):
         self.assertEqual(len(handles), 1)
         self.assertEqual(_collect_text(handles[0]), "whole")
 
-    def test_chunk_dicts_are_accumulated_per_call(self):
+    def test_chunk_dicts_stream_as_separate_deltas(self):
         events = [
             _messages_event(
                 (
@@ -143,7 +155,35 @@ class MessagesTransformerTest(unittest.TestCase):
         handles = _run(MessagesTransformer, events)
         self.assertEqual(len(handles), 1)
         self.assertEqual(handles[0].message_id, "m3")
+        # Each chunk is dispatched as its own delta, not replayed as one joined message.
+        self.assertEqual(_collect_chunks(handles[0]), ["a", "b", "c"])
         self.assertEqual(_collect_text(handles[0]), "abc")
+
+    def test_handle_exists_after_the_first_chunk(self):
+        transformer = MessagesTransformer()
+        mux = StreamMux([transformer])
+        cursor = iter(mux.extensions["messages"])
+        meta = {"langgraph_node": "model"}
+        mux.push(_messages_event(({"type": "AIMessageChunk", "id": "m7", "content": "a"}, meta)))
+        # The handle is pushed on the first chunk, before the run ends.
+        handle = next(cursor)
+        self.assertEqual(handle.message_id, "m7")
+        mux.push(_messages_event(({"type": "AIMessageChunk", "id": "m7", "content": "b"}, meta)))
+        mux.close()
+        self.assertEqual(_collect_text(handle), "ab")
+
+    def test_whole_message_closes_the_live_handle(self):
+        events = [
+            _messages_event(
+                ({"type": "AIMessageChunk", "id": "m8", "content": "Hel"}, {"langgraph_node": "model"})
+            ),
+            _messages_event(({"type": "ai", "content": "Hello", "id": "m8"}, {"langgraph_node": "model"})),
+        ]
+        handles = _run(MessagesTransformer, events)
+        # The final message closes the open handle instead of adding a second one.
+        self.assertEqual(len(handles), 1)
+        # The closing message fills in the content the deltas had not covered yet.\n        self.assertEqual(_collect_chunks(handles[0]), ["Hel", "lo"])
+        self.assertEqual(_collect_text(handles[0]), "Hello")
 
     def test_separate_calls_get_separate_handles(self):
         events = []
@@ -187,6 +227,7 @@ class MessagesTransformerTest(unittest.TestCase):
         ) as run:
             handles = list(run.messages)
         self.assertEqual(len(handles), 1)
+        self.assertEqual(_collect_chunks(handles[0]), ["hello ", "world"])
         self.assertEqual(_collect_text(handles[0]), "hello world")
 
 
@@ -213,3 +254,45 @@ class MessagesTransformerParityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+@unittest.skipUnless(_LANGCHAIN, "langchain-core is not installed")
+class ReactAgentStreamingTest(unittest.TestCase):
+    """`create_react_agent` streams its model, so `run.messages` sees token deltas."""
+
+    @staticmethod
+    def _model_class():
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+
+        class BindableFake(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        return BindableFake
+
+    def _app(self):
+        from langchain_core.messages import AIMessage
+
+        model = self._model_class()(messages=iter([AIMessage(content="Hello world")]))
+        return rs.create_react_agent(model, [])
+
+    def test_model_chunks_arrive_as_deltas(self):
+        with self._app().stream_events(
+            {"messages": [{"role": "user", "content": "hi"}]},
+            version="v3",
+            transformers=[MessagesTransformer],
+        ) as run:
+            handles = list(run.messages)
+        self.assertEqual(len(handles), 1)
+        self.assertEqual(_collect_chunks(handles[0]), ["Hello", " ", "world"])
+        self.assertEqual(_collect_text(handles[0]), "Hello world")
+
+    def test_stream_mode_messages_matches(self):
+        parts = list(
+            self._app().stream(
+                {"messages": [{"role": "user", "content": "hi"}]},
+                stream_mode="messages",
+                version="v2",
+            )
+        )
+        self.assertEqual(
+            [part["data"][0].get("content") for part in parts], ["Hello", " ", "world"]
+        )

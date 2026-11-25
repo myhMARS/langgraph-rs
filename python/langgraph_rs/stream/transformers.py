@@ -338,8 +338,8 @@ class MessagesTransformer(StreamTransformer):
         self._apump_fn: Callable[[], Awaitable[bool]] | None = None
         self._scope_list: list[str] = list(scope)
         # Extension bridge: accumulated chunk dicts per node, flushed on finalize/fail.
-        self._pending: dict[str, list[dict[str, Any]]] = {}
-        self._pending_meta: dict[str, str | None] = {}
+        # Open chat-model calls: message id (or node) -> {stream, node, text}.
+        self._pending: dict[str, dict[str, Any]] = {}
 
     def init(self) -> dict[str, Any]:
         return {"messages": self._log}
@@ -397,7 +397,26 @@ class MessagesTransformer(StreamTransformer):
             if self._is_chunk_dict(payload):
                 self._accumulate(payload, node=node)
             else:
-                self._route_whole_message(self._to_message(payload), node=node)
+                # A whole message closes the call's live handle when one is open; any content the
+                # deltas have not covered yet is dispatched first so the text stays complete.
+                key = str(payload.get("id") or node or "")
+                entry = self._pending.get(key)
+                if entry is not None:
+                    whole = payload.get("content")
+                    if isinstance(whole, str) and whole.startswith(entry["text"]):
+                        remainder = whole[len(entry["text"]) :]
+                        if remainder:
+                            entry["text"] += remainder
+                            entry["stream"].dispatch(
+                                {
+                                    "event": "content-block-delta",
+                                    "index": 0,
+                                    "delta": {"type": "text-delta", "text": remainder},
+                                }
+                            )
+                    self._finish_entry(key)
+                else:
+                    self._route_whole_message(self._to_message(payload), node=node)
         return True
 
     @staticmethod
@@ -418,14 +437,16 @@ class MessagesTransformer(StreamTransformer):
 
     @staticmethod
     def _looks_like_message(payload: dict[str, Any]) -> bool:
-        return "content" in payload and (
-            "role" in payload or "type" in payload or "tool_calls" in payload
-        )
+        return "content" in payload
 
     @staticmethod
     def _is_chunk_dict(payload: dict[str, Any]) -> bool:
         kind = str(payload.get("type") or payload.get("role") or "")
-        return "Chunk" in kind
+        if "Chunk" in kind:
+            return True
+        # The engine's LangChain callback handler emits token dicts without a `type`
+        # (`{"content": token, "tags": [...], "metadata": {...}}`).
+        return "type" not in payload and "role" not in payload
 
     @staticmethod
     def _to_message(payload: dict[str, Any]) -> Any:
@@ -447,27 +468,63 @@ class MessagesTransformer(StreamTransformer):
             tool_calls=payload.get("tool_calls") or [],
         )
 
+    def _open_stream(self, key: str, *, node: str | None) -> dict[str, Any]:
+        """Create a handle for a chat-model call and emit its start events."""
+        stream = self._make_stream(node=node, message_id=key or None)
+        self._log.push(stream)
+        stream.dispatch({"event": "message-start", "role": "ai", "id": key or None})
+        stream.dispatch(
+            {
+                "event": "content-block-start",
+                "index": 0,
+                "content": {"type": "text", "text": ""},
+            }
+        )
+        entry: dict[str, Any] = {"stream": stream, "node": node, "text": ""}
+        self._pending[key] = entry
+        return entry
+
     def _accumulate(self, payload: dict[str, Any], *, node: str | None) -> None:
+        """Feed one chunk dict into its call's handle as a `content-block-delta`.
+
+        The handle is created (and pushed to `run.messages`) on the first chunk, so consumers see it
+        as soon as the first delta arrives instead of at the end of the run.
+        """
         key = str(payload.get("id") or node or "")
-        self._pending.setdefault(key, []).append(payload)
-        self._pending_meta[key] = node
+        entry = self._pending.get(key) or self._open_stream(key, node=node)
+        text = payload.get("content")
+        if isinstance(text, str) and text:
+            entry["text"] += text
+            entry["stream"].dispatch(
+                {
+                    "event": "content-block-delta",
+                    "index": 0,
+                    "delta": {"type": "text-delta", "text": text},
+                }
+            )
+
+    def _finish_entry(self, key: str, *, error: BaseException | None = None) -> None:
+        """Close a call's handle: content-block-finish + message-finish, then fail on error."""
+        entry = self._pending.pop(key, None)
+        if entry is None:
+            return
+        stream = entry["stream"]
+        if error is None:
+            stream.dispatch(
+                {
+                    "event": "content-block-finish",
+                    "index": 0,
+                    "content": {"type": "text", "text": entry["text"]},
+                }
+            )
+            stream.dispatch({"event": "message-finish"})
+        else:
+            stream.fail(error)
 
     def _flush_pending(self, *, error: BaseException | None = None) -> None:
-        """Emit one completed handle per accumulated chat-model call."""
-        from langchain_core.messages import AIMessage
-
-        for key, chunks in list(self._pending.items()):
-            node = self._pending_meta.get(key)
-            content = "".join(str(chunk.get("content") or "") for chunk in chunks)
-            message = AIMessage(content=content, id=key or None)
-            stream = self._make_stream(node=node, message_id=message.id)
-            if error is None:
-                self._route_whole_message(message, node=node, stream=stream, push=False)
-            else:
-                stream.fail(error)
-            self._log.push(stream)
-        self._pending.clear()
-        self._pending_meta.clear()
+        """Close every open call (run end or failure)."""
+        for key in list(self._pending):
+            self._finish_entry(key, error=error)
 
     def _route_protocol_event(
         self, event: dict[str, Any], *, run_id: str, node: str | None

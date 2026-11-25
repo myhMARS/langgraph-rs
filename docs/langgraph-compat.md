@@ -222,8 +222,12 @@ python examples/quickstart/compare.py --check-only
 4. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
 5. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
    在没有向量索引时做子串匹配（LG 忽略 `query`）。
-6. **`run.messages` 非 token 级实时流**：引擎不产生 v3 content-block 协议事件，分块消息在 run
-   结束时给出一个合并句柄。
+6. **`run.messages` 已是分片级，但还不是生成期实时**：`create_react_agent` 现在会调用模型的
+   `stream()` 逐块产出（并按 LangChain 的 `+` 合并成最终消息），`MessagesTransformer` 把每个分片
+   作为 `content-block-delta` 派发，因此句柄在**第一个分片**就出现、`handle.text` 逐块产出
+   （例如 `["Hello", " ", "world"]`）。**剩余差距**：引擎按任务收集消息分片、节点结束后才下发
+   （实测：节点内 3 个分片各间隔 0.2 秒，第一个句柄在 0.6 秒出现），且 `stream()` 在返回前已收集
+   完毕；要做到生成期实时，需要引擎「边产出边下发」+ 绑定层改成拉取式迭代器。
 7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
 8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`
