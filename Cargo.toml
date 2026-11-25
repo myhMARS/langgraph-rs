@@ -78,6 +78,10 @@ name = "interrupt_native"
 path = "examples/interrupt/native_demo.rs"
 
 [[example]]
+name = "streaming_native"
+path = "examples/streaming/native_demo.rs"
+
+[[example]]
 name = "perf_probe"
 path = "benchmarks/rust/perf_probe.rs"
 

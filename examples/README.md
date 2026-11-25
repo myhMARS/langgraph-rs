@@ -20,7 +20,7 @@
 | 状态与 reducer（append / 自定义 / last-value） | [`state_reducers/`](state_reducers/) | ✅ | ✅ | ✅ | [README](state_reducers/README.md) |
 | 条件路由与 `Command(goto)` | `routing/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 人机协同：`interrupt` / resume | [`interrupt/`](interrupt/) | ✅ | ✅ | ✅ | [README](interrupt/README.md) |
-| 流式输出：`stream` / `astream` 各模式 | `streaming/` | ⏳ | ⏳ | ⏳ | ⏳ |
+| 流式输出：`stream` / 各 stream mode | [`streaming/`](streaming/) | ✅ | ✅ | ✅ | [README](streaming/README.md) |
 | 持久化：savers / 时间旅行 / 断点续跑 | `checkpointing/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 子图与 `Send` 扇出 | `subgraph/` | ⏳ | ⏳ | ⏳ | ⏳ |
 | 工具：`ToolNode` / `create_react_agent` / 参数注入 | `tools/` | ⏳ | ⏳ | ⏳ | ⏳ |
