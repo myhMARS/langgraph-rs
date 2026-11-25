@@ -1351,4 +1351,25 @@ the built-in transformers) plus `compile(transformers=...)`. `ToolCallTransforme
 it. That is a multi-round feature, not a shim fix; the extension's own seven `stream_mode`s are
 unaffected.
 
-Python suite is 247 tests; parity 38/38; clippy clean.
+Python suite is 247 tests; parity 38/38; clippy clean.### Round 70: `langgraph.stream` primitives
+
+The stream subsystem is being ported in steps; this round lands the primitives, which are the part
+user code touches directly:
+
+* `langgraph_rs.stream.StreamChannel` — single-consumer drainable queue with lazy subscription,
+  sync/async binding (`_bind(is_async=...)`), `push` / `close` / `fail`, `tee(n)` / `atee(n)`
+  fan-out, and the same error contract as LangGraph (unbound → `TypeError`, wrong lane → `TypeError`,
+  second subscriber → `RuntimeError`, closed channel push → `RuntimeError`).
+* `ProtocolEvent` / `StreamTransformer` / `transformer_requires_async` — the envelope, the
+  extension-point ABC (`init`, `process`/`aprocess`, `finalize`/`afinalize`, `fail`/`afail`,
+  `schedule`, `_native`, `required_stream_modes`, `before_builtins`) and the async-lane detection.
+* The package layout now matches LangGraph (`stream/run_stream.py`, `stream/transformers.py`), so
+  `dir(langgraph_rs.stream)` covers `dir(langgraph.stream)`; the run streams and built-in
+  transformers raise with a pointer to `stream(stream_mode=...)`.
+
+`python/tests/test_stream_primitives.py` (16 tests) covers the contract and compares behaviour with
+LangGraph on the same inputs. Python suite is 263 tests; parity 38/38.
+
+Next steps (in order): `_mux.py` (StreamMux + registration), `transformers.py` (built-ins),
+`run_stream.py` bound to the engine's chunk stream, then `compile(transformers=...)` and
+`ToolCallTransformer`.
