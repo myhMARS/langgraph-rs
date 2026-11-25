@@ -939,4 +939,25 @@ Two structural fixes came with it:
 Ten new tests cover the hierarchy, both timeout messages, `NodeError` wrapping, unknown-interrupt
 diagnostics, `ErrorCode` members, the deprecation-warning chain, the recursion error type/message,
 `create_error_message` and `is_invalid_resume`. Python suite is 151 tests; parity stays 38/38; Rust
-tests and clippy pass.
+tests and clippy pass.### Round 52: `InjectedState` / `InjectedStore` tool arguments
+
+`langgraph.prebuilt` now ships LangGraph's injection markers (subclassing
+`langchain_core.tools.base.InjectedToolArg`, so `tool_call_schema` hides them from the model) and
+the Rust tool path fills them at execution time:
+
+* `ToolDefinition` handlers now receive the current state (`ToolDefinition::with_state`; the old
+  `ToolDefinition::new` still works for state-agnostic tools).
+* The Python bridge inspects each tool once (`args_schema.model_fields` metadata for `@tool`-style
+  tools, `typing.get_type_hints(..., include_extras=True)` for plain callables) and builds the
+  call kwargs with the injected `state` / `store` objects. LangChain tools are still called through
+  `invoke(mapping)`, plain callables through `**kwargs`.
+* `ToolRuntime` is exported as a marker but raises on use: its injection (config/context/stream
+  writer) is not implemented yet, so failing loudly beats passing `None`.
+
+Verified end to end: a `@tool` with `state: Annotated[dict, InjectedState]` returns `q|ada` for the
+state `{"user": "ada"}` in both engines (LangGraph uses its own marker class in the comparison),
+and an `InjectedStore` tool writes into a Python store attached via `compile(store=...)`. Six new
+tests cover schema hiding, both injections, plain-callable keyword injection and the
+LangGraph-vs-extension comparison.
+
+Python suite is 156 tests; parity stays 38/38; Rust tests and clippy pass.

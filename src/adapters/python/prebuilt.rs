@@ -15,7 +15,9 @@ use crate::prebuilt::{
 use crate::{END, Result, Route, StateGraph, reducers};
 
 fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
-    let mut entries: Vec<(String, Py<PyAny>)> = Vec::new();
+    // (name, callable, annotation source): LangChain tools are called through `invoke` but the
+    // injection markers live on the tool object itself.
+    let mut entries: Vec<(String, Py<PyAny>, Py<PyAny>, bool)> = Vec::new();
     if let Ok(dict) = tools.cast::<PyDict>() {
         for (name, value) in dict.iter() {
             let name: String = name.extract()?;
@@ -24,7 +26,7 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                     "tool `{name}` must be callable"
                 )));
             }
-            entries.push((name, value.unbind()));
+            entries.push((name, value.clone().unbind(), value.unbind(), false));
         }
     } else {
         let items = tools.try_iter().map_err(|_| {
@@ -38,7 +40,7 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                     .ok()
                     .and_then(|name| name.extract::<String>().ok())
                     .unwrap_or_else(|| format!("tool_{index}"));
-                entries.push((name, item.unbind()));
+                entries.push((name, item.clone().unbind(), item.unbind(), false));
                 continue;
             }
             // LangChain BaseTool objects expose `name` and `invoke` instead of
@@ -60,24 +62,166 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                     "tool `{name}` invoke attribute is not callable"
                 )));
             }
-            entries.push((name, invoke.unbind()));
+            entries.push((name, invoke.unbind(), item.unbind(), true));
         }
     }
     Ok(entries
         .into_iter()
-        .map(|(name, function)| {
-            ToolDefinition::new(name, move |args| {
+        .map(|(name, function, source, is_tool)| {
+            let injected = Python::attach(|py| injection_spec(py, &source.bind(py).clone()));
+            ToolDefinition::with_state(name, move |args, state| {
                 Python::attach(|py| -> Result<serde_json::Value> {
                     let py_args =
                         value_to_py(py, &args).map_err(|error| pyerr_to_error(py, error))?;
-                    let result = function
-                        .call1(py, (py_args,))
-                        .map_err(|error| pyerr_to_error(py, error))?;
+                    let result = if injected.is_empty() {
+                        function
+                            .call1(py, (py_args,))
+                            .map_err(|error| pyerr_to_error(py, error))?
+                    } else {
+                        // LangGraph injects these parameters instead of taking them from the
+                        // model: the state mapping and the long-term store object.
+                        let kwargs = pyo3::types::PyDict::new(py);
+                        if let Ok(mapping) = py_args.bind(py).cast::<pyo3::types::PyDict>() {
+                            for (key, value) in mapping.iter() {
+                                kwargs
+                                    .set_item(key, value)
+                                    .map_err(|error| pyerr_to_error(py, error))?;
+                            }
+                        }
+                        for (parameter, injection) in &injected {
+                            let value = match injection {
+                                Injection::State => {
+                                    let state = serde_json::Value::Object(state.0.clone());
+                                    value_to_py(py, &state)
+                                        .map_err(|error| pyerr_to_error(py, error))?
+                                }
+                                Injection::Store => match crate::get_store() {
+                                    Some(store) => pyo3::IntoPyObjectExt::into_py_any(
+                                        super::types::PyStore::new(store),
+                                        py,
+                                    )
+                                    .map_err(|error| pyerr_to_error(py, error))?,
+                                    None => py.None(),
+                                },
+                                Injection::Runtime => py.None(),
+                            };
+                            kwargs
+                                .set_item(parameter, value)
+                                .map_err(|error| pyerr_to_error(py, error))?;
+                        }
+                        if is_tool {
+                            // LangChain tools take the argument mapping as one positional value.
+                            function
+                                .call1(py, (kwargs,))
+                                .map_err(|error| pyerr_to_error(py, error))?
+                        } else {
+                            function
+                                .call(py, (), Some(&kwargs))
+                                .map_err(|error| pyerr_to_error(py, error))?
+                        }
+                    };
                     py_to_value(result.bind(py)).map_err(|error| pyerr_to_error(py, error))
                 })
             })
         })
         .collect())
+}
+
+/// Which value LangGraph substitutes for a tool parameter the model never supplies.
+#[derive(Clone, Copy)]
+enum Injection {
+    State,
+    Store,
+    Runtime,
+}
+
+/// Parameters annotated with `InjectedState` / `InjectedStore` / `ToolRuntime`.
+///
+/// LangChain's `BaseTool` exposes the annotation metadata through `args_schema.model_fields`;
+/// plain callables are inspected with `typing.get_type_hints(..., include_extras=True)`.
+fn injection_spec(py: Python<'_>, function: &Bound<'_, PyAny>) -> Vec<(String, Injection)> {
+    let mut spec = Vec::new();
+    let classify = |metadata: &Bound<'_, PyAny>| -> Option<Injection> {
+        let name = metadata
+            .getattr("__name__")
+            .ok()
+            .and_then(|name| name.extract::<String>().ok())
+            .or_else(|| {
+                metadata
+                    .get_type()
+                    .getattr("__name__")
+                    .ok()
+                    .and_then(|name| name.extract::<String>().ok())
+            })?;
+        match name.as_str() {
+            "InjectedState" => Some(Injection::State),
+            "InjectedStore" => Some(Injection::Store),
+            "ToolRuntime" => Some(Injection::Runtime),
+            _ => None,
+        }
+    };
+    // `BaseTool` route: the pydantic field metadata carries the marker class.
+    if let Ok(schema) = function.getattr("args_schema")
+        && let Ok(fields) = schema.getattr("model_fields")
+        && let Ok(fields) = fields.cast::<pyo3::types::PyDict>()
+    {
+        for (name, field) in fields.iter() {
+            let Ok(parameter) = name.extract::<String>() else {
+                continue;
+            };
+            let Ok(metadata) = field.getattr("metadata") else {
+                continue;
+            };
+            if let Ok(items) = metadata.try_iter() {
+                for item in items.flatten() {
+                    if let Some(injection) = classify(&item) {
+                        spec.push((parameter.clone(), injection));
+                        break;
+                    }
+                }
+            }
+            if let Ok(annotation) = field.getattr("annotation")
+                && let Some(injection) = classify(&annotation)
+                && !spec.iter().any(|(known, _)| known == &parameter)
+            {
+                spec.push((parameter, injection));
+            }
+        }
+        if !spec.is_empty() {
+            return spec;
+        }
+    }
+    // Plain callable route: resolve `Annotated[...]` extras.
+    if let Ok(typing) = py.import("typing")
+        && let Ok(hints) = typing.getattr("get_type_hints")
+    {
+        let kwargs = pyo3::types::PyDict::new(py);
+        let _ = kwargs.set_item("include_extras", true);
+        if let Ok(hints) = hints.call((function,), Some(&kwargs))
+            && let Ok(hints) = hints.cast::<pyo3::types::PyDict>()
+        {
+            for (name, annotation) in hints.iter() {
+                let Ok(parameter) = name.extract::<String>() else {
+                    continue;
+                };
+                let Ok(args) = typing
+                    .getattr("get_args")
+                    .and_then(|get_args| get_args.call1((annotation,)))
+                else {
+                    continue;
+                };
+                if let Ok(items) = args.try_iter() {
+                    for item in items.flatten().skip(1) {
+                        if let Some(injection) = classify(&item) {
+                            spec.push((parameter, injection));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    spec
 }
 
 /// Executes tool calls from the last message (LangGraph `ToolNode`).

@@ -65,6 +65,9 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
+- `langgraph.prebuilt` 参数注入：`InjectedState`、`InjectedStore`（模型工具 schema 中自动隐藏，
+  运行时由引擎填入状态/长期 store）；`ToolRuntime` 仅提供类型名，注入未实现（使用时明确报错）
+- `create_react_agent` / `ToolNode` 支持上述注入（含普通可调用对象与 `@tool` 工具）
 - `langgraph.errors` / `langgraph.warnings` 全量类：`GraphBubbleUp`、`GraphRecursionError`
   （`RecursionError` 子类，文案与 LangGraph 一致）、`GraphDrained`、`NodeInterrupt`、`NodeError`、
   `NodeTimeoutError`、`EmptyChannelError`、`InvalidUpdateError`、`TaskNotFound`、

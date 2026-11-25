@@ -34,11 +34,17 @@ pub fn tools_condition_with(state: &JsonState, messages_key: &str) -> Route {
 }
 
 /// A named tool usable by [`ToolNode`].
+///
+/// The handler receives the model-supplied arguments plus the current state, so bindings can
+/// inject `InjectedState` / `InjectedStore` parameters the way LangGraph's `ToolNode` does.
 #[derive(Clone)]
 pub struct ToolDefinition {
     name: String,
-    run: Arc<dyn Fn(Value) -> Result<Value> + Send + Sync>,
+    run: ToolHandler,
 }
+
+/// Argument handler of a [`ToolDefinition`]: model arguments plus the current state.
+pub type ToolHandler = Arc<dyn Fn(Value, &JsonState) -> Result<Value> + Send + Sync>;
 
 impl std::fmt::Debug for ToolDefinition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,10 +55,18 @@ impl std::fmt::Debug for ToolDefinition {
 }
 
 impl ToolDefinition {
-    /// Build a tool from a name and an argument handler.
+    /// Build a tool from a name and an argument handler that ignores the graph state.
     pub fn new<F>(name: impl Into<String>, run: F) -> Self
     where
         F: Fn(Value) -> Result<Value> + Send + Sync + 'static,
+    {
+        Self::with_state(name, move |args, _state| run(args))
+    }
+
+    /// Build a tool whose handler also sees the current state (for injected arguments).
+    pub fn with_state<F>(name: impl Into<String>, run: F) -> Self
+    where
+        F: Fn(Value, &JsonState) -> Result<Value> + Send + Sync + 'static,
     {
         Self {
             name: name.into(),
@@ -130,7 +144,7 @@ impl ToolNode {
                 .to_string();
             let args = call.get("args").cloned().unwrap_or(Value::Null);
             let content = match self.tools.get(&name) {
-                Some(tool) => match (tool.run)(args) {
+                Some(tool) => match (tool.run)(args, state) {
                     Ok(value) => match value {
                         Value::String(text) => text,
                         other => other.to_string(),
