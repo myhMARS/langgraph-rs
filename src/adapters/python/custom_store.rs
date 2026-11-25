@@ -167,6 +167,7 @@ impl BaseStore for PyStore {
                     value,
                     created_at_millis: now,
                     updated_at_millis: now,
+                    expires_at_millis: None,
                 });
             }
             Ok(items)

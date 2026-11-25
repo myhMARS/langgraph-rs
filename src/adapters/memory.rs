@@ -447,7 +447,7 @@ impl NodeCache for InMemoryCache {
 }
 
 type StoreKey = (Vec<String>, String);
-type StoreEntry = (Value, u64, u64);
+type StoreEntry = (Value, u64, u64, Option<u64>);
 
 /// In-memory long-term memory store (LangGraph `BaseStore` adapter).
 #[derive(Debug, Default)]
@@ -482,7 +482,8 @@ impl BaseStore for InMemoryStore {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(&(namespace.to_vec(), key.to_string()))
-            .map(|(value, _, _)| value.clone()))
+            .filter(|(_, _, _, expires)| !expires.is_some_and(|expires| store_now() >= expires))
+            .map(|(value, _, _, _)| value.clone()))
     }
 
     fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
@@ -493,9 +494,31 @@ impl BaseStore for InMemoryStore {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let entry = items
             .entry((namespace.to_vec(), key.to_string()))
-            .or_insert_with(|| (value.clone(), now, now));
+            .or_insert_with(|| (value.clone(), now, now, None));
         entry.0 = value;
         entry.2 = now;
+        entry.3 = None;
+        Ok(())
+    }
+
+    fn put_with_ttl(
+        &self,
+        namespace: &[String],
+        key: &str,
+        value: Value,
+        ttl_minutes: Option<f64>,
+    ) -> Result<()> {
+        self.put(namespace, key, value)?;
+        if let Some(minutes) = ttl_minutes {
+            let expires = store_now() + (minutes * 60_000.0) as u64;
+            let mut items = self
+                .items
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(entry) = items.get_mut(&(namespace.to_vec(), key.to_string())) {
+                entry.3 = Some(expires);
+            }
+        }
         Ok(())
     }
 
@@ -521,12 +544,13 @@ impl BaseStore for InMemoryStore {
             .iter()
             .filter(|((namespace, _), _)| namespace_matches(namespace_prefix, namespace))
             .map(
-                |((namespace, key), (value, created_at, updated_at))| StoreItem {
+                |((namespace, key), (value, created_at, updated_at, expires))| StoreItem {
                     namespace: namespace.clone(),
                     key: key.clone(),
                     value: value.clone(),
                     created_at_millis: *created_at,
                     updated_at_millis: *updated_at,
+                    expires_at_millis: *expires,
                 },
             )
             .filter(|item| item_matches(item, query))

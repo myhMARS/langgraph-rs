@@ -164,6 +164,7 @@ impl BaseStore for PostgresStore {
                 value,
                 created_at_millis: created_at as u64,
                 updated_at_millis: updated_at as u64,
+                expires_at_millis: None,
             };
             if item_matches(&item, query) {
                 items.push(item);

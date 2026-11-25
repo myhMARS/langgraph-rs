@@ -163,6 +163,7 @@ impl BaseStore for RedisStore {
                 value,
                 created_at_millis: created,
                 updated_at_millis: updated,
+                expires_at_millis: None,
             };
             if item_matches(&item, query) {
                 items.push(item);

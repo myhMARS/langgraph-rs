@@ -41,10 +41,18 @@ impl PyRedisStore {
         value.map(|value| value_to_py(py, &value)).transpose()
     }
 
-    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.store
-            .put(&namespace, &key, py_to_value(value)?)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    #[pyo3(signature = (namespace, key, value, index=None, ttl=None))]
+    fn put(
+        &self,
+        namespace: Vec<String>,
+        key: String,
+        value: &Bound<'_, PyAny>,
+        index: Option<&Bound<'_, PyAny>>,
+        ttl: Option<f64>,
+    ) -> PyResult<()> {
+        // `index=` only matters for stores built with a vector index.
+        let _ = index;
+        store_put(self.store.as_ref(), namespace, key, value, ttl)
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
@@ -53,8 +61,24 @@ impl PyRedisStore {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace_prefix, query=None, filter=None, limit=10, offset=0, refresh_ttl=None))]
     fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        filter: Option<&Bound<'_, PyAny>>,
+        limit: usize,
+        offset: usize,
+        refresh_ttl: Option<bool>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let _ = refresh_ttl;
+        store_search(py, self.store.as_ref(), namespace_prefix, query, filter, limit, offset)
+    }
+
+    #[allow(dead_code)]
+    fn search_legacy(
         &self,
         py: Python<'_>,
         namespace_prefix: Vec<String>,
@@ -75,6 +99,27 @@ impl PyRedisStore {
         self.store
             .namespaces()
             .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (prefix=None, suffix=None, max_depth=None, limit=100, offset=0))]
+    fn list_namespaces(
+        &self,
+        py: Python<'_>,
+        prefix: Option<Vec<String>>,
+        suffix: Option<Vec<String>>,
+        max_depth: Option<usize>,
+        limit: usize,
+        offset: usize,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        store_list_namespaces(
+            py,
+            self.store.as_ref(),
+            prefix,
+            suffix,
+            max_depth,
+            limit,
+            offset,
+        )
     }
 }
 
@@ -111,10 +156,18 @@ impl PyPostgresStore {
         value.map(|value| value_to_py(py, &value)).transpose()
     }
 
-    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.store
-            .put(&namespace, &key, py_to_value(value)?)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    #[pyo3(signature = (namespace, key, value, index=None, ttl=None))]
+    fn put(
+        &self,
+        namespace: Vec<String>,
+        key: String,
+        value: &Bound<'_, PyAny>,
+        index: Option<&Bound<'_, PyAny>>,
+        ttl: Option<f64>,
+    ) -> PyResult<()> {
+        // `index=` only matters for stores built with a vector index.
+        let _ = index;
+        store_put(self.store.as_ref(), namespace, key, value, ttl)
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
@@ -123,8 +176,24 @@ impl PyPostgresStore {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace_prefix, query=None, filter=None, limit=10, offset=0, refresh_ttl=None))]
     fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        filter: Option<&Bound<'_, PyAny>>,
+        limit: usize,
+        offset: usize,
+        refresh_ttl: Option<bool>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let _ = refresh_ttl;
+        store_search(py, self.store.as_ref(), namespace_prefix, query, filter, limit, offset)
+    }
+
+    #[allow(dead_code)]
+    fn search_legacy(
         &self,
         py: Python<'_>,
         namespace_prefix: Vec<String>,
@@ -145,6 +214,27 @@ impl PyPostgresStore {
         self.store
             .namespaces()
             .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    #[pyo3(signature = (prefix=None, suffix=None, max_depth=None, limit=100, offset=0))]
+    fn list_namespaces(
+        &self,
+        py: Python<'_>,
+        prefix: Option<Vec<String>>,
+        suffix: Option<Vec<String>>,
+        max_depth: Option<usize>,
+        limit: usize,
+        offset: usize,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        store_list_namespaces(
+            py,
+            self.store.as_ref(),
+            prefix,
+            suffix,
+            max_depth,
+            limit,
+            offset,
+        )
     }
 }
 

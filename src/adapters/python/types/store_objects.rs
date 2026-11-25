@@ -35,10 +35,18 @@ impl PyStore {
         store_item_by_key(py, self.store.as_ref(), &namespace, &key)
     }
 
-    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.store
-            .put(&namespace, &key, py_to_value(value)?)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    #[pyo3(signature = (namespace, key, value, index=None, ttl=None))]
+    fn put(
+        &self,
+        namespace: Vec<String>,
+        key: String,
+        value: &Bound<'_, PyAny>,
+        index: Option<&Bound<'_, PyAny>>,
+        ttl: Option<f64>,
+    ) -> PyResult<()> {
+        // `index=` only matters for stores built with a vector index.
+        let _ = index;
+        store_put(self.store.as_ref(), namespace, key, value, ttl)
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
@@ -47,8 +55,24 @@ impl PyStore {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace_prefix, query=None, filter=None, limit=10, offset=0, refresh_ttl=None))]
     fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        filter: Option<&Bound<'_, PyAny>>,
+        limit: usize,
+        offset: usize,
+        refresh_ttl: Option<bool>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let _ = refresh_ttl;
+        store_search(py, self.store.as_ref(), namespace_prefix, query, filter, limit, offset)
+    }
+
+    #[allow(dead_code)]
+    fn search_legacy(
         &self,
         py: Python<'_>,
         namespace_prefix: Vec<String>,
@@ -72,8 +96,25 @@ impl PyStore {
     }
 
     /// LangGraph's spelling: namespaces as tuples.
-    fn list_namespaces(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        namespaces_to_py(py, self.store.as_ref())
+    #[pyo3(signature = (prefix=None, suffix=None, max_depth=None, limit=100, offset=0))]
+    fn list_namespaces(
+        &self,
+        py: Python<'_>,
+        prefix: Option<Vec<String>>,
+        suffix: Option<Vec<String>>,
+        max_depth: Option<usize>,
+        limit: usize,
+        offset: usize,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        store_list_namespaces(
+            py,
+            self.store.as_ref(),
+            prefix,
+            suffix,
+            max_depth,
+            limit,
+            offset,
+        )
     }
 
     fn __repr__(&self) -> String {
@@ -81,6 +122,95 @@ impl PyStore {
     }
 }
 
+/// `store.put(...)`: shared by every store backend, including the optional TTL.
+pub(crate) fn store_put(
+    store: &dyn BaseStore,
+    namespace: Vec<String>,
+    key: String,
+    value: &Bound<'_, PyAny>,
+    ttl: Option<f64>,
+) -> PyResult<()> {
+    store
+        .put_with_ttl(&namespace, &key, py_to_value(value)?, ttl)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))
+}
+
+/// `store.search(...)`: LangGraph's `query` / `filter` / `limit` / `offset`.
+pub(crate) fn store_search(
+    py: Python<'_>,
+    store: &dyn BaseStore,
+    namespace_prefix: Vec<String>,
+    query: Option<String>,
+    filter: Option<&Bound<'_, PyAny>>,
+    limit: usize,
+    offset: usize,
+) -> PyResult<Vec<Py<PyAny>>> {
+    let filter = match filter {
+        Some(filter) if !filter.is_none() => {
+            let value = py_to_value(filter)?;
+            match value {
+                serde_json::Value::Object(map) => Some(map),
+                _ => {
+                    return Err(PyTypeError::new_err(
+                        "store.search(filter=...) must be a dict",
+                    ));
+                }
+            }
+        }
+        _ => None,
+    };
+    let options = crate::store::SearchOptions {
+        query,
+        filter,
+        limit,
+        offset,
+    };
+    let hits = store
+        .search_with(&namespace_prefix, &options)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+    hits.into_iter()
+        .map(|hit| {
+            let entry = Py::new(
+                py,
+                PyStoreItem {
+                    namespace: hit.item.namespace.clone(),
+                    key: hit.item.key.clone(),
+                    value: value_to_py(py, &hit.item.value)?,
+                    created_at_millis: hit.item.created_at_millis,
+                    updated_at_millis: hit.item.updated_at_millis,
+                    score: hit.score,
+                },
+            )?;
+            Ok(entry.into_any())
+        })
+        .collect()
+}
+
+/// `store.list_namespaces(...)`: prefix / suffix / depth filters plus pagination.
+pub(crate) fn store_list_namespaces(
+    py: Python<'_>,
+    store: &dyn BaseStore,
+    prefix: Option<Vec<String>>,
+    suffix: Option<Vec<String>>,
+    max_depth: Option<usize>,
+    limit: usize,
+    offset: usize,
+) -> PyResult<Vec<Py<PyAny>>> {
+    let options = crate::store::NamespaceOptions {
+        prefix,
+        suffix,
+        max_depth,
+        limit,
+        offset,
+    };
+    let namespaces = store
+        .list_namespaces(&options)
+        .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+    namespaces
+        .into_iter()
+        .map(|namespace| Ok(pyo3::types::PyTuple::new(py, namespace)?.into_any().unbind()))
+        .collect()
+}
 fn store_item_to_py(py: Python<'_>, item: &StoreItem) -> PyResult<Py<PyAny>> {
     let entry = Py::new(
         py,
@@ -124,19 +254,6 @@ fn store_item_by_key(
         })
         .transpose()
 }
-
-fn namespaces_to_py(py: Python<'_>, store: &dyn BaseStore) -> PyResult<Vec<Py<PyAny>>> {
-    let namespaces = store
-        .namespaces()
-        .map_err(|error| PyTypeError::new_err(error.to_string()))?;
-    namespaces
-        .into_iter()
-        .map(|namespace| {
-            Ok(pyo3::types::PyTuple::new(py, namespace)?.into_any().unbind())
-        })
-        .collect()
-}
-
 /// LangGraph's `Item`: attribute access plus tuple-style unpacking.
 #[pyclass(name = "StoreItem")]
 pub struct PyStoreItem {
@@ -245,10 +362,18 @@ impl PyInMemoryStore {
         store_item_by_key(py, self.store.as_ref(), &namespace, &key)
     }
 
-    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.store
-            .put(&namespace, &key, py_to_value(value)?)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    #[pyo3(signature = (namespace, key, value, index=None, ttl=None))]
+    fn put(
+        &self,
+        namespace: Vec<String>,
+        key: String,
+        value: &Bound<'_, PyAny>,
+        index: Option<&Bound<'_, PyAny>>,
+        ttl: Option<f64>,
+    ) -> PyResult<()> {
+        // `index=` only matters for stores built with a vector index.
+        let _ = index;
+        store_put(self.store.as_ref(), namespace, key, value, ttl)
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
@@ -257,8 +382,24 @@ impl PyInMemoryStore {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace_prefix, query=None, filter=None, limit=10, offset=0, refresh_ttl=None))]
     fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        filter: Option<&Bound<'_, PyAny>>,
+        limit: usize,
+        offset: usize,
+        refresh_ttl: Option<bool>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let _ = refresh_ttl;
+        store_search(py, self.store.as_ref(), namespace_prefix, query, filter, limit, offset)
+    }
+
+    #[allow(dead_code)]
+    fn search_legacy(
         &self,
         py: Python<'_>,
         namespace_prefix: Vec<String>,
@@ -282,8 +423,25 @@ impl PyInMemoryStore {
     }
 
     /// LangGraph's spelling: namespaces as tuples.
-    fn list_namespaces(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        namespaces_to_py(py, self.store.as_ref())
+    #[pyo3(signature = (prefix=None, suffix=None, max_depth=None, limit=100, offset=0))]
+    fn list_namespaces(
+        &self,
+        py: Python<'_>,
+        prefix: Option<Vec<String>>,
+        suffix: Option<Vec<String>>,
+        max_depth: Option<usize>,
+        limit: usize,
+        offset: usize,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        store_list_namespaces(
+            py,
+            self.store.as_ref(),
+            prefix,
+            suffix,
+            max_depth,
+            limit,
+            offset,
+        )
     }
 
     fn __repr__(&self) -> String {
@@ -324,10 +482,18 @@ impl PySqliteStore {
         store_item_by_key(py, self.store.as_ref(), &namespace, &key)
     }
 
-    fn put(&self, namespace: Vec<String>, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.store
-            .put(&namespace, &key, py_to_value(value)?)
-            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    #[pyo3(signature = (namespace, key, value, index=None, ttl=None))]
+    fn put(
+        &self,
+        namespace: Vec<String>,
+        key: String,
+        value: &Bound<'_, PyAny>,
+        index: Option<&Bound<'_, PyAny>>,
+        ttl: Option<f64>,
+    ) -> PyResult<()> {
+        // `index=` only matters for stores built with a vector index.
+        let _ = index;
+        store_put(self.store.as_ref(), namespace, key, value, ttl)
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {
@@ -336,8 +502,24 @@ impl PySqliteStore {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (namespace_prefix, query=None, limit=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace_prefix, query=None, filter=None, limit=10, offset=0, refresh_ttl=None))]
     fn search(
+        &self,
+        py: Python<'_>,
+        namespace_prefix: Vec<String>,
+        query: Option<String>,
+        filter: Option<&Bound<'_, PyAny>>,
+        limit: usize,
+        offset: usize,
+        refresh_ttl: Option<bool>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let _ = refresh_ttl;
+        store_search(py, self.store.as_ref(), namespace_prefix, query, filter, limit, offset)
+    }
+
+    #[allow(dead_code)]
+    fn search_legacy(
         &self,
         py: Python<'_>,
         namespace_prefix: Vec<String>,
@@ -361,8 +543,25 @@ impl PySqliteStore {
     }
 
     /// LangGraph's spelling: namespaces as tuples.
-    fn list_namespaces(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        namespaces_to_py(py, self.store.as_ref())
+    #[pyo3(signature = (prefix=None, suffix=None, max_depth=None, limit=100, offset=0))]
+    fn list_namespaces(
+        &self,
+        py: Python<'_>,
+        prefix: Option<Vec<String>>,
+        suffix: Option<Vec<String>>,
+        max_depth: Option<usize>,
+        limit: usize,
+        offset: usize,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        store_list_namespaces(
+            py,
+            self.store.as_ref(),
+            prefix,
+            suffix,
+            max_depth,
+            limit,
+            offset,
+        )
     }
 
     fn __repr__(&self) -> String {

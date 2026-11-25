@@ -1257,4 +1257,25 @@ chat model (`python/tests/test_react_agent_extras.py`, 4 tests):
 Also fixed while testing: `StateGraph.compile(context_schema=...)` had the same "class is not JSON"
 problem and now uses the shared `context_schema_value` helper.
 
-Python suite is 217 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 217 tests; parity 38/38; clippy and Rust tests clean.### Round 66: store search surface parity
+
+`BaseStore` grew the parts LangGraph has and the extension lacked:
+
+* `SearchOptions` (`query` / `filter` / `limit` / `offset`) and `search_with`, whose default
+  implementation applies LangGraph's order: text search → drop expired → filter → `[offset:offset+limit]`.
+* `NamespaceOptions` and `list_namespaces` (prefix / suffix / `max_depth` with dedupe / pagination).
+* `put_with_ttl` (minutes) plus `StoreItem::expires_at_millis`; the in-memory store hides expired
+  items from `get` and `search`. (LangGraph's `InMemoryStore` itself raises for `ttl=`, so this is a
+  superset; its SQLite/Redis/Postgres stores do support TTL.)
+* Filter matching ports LangGraph's `_compare_values` / `_apply_operator`
+  (`$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, nested objects, lists).
+
+All four Python store classes (`Store`, `InMemoryStore`, `SqliteStore`, `RedisStore`,
+`PostgresStore`) now accept `put(..., index=..., ttl=...)`,
+`search(..., filter=, limit=10, offset=0, refresh_ttl=)` and
+`list_namespaces(prefix, suffix, max_depth, limit, offset)`.
+
+`python/tests/test_store_search.py` runs every case on both engines and compares: filters,
+operators, nested filters, pagination, namespace filters and TTL are identical to LangGraph.
+
+Python suite is 224 tests; parity 38/38; clippy and Rust tests clean.
