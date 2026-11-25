@@ -634,7 +634,11 @@ impl BaseStore for InMemoryStore {
         options: &crate::store::SearchOptions,
     ) -> Result<Vec<crate::store::SearchHit>> {
         let Some(config) = &self.index else {
-            return crate::store::default_search_with(self, namespace_prefix, options);
+            // Without a vector index LangGraph ignores `query` entirely (it only ranks items that
+            // have embeddings), so the text query becomes a no-op here as well.
+            let mut options = options.clone();
+            options.query = None;
+            return crate::store::default_search_with(self, namespace_prefix, &options);
         };
         let candidates: Vec<StoreItem> = self
             .search(namespace_prefix, None, None)?

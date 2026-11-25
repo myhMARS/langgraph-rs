@@ -1895,4 +1895,34 @@ The fix is to reuse the engine's context and only drain the writes.
 
 Tests: `UiMessageStateTest` (push, delete, arbitrary channel). Divergence count is down to five.
 
-Python suite is 367 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 367 tests; parity 38/38; clippy and Rust tests clean.### Round 91: the store `query` divergence was misdiagnosed — and closed
+
+Two claims in the divergence list were checked against LangGraph's source instead of behaviour
+guesses, and both were wrong in our favour:
+
+* **`PregelNode` / `ChannelWrite` are not importable from `langgraph.pregel` in 1.2.22** (`ImportError`,
+  and `langgraph.pregel.write` does not exist), so our importable-but-raising placeholders are a
+  superset, not a gap.
+* **`search(query=...)` without a vector index.** The original entry said "LangGraph ignores `query`,
+  we do substring matching". The first measurement that produced `[]` from LangGraph was invalid: the
+  `put` in that test used `ttl=60`, which LangGraph rejects with `NotImplementedError`, so the store
+  was empty. Reading `langgraph/store/memory/__init__.py` shows `_filter_items` keeps items that have
+  no embeddings and `_embed_search_queries` returns nothing without an index config, i.e. **the query
+  is ignored entirely**. Measured side by side:
+
+  ```
+  plain put + query="apple"     LG ['a']      rs ['a']
+  put(index=["text"]) + query   LG ['a','b']  rs ['a','b']
+  filter + query                LG ['b']      rs ['b']
+  no query                      LG ['a','b']  rs ['a','b']
+  ```
+
+  `InMemoryStore::search_with` now drops the query when no vector index is configured, so the query
+  half of the divergence is gone; only the `ttl` superset remains.
+
+`StoreQueryParityTest` locks the three cases in against LangGraph itself. The divergence list is now
+four items plus the `RemoteGraph` caveat, and item 4 was reworded: `StreamChunks` supports `next()`
+(the generator protocol) in addition to `len()`/indexing, so it is a superset rather than an
+incompatibility — verified with `next(app.stream(...))`.
+
+Python suite is 370 tests; parity 38/38; clippy and Rust tests clean.

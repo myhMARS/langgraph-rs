@@ -135,3 +135,39 @@ class StoreParityTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+@unittest.skipUnless(_LANGGRAPH, "langgraph is not installed")
+class StoreQueryParityTest(unittest.TestCase):
+    """`query` without a vector index is ignored, like LangGraph."""
+
+    def test_query_is_ignored_without_an_index(self):
+        ours, theirs = rs.InMemoryStore(), LgInMemoryStore()
+        for store in (ours, theirs):
+            store.put(("u",), "a", {"text": "apple pie"})
+            store.put(("u",), "b", {"text": "banana"})
+        for query in ("apple", "banana", "nothing-matches"):
+            self.assertEqual(
+                [hit.key for hit in ours.search(("u",), query=query)],
+                [hit.key for hit in theirs.search(("u",), query=query)],
+                f"query={query!r}",
+            )
+
+    def test_filter_still_narrows_with_a_query(self):
+        ours, theirs = rs.InMemoryStore(), LgInMemoryStore()
+        for store in (ours, theirs):
+            store.put(("u",), "a", {"text": "apple pie"})
+            store.put(("u",), "b", {"text": "banana"})
+        self.assertEqual(
+            [hit.key for hit in ours.search(("u",), query="apple", filter={"text": "banana"})],
+            [hit.key for hit in theirs.search(("u",), query="apple", filter={"text": "banana"})],
+        )
+
+    def test_per_item_index_does_not_change_results(self):
+        ours, theirs = rs.InMemoryStore(), LgInMemoryStore()
+        for store in (ours, theirs):
+            store.put(("u",), "a", {"text": "apple pie"}, index=["text"])
+            store.put(("u",), "b", {"text": "banana"})
+        self.assertEqual(
+            [hit.key for hit in ours.search(("u",), query="banana")],
+            [hit.key for hit in theirs.search(("u",), query="banana")],
+        )

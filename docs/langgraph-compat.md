@@ -219,10 +219,11 @@ python examples/quickstart/compare.py --check-only
    扩展跑自己的引擎。
 2. **原生 `invoke(&state)` 传完整状态**：绑定层与 LangGraph 一样把 `invoke(dict)` 视为经 reducer
    的部分写入；原生 Rust API 需要完整状态。
-3. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
-   在没有向量索引时做子串匹配（LG 忽略 `query`）。
-4. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
-   而非生成器。
+3. **store 超集（只剩 `ttl`）**：`InMemoryStore` 接受 `ttl`，LG 的 `InMemoryStore` 对 `ttl` 抛
+   `NotImplementedError`。`search(query=...)` 在没有向量索引时已与 LG 一致（忽略 `query`，只走
+   filter/分页）。
+4. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`）：
+   除生成器用法外还支持 `len()`/下标；`next()` 与 LG 一样可用，因此不构成兼容性问题。
 5. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
 
 已经消掉的旧差异（保留记录，避免回退）：
@@ -237,6 +238,8 @@ python examples/quickstart/compare.py --check-only
 * `push_ui_message` 只发流事件、不写 state → 引擎补了「节点内写通道」的原语（`send()`，等价于
   LG 的 `CONFIG_KEY_SEND`），`push_ui_message` / `delete_ui_message` 现在会把事件写进 `ui` 状态键，
   同一通道的多次写入按列表交给 reducer；`langgraph_rs._send(channel, value)` 也可直接用。
+* store `search(query=...)` 无索引时的子串匹配 → 现在与 LG 一致：无向量索引时 `query` 被忽略，
+  结果只由 `filter` / `limit` / `offset` 决定（对照测试见 `python/tests/test_store_search.py`）。
 
 ### 跨引擎 resume 支持矩阵（2026-11）
 
