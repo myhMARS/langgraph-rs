@@ -135,6 +135,46 @@ pub(crate) fn store_put(
         .map_err(|error| PyTypeError::new_err(error.to_string()))
 }
 
+/// `index=` of `put(...)`: `False` -> index nothing, `None` -> the store default, list -> paths.
+pub(crate) fn index_paths_from_py(index: Option<&Bound<'_, PyAny>>) -> PyResult<Option<Vec<String>>> {
+    let Some(index) = index.filter(|value| !value.is_none()) else {
+        return Ok(None);
+    };
+    if let Ok(flag) = index.extract::<bool>() {
+        return Ok(if flag { None } else { Some(Vec::new()) });
+    }
+    let paths = index
+        .extract::<Vec<String>>()
+        .map_err(|error| PyTypeError::new_err(format!("put(index=...) must be False, None or a list of paths: {error}")))?;
+    Ok(Some(paths))
+}
+
+/// Parse `InMemoryStore(index={...})` into an engine index configuration.
+pub(crate) fn index_config_from_py(index: &Bound<'_, PyAny>) -> PyResult<crate::store::IndexConfig> {
+    let dict = index
+        .cast::<PyDict>()
+        .map_err(|error| PyTypeError::new_err(format!("index must be a dict: {error}")))?;
+    let dims = dict
+        .get_item("dims")?
+        .map(|value| value.extract::<usize>())
+        .transpose()?
+        .unwrap_or(0);
+    let embed = dict
+        .get_item("embed")?
+        .ok_or_else(|| PyTypeError::new_err("index must include an `embed` embeddings object or callable"))?;
+    let fields = dict
+        .get_item("fields")?
+        .filter(|value| !value.is_none())
+        .map(|value| value.extract::<Vec<String>>())
+        .transpose()?;
+    Ok(crate::store::IndexConfig {
+        dims,
+        embed: Arc::new(super::store_embedder::PyEmbedder::new(
+            embed.clone().unbind(),
+        )),
+        fields,
+    })
+}
 /// `store.search(...)`: LangGraph's `query` / `filter` / `limit` / `offset`.
 pub(crate) fn store_search(
     py: Python<'_>,
@@ -343,10 +383,16 @@ pub struct PyInMemoryStore {
 #[pymethods]
 impl PyInMemoryStore {
     #[new]
-    fn new() -> Self {
-        Self {
-            store: Arc::new(InMemoryStore::new()),
+    #[pyo3(signature = (index=None))]
+    fn new(index: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let mut store = InMemoryStore::new();
+        if let Some(index) = index.filter(|value| !value.is_none()) {
+            let config = index_config_from_py(index)?;
+            store = store.with_index(config);
         }
+        Ok(Self {
+            store: Arc::new(store),
+        })
     }
 
     fn len(&self) -> usize {
@@ -371,9 +417,10 @@ impl PyInMemoryStore {
         index: Option<&Bound<'_, PyAny>>,
         ttl: Option<f64>,
     ) -> PyResult<()> {
-        // `index=` only matters for stores built with a vector index.
-        let _ = index;
-        store_put(self.store.as_ref(), namespace, key, value, ttl)
+        let paths = index_paths_from_py(index)?;
+        self.store
+            .put_indexed(&namespace, &key, py_to_value(value)?, paths.as_deref(), ttl)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
     fn delete(&self, namespace: Vec<String>, key: String) -> PyResult<()> {

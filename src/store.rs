@@ -106,6 +106,144 @@ pub struct NamespaceOptions {
     pub offset: usize,
 }
 
+/// Turns text into embedding vectors (LangGraph's `IndexConfig["embed"]`).
+pub trait Embedder: Send + Sync {
+    /// Embed a batch of documents (one vector per input).
+    fn embed_documents(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>>;
+
+    /// Embed a search query.
+    fn embed_query(&self, text: &str) -> Result<Vec<f32>>;
+}
+
+/// Vector-index configuration for a store (LangGraph's `IndexConfig`).
+#[derive(Clone)]
+pub struct IndexConfig {
+    /// Expected vector size.
+    pub dims: usize,
+    /// Embedding backend.
+    pub embed: Arc<dyn Embedder>,
+    /// Fields to index (`None` = the whole value, serialized as JSON).
+    pub fields: Option<Vec<String>>,
+}
+
+impl std::fmt::Debug for IndexConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexConfig")
+            .field("dims", &self.dims)
+            .field("fields", &self.fields)
+            .finish()
+    }
+}
+
+/// Texts extracted for one indexed field.
+///
+/// A field path is a dotted path with optional `[n]` indices (`text`, `meta.title`, `items[0]`).
+/// `$` means "the whole value". Wildcards (`*`) are not supported.
+pub fn indexed_texts(value: &Value, path: &str) -> Vec<String> {
+    if path == "$" || path.is_empty() {
+        return vec![match value {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        }];
+    }
+    let mut current = value;
+    for segment in tokenize_field_path(path) {
+        match segment {
+            FieldSegment::Key(key) => {
+                let Some(next) = current.get(&key) else {
+                    return Vec::new();
+                };
+                current = next;
+            }
+            FieldSegment::Index(index) => {
+                let Some(next) = current.get(index) else {
+                    return Vec::new();
+                };
+                current = next;
+            }
+        }
+    }
+    match current {
+        Value::String(text) => vec![text.clone()],
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            })
+            .collect(),
+        Value::Null => Vec::new(),
+        other => vec![other.to_string()],
+    }
+}
+
+enum FieldSegment {
+    Key(String),
+    Index(usize),
+}
+
+fn tokenize_field_path(path: &str) -> Vec<FieldSegment> {
+    let mut segments = Vec::new();
+    for part in path.split('.') {
+        if let Some((name, rest)) = part.split_once('[') {
+            if !name.is_empty() {
+                segments.push(FieldSegment::Key(name.to_string()));
+            }
+            for index in rest.trim_end_matches(']').split(',') {
+                if let Ok(index) = index.trim().parse::<usize>() {
+                    segments.push(FieldSegment::Index(index));
+                }
+            }
+        } else {
+            segments.push(FieldSegment::Key(part.to_string()));
+        }
+    }
+    segments
+}
+
+/// Cosine similarity, mirroring LangGraph's `_cosine_similarity`.
+pub(crate) fn cosine_similarity(query: &[f32], vector: &[f32]) -> f64 {
+    if query.len() != vector.len() || query.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0f64;
+    let mut query_norm = 0.0f64;
+    let mut vector_norm = 0.0f64;
+    for (left, right) in query.iter().zip(vector) {
+        dot += f64::from(*left) * f64::from(*right);
+        query_norm += f64::from(*left) * f64::from(*left);
+        vector_norm += f64::from(*right) * f64::from(*right);
+    }
+    if query_norm == 0.0 || vector_norm == 0.0 {
+        return 0.0;
+    }
+    dot / (query_norm.sqrt() * vector_norm.sqrt())
+}
+/// Text-only search used by stores without a vector index (and by every backend's default).
+///
+/// Order matches LangGraph: text search -> drop expired -> filter -> `[offset:offset+limit]`.
+pub fn default_search_with(
+    store: &dyn BaseStore,
+    namespace_prefix: &[String],
+    options: &SearchOptions,
+) -> Result<Vec<SearchHit>> {
+    let items = store.search(namespace_prefix, options.query.as_deref(), None)?;
+    Ok(items
+        .into_iter()
+        .filter(|item| !item.is_expired())
+        .filter(|item| match &options.filter {
+            Some(filter) => item_matches_filter(&item.value, filter),
+            None => true,
+        })
+        .skip(options.offset)
+        .take(if options.limit == 0 {
+            usize::MAX
+        } else {
+            options.limit
+        })
+        .map(SearchHit::new)
+        .collect())
+}
 /// Long-term memory backend (port).
 ///
 /// Implementations can store values in memory, SQLite, Postgres, Redis, ...
@@ -148,8 +286,9 @@ pub trait BaseStore: Send + Sync {
     /// The default implementation reuses [`BaseStore::search`] for the text query, drops expired
     /// items, applies the filter and finally paginates — the same order LangGraph uses.
     fn search_with(&self, namespace_prefix: &[String], options: &SearchOptions) -> Result<Vec<SearchHit>> {
+        // Text search -> drop expired -> filter -> `[offset:offset+limit]`, like LangGraph.
         let items = self.search(namespace_prefix, options.query.as_deref(), None)?;
-        let filtered = items
+        Ok(items
             .into_iter()
             .filter(|item| !item.is_expired())
             .filter(|item| match &options.filter {
@@ -163,8 +302,7 @@ pub trait BaseStore: Send + Sync {
                 options.limit
             })
             .map(SearchHit::new)
-            .collect();
-        Ok(filtered)
+            .collect())
     }
 
     /// List namespaces with prefix / suffix / depth filters and pagination.

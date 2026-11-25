@@ -453,6 +453,9 @@ type StoreEntry = (Value, u64, u64, Option<u64>);
 #[derive(Debug, Default)]
 pub struct InMemoryStore {
     items: Mutex<HashMap<StoreKey, StoreEntry>>,
+    /// `(namespace, key, field path)` -> embedding vector.
+    vectors: Mutex<HashMap<(StoreKey, String), Vec<f32>>>,
+    index: Option<crate::store::IndexConfig>,
 }
 
 impl InMemoryStore {
@@ -473,6 +476,108 @@ impl InMemoryStore {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Enable vector search with this configuration.
+    pub fn with_index(mut self, index: crate::store::IndexConfig) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    /// Whether the store has a vector index.
+    pub fn has_index(&self) -> bool {
+        self.index.is_some()
+    }
+
+    /// Fields indexed by default (`None` = the whole value).
+    pub fn indexed_fields(&self) -> Option<Vec<String>> {
+        self.index.as_ref().and_then(|index| index.fields.clone())
+    }
+
+    /// Store a value and index the requested fields.
+    ///
+    /// `index`: `None` = the configured fields (or the whole value), `Some([])` = skip indexing
+    /// (LangGraph's `index=False`), `Some(paths)` = index exactly those fields.
+    pub fn put_indexed(
+        &self,
+        namespace: &[String],
+        key: &str,
+        value: Value,
+        index: Option<&[String]>,
+        ttl_minutes: Option<f64>,
+    ) -> Result<()> {
+        let paths: Vec<String> = match (&self.index, index) {
+            (None, _) => {
+                return self.put_with_ttl(namespace, key, value, ttl_minutes);
+            }
+            (Some(_), Some(paths)) => paths.to_vec(),
+            (Some(config), None) => config.fields.clone().unwrap_or_else(|| vec!["$".into()]),
+        };
+        let mut texts = Vec::new();
+        let mut slots = Vec::new();
+        for path in &paths {
+            for (position, text) in crate::store::indexed_texts(&value, path).iter().enumerate() {
+                let slot = if paths.len() == 1 && position == 0 {
+                    path.clone()
+                } else {
+                    format!("{path}.{position}")
+                };
+                texts.push(text.clone());
+                slots.push(slot);
+            }
+        }
+        if let Some(config) = &self.index
+            && !texts.is_empty()
+        {
+            let vectors = config.embed.embed_documents(texts)?;
+            let mut stored = self
+                .vectors
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let store_key = (namespace.to_vec(), key.to_string());
+            stored.retain(|(owner, _), _| owner != &store_key);
+            for (slot, vector) in slots.iter().zip(vectors) {
+                stored.insert((store_key.clone(), slot.clone()), vector);
+            }
+        }
+        self.insert_entry(namespace, key, value);
+        if let Some(minutes) = ttl_minutes {
+            let expires = store_now() + (minutes * 60_000.0) as u64;
+            let mut items = self
+                .items
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(entry) = items.get_mut(&(namespace.to_vec(), key.to_string())) {
+                entry.3 = Some(expires);
+            }
+        }
+        Ok(())
+    }
+
+    /// Write the value without touching the vector index.
+    fn insert_entry(&self, namespace: &[String], key: &str, value: Value) {
+        let now = store_now();
+        let mut items = self
+            .items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let entry = items
+            .entry((namespace.to_vec(), key.to_string()))
+            .or_insert_with(|| (value.clone(), now, now, None));
+        entry.0 = value;
+        entry.2 = now;
+        entry.3 = None;
+    }
+
+    /// Embedding vectors of one item (`field path` -> vector).
+    fn item_vectors(&self, namespace: &[String], key: &str) -> Vec<Vec<f32>> {
+        self.vectors
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|((owner, _), _)| owner.0 == namespace && owner.1 == key)
+            .map(|(_, vector)| vector.clone())
+            .collect()
+    }
 }
 
 impl BaseStore for InMemoryStore {
@@ -487,17 +592,10 @@ impl BaseStore for InMemoryStore {
     }
 
     fn put(&self, namespace: &[String], key: &str, value: Value) -> Result<()> {
-        let now = store_now();
-        let mut items = self
-            .items
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let entry = items
-            .entry((namespace.to_vec(), key.to_string()))
-            .or_insert_with(|| (value.clone(), now, now, None));
-        entry.0 = value;
-        entry.2 = now;
-        entry.3 = None;
+        if self.index.is_some() {
+            return self.put_indexed(namespace, key, value, None, None);
+        }
+        self.insert_entry(namespace, key, value);
         Ok(())
     }
 
@@ -528,6 +626,72 @@ impl BaseStore for InMemoryStore {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(&(namespace.to_vec(), key.to_string()));
         Ok(())
+    }
+
+    fn search_with(
+        &self,
+        namespace_prefix: &[String],
+        options: &crate::store::SearchOptions,
+    ) -> Result<Vec<crate::store::SearchHit>> {
+        let Some(config) = &self.index else {
+            return crate::store::default_search_with(self, namespace_prefix, options);
+        };
+        let candidates: Vec<StoreItem> = self
+            .search(namespace_prefix, None, None)?
+            .into_iter()
+            .filter(|item| !item.is_expired())
+            .filter(|item| match &options.filter {
+                Some(filter) => crate::store::item_matches_filter(&item.value, filter),
+                None => true,
+            })
+            .collect();
+        let limit = if options.limit == 0 {
+            usize::MAX
+        } else {
+            options.limit
+        };
+        let Some(query) = options.query.as_deref().filter(|query| !query.is_empty()) else {
+            return Ok(candidates
+                .into_iter()
+                .skip(options.offset)
+                .take(limit)
+                .map(crate::store::SearchHit::new)
+                .collect());
+        };
+        let embedding = config.embed.embed_query(query)?;
+        let mut scored: Vec<(f64, StoreItem)> = Vec::new();
+        let mut scoreless: Vec<StoreItem> = Vec::new();
+        for item in candidates {
+            let vectors = self.item_vectors(&item.namespace, &item.key);
+            if vectors.is_empty() {
+                scoreless.push(item);
+                continue;
+            }
+            for vector in vectors {
+                scored.push((crate::store::cosine_similarity(&embedding, &vector), item.clone()));
+            }
+        }
+        scored.sort_by(|left, right| right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut seen = std::collections::HashSet::new();
+        let mut kept: Vec<crate::store::SearchHit> = Vec::new();
+        for (score, item) in scored {
+            if !seen.insert((item.namespace.clone(), item.key.clone())) {
+                continue;
+            }
+            let position = seen.len() - 1;
+            if position >= options.offset + limit {
+                break;
+            }
+            if position < options.offset {
+                continue;
+            }
+            kept.push(crate::store::SearchHit { item, score: Some(score) });
+        }
+        if !scoreless.is_empty() && kept.len() < limit {
+            let room = limit - kept.len();
+            kept.extend(scoreless.into_iter().take(room).map(crate::store::SearchHit::new));
+        }
+        Ok(kept)
     }
 
     fn search(

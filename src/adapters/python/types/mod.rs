@@ -11,6 +11,7 @@ use pyo3::types::{PyAny, PyDict};
 use serde_json::Value;
 
 pub(crate) mod history;
+pub(crate) mod store_embedder;
 
 pub(crate) use history::PyStateHistory;
 

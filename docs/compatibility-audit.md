@@ -1278,4 +1278,27 @@ All four Python store classes (`Store`, `InMemoryStore`, `SqliteStore`, `RedisSt
 `python/tests/test_store_search.py` runs every case on both engines and compares: filters,
 operators, nested filters, pagination, namespace filters and TTL are identical to LangGraph.
 
-Python suite is 224 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 224 tests; parity 38/38; clippy and Rust tests clean.### Round 67: vector index for the store
+
+`InMemoryStore` now implements LangGraph's vector search:
+
+* `Embedder` / `IndexConfig` (`dims`, `embed`, `fields`) in `store.rs`, plus
+  `indexed_texts` (dotted paths, `[n]` indices, `$` for the whole value) and `cosine_similarity`.
+* `put_indexed` embeds the configured fields (or the whole value when `fields` is unset) and stores
+  one vector per field path; `put(index=False)` stores the value without a vector,
+  `put(index=["path"])` indexes exactly those paths.
+* The in-memory store overrides `search_with`: candidates are filtered, every (item, vector) pair is
+  scored, results are deduped by `(namespace, key)` keeping the best score, then `offset`/`limit`
+  apply, and items without vectors are appended unscored to fill the remaining slots — the same
+  order as LangGraph's `_batch_search`.
+* Python: `InMemoryStore(index={"dims": n, "embed": embeddings_or_callable, "fields": [...]})`
+  accepts a LangChain `Embeddings` object (uses `embed_documents` / `embed_query`) or a plain
+  callable (batch form, with a per-text fallback).
+
+Parity (`python/tests/test_store_index.py`, 8 tests): ranking, scores (6 decimals), pagination,
+scoreless tail, `index=` overrides, `embed_query` usage and `filter` interaction all match LangGraph.
+
+Known differences, both documented: field paths do not support `*` wildcards, and embeddings run per
+`put` instead of being batched across a batch of ops.
+
+Python suite is 232 tests; parity 38/38; clippy and Rust tests clean.
