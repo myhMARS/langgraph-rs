@@ -1242,4 +1242,19 @@ compiled with its own checkpointer; the parent saver is not inherited.### Round 
 | Feature demo | LangGraph | binding | native | binding vs LG | native vs binding |
 | --- | --- | --- | --- | ---: | ---: |
 | routing | 882 µs | 32.9 µs | 19.2 µs | 26.8x | 1.71x |
-| checkpointing | 11380 µs | 171.7 µs | 143.3 µs | 66.3x | 1.20x |
+| checkpointing | 11380 µs | 171.7 µs | 143.3 µs | 66.3x | 1.20x |### Round 65: `create_react_agent` hooks, structured output and context schema
+
+The four previously unsupported keywords now work, verified side by side with LangGraph using a fake
+chat model (`python/tests/test_react_agent_extras.py`, 4 tests):
+
+| Keyword | Implementation | Parity check |
+| --- | --- | --- |
+| `pre_model_hook` | node inserted before `agent`; `tools` routes back to the **entry point**, which is the hook when present (LangGraph does `add_edge("tools", entrypoint)`) | hook call order `['pre','post','pre','post']` matches LangGraph exactly |
+| `post_model_hook` | node between `agent` and the `tools`/`END` decision | same |
+| `response_format` | `model.with_structured_output(...)` called once at build time; when the model answer has no tool calls, the parsed value is written to `structured_response` | both engines end with a `structured_response` key |
+| `context_schema` | accepted as a JSON-schema dict **or** a pydantic/TypedDict class (via `pydantic.TypeAdapter(...).json_schema()`), passed to `CompileOptions::with_context_schema` | both accept the same `TypedDict` |
+
+Also fixed while testing: `StateGraph.compile(context_schema=...)` had the same "class is not JSON"
+problem and now uses the shared `context_schema_value` helper.
+
+Python suite is 217 tests; parity 38/38; clippy and Rust tests clean.

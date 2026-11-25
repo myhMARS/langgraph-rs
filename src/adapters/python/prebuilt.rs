@@ -302,7 +302,10 @@ pub(super) fn tools_condition(state: &Bound<'_, PyAny>) -> PyResult<String> {
         .unwrap_or_else(|| END.to_string()))
 }
 
-/// How `create_react_agent(prompt=...)` shapes the model input.
+/// State key LangGraph uses for create_react_agent(response_format=...) results.
+const STRUCTURED_KEY: &str = "structured_response";
+
+/// How create_react_agent(prompt=...) shapes the model input.
 ///
 /// LangGraph accepts a string (turned into a system message), a `SystemMessage`, or a callable
 /// that receives the state and returns the complete message list.
@@ -381,6 +384,7 @@ fn runnable_model_node(
     model: Py<PyAny>,
     messages_key: String,
     prompt: std::sync::Arc<PromptSpec>,
+    structured: std::sync::Arc<Option<Py<PyAny>>>,
 ) -> impl Fn(&JsonState) -> Result<NodeOutput> + Send + Sync + 'static {
     let model = std::sync::Arc::new(model);
     move |state: &JsonState| {
@@ -390,7 +394,7 @@ fn runnable_model_node(
                 value_to_py(py, &messages).map_err(|error| pyerr_to_error(py, error))?;
             let result = model
                 .bind(py)
-                .call_method1("invoke", (py_messages,))
+                .call_method1("invoke", (py_messages.clone_ref(py),))
                 .map_err(|error| pyerr_to_error(py, error))?;
             let dumped = result
                 .call_method0("model_dump")
@@ -403,7 +407,27 @@ fn runnable_model_node(
                 }
                 other => other,
             };
-            Ok(NodeOutput::new().update(&messages_key, serde_json::Value::Array(vec![message])))
+            let mut output =
+                NodeOutput::new().update(&messages_key, serde_json::Value::Array(vec![message.clone()]));
+            // When the model finished (no tool calls) and a structured output was requested,
+            // LangGraph stores the parsed object under `structured_response`.
+            let has_calls = message
+                .get("tool_calls")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|calls| !calls.is_empty());
+            if let (Some(structured), false) = (structured.as_ref().as_ref(), has_calls) {
+                let parsed = structured
+                    .bind(py)
+                    .call_method1("invoke", (py_messages,))
+                    .map_err(|error| pyerr_to_error(py, error))?;
+                let dumped = parsed
+                    .call_method0("model_dump")
+                    .or_else(|_| parsed.call_method0("dict"))
+                    .unwrap_or_else(|_| parsed.clone());
+                let value = py_to_value(&dumped).map_err(|error| pyerr_to_error(py, error))?;
+                output = output.set(STRUCTURED_KEY, value);
+            }
+            Ok(output)
         })
     }
 }
@@ -462,18 +486,10 @@ pub(super) fn create_react_agent(
     context_schema: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<super::graph::PyCompiledGraph> {
     let _ = debug;
-    for (label, value) in [
-        ("response_format", response_format),
-        ("pre_model_hook", pre_model_hook),
-        ("post_model_hook", post_model_hook),
-        ("context_schema", context_schema),
-    ] {
-        if value.is_some_and(|value| !value.is_none()) {
-            return Err(pyo3::exceptions::PyNotImplementedError::new_err(format!(
-                "create_react_agent({label}=...) is not implemented by the langgraph_rs extension"
-            )));
-        }
-    }
+    let response_format = response_format.filter(|value| !value.is_none()).cloned();
+    let pre_model_hook = pre_model_hook.filter(|value| !value.is_none()).map(|value| value.clone().unbind());
+    let post_model_hook = post_model_hook.filter(|value| !value.is_none()).map(|value| value.clone().unbind());
+    let context_schema = context_schema.filter(|value| !value.is_none()).cloned();
     if let Some(version) = version.as_deref()
         && !matches!(version, "v1" | "v2")
     {
@@ -495,14 +511,31 @@ pub(super) fn create_react_agent(
     };
     let schema = base_schema
         .with_reducer(&messages_key, reducers::messages())
+        .last_value(STRUCTURED_KEY)
         .with_managed_values();
+    // `response_format` binds a structured-output model once; the agent node uses it to turn the
+    // final answer into `structured_response`, exactly like LangGraph.
+    let structured = std::sync::Arc::new(match &response_format {
+        Some(format) => Some(
+            model
+                .bind(py)
+                .call_method1("with_structured_output", (format,))?
+                .unbind(),
+        ),
+        None => None,
+    });
     let builder = StateGraph::<JsonState>::with_schema(schema);
     let inner = if model.bind(py).hasattr("bind_tools")? {
         let bound = model
             .bind(py)
             .call_method1("bind_tools", (tools,))?
             .unbind();
-        let node = runnable_model_node(bound, messages_key.clone(), prompt.clone());
+        let node = runnable_model_node(
+            bound,
+            messages_key.clone(),
+            prompt.clone(),
+            structured.clone(),
+        );
         let key = messages_key.clone();
         builder.add_node("agent", move |state: &JsonState| {
             Ok(guard_react_output(&key, node(state)?))
@@ -520,13 +553,44 @@ pub(super) fn create_react_agent(
             Ok(guard_react_output(&key, node(state)?))
         })
     }
-    .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state))
-    .set_entry_point("agent")
-    .add_conditional_edges("agent", move |state: &JsonState| {
-        Ok::<Route, crate::Error>(rust_tools_condition_with(state, &condition_key))
-    })
-    .add_edge(TOOLS, "agent");
+    .add_node(TOOLS, move |state: &JsonState| tool_node.execute(state));
+    // `pre_model_hook` runs before the model node, `post_model_hook` after it; the tools/END
+    // decision moves to whichever node runs last.
+    let mut builder = inner;
+    // LangGraph routes `tools -> entrypoint`, so a `pre_model_hook` runs before every model call.
+    let entry = if let Some(hook) = pre_model_hook {
+        builder = builder
+            .add_node(
+                "pre_model_hook",
+                node_from_python("pre_model_hook".to_string(), hook),
+            )
+            .set_entry_point("pre_model_hook")
+            .add_edge("pre_model_hook", "agent");
+        "pre_model_hook"
+    } else {
+        builder = builder.set_entry_point("agent");
+        "agent"
+    };
+    let condition_source = if let Some(hook) = post_model_hook {
+        builder = builder
+            .add_node(
+                "post_model_hook",
+                node_from_python("post_model_hook".to_string(), hook),
+            )
+            .add_edge("agent", "post_model_hook");
+        "post_model_hook"
+    } else {
+        "agent"
+    };
+    let inner = builder
+        .add_conditional_edges(condition_source, move |state: &JsonState| {
+            Ok::<Route, crate::Error>(rust_tools_condition_with(state, &condition_key))
+        })
+        .add_edge(TOOLS, entry);
     let mut options = crate::CompileOptions::new();
+    if let Some(schema) = context_schema {
+        options = options.with_context_schema(super::convert::context_schema_value(py, &schema)?);
+    }
     let mut saver = None;
     if let Some(checkpointer) = checkpointer {
         if let Some(created) = super::types::checkpointer_from_py(Some(checkpointer))? {

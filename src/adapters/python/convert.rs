@@ -581,6 +581,25 @@ pub(super) fn install_langchain_callbacks<'py>(
     Some((variable.into_bound(py), token))
 }
 
+/// Convert a `context_schema` argument: a JSON-schema dict or a pydantic/TypedDict class.
+pub(super) fn context_schema_value(
+    py: Python<'_>,
+    schema: &Bound<'_, PyAny>,
+) -> PyResult<serde_json::Value> {
+    if let Ok(value) = py_to_value(schema) {
+        return Ok(value);
+    }
+    if let Ok(adapter) = py.import("pydantic")?.getattr("TypeAdapter")
+        && let Ok(adapter) = adapter.call1((schema,))
+        && let Ok(json_schema) = adapter.call_method0("json_schema")
+        && let Ok(value) = py_to_value(&json_schema)
+    {
+        return Ok(value);
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "context_schema must be a JSON schema dict or a pydantic/TypedDict class",
+    ))
+}
 pub(super) fn node_from_python(
     name: String,
     callable: Py<PyAny>,

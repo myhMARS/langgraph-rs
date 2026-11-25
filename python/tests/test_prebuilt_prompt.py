@@ -64,12 +64,16 @@ class ReactAgentPromptTest(unittest.TestCase):
             [["only-this"]],
         )
 
-    def test_unsupported_keywords_raise(self):
-        model = _FakeChatModel()
-        with self.assertRaises(NotImplementedError):
-            lg.create_react_agent(model, [], response_format={"type": "json_object"})
-        with self.assertRaises(NotImplementedError):
-            lg.create_react_agent(model, [], pre_model_hook=lambda state: state)
+    def test_hooks_and_response_format_are_supported(self):
+        # These used to raise NotImplementedError; the parity tests live in
+        # `test_react_agent_extras.py`, this only guards that the keywords are accepted.
+        app = lg.create_react_agent(
+            _FakeChatModel(),
+            [],
+            pre_model_hook=lambda state: {},
+            post_model_hook=lambda state: {},
+        )
+        self.assertTrue(hasattr(app, "invoke"))
 
     def test_aligned_keywords_are_accepted(self):
         model = _FakeChatModel()

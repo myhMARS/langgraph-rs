@@ -199,7 +199,7 @@ impl PyStateGraph {
             options = options.with_name(name);
         }
         if let Some(schema) = context_schema {
-            options = options.with_context_schema(py_to_value(schema)?);
+            options = options.with_context_schema(super::convert::context_schema_value(py, schema)?);
         }
         let mut saver = None;
         let mut builder = self.inner.clone();
