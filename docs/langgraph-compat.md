@@ -216,10 +216,16 @@ LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
 | 共享方式 | LangGraph 暂停 → rs 恢复 | rs 暂停 → LangGraph 恢复 | 交替继续（新输入） |
 | --- | --- | --- | --- |
 | 同一个 Python saver 对象（如 LG `InMemorySaver`） | ✅ | ✅ | ✅ |
-| LangGraph-schema SQLite（`rs.LangGraphSqliteSaver`） | ✅ | ✅ | —（见下） |
+| LangGraph-schema SQLite（`rs.LangGraphSqliteSaver`） | ✅ | ✅ | ✅（两引擎交替写同一线程已验证） |
 
 - 共享 saver 对象的写侧使用 UUIDv6 风格、按时间+step 单调递增的 checkpoint id，两个引擎交替写同一线程时
   LangGraph 才能选中「最新」checkpoint。
-- SQLite saver 保持既有的扁平 id 格式（LangGraph 的任务 id 推导依赖它）；同线程**混写**时的 latest
-  排序仍是已知限制。
+- 两个 saver 都写入 UUIDv6 风格、按「时间 + step」单调递增的 checkpoint id（**去横线的 32 位十六进制**）：
+  - 时间前缀与 LangGraph 的 uuid6 同构，所以按 id 字符串排序即为时间序；
+  - 去横线是必需的 —— LangGraph 内部会对 `checkpoint["id"]` 调用 `binascii.unhexlify(...)`，带横线会让它
+    推导任务 id 失败，进而把待执行任务的中断丢掉；
+  - 读取侧统一用 `ORDER BY REPLACE(checkpoint_id, '-', '') DESC`，两种格式（我们与 LangGraph 写的行）在同一张表里
+    也能正确取到最新检查点。
+- 已实测：同一 SQLite 文件上 `LG → rs → LG → rs → LG` 交替续跑 5 轮，`attempts` 依次为 1..5，状态累积正确；
+  同一线程内 `Send` 扇出产生的中断，LangGraph 也能用 `Command(resume={id: value})` 逐个恢复。
 - 暂停恢复依赖：`__root__`、`branch:to:<node>`、`__interrupt__` 写、以及从 `versions_seen` 中剔除待执行节点。

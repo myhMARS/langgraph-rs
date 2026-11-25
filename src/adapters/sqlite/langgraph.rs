@@ -84,7 +84,7 @@ impl LangGraphSqliteReader {
                         checkpoint, metadata
                  FROM checkpoints
                  WHERE thread_id = ?1 AND checkpoint_ns = ?2
-                 ORDER BY checkpoint_id DESC
+                 ORDER BY REPLACE(checkpoint_id, '-', '') DESC
                  LIMIT 1",
                 params![thread_id, namespace],
                 |row| {
@@ -117,7 +117,7 @@ impl LangGraphSqliteReader {
                         checkpoint, metadata
                  FROM checkpoints
                  WHERE thread_id = ?1 AND checkpoint_ns = ?2
-                 ORDER BY checkpoint_id DESC",
+                 ORDER BY REPLACE(checkpoint_id, '-', '') DESC",
             )
             .map_err(|error| Error::Checkpoint(format!("langgraph sqlite: history: {error}")))?;
         let rows = statement

@@ -1147,4 +1147,34 @@ and switching it to UUIDv6 made LangGraph fail to map its resume values back to 
 sqlite writers with different id formats therefore remain a known limitation (documented in
 `docs/langgraph-compat.md`); the shared-saver path is fully bidirectional.
 
-Python suite is 213 tests; parity 38/38; Rust tests and clippy pass.
+Python suite is 213 tests; parity 38/38; Rust tests and clippy pass.### Round 61: mixed-writer threads on one SQLite file
+
+The remaining cross-engine limitation (two engines writing the same thread into one LangGraph-schema
+SQLite database) is fixed. Two independent problems were behind it:
+
+1. **Ordering.** Both engines pick the latest checkpoint by comparing id strings; LangGraph emits
+   UUIDv6 (`1f1e…-…`) while our saver emitted a flat hex id, so `ORDER BY checkpoint_id DESC`
+   returned a stale row and a continuation silently re-ran from an older superstep
+   (`attempts: 3` instead of `4`).
+2. **Dashes.** Switching to a dashed UUIDv6 contradicted LangGraph: it calls
+   `binascii.unhexlify(checkpoint["id"])` in places, so a dashed id made it fail to derive task ids
+   and drop the pending interrupts (`snapshot.tasks[i].interrupts == []`, resume map empty). Three
+   tests (`test_langgraph_resumes_{parallel,sequential}_interrupts`, `..._send_fanout`) caught it.
+
+Final scheme: UUIDv6 layout, **no dashes** (`{time_high}{time_mid}6{time_low}{clock}{node}`, 32 hex),
+ticks = `millis * 10_000 + step` so ids are strictly increasing per thread. Reads normalise with
+`ORDER BY REPLACE(checkpoint_id, '-', '') DESC`.
+
+Verified:
+
+| Scenario | Result |
+| --- | --- |
+| LG → rs → LG → rs → LG on one SQLite file | `attempts` 1..5, log accumulates in order |
+| rs `Send` fan-out pause → LG `Command(resume={id: value})` | `{'seen': [1, 10, 2, 11], 'item': 0}`, both tasks resumed with their own value |
+| shared `InMemorySaver`, both directions | still green |
+| Python suite / parity / Rust tests / clippy | 213 tests, 38/38, exit 0, clean |
+
+Open (not addressed here): `add_subgraph` + `interrupt()` — a subgraph pause is written in the root
+namespace (`checkpoint_ns == ""`) and a parent `resume(thread, value)` returns the paused state
+instead of continuing, so the documented "subgraph interrupt pauses the parent run" behaviour does
+not hold yet. Tracked for the next round.

@@ -475,7 +475,7 @@ fn langgraph_id(checkpoint: &Checkpoint) -> String {
     }
     let clock = (((hash >> 48) & 0x3fff) as u16) | 0x8000;
     let node = hash & 0xffff_ffff_ffff;
-    format!("{time_high:08x}-{time_mid:04x}-6{time_low:03x}-{clock:04x}-{node:012x}")
+    format!("{time_high:08x}{time_mid:04x}6{time_low:03x}{clock:04x}{node:012x}")
 }
 
 fn sha1_uuid_like(parts: &[&[u8]]) -> String {

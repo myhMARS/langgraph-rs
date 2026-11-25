@@ -147,19 +147,25 @@ impl LangGraphSqliteSaver {
     }
 
     fn langgraph_id(checkpoint: &Checkpoint) -> String {
-        // LangGraph expects a hex checkpoint id. Keep a time-ordered prefix and derive the
-        // suffix from the internal id so the mapping is deterministic.
+        // UUIDv6-style id: LangGraph orders checkpoints by id string, so both engines must emit
+        // time-ordered ids for a thread written by both. LangGraph normalises the id with
+        // `unhexlify(id.replace("-", ""))`, so the dashes are harmless.
+        let ticks = checkpoint
+            .created_at_millis
+            .saturating_mul(10_000)
+            .saturating_add((checkpoint.step as u64).min(9_999))
+            .wrapping_add(0x01b2_1dd2_1381_4000);
+        let time_high = ((ticks >> 28) & 0xffff_ffff) as u32;
+        let time_mid = ((ticks >> 12) & 0xffff) as u16;
+        let time_low = (ticks & 0x0fff) as u16;
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for byte in checkpoint.id.as_bytes() {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
-        format!(
-            "{:016x}{:08x}{:08x}",
-            checkpoint.created_at_millis,
-            checkpoint.step,
-            (hash & 0xffff_ffff)
-        )
+        let clock = (((hash >> 48) & 0x3fff) as u16) | 0x8000;
+        let node = hash & 0xffff_ffff_ffff;
+        format!("{time_high:08x}{time_mid:04x}6{time_low:03x}{clock:04x}{node:012x}")
     }
 
     fn langgraph_payload(checkpoint: &Checkpoint) -> Result<(Vec<u8>, Vec<u8>)> {
@@ -539,7 +545,7 @@ impl Checkpointer for LangGraphSqliteSaver {
             "SELECT thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id,
                     checkpoint, metadata
              FROM checkpoints WHERE thread_id = ?1 AND checkpoint_ns = ?2
-             ORDER BY checkpoint_id DESC LIMIT 1",
+             ORDER BY REPLACE(checkpoint_id, '-', '') DESC LIMIT 1",
             &[&thread_id, &namespace],
         )?;
         if let Some(checkpoint) = &mut checkpoint {
@@ -555,7 +561,7 @@ impl Checkpointer for LangGraphSqliteSaver {
             "SELECT thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id,
                     checkpoint, metadata
              FROM checkpoints WHERE thread_id = ?1 AND checkpoint_ns = ?2
-             ORDER BY checkpoint_id DESC",
+             ORDER BY REPLACE(checkpoint_id, '-', '') DESC",
             &[&thread_id, &namespace],
         )?;
         let mut checkpoints = Vec::with_capacity(rows.len());
@@ -594,7 +600,7 @@ impl Checkpointer for LangGraphSqliteSaver {
             .execute(
                 "DELETE FROM checkpoints WHERE thread_id = ?1 AND checkpoint_id NOT IN (
                     SELECT checkpoint_id FROM checkpoints WHERE thread_id = ?1
-                    ORDER BY checkpoint_id DESC LIMIT ?2
+                    ORDER BY REPLACE(checkpoint_id, '-', '') DESC LIMIT ?2
                  )",
                 params![thread_id, keep_last as i64],
             )
