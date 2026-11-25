@@ -1795,4 +1795,27 @@ async node messages : 0.02 / 0.23 / 0.43 with node finished=False
 Tests: `AsyncNodeWriteLivenessTest` and `CustomLivenessTest` added (both assert "first item before the
 node finished", no timing thresholds).
 
-Python suite is 357 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 357 tests; parity 38/38; clippy and Rust tests clean.### Round 87: interrupts on the live path, and a liveness regression harness
+
+Auditing the live lane turned up a real defect: a run that paused reported `interrupted=False` when
+the live path was active, while the collected path reported `True`. The engine signals a pause as an
+`updates` chunk carrying `__interrupt__`, and `GraphRunStream._observe_event` only inspected `values`
+events, so live runs lost the flag (the collected path happened to receive a `values` event with
+`params["interrupts"]`).
+
+`_observe_event` now treats an `updates` event whose data carries `__interrupt__` as an interruption
+(sync and async run streams). Verified both lanes: `interrupted=True, interrupts=1`, and the payload
+matches (`{"question": "ok?"}`).
+
+Added `examples/streaming-liveness/compare.py`, a regression harness that asserts *ordering* rather
+than wall-clock timing — the first item of a live stream must arrive before the producing node
+finishes, which stays stable on slow machines while still failing when chunks get batched:
+
+```
+PASS  node messages (sync):   deltas=['a', 'b'] first_before_node_end=True
+PASS  custom writer (sync):   payloads=[{'progress': 'x'}, {'progress': 'y'}] ...
+PASS  node messages (async):  deltas=['a', 'b'] first_before_node_end=True
+PASS  interrupt on live path: interrupted=True interrupts=1
+```
+
+Python suite is 358 tests; parity 38/38; clippy and Rust tests clean.

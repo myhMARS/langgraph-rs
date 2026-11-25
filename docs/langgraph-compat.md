@@ -235,6 +235,10 @@ python examples/quickstart/compare.py --check-only
    `run.custom` 上逐条到达（实测 0.01 / 0.16 秒，节点尚未结束）。
    **同步与异步都已实时**（模型 token、节点自写消息、custom 事件），异步 lane 用独立线程跑图避免
    堵住消费方事件循环。
+   **中断在实时路径上也正确上报**：实时路径把中断作为 `updates` 分片（含 `__interrupt__`）给出，
+   `run.interrupted` / `run.interrupts` 与收集路径一致。
+   **回归校验**：`examples/streaming-liveness/compare.py --check` 用「首条数据早于节点结束」的
+   顺序断言覆盖上述三条实时通道 + 中断上报，可随时重跑。
    **仍有的边界**：普通 `stream()` 仍是一次性收集（保持既有语义）；`values` / `tasks` 这类按 step
    组装的流仍按 step 边界给出。
 7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），

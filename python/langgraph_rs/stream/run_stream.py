@@ -126,10 +126,19 @@ class GraphRunStream:
 
     def _observe_event(self, event: ProtocolEvent) -> None:
         """Track values-event state for output/interrupted/interrupts."""
-        if event["method"] != "values":
-            return
         params = event["params"]
         if params["namespace"] != self._scope_list:
+            return
+        if event["method"] == "updates":
+            # The engine reports a pause as an `updates` chunk carrying `__interrupt__` when the
+            # live path delivers chunks one by one.
+            data = params["data"]
+            interrupts = data.get("__interrupt__") if isinstance(data, dict) else None
+            if interrupts:
+                self._interrupted = True
+                self._interrupts.extend(_as_interrupt(item) for item in interrupts)
+            return
+        if event["method"] != "values":
             return
         self._latest = params["data"]
         interrupts = params.get("interrupts", ())
@@ -270,10 +279,19 @@ class AsyncGraphRunStream:
 
     def _observe_event(self, event: ProtocolEvent) -> None:
         """Track values-event state for output/interrupted/interrupts."""
-        if event["method"] != "values":
-            return
         params = event["params"]
         if params["namespace"] != self._scope_list:
+            return
+        if event["method"] == "updates":
+            # The engine reports a pause as an `updates` chunk carrying `__interrupt__` when the
+            # live path delivers chunks one by one.
+            data = params["data"]
+            interrupts = data.get("__interrupt__") if isinstance(data, dict) else None
+            if interrupts:
+                self._interrupted = True
+                self._interrupts.extend(_as_interrupt(item) for item in interrupts)
+            return
+        if event["method"] != "values":
             return
         self._latest = params["data"]
         interrupts = params.get("interrupts", ())

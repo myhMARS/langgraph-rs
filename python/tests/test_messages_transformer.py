@@ -574,3 +574,28 @@ class CustomLivenessTest(unittest.TestCase):
         self.assertFalse(
             seen[0][1], "the first custom payload should arrive while the node is still running"
         )
+
+
+class LivePathInterruptTest(unittest.TestCase):
+    """A pause is reported through the live path as well as the collected one."""
+
+    def _app(self):
+        graph = rs.StateGraph({"messages": "messages", "answer": "last"})
+
+        def node(state):
+            rs.message({"type": "AIMessageChunk", "id": "m1", "content": "x"})
+            return {"answer": rs.interrupt({"question": "ok?"})}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def test_live_run_reports_the_interrupt(self):
+        with self._app().stream_events(
+            {"messages": []}, version="v3", thread_id="live", transformers=[MessagesTransformer]
+        ) as run:
+            list(run.values)
+            self.assertTrue(run.interrupted)
+            self.assertEqual(len(run.interrupts), 1)
+            self.assertEqual(run.interrupts[0].value, {"question": "ok?"})
