@@ -375,7 +375,35 @@ pub fn custom(value: impl Serialize) -> Result<()> {
 }
 
 /// Emit an already serialized custom value into the graph stream.
+/// Emit `chunk` to the run's live sink when one is installed.
+///
+/// Returns `true` when the chunk was handed to a live consumer; the caller then skips buffering so
+/// the chunk is not delivered twice (once live, once with the task result).
+fn push_live(chunk: StreamChunk) -> bool {
+    let Some(sink) = crate::runtime::context::current_live_sink() else {
+        return false;
+    };
+    // A chunk produced inside a subgraph carries that subgraph's namespace.
+    let namespace = crate::runtime::context::current_namespace();
+    let wrapped = if namespace.is_empty() {
+        chunk
+    } else {
+        StreamChunk::Subgraph {
+            namespace,
+            chunk: Box::new(chunk),
+        }
+    };
+    let mut sink = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    sink(wrapped);
+    true
+}
 pub fn push_custom(value: Value) -> Result<()> {
+    if push_live(StreamChunk::Custom {
+        node: crate::runtime::context::current_node().unwrap_or_default(),
+        value: value.clone(),
+    }) {
+        return Ok(());
+    }
     #[cfg(feature = "async")]
     if !has_sync_task()
         && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_custom(value.clone()))
@@ -398,6 +426,12 @@ pub fn push_custom(value: Value) -> Result<()> {
 /// `ToolNode` uses this to report `tool-started` / `tool-finished` / `tool-error`; the payload is
 /// passed through unchanged.
 pub fn push_tool_event(value: Value) -> Result<()> {
+    if push_live(StreamChunk::Tool {
+        node: crate::runtime::context::current_node().unwrap_or_default(),
+        value: value.clone(),
+    }) {
+        return Ok(());
+    }
     #[cfg(feature = "async")]
     if !has_sync_task()
         && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_tool_event(value.clone()))
@@ -424,6 +458,12 @@ pub fn message(value: impl Serialize) -> Result<()> {
 
 /// Emit an already serialized message into the graph stream.
 pub fn push_message(value: Value) -> Result<()> {
+    if push_live(StreamChunk::Message {
+        node: crate::runtime::context::current_node().unwrap_or_default(),
+        message: value.clone(),
+    }) {
+        return Ok(());
+    }
     #[cfg(feature = "async")]
     if !has_sync_task()
         && let Ok(result) = ASYNC_TASK.try_with(|ops| ops.push_message(value.clone()))

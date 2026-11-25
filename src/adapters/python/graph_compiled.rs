@@ -9,6 +9,103 @@ use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
 
 use super::*;
 
+/// An item travelling from the graph's worker thread to the Python consumer.
+enum LiveItem {
+    Chunk(Box<crate::StreamChunk>),
+    Error(String),
+}
+
+/// Pull-based iterator over a run's chunks (`stream_live`).
+///
+/// The graph runs on a worker thread that pushes every chunk as it is produced — including chunks a
+/// node emits through `message()` / custom writers, which therefore reach the consumer while the
+/// node is still running.
+#[pyclass(name = "_LiveStream")]
+pub struct PyLiveStream {
+    receiver: std::sync::Mutex<std::sync::mpsc::Receiver<LiveItem>>,
+    handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+    v2: bool,
+    requested: Vec<crate::StreamMode>,
+}
+
+impl PyLiveStream {
+    fn new(
+        receiver: std::sync::mpsc::Receiver<LiveItem>,
+        handle: std::thread::JoinHandle<()>,
+        v2: bool,
+        requested: Vec<crate::StreamMode>,
+    ) -> Self {
+        Self {
+            receiver: std::sync::Mutex::new(receiver),
+            handle: std::sync::Mutex::new(Some(handle)),
+            v2,
+            requested,
+        }
+    }
+}
+
+#[pymethods]
+impl PyLiveStream {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    /// Whether the run finished and every chunk was already handed out.
+    fn finished(&self) -> bool {
+        let receiver = self
+            .receiver
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        matches!(receiver.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected))
+    }
+
+    /// Take the next chunk, if one is ready (`None` = nothing yet).
+    ///
+    /// Waiting happens on the Python side (`time.sleep`), which releases the GIL; blocking here
+    /// would stall the worker thread that needs it to run Python nodes.
+    fn poll(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        loop {
+            let item = {
+                let receiver = self
+                    .receiver
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                receiver.try_recv()
+            };
+            match item {
+                Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(pyo3::exceptions::PyStopIteration::new_err(()));
+                }
+                Ok(LiveItem::Error(message)) => {
+                    return Err(pyo3::exceptions::PyRuntimeError::new_err(message));
+                }
+                Ok(LiveItem::Chunk(chunk)) => {
+                    if !chunk.is_interrupt() && !chunk.matches_modes_strict(&self.requested) {
+                        continue;
+                    }
+                    let converted =
+                        convert_stream_chunks(py, &[*chunk], self.v2, &self.requested)?;
+                    if let Some(item) = converted.into_iter().next() {
+                        return Ok(Some(item));
+                    }
+                    continue;
+                }
+            }
+        }
+    }
+}
+
+impl Drop for PyLiveStream {
+    fn drop(&mut self) {
+        // The worker stops on its own when the receiver disappears; joining here would block the
+        // interpreter thread on a run the caller already abandoned.
+        self.handle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+    }
+}
 #[pyclass(name = "CompiledGraph")]
 pub struct PyCompiledGraph {
     pub(crate) graph: Arc<CompiledGraph<JsonState>>,
@@ -88,6 +185,86 @@ impl PyCompiledGraph {
         Ok(result.into_any().unbind())
     }
 
+    /// Stream chunks as the graph produces them (pull-based, live).
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn stream_live(
+        &self,
+        py: Python<'_>,
+        input: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        stream_mode: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+        subgraphs: bool,
+        version: Option<String>,
+    ) -> PyResult<Py<PyLiveStream>> {
+        let v2 = match version.as_deref() {
+            None | Some("v1") => false,
+            Some("v2") => true,
+            Some(other) => {
+                return Err(PyTypeError::new_err(format!(
+                    "version must be 'v1' or 'v2', got {other:?}"
+                )));
+            }
+        };
+        let thread = thread_id.filter(|value| !value.is_none()).map(|value| {
+            value
+                .extract::<String>()
+                .or_else(|_| {
+                    value
+                        .get_item("thread_id")
+                        .and_then(|inner| inner.extract::<String>())
+                })
+                .unwrap_or_default()
+        });
+        let requested = stream_modes_from_py(stream_mode)?
+            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        let mut config = RunConfig::new().with_stream_modes(requested.clone());
+        if let Some(thread) = thread.as_deref() {
+            config = config.with_thread(thread.to_string());
+        }
+        if subgraphs {
+            config = config.with_stream_subgraphs(true);
+        }
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            config = config.with_context(py_to_value(context)?);
+        }
+        let state = match input.filter(|value| !value.is_none()) {
+            Some(value) => state_from_py(Some(value))?,
+            None => return Err(PyTypeError::new_err("stream_live requires an input state")),
+        };
+        let graph = self.graph.clone();
+        let modes_for_worker = requested.clone();
+        let config_for_worker = config.clone();
+        let (sender, receiver) = std::sync::mpsc::channel::<LiveItem>();
+        let sink_sender = sender.clone();
+        let handle = std::thread::Builder::new()
+            .name("langgraph_rs-live-stream".to_string())
+            .spawn(move || {
+                // Nodes run on this thread, so the LangChain callback context has to be installed
+                // here for model tokens to reach `messages` (the token is intentionally leaked:
+                // the thread ends with the run).
+                Python::attach(|py| {
+                    let _ = crate::adapters::python::convert::install_langchain_callbacks(py);
+                });
+                crate::runtime::context::set_pending_live_sink(std::sync::Arc::new(
+                    std::sync::Mutex::new(move |chunk: crate::StreamChunk| {
+                        let _ = sink_sender.send(LiveItem::Chunk(Box::new(chunk)));
+                    }),
+                ));
+                let outcome = graph.stream_modes_with(&state, &config_for_worker, &modes_for_worker, |chunk| {
+                    let _ = sender.send(LiveItem::Chunk(Box::new(chunk)));
+                });
+                match outcome {
+                    Ok(_) | Err(crate::Error::Interrupt(_)) => {}
+                    Err(error) => {
+                        let _ = sender.send(LiveItem::Error(error.to_string()));
+                    }
+                }
+            })
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        Py::new(py, PyLiveStream::new(receiver, handle, v2, requested))
+    }
     /// Run the graph and return the list of stream chunks.
     /// `stream_events(version="v3")`: a `GraphRunStream` driven by the caller.
     #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None))]

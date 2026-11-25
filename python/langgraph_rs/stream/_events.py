@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+import time
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any
 
@@ -94,15 +95,42 @@ def _live_parts(
 
     def run() -> None:
         try:
-            for part in graph.stream(
-                input,
-                thread_id=thread_id,
-                stream_mode=modes,
-                version="v2",
-                subgraphs=subgraphs,
-                **kwargs,
-            ):
-                engine.put(part)
+            # `stream_live` pushes every chunk as the engine produces it (node writes included);
+            # graphs without it fall back to the collected `stream()`.
+            source = getattr(graph, "stream_live", None)
+            if source is not None:
+                iterator = source(
+                    input,
+                    thread_id=thread_id,
+                    stream_mode=modes,
+                    version="v2",
+                    subgraphs=subgraphs,
+                    **kwargs,
+                )
+            else:
+                iterator = graph.stream(
+                    input,
+                    thread_id=thread_id,
+                    stream_mode=modes,
+                    version="v2",
+                    subgraphs=subgraphs,
+                    **kwargs,
+                )
+            if hasattr(iterator, "poll"):
+                # Pull-based live iterator: waiting happens here so the GIL is released for the
+                # worker thread that runs the graph.
+                while True:
+                    try:
+                        part = iterator.poll()
+                    except StopIteration:
+                        break
+                    if part is None:
+                        time.sleep(0.001)
+                        continue
+                    engine.put(part)
+            else:
+                for part in iterator:
+                    engine.put(part)
         except BaseException as error:  # noqa: BLE001 - re-raised in the consumer
             result["error"] = error
         finally:
@@ -117,7 +145,9 @@ def _live_parts(
         finished = False
         deferred: list[Any] = []
         while True:
-            for payload, metadata in bridge.drain():
+            # Poll instead of blocking: a blocking drain here would delay engine chunks by that
+            # timeout even when nothing is streaming.
+            for payload, metadata in bridge.drain(timeout=0.0):
                 yield {
                     "type": "messages",
                     "ns": (),
@@ -129,25 +159,35 @@ def _live_parts(
             except queue.Empty:
                 if bridge._closed.is_set() and not worker.is_alive():
                     break
+                time.sleep(0.001)
                 continue
             if part is None:
                 finished = True
                 break
+
             if isinstance(part, dict) and part.get("type") == "messages":
                 if bridge.count:
                     continue
-            deferred.append(part)
-        # Everything the engine produced (non-message parts, plus messages when the bridge was idle).
-        if finished:
-            while True:
-                try:
-                    part = engine.get_nowait()
-                except queue.Empty:
-                    break
-                if part is None:
-                    continue
-                deferred.append(part)
-        for part in deferred:
+            # Engine parts are produced in order, so hand them out as they arrive.
+            yield part
+        # Tokens pushed after the last drain must not be lost.
+        for payload, metadata in bridge.drain():
+            yield {
+                "type": "messages",
+                "ns": (),
+                "data": (payload, metadata),
+                "interrupts": (),
+            }
+        # Drain anything the worker queued after the sentinel check.
+        while True:
+            try:
+                part = engine.get_nowait()
+            except queue.Empty:
+                break
+            if part is None:
+                continue
+            if isinstance(part, dict) and part.get("type") == "messages" and bridge.count:
+                continue
             yield part
         error = result.get("error")
         if error is not None:

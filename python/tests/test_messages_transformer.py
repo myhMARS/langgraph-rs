@@ -456,3 +456,40 @@ class ConcurrentLiveRunsTest(unittest.TestCase):
         for worker in workers:
             worker.join(timeout=30)
         self.assertEqual(out, {"t1": "alpha beta", "t2": "gamma delta"})
+class NodeWriteLivenessTest(unittest.TestCase):
+    """Chunks a node writes itself also reach `run.messages` while the node is still running."""
+
+    def test_first_node_delta_arrives_before_the_node_finishes(self):
+        import time
+
+        graph = rs.StateGraph({"messages": "messages"})
+        finished = {"node": False}
+
+        def node(state):
+            for piece in ("a", "b"):
+                rs.message({"type": "AIMessageChunk", "id": "m1", "content": piece})
+                time.sleep(0.05)
+            finished["node"] = True
+            return {"messages": []}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile()
+
+        observed = {}
+        with app.stream_events(
+            {"messages": []}, version="v3", transformers=[MessagesTransformer]
+        ) as run:
+            handle = next(iter(run.messages))
+            for index, chunk in enumerate(handle.text):
+                if index == 0:
+                    observed["finished"] = finished["node"]
+                observed.setdefault("text", "")
+                observed["text"] += chunk
+
+        self.assertFalse(
+            observed["finished"],
+            "the first delta should arrive while the node is still running",
+        )
+        self.assertEqual(observed["text"], "ab")

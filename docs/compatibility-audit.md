@@ -1708,4 +1708,39 @@ parallel and asserts each `run.messages` only saw its own text.
 Remaining, documented: chunks written by nodes via `rs.message()` / `get_stream_writer()` are still
 flushed by the engine when the node finishes — only the LangChain token callback is generation-time.
 
-Python suite is 354 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 354 tests; parity 38/38; clippy and Rust tests clean.### Round 84: node-written chunks are live too
+
+The last recorded boundary — chunks a node writes itself arriving only when the node returns — is
+closed on the sync lane.
+
+Engine (`src/runtime/context_run.rs`, `context_task_helpers.rs`):
+
+* `RunContext` gained `live_sink: Option<LiveSink>` (`Arc<Mutex<dyn FnMut(StreamChunk) + Send>>`),
+  inherited by nested/subgraph runs and by task threads through the existing run-context capture.
+* `install_run` consumes a thread-local *pending* sink, so a caller can install one for the next run
+  on its thread without threading a parameter through the engine.
+* `push_message` / `push_custom` / `push_tool_event` hand their chunk to the live sink when one is
+  installed (wrapping it in `Subgraph` for the current namespace) and skip buffering, so nothing is
+  delivered twice.
+
+Binding (`src/adapters/python/graph_compiled.rs`):
+
+* New `CompiledGraph.stream_live(...)` returns `_LiveStream`, a `poll()`-based pull iterator. The
+  graph runs on a worker thread that installs the live sink and forwards every chunk through a
+  channel. `__next__` was replaced by `poll()` because blocking in Rust holds the GIL and deadlocks
+  the worker that needs it to run Python nodes — waiting happens in Python (`time.sleep`) instead.
+* The worker installs the LangChain callback context (`install_langchain_callbacks`), and the react
+  agent's Rust model node now installs it per node (`begin_callback_scope`) — without that, model
+  tokens never reached `messages` on the worker thread.
+
+Python (`stream/_events.py`): `_live_parts` prefers `stream_live`, polls the bridge with a zero
+timeout, sleeps 1 ms when idle, and yields engine parts as they arrive (previously they were
+deferred to the end, which is exactly what hid the liveness).
+
+Measured (node writing three chunks 0.2 s apart): handle at 0.20 s, deltas at 0.20 / 0.26 / 0.45.
+Model tokens through `create_react_agent`: 0.23 / 0.43 / 0.63.
+
+Boundaries left: `astream_events` still uses the collected `astream` (model tokens live via the
+bridge, node writes batched), and plain `stream()` keeps its eager semantics.
+
+Python suite is 355 tests; parity 38/38; clippy and Rust tests clean.

@@ -441,6 +441,10 @@ fn runnable_model_node(
     let model = std::sync::Arc::new(model);
     move |state: &JsonState| {
         Python::attach(|py| -> Result<NodeOutput> {
+            // This node runs inside the engine rather than through the Python node wrapper, so it
+            // has to install the LangChain callback context itself; without it the model's tokens
+            // never reach the `messages` stream.
+            let _callbacks = super::convert::begin_callback_scope(py);
             let messages = prompt_messages(py, &prompt, state, &messages_key)?;
             let py_messages =
                 value_to_py(py, &messages).map_err(|error| pyerr_to_error(py, error))?;

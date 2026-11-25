@@ -2,6 +2,33 @@
 
 use super::*;
 
+/// Sink that receives stream chunks the moment a node produces them.
+pub(crate) type LiveSink = std::sync::Arc<std::sync::Mutex<dyn FnMut(StreamChunk) + Send>>;
+
+thread_local! {
+    /// Sink installed by a caller (for example the Python binding's live stream) for the next run
+    /// started on this thread; `install_run` consumes it.
+    static PENDING_LIVE_SINK: std::cell::RefCell<Option<LiveSink>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Install `sink` for the next run started on this thread.
+pub(crate) fn set_pending_live_sink(sink: LiveSink) {
+    PENDING_LIVE_SINK.with(|slot| {
+        *slot.borrow_mut() = Some(sink);
+    });
+}
+
+/// Take (and clear) the pending live sink.
+pub(crate) fn take_pending_live_sink() -> Option<LiveSink> {
+    PENDING_LIVE_SINK.with(|slot| slot.borrow_mut().take())
+}
+
+/// The live sink of the current run, when one is installed.
+pub(crate) fn current_live_sink() -> Option<LiveSink> {
+    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.live_sink.clone()))
+}
+
 /// Execution context of the current run.
 #[derive(Clone, Default)]
 pub(crate) struct RunContext {
@@ -13,6 +40,8 @@ pub(crate) struct RunContext {
     pub(crate) managed_step: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub(crate) recursion_limit: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub(crate) step_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Emits node-produced chunks immediately when a caller asked for live output.
+    pub(crate) live_sink: Option<LiveSink>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -36,6 +65,7 @@ pub(crate) fn install_run(
     store: Option<std::sync::Arc<dyn BaseStore>>,
     context: Option<Value>,
 ) -> RunGuard {
+    let live_sink = take_pending_live_sink().or_else(current_live_sink);
     let previous = CURRENT_RUN.with(|slot| {
         slot.borrow_mut().replace(RunContext {
             thread_id,
@@ -46,6 +76,7 @@ pub(crate) fn install_run(
             managed_step: Default::default(),
             recursion_limit: Default::default(),
             step_active: Default::default(),
+            live_sink,
         })
     });
     RunGuard { previous }
@@ -68,6 +99,7 @@ pub(crate) fn run_context(
         managed_step: Default::default(),
         recursion_limit: Default::default(),
         step_active: Default::default(),
+        live_sink: None,
     }
 }
 
