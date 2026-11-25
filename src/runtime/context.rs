@@ -152,6 +152,18 @@ pub fn current_resume() -> Option<Value> {
 }
 
 /// Latest resume value stamped onto the current task (subgraph propagation).
+/// Resume value of the current task even before an `interrupt()` consumed it.
+///
+/// Subgraphs rely on this: the paused task is the parent node, so `current_resume_last()` is still
+/// `None` while the child is being entered.
+pub(crate) fn current_pending_resume() -> Option<Value> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|context| context.pending_resume.clone())
+    })
+}
+
 pub(crate) fn current_resume_last() -> Option<Value> {
     #[cfg(feature = "async")]
     if !has_sync_task()
@@ -173,6 +185,9 @@ pub(crate) struct TaskContext {
     resume_values: Vec<Value>,
     resume_index: usize,
     resume_consumed: bool,
+    /// Resume value of the task itself, not yet consumed by an `interrupt()` call. A node that
+    /// delegates to a subgraph needs it: the child pauses instead of the parent node.
+    pending_resume: Option<Value>,
     interrupt_calls: usize,
     custom: Vec<Value>,
     messages: Vec<Value>,
@@ -188,6 +203,7 @@ impl TaskContext {
             resume_values,
             resume_index: 0,
             resume_consumed: false,
+            pending_resume: None,
             interrupt_calls: 0,
             custom: Vec::new(),
             messages: Vec::new(),
@@ -203,6 +219,12 @@ impl TaskContext {
 
     pub(crate) fn with_error(mut self, error: Option<NodeFailure>) -> Self {
         self.error = error;
+        self
+    }
+
+    /// Record the task's own (not yet consumed) resume value.
+    pub(crate) fn with_pending_resume(mut self, resume: Option<Value>) -> Self {
+        self.pending_resume = resume;
         self
     }
 }

@@ -497,15 +497,21 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
     // Only resume the child when it actually has a paused checkpoint in its namespace;
     // otherwise a parent resume value would make a sibling subgraph reload stale state.
     // The child namespace carries a task id (`sub:<task id>`) that changes on every parent
-    // resume, so look the paused child up by prefix instead of exact match.
+    // resume, so look the paused child up under the task-id-free prefix instead.
+    let base = namespace
+        .rsplit_once(':')
+        .map(|(head, _)| head)
+        .unwrap_or(&namespace);
     let paused_in = thread
         .as_deref()
-        .and_then(|thread| subgraph.paused_namespace_in(thread, &namespace));
+        .and_then(|thread| subgraph.paused_namespace_in(thread, base));
     let resume_namespace = paused_in.clone().unwrap_or_else(|| namespace.clone());
     let resume = match thread.as_deref() {
-        Some(_) if paused_in.is_some() => crate::runtime::context::current_resume_last(),
+        Some(_) if paused_in.is_some() => crate::runtime::context::current_resume_last()
+            .or_else(crate::runtime::context::current_pending_resume),
         _ => None,
     };
+
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
     if let Some(store) = crate::runtime::context::get_store() {
         config = config.with_store(store);

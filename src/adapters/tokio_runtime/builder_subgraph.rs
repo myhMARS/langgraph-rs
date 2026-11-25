@@ -138,10 +138,17 @@ pub(crate) async fn run_async_subgraph<S: State>(
     let namespace = child_namespace(parent_namespace, &name);
     // Resume only a child that actually paused in this namespace; otherwise a parent
     // resume value would reload a sibling subgraph's stale checkpoint.
+    let base = namespace
+        .rsplit_once(':')
+        .map(|(head, _)| head)
+        .unwrap_or(&namespace);
+    let paused_in = match thread.as_deref() {
+        Some(thread) => child.paused_namespace_in(thread, base).await,
+        None => None,
+    };
+    let resume_namespace = paused_in.clone().unwrap_or_else(|| namespace.clone());
     let resume = match thread.as_deref() {
-        Some(thread) if child.has_pending_in(thread, &namespace).await => {
-            context.take_resume().into_iter().next_back()
-        }
+        Some(_) if paused_in.is_some() => context.take_resume().into_iter().next_back(),
         _ => None,
     };
     let mut config = RunConfig::new().with_checkpoint_ns(namespace.clone());
@@ -180,7 +187,7 @@ pub(crate) async fn run_async_subgraph<S: State>(
                     child.stream_with(&state, &config, sink).await
                 } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
                     child
-                        .resume_in_streaming(&thread, &namespace, resume, Some(&config), &mut sink)
+                        .resume_in_streaming(&thread, &resume_namespace, resume, Some(&config), &mut sink)
                         .await
                 } else if let Some(thread) = thread {
                     child
@@ -195,7 +202,7 @@ pub(crate) async fn run_async_subgraph<S: State>(
                     .await
                     .map(|outcome| outcome.state)
             } else if let (Some(thread), Some(resume)) = (thread.clone(), resume) {
-                child.resume_in(&thread, &namespace, resume).await
+                child.resume_in(&thread, &resume_namespace, resume).await
             } else if let Some(thread) = thread {
                 child
                     .run(&state, &config.with_thread(thread))

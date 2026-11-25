@@ -85,17 +85,25 @@ impl<S: State> AsyncCompiledGraph<S> {
         }
     }
 
-    /// Whether a thread has a paused checkpoint inside `namespace` (subgraph resume gate).
-    pub(crate) async fn has_pending_in(&self, thread_id: &str, namespace: &str) -> bool {
+    /// Namespace of a paused child run under `base` (`base` or `base:<task id>`).
+    ///
+    /// The task id suffix changes on every parent resume, so the child is matched by prefix.
+    pub(crate) async fn paused_namespace_in(&self, thread_id: &str, base: &str) -> Option<String> {
         if !self.has_checkpointer() {
-            return false;
+            return None;
         }
-        self.saver_latest_in(thread_id, namespace)
-            .await
-            .ok()
-            .flatten()
-            .is_some_and(|checkpoint| checkpoint.interrupted || !checkpoint.next.is_empty())
+        let mut history = self.saver_history(thread_id).await.ok()?;
+        history.sort_by_key(|checkpoint| std::cmp::Reverse(checkpoint.step));
+        history
+            .into_iter()
+            .find(|checkpoint| {
+                (checkpoint.namespace == base
+                    || checkpoint.namespace.starts_with(&format!("{base}:")))
+                    && (checkpoint.interrupted || !checkpoint.next.is_empty())
+            })
+            .map(|checkpoint| checkpoint.namespace)
     }
+
 
     pub(crate) async fn saver_history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
         if let Some(saver) = &self.async_checkpointer {

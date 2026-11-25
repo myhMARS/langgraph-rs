@@ -286,7 +286,8 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
             None => {
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
                     .with_task_id(task.id.clone())
-                    .with_error(task.error.clone());
+                    .with_error(task.error.clone())
+                    .with_pending_resume(task.resume.clone());
                 crate::runtime::context::with_task(context, || node(node_state))
             }
         };
@@ -412,9 +413,10 @@ fn run_node_timed<S: State>(
             crate::runtime::context::install_step(step, managed, limit)
         });
         let _collector_guard = collector.map(crate::runtime::context::install_subgraph_collector);
-        let context = TaskContext::new(node_name.clone(), resume)
+        let context = TaskContext::new(node_name.clone(), resume.clone())
             .with_task_id(task_id)
-            .with_error(error);
+            .with_error(error)
+            .with_pending_resume(resume.last().cloned());
         let outcome = crate::runtime::context::with_task(context, || node(&node_state));
         let _ = sender.send(outcome);
     });

@@ -1199,4 +1199,30 @@ Also required (documented, not a bug): a subgraph that can pause must be compile
 checkpointer — the parent's saver is not inherited, unlike LangGraph.
 
 Verified: Python 213 tests, parity 38/38, Rust tests, clippy clean; the subgraph scenario above
-still fails at step 3 and is tracked for the next round.
+still fails at step 3 and is tracked for the next round.### Round 63: subgraph interrupts now resume (sync and async)
+
+Round 62 left one defect: a parent `resume()` restarted the paused child from its input instead of
+continuing it. Three fixes, all verified:
+
+1. **Prefix lookup used the full namespace.** `run_subgraph` computed `namespace = sub:<task id>` and
+   then searched for a paused child under *that* string, which can never match on a later resume.
+   The lookup now strips the task-id suffix (`namespace.rsplit_once(':')`) and matches
+   `sub` / `sub:*`.
+2. **Resume value was invisible before the first `interrupt()`.** `run_subgraph` read
+   `current_resume_last()`, which is only populated once `interrupt()` consumes a value; the paused
+   task is the *parent node*, so it was still `None`. `TaskContext` now carries the task's own
+   `pending_resume`, exposed as `current_pending_resume()`, and the subgraph uses it as fallback.
+3. **Same two defects in the async runtime.** `run_async_subgraph` had the identical exact-namespace
+   gate; it now shares the prefix lookup (`AsyncCompiledGraph::paused_namespace_in`) and resumes in
+   the namespace where the child actually paused.
+
+Verified:
+
+| Scenario | Result |
+| --- | --- |
+| sync parent + subgraph interrupt, parent `resume(True)` | `{'approved': True, 'draft': 'v1 [done]'}` |
+| async parent (`AsyncStateGraph`) + async subgraph | same |
+| Python suite / parity / Rust / clippy | 213 tests, 38/38, exit 0, clean |
+
+Documented constraint (unchanged, and different from LangGraph): a subgraph that can pause must be
+compiled with its own checkpointer; the parent saver is not inherited.
