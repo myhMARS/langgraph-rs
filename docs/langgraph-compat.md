@@ -65,6 +65,11 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 - 异步 `ainvoke` / `astream` / `aget_state` / `aupdate_state` / `aget_state_history` / `aresume`
 - 检查点后端：内存、SQLite（含 LangGraph 兼容读写）、Redis、Postgres
 - Store / Cache：内存、SQLite、Redis、Postgres
+- `langgraph.errors` / `langgraph.warnings` 全量类：`GraphBubbleUp`、`GraphRecursionError`
+  （`RecursionError` 子类，文案与 LangGraph 一致）、`GraphDrained`、`NodeInterrupt`、`NodeError`、
+  `NodeTimeoutError`、`EmptyChannelError`、`InvalidUpdateError`、`TaskNotFound`、
+  `UnknownInterruptError`、`ParentCommand`、`ErrorCode`、`create_error_message`、`is_invalid_resume`、
+  `LangGraphDeprecatedSinceV05/V10/V11`、`LangGraphDeprecationWarning`
 - `MessageGraph`（单 `messages` 通道；节点收到消息列表、可返回单条/多条消息，`invoke` 返回消息列表）、
   `StateGraph` 支持 Python 继承（子类构建器方法返回 `self`）
 - `create_react_agent`（`prompt` / `state_schema` / `store` / `interrupt_*` / `name` / `version`）、

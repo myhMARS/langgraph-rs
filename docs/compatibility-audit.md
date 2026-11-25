@@ -908,4 +908,35 @@ subclass type. Six new tests cover invoke shape, node input shape, dict input, u
 streaming, `isinstance(graph, StateGraph)` and interrupt pauses (which return the state mapping with
 `__interrupt__` so both the messages and the interrupt stay readable).
 
-Python suite is 141 tests; parity stays 38/38; Rust tests and clippy pass.
+Python suite is 141 tests; parity stays 38/38; Rust tests and clippy pass.### Round 51: `langgraph.errors` and `langgraph.warnings`
+
+Both modules are now complete (a `dir()` diff against LangGraph leaves only stdlib leakage such as
+`Any`/`Enum`). Added: `EmptyInputError`, `InvalidUpdateError`, `EmptyChannelError`,
+`TaskNotFound`, `UnknownInterruptError` (with `reason`/`interrupt_ids`/`pending_ids`),
+`NodeTimeoutError` (LangGraph's exact idle/run messages), `NodeError` (the non-exception wrapper),
+`NodeCancelledError`, `GraphDrained`, `NodeInterrupt`, `ParentCommand`, `ErrorCode`,
+`create_error_message`, `is_invalid_resume`, plus `langgraph_rs.warnings` with
+`LangGraphDeprecationWarning` and the `LangGraphDeprecatedSinceV05/V10/V11` subclasses.
+
+Two structural fixes came with it:
+
+* `GraphBubbleUp` is now a real exception exported by the extension and `GraphInterrupt` derives
+  from it, so `issubclass(GraphInterrupt, GraphBubbleUp)`, `NodeInterrupt(GraphInterrupt)` and
+  `GraphDrained(GraphBubbleUp)` all match LangGraph (previously `GraphBubbleUp` was a placeholder
+  that could not be subclassed).
+* Reaching the recursion limit now raises `GraphRecursionError(RecursionError)` with LangGraph's
+  wording instead of a plain `RuntimeError`:
+
+  ```
+  Recursion limit of 3 reached without hitting a stop condition. You can increase the limit by
+  setting the `recursion_limit` config key.
+  For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT
+  ```
+
+  Verified with the same infinite conditional-edge graph in both engines (same type, same text).
+  `Error::RecursionLimit` is mapped in `convert::to_pyerr`.
+
+Ten new tests cover the hierarchy, both timeout messages, `NodeError` wrapping, unknown-interrupt
+diagnostics, `ErrorCode` members, the deprecation-warning chain, the recursion error type/message,
+`create_error_message` and `is_invalid_resume`. Python suite is 151 tests; parity stays 38/38; Rust
+tests and clippy pass.

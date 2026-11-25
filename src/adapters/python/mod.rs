@@ -55,9 +55,21 @@ use types::{PyRedisCache, PyRedisStore};
 
 create_exception!(
     langgraph_rs,
-    GraphInterrupt,
+    GraphBubbleUp,
     PyException,
+    "Base class for LangGraph control-flow signals that unwind the run loop."
+);
+create_exception!(
+    langgraph_rs,
+    GraphInterrupt,
+    GraphBubbleUp,
     "Raised when a node pauses the graph through langgraph_rs.interrupt()."
+);
+create_exception!(
+    langgraph_rs,
+    GraphRecursionError,
+    pyo3::exceptions::PyRecursionError,
+    "Raised when the recursion limit is reached without hitting a stop condition."
 );
 
 /// Long-term memory store attached to the current run, if any.
@@ -510,7 +522,9 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
     module.add_function(wrap_pyfunction!(is_last_step, module)?)?;
+    module.add("GraphBubbleUp", module.py().get_type::<GraphBubbleUp>())?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
+    module.add("GraphRecursionError", module.py().get_type::<GraphRecursionError>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;
     module.add_function(wrap_pyfunction!(message, module)?)?;
