@@ -1028,4 +1028,32 @@ LangGraph's `Annotated[..., operator.add]` form -- documented rather than emulat
 `Annotated` behaviour is the supported one.
 
 Seven new tests cover the mappings, accumulation, plain channels, delta reduction and the barrier
-rejection. Python suite is 184 tests; parity stays 38/38; Rust tests and clippy pass.
+rejection. Python suite is 184 tests; parity stays 38/38; Rust tests and clippy pass.### Round 56: `ValidationNode`, `ToolRuntime` injection, encrypted serializer and the remaining re-exports
+
+* `langgraph.prebuilt.ValidationNode` implemented as a plain node: it validates the pending tool
+  calls against the tool/pydantic/callable schema and answers each with a `ToolMessage` carrying the
+  compact JSON arguments or the validation error. Compared side by side with LangGraph's own
+  `ValidationNode`: identical content (`{"query":"x"}` for valid, the same pydantic error text for
+  invalid) and the same "not a valid tool" message. `langgraph.prebuilt.tool_validator` (LangGraph's
+  deprecated module path) is provided too.
+* `ToolRuntime` is now a dataclass with LangGraph's fields and the extension injects it for real:
+  `state`, `store`, `context` are filled at call time (verified: a tool reading
+  `runtime.state["user"]` got `ada` while the store object was present). `tool_call_id`,
+  `execution_info` and `server_info` stay `None` because the engine does not track them per call.
+* `checkpoint.serde` became a package with LangGraph's submodules (`jsonplus`, `encrypted`, `base`)
+  and `EncryptedSerializer` (Fernet via `cryptography`; a missing dependency raises with the pip
+  hint). `pregel`, `pregel.{debug,main,protocol}` and `serde.{event_hooks,types}` are importable
+  stubs for LangGraph-internal modules.
+* Filled the re-export surface code actually imports: `langgraph.constants` (`CONF`,
+  `CONFIG_KEY_CHECKPOINTER`, `TAG_HIDDEN`, `TAG_NOSTREAM`, `TASKS`), `langgraph.config` (`CONF`,
+  `CONFIG_KEY_RUNTIME`, `var_child_runnable_config`, `StreamWriter`, `BaseStore`), `langgraph.func`
+  (`EphemeralValue`, `LastValue`, `CACHE_NS_WRITES`, `PREVIOUS`, `MISSING`), `checkpoint.base`
+  helpers (`empty_checkpoint`, `create_checkpoint`, `copy_checkpoint`, `writes_sort_key`,
+  `get_checkpoint_id`, `get_checkpoint_metadata`, plus `WRITES_IDX_MAP`, `EXCLUDED_METADATA_KEYS`,
+  `LATEST_VERSION`) and `checkpoint.memory.MemorySaver`.
+
+Six new tests cover the validation node (valid/invalid/unknown tool plus the LangGraph comparison),
+the `ToolRuntime` injection and the encrypted round trip. Python suite is 190 tests; parity stays
+38/38; Rust tests and clippy pass. What is left is the typing-alias tail in `langgraph.types`
+(`StreamPart` variants, `CheckpointPayload`, `StateUpdate`, ...) and a few internal helpers
+(`PregelNode`, `SyncAsyncFuture`); `ToolCallTransformer` remains unimplemented and raises.

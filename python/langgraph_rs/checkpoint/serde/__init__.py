@@ -14,6 +14,7 @@ import json
 from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
+    "EncryptedSerializer",
     "JsonPlusSerializer",
     "Serializable",
     "SerializerProtocol",
@@ -97,3 +98,6 @@ class JsonPlusSerializer:
         if not data:
             return None
         return json.loads(data.decode("utf-8"), object_hook=_object_hook)
+# LangGraph ships these as submodules too.
+from . import base, encrypted, event_hooks, jsonplus, types  # noqa: E402,F401
+from .encrypted import EncryptedSerializer  # noqa: E402

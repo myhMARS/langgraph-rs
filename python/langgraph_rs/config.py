@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 from ._compat import module_getattr, re_export
+from contextvars import ContextVar
+
+from .runtime import CONFIG_KEY_RUNTIME, StreamWriter
+from .store.base import BaseStore
+
+CONF = "configurable"
+# LangGraph stores the runnable config in this context variable.
+var_child_runnable_config: ContextVar = ContextVar("var_child_runnable_config", default=None)
 
 __all__ = [
+    "BaseStore",
+    "CONF",
+    "CONFIG_KEY_RUNTIME",
+    "StreamWriter",
     "current_context",
     "current_namespace",
     "current_node",
@@ -17,6 +29,7 @@ __all__ = [
     "get_store",
     "get_stream_writer",
     "message",
+    "var_child_runnable_config",
     "record_tokens",
     "record_usage",
 ]

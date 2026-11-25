@@ -103,7 +103,34 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                                     .map_err(|error| pyerr_to_error(py, error))?,
                                     None => py.None(),
                                 },
-                                Injection::Runtime => py.None(),
+                                // LangGraph fills a `ToolRuntime` handle with what the run knows.
+                                Injection::Runtime => (|| -> PyResult<Py<PyAny>> {
+                                    let module = py.import("langgraph_rs.prebuilt.tool_node")?;
+                                    let runtime_class = module.getattr("ToolRuntime")?;
+                                    let runtime_kwargs = pyo3::types::PyDict::new(py);
+                                    let state = serde_json::Value::Object(state.0.clone());
+                                    runtime_kwargs
+                                        .set_item("state", value_to_py(py, &state)?)?;
+                                    runtime_kwargs.set_item(
+                                        "context",
+                                        match crate::current_context() {
+                                            Some(context) => value_to_py(py, &context)?,
+                                            None => py.None(),
+                                        },
+                                    )?;
+                                    runtime_kwargs.set_item(
+                                        "store",
+                                        match crate::get_store() {
+                                            Some(store) => pyo3::IntoPyObjectExt::into_py_any(
+                                                super::types::PyStore::new(store),
+                                                py,
+                                            )?,
+                                            None => py.None(),
+                                        },
+                                    )?;
+                                    Ok(runtime_class.call((), Some(&runtime_kwargs))?.unbind())
+                                })()
+                                .map_err(|error| pyerr_to_error(py, error))?
                             };
                             kwargs
                                 .set_item(parameter, value)

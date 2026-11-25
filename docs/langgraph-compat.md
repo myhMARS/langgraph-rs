@@ -82,6 +82,18 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
   不支持 msgpack 载荷，无法序列化的对象直接抛 `TypeError`）、`SerializerProtocol`、`Serializable`
 - `langgraph.cache.base` / `cache.memory`：`BaseCache`、`FullKey`、`Namespace`、`ValueT` 及其再导出
 - `langgraph.store.base`：`BaseStore`（抽象基类，子类化或直接用协议对象均可）、`Item`、`SearchItem`
+- `langgraph.prebuilt.ValidationNode`（只校验不执行待执行工具调用，返回 ToolMessage；与 LG 输出逐字一致）、
+  `tool_validator` 兼容路径、`ToolRuntime` 注入（`state`/`store`/`context` 已填，`tool_call_id`/`execution_info` 为空）
+- `langgraph.checkpoint.serde` 子模块（`jsonplus`/`encrypted`/`base`）：`EncryptedSerializer`（基于 `cryptography`，
+  缺依赖时明确报错）
+- `langgraph.pregel`、`langgraph.checkpoint.serde.{event_hooks,types}`、`pregel.{debug,main,protocol}`
+  仅提供可 import 的内部模块名（无对应实现）
+- `langgraph.constants` 常量（`CONF`/`TAG_NOSTREAM`/`TAG_HIDDEN`/`TASKS`/`CONFIG_KEY_CHECKPOINTER`）、
+  `langgraph.config`（`CONF`/`CONFIG_KEY_RUNTIME`/`var_child_runnable_config`/`StreamWriter`）、
+  `langgraph.func`（`EphemeralValue`/`LastValue`/`CACHE_NS_WRITES`/`PREVIOUS`/`MISSING`）、
+  `checkpoint.base` 辅助函数（`empty_checkpoint`/`create_checkpoint`/`copy_checkpoint`/`writes_sort_key`/
+  `get_checkpoint_id`/`get_checkpoint_metadata`/`WRITES_IDX_MAP`/`EXCLUDED_METADATA_KEYS`）、
+  `checkpoint.memory.MemorySaver`（= `InMemorySaver`）
 - `langgraph.prebuilt` 参数注入：`InjectedState`、`InjectedStore`（模型工具 schema 中自动隐藏，
   运行时由引擎填入状态/长期 store）；`ToolRuntime` 仅提供类型名，注入未实现（使用时明确报错）
 - `create_react_agent` / `ToolNode` 支持上述注入（含普通可调用对象与 `@tool` 工具）
