@@ -1177,4 +1177,26 @@ Verified:
 Open (not addressed here): `add_subgraph` + `interrupt()` — a subgraph pause is written in the root
 namespace (`checkpoint_ns == ""`) and a parent `resume(thread, value)` returns the paused state
 instead of continuing, so the documented "subgraph interrupt pauses the parent run" behaviour does
-not hold yet. Tracked for the next round.
+not hold yet. Tracked for the next round.### Round 62: subgraph interrupts (partial)
+
+Reported behaviour "an `interrupt()` inside a subgraph pauses the parent run and a parent resume
+continues the subgraph" did not hold. Three concrete defects were found and two fixed:
+
+1. **Fixed — history hid child namespaces.** `LangGraphSqliteSaver::history(thread)` only returned
+   rows with `checkpoint_ns = ''`, so a paused child (`sub:<task id>`) was invisible. It now returns
+   every namespace of the thread (like LangGraph's own `list()`).
+2. **Fixed — resume looked up an exact namespace.** `run_subgraph` asked
+   `has_pending_in(thread, namespace)` while the child namespace carries a task id that changes on
+   every parent resume. It now looks the paused child up by prefix
+   (`CompiledGraph::paused_namespace_in`), resuming in the namespace where it actually paused.
+3. **Open — the resume value is not propagated.** `run_subgraph` takes the value from
+   `runtime::context::current_resume_last()`, which is only set while `interrupt()` re-executes; at
+   the start of a resumed parent node it is `None`, so the child is restarted from its input and
+   pauses again (`resume()` returns the paused state). Fixing this means threading the parent resume
+   value into the context before the child runs.
+
+Also required (documented, not a bug): a subgraph that can pause must be compiled with its own
+checkpointer — the parent's saver is not inherited, unlike LangGraph.
+
+Verified: Python 213 tests, parity 38/38, Rust tests, clippy clean; the subgraph scenario above
+still fails at step 3 and is tracked for the next round.

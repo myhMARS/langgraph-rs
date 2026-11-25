@@ -496,10 +496,14 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
     let namespace = child_namespace(&crate::runtime::context::current_namespace(), name);
     // Only resume the child when it actually has a paused checkpoint in its namespace;
     // otherwise a parent resume value would make a sibling subgraph reload stale state.
+    // The child namespace carries a task id (`sub:<task id>`) that changes on every parent
+    // resume, so look the paused child up by prefix instead of exact match.
+    let paused_in = thread
+        .as_deref()
+        .and_then(|thread| subgraph.paused_namespace_in(thread, &namespace));
+    let resume_namespace = paused_in.clone().unwrap_or_else(|| namespace.clone());
     let resume = match thread.as_deref() {
-        Some(thread) if subgraph.has_pending_in(thread, &namespace) => {
-            crate::runtime::context::current_resume_last()
-        }
+        Some(_) if paused_in.is_some() => crate::runtime::context::current_resume_last(),
         _ => None,
     };
     let mut config = super::options::RunConfig::new().with_checkpoint_ns(namespace.clone());
@@ -537,7 +541,7 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
         }
         return match (thread, resume) {
             (Some(thread), Some(value)) => {
-                subgraph.resume_in_streaming(&thread, &namespace, value, Some(&config), &mut sink)
+                subgraph.resume_in_streaming(&thread, &resume_namespace, value, Some(&config), &mut sink)
             }
             (Some(thread), None) => subgraph.stream_with(input, &config.with_thread(thread), sink),
             (None, _) => subgraph.stream_with(input, &config, sink),
@@ -548,7 +552,7 @@ fn run_subgraph<Sub: State>(subgraph: &CompiledGraph<Sub>, input: &Sub, name: &s
     }
     match (thread, resume) {
         (Some(thread), Some(value)) => {
-            subgraph.resume_in_with_run_config(&thread, &namespace, value, &config)
+            subgraph.resume_in_with_run_config(&thread, &resume_namespace, value, &config)
         }
         (Some(thread), None) => subgraph
             .run(input, &config.with_thread(thread))

@@ -152,16 +152,23 @@ impl<S: State> CompiledGraph<S> {
     ///
     /// Used to gate subgraph resume: a resume value in scope must only revive the child
     /// that actually paused, not every sibling subgraph.
-    pub(crate) fn has_pending_in(&self, thread_id: &str, namespace: &str) -> bool {
-        let Some(checkpointer) = self.checkpointer() else {
-            return false;
-        };
-        checkpointer
-            .latest_in(thread_id, namespace)
-            .ok()
-            .flatten()
-            .is_some_and(|checkpoint| checkpoint.interrupted || !checkpoint.next.is_empty())
+    /// Namespace of a paused child run under `base` (`base` or `base:<task id>`).
+    ///
+    /// A subgraph task id is derived from the parent checkpoint id, so a parent resume produces a
+    /// *new* namespace. Matching by prefix is what lets the paused child be found again.
+    pub(crate) fn paused_namespace_in(&self, thread_id: &str, base: &str) -> Option<String> {
+        let checkpointer = self.checkpointer()?;
+        let mut history = checkpointer.history(thread_id).ok()?;
+        history.sort_by_key(|checkpoint| std::cmp::Reverse(checkpoint.step));
+        history
+            .into_iter()
+            .find(|checkpoint| {
+                (checkpoint.namespace == base || checkpoint.namespace.starts_with(&format!("{base}:")))
+                    && (checkpoint.interrupted || !checkpoint.next.is_empty())
+            })
+            .map(|checkpoint| checkpoint.namespace)
     }
+
 
     /// Export the latest checkpoint of a thread as LangGraph-shaped JSON.
     pub fn export_checkpoint(&self, thread_id: &str) -> Result<Option<Value>> {

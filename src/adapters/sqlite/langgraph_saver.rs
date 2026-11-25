@@ -535,7 +535,24 @@ impl Checkpointer for LangGraphSqliteSaver {
     }
 
     fn history(&self, thread_id: &str) -> Result<Vec<Checkpoint>> {
-        self.history_in(thread_id, "")
+        // Every namespace, like LangGraph's `list()`: subgraph checkpoints live in child
+        // namespaces and must be visible so a paused child can be found again on resume.
+        let connection = self.lock();
+        let rows = Self::rows(
+            &connection,
+            "SELECT thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id,
+                    checkpoint, metadata
+             FROM checkpoints WHERE thread_id = ?1
+             ORDER BY REPLACE(checkpoint_id, '-', '') DESC",
+            &[&thread_id],
+        )?;
+        let mut checkpoints = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut checkpoint = super::langgraph::LangGraphSqliteReader::convert_row(row)?;
+            let _ = super::langgraph::enrich_with(&connection, &mut checkpoint);
+            checkpoints.push(checkpoint);
+        }
+        Ok(checkpoints)
     }
 
     fn latest_in(&self, thread_id: &str, namespace: &str) -> Result<Option<Checkpoint>> {
