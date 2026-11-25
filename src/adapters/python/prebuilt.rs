@@ -69,15 +69,25 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
         .into_iter()
         .map(|(name, function, source, is_tool)| {
             let injected = Python::attach(|py| injection_spec(py, &source.bind(py).clone()));
+            // LangChain calls a plain callable with keyword arguments named after the tool's
+            // parameters; the keyword names are collected here so the call site can match that
+            // without inspecting the signature on every tool call.
+            // LangChain `BaseTool.invoke()` takes the argument mapping positionally, so only
+            // plain callables get the keyword convention.
+            let keywords = if is_tool {
+                KeywordSpec {
+                    names: None,
+                    accepts_any: false,
+                }
+            } else {
+                Python::attach(|py| keyword_names(py, &function.bind(py).clone()))
+            };
             ToolDefinition::with_state(name, move |args, state| {
                 Python::attach(|py| -> Result<serde_json::Value> {
                     let py_args =
                         value_to_py(py, &args).map_err(|error| pyerr_to_error(py, error))?;
                     let result = if injected.is_empty() {
-                        // Plain callables receive the argument mapping as one positional value
-                        // (a documented difference from LangChain's `@tool` binding).
-                        function
-                            .call1(py, (py_args,))
+                        call_plain_tool(py, &function, py_args.bind(py), &keywords)
                             .map_err(|error| pyerr_to_error(py, error))?
                     } else {
                         // LangGraph injects these parameters instead of taking them from the
@@ -432,6 +442,98 @@ fn streamed_model_result(
         .map_err(|error| pyerr_to_error(py, error))?;
     Ok((result.unbind(), false))
 }
+
+/// How a plain callable can be called: by keyword names, or anything (`**kwargs`).
+struct KeywordSpec {
+    /// Parameter names callable as keywords; `None` when the signature is unavailable.
+    names: Option<Vec<String>>,
+    /// The callable takes `**kwargs`, so any keyword works.
+    accepts_any: bool,
+}
+
+/// Inspect a plain callable's keyword parameters (excluding `self`).
+fn keyword_names(py: Python<'_>, function: &Bound<'_, PyAny>) -> KeywordSpec {
+    let unknown = KeywordSpec {
+        names: None,
+        accepts_any: false,
+    };
+    let Ok(inspect) = py.import("inspect") else {
+        return unknown;
+    };
+    let Ok(signature) = inspect.call_method1("signature", (function,)) else {
+        return unknown;
+    };
+    let Ok(parameters) = signature.getattr("parameters") else {
+        return unknown;
+    };
+    let Ok(items) = parameters.call_method0("items") else {
+        return unknown;
+    };
+    let Ok(iter) = items.try_iter() else {
+        return unknown;
+    };
+    let mut names = Vec::new();
+    let mut accepts_any = false;
+    for item in iter {
+        let Ok(item) = item else {
+            return unknown;
+        };
+        let name = item
+            .get_item(0)
+            .ok()
+            .and_then(|name| name.extract::<String>().ok());
+        let kind = item
+            .get_item(1)
+            .ok()
+            .and_then(|parameter| parameter.getattr("kind").ok())
+            .and_then(|kind| kind.extract::<i32>().ok());
+        match (name, kind) {
+            // VAR_KEYWORD: every keyword is accepted.
+            (_, Some(4)) => accepts_any = true,
+            // POSITIONAL_ONLY cannot be called by keyword.
+            (_, Some(0)) => {}
+            // POSITIONAL_OR_KEYWORD and KEYWORD_ONLY are callable by name.
+            (Some(name), Some(1 | 3)) if name != "self" => names.push(name),
+            _ => {}
+        }
+    }
+    KeywordSpec {
+        names: Some(names),
+        accepts_any,
+    }
+}
+
+/// Call a plain callable the way LangChain does: keywords named after its parameters.
+///
+/// Falls back to passing the argument mapping as the single positional value when the tool does not
+/// accept those keywords (for example `def tool(args: dict)`), which keeps the older style working.
+fn call_plain_tool<'py>(
+    py: Python<'py>,
+    function: &Py<PyAny>,
+    args: &Bound<'py, PyAny>,
+    keywords: &KeywordSpec,
+) -> PyResult<Py<PyAny>> {
+    let mapping = args.cast::<pyo3::types::PyDict>().ok();
+    let mut use_keywords = keywords.accepts_any;
+    if !use_keywords
+        && let (Some(names), Some(mapping)) = (keywords.names.as_ref(), mapping)
+    {
+        use_keywords = mapping.iter().all(|(key, _)| {
+            key.extract::<String>()
+                .map(|key| names.contains(&key))
+                .unwrap_or(false)
+        });
+    }
+    if use_keywords && let Some(mapping) = mapping {
+        let kwargs = pyo3::types::PyDict::new(py);
+        for (key, value) in mapping.iter() {
+            kwargs.set_item(key, value)?;
+        }
+        return function.call(py, (), Some(&kwargs));
+    }
+    function.call1(py, (args,))
+}
+
 fn runnable_model_node(
     model: Py<PyAny>,
     messages_key: String,

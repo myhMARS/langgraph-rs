@@ -219,13 +219,12 @@ python examples/quickstart/compare.py --check-only
    扩展跑自己的引擎。
 2. **原生 `invoke(&state)` 传完整状态**：绑定层与 LangGraph 一样把 `invoke(dict)` 视为经 reducer
    的部分写入；原生 Rust API 需要完整状态。
-3. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
-4. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
+3. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
    在没有向量索引时做子串匹配（LG 忽略 `query`）。
-5. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
+4. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
    而非生成器。
-6. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
-7. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
+5. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
+6. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
 
 已经消掉的旧差异（保留记录，避免回退）：
 
@@ -234,6 +233,8 @@ python examples/quickstart/compare.py --check-only
 * `create_react_agent` 无 `state_schema` 时接受额外键 → 现在与 LG 一致地丢弃未声明键；声明的
   schema 同样只接受自己声明的输入键。
 * 无 checkpointer 时 `interrupt` 抛 `GraphInterrupt` → 现在与 LG 一致，返回输入状态 + `__interrupt__`。
+* 普通 callable 收到位置参数 → 现在与 LG 一致：按参数名传关键字（`**kwargs` / 仅关键字参数都支持），
+  `def tool(args: dict)` 这种单字典写法仍然收到位置参数。
 
 ### 跨引擎 resume 支持矩阵（2026-11）
 

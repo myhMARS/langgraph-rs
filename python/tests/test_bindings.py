@@ -2289,3 +2289,56 @@ class DeclaredSchemaInputTest(unittest.TestCase):
         agent = lg.create_react_agent(Fake(messages=iter([AIMessage(content="hi")])), [])
         result = agent.invoke({"messages": [{"role": "user", "content": "go"}], "extra_key": 42})
         self.assertEqual(sorted(result.keys()), ["messages"])
+
+
+class PlainToolCallTest(unittest.TestCase):
+    """Plain callables are called by keyword, like LangChain; the dict style keeps working."""
+
+    @staticmethod
+    def _run(tool, args):
+        graph = lg.StateGraph({"messages": "messages"})
+        name = getattr(tool, "name", None) or tool.__name__
+        graph.add_node(
+            "model",
+            lambda state: {
+                "messages": [
+                    {
+                        "type": "ai",
+                        "content": "",
+                        "tool_calls": [{"name": name, "args": args, "id": "c1"}],
+                    }
+                ]
+            },
+        )
+        graph.add_node("tools", lg.ToolNode([tool]))
+        graph.set_entry_point("model")
+        graph.add_conditional_edges(
+            "model", lambda state: "tools" if state["messages"][-1].get("tool_calls") else "__end__"
+        )
+        graph.add_edge("tools", "__end__")
+        app = graph.compile()
+        return app.invoke({"messages": [{"role": "user", "content": "go"}]})["messages"][-1]
+
+    def test_named_parameters_are_passed_as_keywords(self):
+        def get_weather(city: str, unit: str = "c") -> str:
+            return f"{city}:{unit}"
+
+        self.assertEqual(self._run(get_weather, {"city": "Paris", "unit": "f"})["content"], "Paris:f")
+
+    def test_keyword_only_parameters_work(self):
+        def only_kw(*, city: str) -> str:
+            return f"kw:{city}"
+
+        self.assertEqual(self._run(only_kw, {"city": "Oslo"})["content"], "kw:Oslo")
+
+    def test_var_keyword_parameters_work(self):
+        def accept_any(**kwargs) -> str:
+            return "star:" + ",".join(sorted(kwargs))
+
+        self.assertEqual(self._run(accept_any, {"a": 1, "b": 2})["content"], "star:a,b")
+
+    def test_single_dict_parameter_still_receives_the_mapping(self):
+        def echo(args: dict) -> str:
+            return f"echo:{args['city']}"
+
+        self.assertEqual(self._run(echo, {"city": "Rome"})["content"], "echo:Rome")

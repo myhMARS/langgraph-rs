@@ -1842,4 +1842,30 @@ repeatable `stream()`/history objects, `push_ui_message` not writing state (no `
 and `RemoteGraph` not exercised against a live deployment.
 
 Tests added: `DeclaredSchemaInputTest` (no-saver interrupt payload, react agent dropping extra keys).
-Python suite is 360 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 360 tests; parity 38/38; clippy and Rust tests clean.### Round 89: plain callables are called by keyword, like LangChain
+
+Divergence #3 of the audit list is closed. LangChain wraps a plain callable into a `StructuredTool`
+whose `_run` calls `func(**tool_input)`, so `def get_weather(city, unit="c")` is called with
+`city=..., unit=...`. Ours passed the whole argument mapping as one positional value, which broke
+keyword-only parameters and any tool whose parameter names differ from the argument order.
+
+`tool_definitions` now inspects the callable once per tool (`inspect.signature`, kinds 0-4) and
+records how it can be called:
+
+* `**kwargs` present → always call by keyword;
+* only positional-or-keyword / keyword-only parameters and every tool argument name is one of them
+  → call by keyword (the LangChain behaviour);
+* otherwise (`def tool(args: dict)`, positional-only parameters, uninspectable callables) → pass the
+  mapping positionally, so the older style keeps working.
+
+`BaseTool` entries (`is_tool == true`) always receive the mapping positionally: `BaseTool.invoke()`
+takes it as its single positional `input`, and the first version of this change broke exactly that
+(`BaseTool.invoke() missing 1 required positional argument: 'input'`) plus a `@tool`-wrapped test.
+
+Verified against LangGraph: the same graph with `def get_weather(city, unit="c")` and
+`args={"city": "Paris", "unit": "f"}` produces `Paris:f` on both. Locally: named params → `Paris:f`,
+`def tool(args: dict)` → `echo:Rome`, `**kwargs` → `star:a,b`, keyword-only → `kwonly:Oslo`.
+
+Tests: `PlainToolCallTest` covers all four conventions. Divergence count is down to six.
+
+Python suite is 364 tests; parity 38/38; clippy and Rust tests clean.
