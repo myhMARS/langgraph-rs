@@ -147,10 +147,9 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
    `isinstance(..., types.GeneratorType)` 为 False。真正的惰性请用 `astream`。
 3. **`get_state_history()` 返回惰性 `StateHistory`**：同样可迭代、可 `next()`，并额外支持
    `len()` 与索引（LangGraph 返回生成器）。
-4. **`create_react_agent` 已对齐常用参数**：`prompt`（字符串 / `SystemMessage` / `callable`）、
-   `state_schema`、`store`、`interrupt_before`、`interrupt_after`、`name`、`version`（`v1`/`v2`）
-   均支持；`response_format`、`pre_model_hook`、`post_model_hook`、`context_schema`
-   会抛 `NotImplementedError` 并说明，不会静默忽略。
+4. **`create_react_agent` 参数已全部实现**：`prompt`、`state_schema`、`store`、`interrupt_before`、
+   `interrupt_after`、`name`、`version`、`response_format`、`pre_model_hook`、`post_model_hook`、
+   `context_schema` 均可用，并与 LangGraph 对照验证（`python/tests/test_react_agent_extras.py`）。
 5. **自定义 Python checkpointer 已支持**：`compile(checkpointer=<对象>)` 接受任何实现 LangGraph
    saver 协议（`put` / `put_writes` / `get_tuple` / `list`）的对象，包括 LangGraph 自带的
    `InMemorySaver` 等实例。引擎自己的调度字段（`next`、deferred routes、task results 等）
@@ -160,57 +159,77 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 6. **自定义 Python store 已支持**：`compile(store=<对象>)` 接受任何实现 LangGraph store 协议
    （`get` / `put` / `delete` / `search` / `list_namespaces`）的对象，包括 LangGraph 自带的
    `InMemoryStore`。
-7. **`store` 的返回结构已对齐**：`get` 返回 `Item`（`.namespace` / `.key` / `.value` /
-   `.created_at` / `.updated_at` / `.score`，另保留 `created_at_millis`、`updated_at_millis`），
-   `search` 返回 `Item` 列表，`list_namespaces()` 返回 tuple 列表；旧的 `namespaces()`
-   （返回 list 列表）与 `item["字段名"]` 取值仍然可用。
-8. **`create_react_agent` 的参数已全部实现**：
-   `post_model_hook`、`context_schema` 会抛 `NotImplementedError`（其余参数已对齐）。
-9. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
+7. **`store` 的检索表面已对齐**：`Item` 返回结构、`filter`（含 `$eq`/`$ne`/`$gt`/`$gte`/`$lt`/`$lte`
+   与嵌套对象）、`limit`/`offset`、`list_namespaces(prefix/suffix/max_depth/limit/offset)`、`ttl`，
+   以及**向量索引**（`InMemoryStore(index={"dims","embed","fields"})` + `put(index=)` +
+   `search(query=)` 的余弦排序与 `score`）。字段路径支持 `text` / `meta.title` / `items[0]` / `$`，
+   不支持 LG 的 `*` 通配符；embedding 按每次 `put` 调用（LG 会把一批 op 合成一次）。
+8. **`langgraph.stream` 子系统完整**：`StreamChannel`、`ProtocolEvent`、`StreamTransformer`、
+   `StreamMux`、`GraphRunStream`/`AsyncGraphRunStream`、`SubgraphRunStream`、
+   `compile(transformers=...)`、`stream_events(version="v3")`/`astream_events`，以及内置
+   transformers（`Values`/`Updates`/`Custom`/`Checkpoints`/`Debug`/`Tasks`/`Lifecycle`/`Subgraph`/
+   `Messages`）与 `prebuilt.ToolCallTransformer`（引擎自身会发出 `tools` 流事件）。
+9. **`RemoteGraph` 已实现**：`langgraph_rs.pregel.remote` 通过 `langgraph_sdk` 调用远程部署
+   （`invoke`/`stream`/`astream`/`get_state`/`update_state`/`get_state_history`/`get_graph`），
+   测试用注入的假客户端覆盖（本环境无实时部署）。
+10. **PEP 563 的状态类必须是可导入的模块级类**：`typing.get_type_hints` 需要能解析字符串注解；
+   在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
+：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
 ## 5. 如何验证
 
 ```powershell
-# 124 项 Python 测试，其中 test_package_layout.py 覆盖本包的全部导入路径
+# 347 项 Python 测试（test_package_layout.py 覆盖本包的全部导入路径）
 python -m unittest discover -s python/tests
 
 # 与官方 LangGraph 的逐场景对照（38/38 全部等价）
 python benchmarks/parity.py
 
 # 可运行的迁移示例
-python python/examples/dropin_from_langgraph.py
+python examples/quickstart/compare.py --check-only
 ```
 
 `benchmarks/parity.py` 用同一份工作流分别跑 LangGraph 与 `langgraph_rs`，逐场景比较状态、步骤数、
 事件顺序；新增场景时它会自动把差异暴露出来。
-## 5. 对齐状态小结（2026-11）
+## 6. 对齐状态小结（2026-11，目标收尾）
 
-经过 9 轮补齐后，`langgraph_rs` 在**不改动图结构**（通道名、reducer 语义、checkpoint 形状与
-LangGraph 一致）的前提下，已覆盖 LangGraph 的公开 API 面：
+`langgraph_rs` 在**不改动图结构**（通道名、reducer 语义、checkpoint 形状与 LangGraph 一致）的前提下，
+已覆盖 LangGraph 的公开 API 面。**每一个可导入的 `langgraph.*` 模块都有对应实现**；剩余 `dir()`
+差异只是 LangGraph 内部引擎模块（`pregel.main`、`pregel.debug`、`pregel.protocol`、`graph.state`、
+`prebuilt.tool_node` 等）导入了自己的依赖，属于其私有布局，扩展有意不复制。
 
 | 领域 | 覆盖内容 |
 | --- | --- |
-| 建图 | `StateGraph`（含 Python 继承）、`MessageGraph`、`START`/`END`、条件边、`Send`、`Command` |
+| 建图 | `StateGraph`（含 Python 继承）、`MessageGraph`、`START`/`END`、条件边、`Send`、`Command`、`graph.ui` |
 | 状态 | TypedDict/`Annotated` reducer、通道对象（`langgraph.channels`）、托管值（`IsLastStep`/`RemainingSteps`） |
 | 运行 | `invoke`/`stream`/`resume`/`batch` 及异步版本、`__interrupt__` 语义、`RecursionLimit`→`GraphRecursionError` |
-| prebuilt | `ToolNode`、`ValidationNode`、`create_tool`、`ToolRuntime`/`InjectedState`/`InjectedStore` 注入、`create_react_agent`（`prompt`/`state_schema`/`store`/`interrupt_*`/`name`/`version`）、`AgentState*` |
-| 持久化 | 内置 saver 全套、LangGraph-schema SQLite saver（**双向跨引擎恢复**）、自定义 Python saver/store 协议桥接（**共享同一个 Python saver 对象时双向恢复也成立**） |
-| 长期记忆 | `store.get/search` 返回 `Item`、`list_namespaces`、ops/embeddings/路径提取（`tokenize_path`/`get_text_at_path` 与 LG 差分一致） |
-| 序列化 | `JsonPlusSerializer`、`EncryptedSerializer`、`serde` 子模块 |
-| 错误 | `GraphBubbleUp`/`GraphInterrupt`/`GraphDrained`/`NodeError`/`NodeTimeoutError`/`NodeInterrupt`/`ErrorCode` 等全套 |
-| 类型 | `langgraph.types` 全量（`StreamPart` 7 种、payload 类型、`xxh3_128_hexdigest` 等） |
+| prebuilt | `ToolNode`、`ValidationNode`、`create_tool`、`ToolRuntime`/`InjectedState`/`InjectedStore` 注入、`create_react_agent`（全部参数）、`ToolCallTransformer`、`HumanInterrupt*` |
+| 流式 | 7 种 `stream_mode`、`stream_events(version="v3")` 全链路（`langgraph.stream` 完整）、`stream_mode="tools"` |
+| 持久化 | 内置 saver 全套、LangGraph-schema SQLite saver（**双向跨引擎恢复**）、自定义 Python saver/store 协议桥接 |
+| 长期记忆 | `Item`、`filter`/分页/命名空间选项/`ttl`、**向量索引**（余弦排序与 `score`）、路径提取 |
+| 远程 | `RemoteGraph`（经 `langgraph_sdk` 调用 LangGraph Server API） |
+| 序列化 | `JsonPlusSerializer`、`EncryptedSerializer`、`serde` 子模块、msgpack `EXT_*` 常量 |
+| 错误/类型 | 全套异常、`langgraph.types` 全量、`EventStream*`/`StreamPart`、`xxh3_128_hexdigest` |
 
-**已知且有意保留的差异**
+### 有意保留的差异（全部有测试与文档）
 
-1. 引擎内部类（`PregelNode`、`ChannelWrite`、`SyncAsyncFuture`、`RunnableCallable`、msgpack 扩展常量）
-   LG 内部使用，不对应公开 API。
-2. `ToolCallTransformer` 需要 LangGraph 的流式中间件层，未实现——**构造即抛 `NotImplementedError`**。
-3. ~~`create_react_agent` 的 `response_format`/`pre_model_hook`/`post_model_hook`/`context_schema`~~（已实现）
-   抛 `NotImplementedError`（其余参数已对齐）。
-4. 自定义 store 的向量索引（`index=`）不在引擎侧实现；`IndexConfig` 等类型可用。
-
-（以上均在差距清单 §4 中逐条说明；未知项不会再静默失败。）
+1. **引擎内部类**（`PregelNode`、`ChannelWrite`、`ChannelWriteEntry`、`SyncAsyncFuture`）保持
+   可导入的占位：使用即抛错并提示改用 `StateGraph.compile()`。
+2. **原生 `invoke(&state)` 传完整状态**：绑定层与 LangGraph 一样把 `invoke(dict)` 视为经 reducer
+   的部分写入；原生 Rust API 需要完整状态。
+3. **`create_react_agent` 无 `state_schema` 时接受额外键**：LangGraph 会丢弃它们。
+4. **普通（非 `@tool`）callable 收到位置参数**：LangGraph 传关键字参数映射。
+5. **store 超集**：`InMemoryStore` 接受 `ttl`（LG 会抛 `NotImplementedError`）；`search(query=...)`
+   在没有向量索引时做子串匹配（LG 忽略 `query`）。
+6. **`run.messages` 非 token 级实时流**：引擎不产生 v3 content-block 协议事件，分块消息在 run
+   结束时给出一个合并句柄。
+7. **`stream()` / `get_state_history()` 返回可重复迭代对象**（`StreamChunks` / `StateHistory`），
+   而非生成器。
+8. **无 checkpointer 时 `interrupt` 抛 `GraphInterrupt`**：LangGraph 返回输入状态 + `__interrupt__`
+   （无 saver 的暂停本也无法恢复）。
+9. **`graph.ui.push_ui_message` 只发流事件**：写入 state key 需要 `CONFIG_KEY_SEND`，引擎未暴露。
+10. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
 ### 跨引擎 resume 支持矩阵（2026-11）
 
 | 共享方式 | LangGraph 暂停 → rs 恢复 | rs 暂停 → LangGraph 恢复 | 交替继续（新输入） |

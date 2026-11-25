@@ -1597,4 +1597,34 @@ engine modules, whose leftover `dir()` entries are that module's own imports (`p
 `pregel.debug`, `pregel.protocol`, `graph.state`, `prebuilt.tool_node`, `chat_agent_executor`,
 `tool_validator`, `managed.base`, `pregel.remote`).
 
-Python suite is 347 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 347 tests; parity 38/38; clippy and Rust tests clean.### Round 80: closing verification
+
+Objective: "langgraph 支持的都需要支持". Final evidence gathered in this round:
+
+* **Python suite**: 347 tests, all passing.
+* **Parity benchmark**: `python benchmarks/parity.py` → 38/38 scenarios equivalent, 0 known differences.
+* **Migration examples**: all ten `examples/*/compare.py --check-only` runs report `-> identical`.
+* **Rust**: `cargo test --all-targets --features "async msgpack sqlite"` clean (64 result lines, no
+  failures) and `cargo clippy --all-targets --all-features -- -D warnings` clean.
+* **Module coverage**: every importable `langgraph.*` module resolves to a `langgraph_rs.*`
+  counterpart. The remaining `dir()` differences live only in LangGraph's internal engine modules
+  (`pregel.main`, `pregel.debug`, `pregel.protocol`, `graph.state`, `prebuilt.tool_node`,
+  `chat_agent_executor`, `tool_validator`, `managed.base`, `pregel.remote`) and are that module's own
+  imports of `BaseChannel` / `AIMessage` / `RunnableConfig` / ... — not API the extension needs to
+  mirror, because it runs its own engine.
+
+`docs/langgraph-compat.md` was rewritten to state the current status accurately: the obsolete
+"not implemented" entries (`ToolCallTransformer`, `create_react_agent`'s `response_format` /
+`pre_model_hook` / `post_model_hook` / `context_schema`, the store vector index) are gone, and the
+intentional-divergence list is now the ten verified items (engine internals as placeholders, native
+`invoke` taking a full state, `create_react_agent` accepting extra keys without `state_schema`,
+positional args for plain callables, the store superset, `run.messages` not being token-live,
+repeatable stream/history iterables, no-saver interrupts raising, `push_ui_message` not writing
+state, and `RemoteGraph` not being exercised against a live deployment).
+
+With that, the objective is complete: LangGraph's public surface — graph building, state and
+channels, sync/async execution, interrupts and resume, prebuilt agents and tools, checkpoint
+backends with cross-engine resume, long-term memory with vector search, serialization, the v3 stream
+subsystem including transformers, and the remote-server client — is implemented, tested against
+LangGraph on the same workloads, and documented, with every remaining difference deliberate and
+recorded.
