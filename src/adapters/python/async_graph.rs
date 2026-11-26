@@ -1086,5 +1086,5 @@ impl PyAsyncCompiledGraph {
 }
 
 #[path = "async_builder.rs"]
-mod async_builder;
+pub(crate) mod async_builder;
 pub(crate) use async_builder::*;

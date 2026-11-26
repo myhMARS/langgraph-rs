@@ -106,6 +106,12 @@ fn current_triggers() -> Vec<String> {
 }
 
 /// Superstep currently executing, when called from a node or callback.
+/// Progress counter of the running task (`custom()`, `message`, usage and tool events bump it).
+#[pyfunction]
+fn _progress_counter() -> u64 {
+    crate::adapters::python::async_graph::async_builder::current_progress()
+}
+
 #[pyfunction]
 fn current_step() -> Option<usize> {
     crate::current_step()
@@ -550,6 +556,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_node, module)?)?;
     module.add_function(wrap_pyfunction!(current_triggers, module)?)?;
     module.add_function(wrap_pyfunction!(current_step, module)?)?;
+    module.add_function(wrap_pyfunction!(_progress_counter, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;

@@ -371,6 +371,7 @@ pub fn get_stream_writer() -> impl Fn(Value) -> Result<()> + Clone {
 
 /// Emit a custom value into the graph stream from inside a node.
 pub fn custom(value: impl Serialize) -> Result<()> {
+    crate::runtime::context::bump_progress();
     push_custom(serde_json::to_value(value)?)
 }
 

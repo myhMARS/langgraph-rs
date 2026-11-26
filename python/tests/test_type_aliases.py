@@ -1241,3 +1241,48 @@ class TimeoutPolicySemanticsTest(unittest.TestCase):
                 await graph.compile().ainvoke({"value": 0})
 
         asyncio.run(scenario())
+
+
+class IdleTimeoutTest(unittest.TestCase):
+    """`idle_timeout` fires only when the node stops reporting progress."""
+
+    def test_idle_node_raises_node_timeout_error(self):
+        import asyncio
+
+        from langgraph_rs.errors import NodeTimeoutError
+
+        async def scenario():
+            async def silent(state):
+                await asyncio.sleep(0.3)
+                return {"value": 1}
+
+            graph = langgraph_rs.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("silent", silent, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.05))
+            graph.set_entry_point("silent")
+            graph.set_finish_point("silent")
+            with self.assertRaises(NodeTimeoutError) as raised:
+                await graph.compile().ainvoke({"value": 0})
+            self.assertIn("idle timeout", str(raised.exception))
+
+        asyncio.run(scenario())
+
+    def test_progress_keeps_the_watchdog_quiet(self):
+        import asyncio
+
+        from langgraph_rs.config import get_stream_writer
+
+        async def scenario():
+            async def busy(state):
+                writer = get_stream_writer()
+                for step in range(5):
+                    await asyncio.sleep(0.02)
+                    writer({"tick": step})
+                return {"value": 1}
+
+            graph = langgraph_rs.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("busy", busy, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.05))
+            graph.set_entry_point("busy")
+            graph.set_finish_point("busy")
+            self.assertEqual(await graph.compile().ainvoke({"value": 0}), {"value": 1})
+
+        asyncio.run(scenario())

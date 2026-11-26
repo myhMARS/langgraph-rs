@@ -189,6 +189,8 @@ pub(crate) struct TaskContext {
     /// Resume value of the task itself, not yet consumed by an `interrupt()` call. A node that
     /// delegates to a subgraph needs it: the child pauses instead of the parent node.
     pending_resume: Option<Value>,
+    /// Counts progress-reporting calls inside the node (custom writes, messages, usage).
+    progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
     interrupt_calls: usize,
     custom: Vec<Value>,
     tools: Vec<Value>,
@@ -215,6 +217,7 @@ impl TaskContext {
             resume_index: 0,
             resume_consumed: false,
             pending_resume: None,
+            progress: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             interrupt_calls: 0,
             custom: Vec::new(),
             tools: Vec::new(),
@@ -263,6 +266,18 @@ pub(crate) fn take_writes() -> Vec<(String, Value)> {
             .map(|context| std::mem::take(&mut context.writes))
             .unwrap_or_default()
     })
+}
+
+/// The running task's progress counter, when a node is executing on this thread.
+pub(crate) fn current_progress_counter() -> Option<std::sync::Arc<std::sync::atomic::AtomicU64>> {
+    CURRENT_TASK.with(|slot| slot.borrow().as_ref().map(|context| context.progress.clone()))
+}
+
+/// Bump the running task's progress counter.
+pub(crate) fn bump_progress() {
+    if let Some(counter) = current_progress_counter() {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 pub(crate) fn with_task<R>(

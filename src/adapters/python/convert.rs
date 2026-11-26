@@ -284,6 +284,13 @@ pub(super) fn usage_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Usage> {
 ///
 /// The engine formats timeouts as ``node `<name>` timed out after <millis> ms``; the retry layer then
 /// appends the attempt count, so the prefix is what identifies the shape.
+fn idle_millis(node: &str, message: &str) -> Option<u64> {
+    let prefix = format!("node `{node}` went idle for ");
+    let rest = message.strip_prefix(&prefix)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
 fn timeout_millis(node: &str, message: &str) -> Option<u64> {
     let prefix = format!("node `{node}` timed out after ");
     let rest = message.strip_prefix(&prefix)?;
@@ -308,16 +315,39 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
              You can increase the limit by setting the `recursion_limit` config key.\n\
              For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT"
         )),
-        // A run timeout that went through the retry bookkeeping arrives wrapped as a node
-        // failure; LangGraph reports both shapes as `NodeTimeoutError`.
-        Error::Node { node, message } if timeout_millis(&node, &message).is_some() => {
-            let millis = timeout_millis(&node, &message).unwrap_or_default();
+        // An idle timeout (the node stopped reporting progress) is a distinct LangGraph error kind.
+        Error::IdleTimeout { node, millis } => {
             let seconds = millis as f64 / 1000.0;
             match py.import("langgraph_rs.errors").and_then(|module| {
                 let factory = module.getattr("NodeTimeoutError")?;
                 let kwargs = pyo3::types::PyDict::new(py);
-                kwargs.set_item("kind", "run")?;
-                kwargs.set_item("run_timeout", seconds)?;
+                kwargs.set_item("kind", "idle")?;
+                kwargs.set_item("idle_timeout", seconds)?;
+                factory.call((node.clone(), seconds), Some(&kwargs))
+            }) {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(format!("node `{node}` went idle")),
+            }
+        }
+        // A run timeout that went through the retry bookkeeping arrives wrapped as a node
+        // failure; LangGraph reports both shapes as `NodeTimeoutError`.
+        Error::Node { node, message }
+            if timeout_millis(&node, &message).is_some()
+                || idle_millis(&node, &message).is_some() =>
+        {
+            let idle = idle_millis(&node, &message);
+            let millis = idle.or_else(|| timeout_millis(&node, &message)).unwrap_or_default();
+            let seconds = millis as f64 / 1000.0;
+            match py.import("langgraph_rs.errors").and_then(|module| {
+                let factory = module.getattr("NodeTimeoutError")?;
+                let kwargs = pyo3::types::PyDict::new(py);
+                if idle.is_some() {
+                    kwargs.set_item("kind", "idle")?;
+                    kwargs.set_item("idle_timeout", seconds)?;
+                } else {
+                    kwargs.set_item("kind", "run")?;
+                    kwargs.set_item("run_timeout", seconds)?;
+                }
                 factory.call((node.clone(), seconds), Some(&kwargs))
             }) {
                 Ok(error) => PyErr::from_value(error),

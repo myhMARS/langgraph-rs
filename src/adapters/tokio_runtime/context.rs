@@ -298,6 +298,7 @@ impl AsyncContext {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+
     pub(crate) fn progress_counter(&self) -> Arc<std::sync::atomic::AtomicU64> {
         self.progress.clone()
     }

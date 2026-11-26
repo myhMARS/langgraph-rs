@@ -388,6 +388,8 @@ impl PyStreamWriter {
     /// Emit a custom stream value.
     fn __call__(&self, py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let value = py_to_value(value)?;
+        // Progress for the idle watchdog: a writer call is the node reporting activity.
+        crate::runtime::context::bump_progress();
         crate::push_custom(value).map_err(|error| to_pyerr(py, error))
     }
 

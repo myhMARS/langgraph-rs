@@ -2786,4 +2786,22 @@ Two per-Send timeout paths had to stay: the Python coroutine runs on a private l
 executor's Tokio timeout cannot interrupt it — `asyncio.wait_for` enforces it and the resulting
 `TimeoutError` is mapped back to `Error::Timeout`.
 
-Suite is 459 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.
+Suite is 459 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.### Round 128: `idle_timeout` works for Python nodes
+
+LangGraph's `idle_timeout` fires when a node stops reporting progress, raising
+`NodeTimeoutError: Node 'x' exceeded its idle timeout of 0.050s without making progress`. The
+extension ignored it entirely: the node ran to completion and succeeded, because the Tokio-side
+watchdog (`run_with_idle_timeout`) never got to poll while a Python coroutine held the worker inside
+`Python::attach`.
+
+* The engine now exposes `_progress_counter()` — the sum of the async context counter and the sync
+  task context counter — and `get_stream_writer()` / `custom()` / `message` / usage writes bump it.
+* Async nodes install a Python watchdog: it polls the counter every `idle` interval, cancels the
+  coroutine when nothing moved, and raises `TimeoutError("langgraph-rs idle timeout")`.
+* That marker maps back to `Error::IdleTimeout`, and `to_pyerr` turns both the raw error and the
+  retry-wrapped node failure into `NodeTimeoutError(kind="idle")`.
+
+Verified against LangGraph: a silent node raises the idle `NodeTimeoutError`, while a node writing
+`custom()` every 20 ms with `idle_timeout=0.05` completes normally on both engines.
+
+Suite is 461 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.

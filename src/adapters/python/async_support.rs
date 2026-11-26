@@ -4,6 +4,48 @@ use pyo3::types::PyAny;
 
 use super::*;
 
+/// Wrap a coroutine so it fails when it stops reporting progress for `seconds`.
+///
+/// Python coroutines run on a private loop, so the executor's idle watchdog cannot poll them;
+/// this wrapper polls the engine's progress counter on that loop instead. A marker in the raised
+/// message tells the caller which kind of timeout fired.
+pub(crate) fn wrap_async_idle(
+    py: Python<'_>,
+    function: Py<PyAny>,
+    seconds: f64,
+) -> PyResult<Py<PyAny>> {
+    let locals = pyo3::types::PyDict::new(py);
+    locals.set_item("fn", function.bind(py))?;
+    locals.set_item("seconds", seconds.max(0.001))?;
+    py.run(
+        c"async def _idle_wrapper(state, fn=fn, seconds=seconds):
+    import asyncio
+    from langgraph_rs import _progress_counter
+    task = asyncio.ensure_future(fn(state))
+    last = _progress_counter()
+    while True:
+        done, _pending = await asyncio.wait({task}, timeout=seconds)
+        if task in done:
+            return task.result()
+        current = _progress_counter()
+        if current == last:
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+            raise TimeoutError('langgraph-rs idle timeout')
+        last = current
+wrapper = _idle_wrapper",
+        None,
+        Some(&locals),
+    )?;
+    locals
+        .get_item("wrapper")?
+        .map(|value| value.unbind())
+        .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("idle wrapper missing"))
+}
+
 pub(crate) fn wrap_async_timeout(
     py: Python<'_>,
     function: Py<PyAny>,

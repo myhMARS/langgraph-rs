@@ -332,6 +332,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `idle_timeout` 的语义（2026-11-26）
+
+LG 的 `idle_timeout` 在节点**停止上报进度**时触发，抛
+`NodeTimeoutError: Node 'x' exceeded its idle timeout of 0.050s without making progress (elapsed: ...)`；
+只要节点持续 `custom()` / `message` / usage 写入，计时就重置。扩展此前**完全忽略** `idle_timeout`
+（节点跑完就成功）。
+
+原因：Python 协程跑在私有事件循环里，Tokio 侧的看门狗（`run_with_idle_timeout`）根本没机会轮询。
+现在：
+
+- 引擎暴露 `_progress_counter()`（AsyncContext 与同步 TaskContext 的进度计数之和，
+  `custom()` / `message` / usage / `get_stream_writer()` 都会累加）
+- 异步节点安装一个 Python 侧看门狗：每 `idle` 轮询一次进度，无进展就取消协程并抛
+  `TimeoutError("langgraph-rs idle timeout")`
+- 该标记被映射回引擎的 `Error::IdleTimeout`，最终成为 `NodeTimeoutError(kind="idle")`
+
+验证：静默节点 → `NodeTimeoutError`（消息与 LG 同格式）；每 20ms 写一次 `custom` 的节点
+（`idle=50ms`）正常完成 —— 与 LG 相同。
+
 ### 超时策略的语义（2026-11-26）
 
 对照 LG 修正两处：

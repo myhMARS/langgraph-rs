@@ -11,10 +11,61 @@ use crate::Route;
 use crate::runtime::context::TaskContext;
 use crate::tokio_runtime::AsyncStateGraph;
 
+thread_local! {
+    /// Progress counter of the async node currently driving a Python coroutine on this thread.
+    static NODE_PROGRESS: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicU64>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Whether `error` is the idle watchdog's marker timeout (rather than a run timeout).
+fn is_idle_timeout(py: Python<'_>, error: &pyo3::PyErr) -> bool {
+    if !error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py) {
+        return false;
+    }
+    error
+        .value(py)
+        .str()
+        .map(|text| text.to_string().contains("langgraph-rs idle timeout"))
+        .unwrap_or(false)
+}
+
+/// Progress counter of the running async Python node, for `_progress_counter()`.
+pub(crate) fn current_progress() -> u64 {
+    // The async context counts progress made through its own helpers; the sync task context counts
+    // `custom()`/`message()`/usage written from inside the very same coroutine.
+    let async_side = NODE_PROGRESS.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|counter| counter.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or_default()
+    });
+    let sync_side = crate::runtime::context::current_progress_counter()
+        .map(|counter| counter.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or_default();
+    async_side + sync_side
+}
+
+/// Install `counter` for the duration of the call.
+struct ProgressGuard;
+
+impl ProgressGuard {
+    fn install(counter: std::sync::Arc<std::sync::atomic::AtomicU64>) -> Self {
+        NODE_PROGRESS.with(|slot| *slot.borrow_mut() = Some(counter));
+        Self
+    }
+}
+
+impl Drop for ProgressGuard {
+    fn drop(&mut self) {
+        NODE_PROGRESS.with(|slot| *slot.borrow_mut() = None);
+    }
+}
+
 fn async_node_from_python(
     name: String,
     function: Py<PyAny>,
     run_timeout_millis: Option<u64>,
+    idle_timeout_millis: Option<u64>,
 ) -> impl Fn(
     JsonState,
     AsyncContext,
@@ -34,6 +85,8 @@ fn async_node_from_python(
                     json_state_to_py(py, &state).map_err(|error| pyerr_to_error(py, error))?;
                 let resume = context.take_resume();
                 let run_timeout = context.run_timeout();
+                // The Python idle watchdog polls this counter while the coroutine runs.
+                let _progress_guard = ProgressGuard::install(context.progress_counter());
                 let node_name = name.as_ref().clone();
                 let timeout_name = node_name.clone();
                 let task_id = crate::runtime::context::current_task_id();
@@ -52,6 +105,22 @@ fn async_node_from_python(
                             .map_err(|error| {
                                 // `asyncio.wait_for` raises `TimeoutError`; report it the way the
                                 // engine reports its own run timeouts.
+                                if let Some(millis) = idle_timeout_millis
+                                    && is_idle_timeout(py, &error)
+                                {
+                                    return Error::IdleTimeout {
+                                        node: timeout_name.clone(),
+                                        millis,
+                                    };
+                                }
+                                if let Some(millis) = idle_timeout_millis
+                                    && is_idle_timeout(py, &error)
+                                {
+                                    return Error::IdleTimeout {
+                                        node: timeout_name.clone(),
+                                        millis,
+                                    };
+                                }
                                 if let Some(millis) = run_timeout_millis
                                     && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
                                 {
@@ -87,7 +156,15 @@ fn async_node_from_python(
                             // tear down a loop per node (~1 ms each), which dominates an
                             // otherwise sub-millisecond orchestration step.
                             run_timed_awaitable(py, &value).map_err(|error| {
-                                // `asyncio.wait_for` (installed around timed nodes) raises here.
+                                // The idle watchdog and `asyncio.wait_for` both surface here.
+                                if let Some(millis) = idle_timeout_millis
+                                    && is_idle_timeout(py, &error)
+                                {
+                                    return Error::IdleTimeout {
+                                        node: timeout_name.clone(),
+                                        millis,
+                                    };
+                                }
                                 if let Some(millis) = run_timeout_millis
                                     && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
                                 {
@@ -181,6 +258,16 @@ impl PyAsyncStateGraph {
             Some(seconds) => wrap_async_timeout(py, function, seconds)?,
             None => function,
         };
+        // The idle watchdog has to live in Python as well: the coroutine runs on a private loop,
+        // so the executor never gets to poll it.
+        let idle_timeout_millis = timeout
+            .as_ref()
+            .and_then(|policy| policy.idle_timeout)
+            .map(|seconds| (seconds * 1000.0) as u64);
+        let function = match timeout.as_ref().and_then(|policy| policy.idle_timeout) {
+            Some(seconds) => wrap_async_idle(py, function, seconds)?,
+            None => function,
+        };
         let mut builder = builder;
         if deferred {
             builder = builder.set_deferred(name.clone());
@@ -190,7 +277,12 @@ impl PyAsyncStateGraph {
         }
         builder = builder.add_node(
             name.clone(),
-            async_node_from_python(name.clone(), function, run_timeout_millis),
+            async_node_from_python(
+                name.clone(),
+                function,
+                run_timeout_millis,
+                idle_timeout_millis,
+            ),
         );
         if let Some(policy) = retry_policy {
             builder = builder.set_retry(name.clone(), policy.to_policy());

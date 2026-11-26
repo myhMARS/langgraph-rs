@@ -164,6 +164,9 @@ pub enum Error {
     /// A node exceeded its configured run timeout.
     #[error("node `{node}` timed out after {millis} ms")]
     Timeout { node: String, millis: u64 },
+    /// A node stopped reporting progress for longer than its configured idle timeout.
+    #[error("node `{node}` went idle for {millis} ms")]
+    IdleTimeout { node: String, millis: u64 },
     /// A node wrote to a channel that is not part of the state schema.
     #[error("channel `{0}` is not declared in the state schema")]
     UnknownChannel(String),
