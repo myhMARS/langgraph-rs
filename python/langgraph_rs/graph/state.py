@@ -614,7 +614,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             **kwargs,
         )
 
-    async def astream_events(
+    def astream_events(
         self,
         input: Any = None,
         config: Any = None,
@@ -623,12 +623,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         transformers: Any = None,
         **kwargs: Any,
     ) -> Any:
+        # LangGraph returns an awaitable for v3 and an async generator for v2, so this must stay a
+        # plain `def` that hands back whichever the shim produces.
         from ..stream._events import astream_events as _astream_events
 
         thread_id = _thread_id_of(config)
         if thread_id is not None:
             kwargs.setdefault("thread_id", thread_id)
-        return await _astream_events(
+        return _astream_events(
             self,
             input,
             version=version,

@@ -2726,4 +2726,24 @@ The write side (`put` / `put_writes`) still runs inside the engine rather than t
 object; that is documented in the compatibility notes.
 
 Suite is 455 tests (three new saver tests), parity 51/51, examples 10/10, clippy and Rust tests
-clean.
+clean.### Round 125: `astream_events` v2 exists and both versions have LangGraph's shape
+
+LangGraph's `astream_events` is a plain `def`: v3 returns an awaitable `AsyncGraphRunStream`, v2
+returns an **async generator** of LangChain-style callback events. The extension implemented v3 only
+and declared `astream_events` as `async def`, so `version="v2"` produced a coroutine and `async for`
+failed with `'async for' requires an object with __aiter__ method`.
+
+Now the facade is a plain `def` that hands back whichever object the version implies, and a v2
+emitter synthesises `on_chain_*` events from the engine's `updates` / `values` stream. The sequence
+matches LangGraph event for event:
+
+```
+on_chain_start(LangGraph) -> on_chain_start(a) -> on_chain_stream(a)
+-> on_chain_end(a) -> on_chain_stream(LangGraph) -> on_chain_end(LangGraph)
+```
+
+with the same keys per event (`event`, `name`, `run_id`, `tags`, `metadata`, `data`, `parent_ids`) and
+`langgraph_node` (plus `langgraph_checkpoint_ns` for subgraphs) in node metadata.
+
+New parity scenario `events_v2` compares the `(event, name, data keys)` sequence: 52/52 scenarios
+equivalent. Suite is 457 tests (two new), examples 10/10, clippy and Rust tests clean.

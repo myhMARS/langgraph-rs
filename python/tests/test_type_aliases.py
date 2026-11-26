@@ -1159,3 +1159,46 @@ class CheckpointSaverProtocolTest(unittest.TestCase):
         version = saver.get_next_version(None, None)
         self.assertIsInstance(version, str)
         self.assertEqual(version.split(".")[0], "0" * 31 + "1")
+
+
+class EventsVersionShapeTest(unittest.TestCase):
+    """`astream_events` is awaitable for v3 and an async generator for v2 (as in LangGraph)."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        return graph.compile()
+
+    def test_v2_yields_langchain_chain_events(self):
+        import asyncio
+
+        async def collect():
+            stream = self._app().astream_events({"value": 0}, version="v2")
+            self.assertTrue(hasattr(stream, "__aiter__"))
+            return [(event["event"], event["name"]) async for event in stream]
+
+        events = asyncio.run(collect())
+        self.assertEqual(
+            events,
+            [
+                ("on_chain_start", "LangGraph"),
+                ("on_chain_start", "a"),
+                ("on_chain_stream", "a"),
+                ("on_chain_end", "a"),
+                ("on_chain_stream", "LangGraph"),
+                ("on_chain_end", "LangGraph"),
+            ],
+        )
+
+    def test_v3_stays_awaitable(self):
+        import asyncio
+
+        async def collect():
+            run = await self._app().astream_events({"value": 0}, version="v3")
+            self.assertIn("values", run.extensions)
+            return [value async for value in run.values]
+
+        self.assertEqual(len(asyncio.run(collect())), 2)

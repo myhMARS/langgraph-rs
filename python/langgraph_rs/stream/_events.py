@@ -401,7 +401,33 @@ async def _live_aparts(
         deactivate(bridge, thread_id)
         task.join(timeout=5)
 
-async def astream_events(
+def astream_events(
+    graph: Any,
+    input: Any = None,
+    *,
+    version: str = "v3",
+    transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
+    compile_transformers: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
+    thread_id: str | None = None,
+    live: bool = True,
+    **kwargs: Any,
+) -> Any:
+    """LangGraph's `astream_events`: awaitable for v3, async generator for v2."""
+    if version == "v2":
+        return astream_events_v2(graph, input, thread_id=thread_id, **kwargs)
+    return _astream_events_v3(
+        graph,
+        input,
+        version=version,
+        transformers=transformers,
+        compile_transformers=compile_transformers,
+        thread_id=thread_id,
+        live=live,
+        **kwargs,
+    )
+
+
+async def _astream_events_v3(
     graph: Any,
     input: Any = None,
     *,
@@ -415,7 +441,7 @@ async def astream_events(
     """Async counterpart; returns an `AsyncGraphRunStream` wrapping the async stream."""
     if version != "v3":
         raise NotImplementedError(
-            "astream_events only supports version='v3' in the extension."
+            "astream_events only supports version='v3' (and 'v2') in the extension."
         )
     for rejected in ("stream_mode", "subgraphs"):
         if rejected in kwargs:
@@ -457,6 +483,107 @@ async def astream_events(
             yield part
 
     return AsyncGraphRunStream(lazy_astream(), mux)
+
+
+async def astream_events_v2(
+    graph: Any,
+    input: Any = None,
+    *,
+    thread_id: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """LangChain-style callback events (`on_chain_*`), as LangGraph's v2 streaming emits.
+
+    LangGraph drives these from its `Runnable` callbacks; the extension derives them from the
+    streamed supersteps, which carry the same information (task start/end, updates, metadata).
+    """
+    from uuid import uuid4
+
+    graph_run = str(uuid4())
+    graph_name = getattr(graph, "name", None) or "LangGraph"
+
+    def event(kind: str, name: str, run_id: str, data: dict, metadata: dict, parents: list) -> dict:
+        return {
+            "event": kind,
+            "name": name,
+            "run_id": run_id,
+            "tags": [],
+            "metadata": metadata,
+            "data": data,
+            "parent_ids": parents,
+        }
+
+    yield event(
+        "on_chain_start", graph_name, graph_run, {"input": input}, {"ls_integration": "langgraph"}, []
+    )
+
+    def parts() -> Iterator[Any]:
+        # The engine streams `(namespace, mode, payload)` tuples through the same v2 protocol the
+        # rest of the module uses.
+        collected: dict[str, Any] = {}
+        try:
+            for part in graph.stream(
+                input,
+                thread_id=thread_id,
+                stream_mode=["updates", "values"],
+                version="v2",
+                **kwargs,
+            ):
+                collected["last"] = part
+                yield part
+        finally:
+            collected.clear()
+
+    node_runs: dict[tuple, str] = {}
+    collected: Any = None
+    async for part in _aiter_collected(parts()):
+        if isinstance(part, dict) and "type" in part:
+            # v2 parts are `{"type", "ns", "data"}`.
+            namespace, mode, payload = part.get("ns") or (), part["type"], part.get("data")
+        elif isinstance(part, tuple) and len(part) == 3:
+            namespace, mode, payload = part
+        else:
+            namespace, mode, payload = (), "values", part
+        if mode == "values":
+            collected = payload
+            continue
+        for node, update in (payload or {}).items():
+            key = (namespace, node)
+            run_id = node_runs.get(key)
+            metadata = {"langgraph_node": node}
+            if namespace:
+                metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
+            if run_id is None:
+                run_id = str(uuid4())
+                node_runs[key] = run_id
+                yield event(
+                    "on_chain_start", node, run_id, {"input": input}, metadata, [graph_run]
+                )
+            yield event("on_chain_stream", node, run_id, {"chunk": update}, metadata, [graph_run])
+            yield event(
+                "on_chain_end",
+                node,
+                run_id,
+                {"input": input, "output": update},
+                metadata,
+                [graph_run],
+            )
+    yield event(
+        "on_chain_stream",
+        graph_name,
+        graph_run,
+        {"chunk": collected},
+        {"ls_integration": "langgraph"},
+        [],
+    )
+    yield event(
+        "on_chain_end",
+        graph_name,
+        graph_run,
+        {"output": collected},
+        {"ls_integration": "langgraph"},
+        [],
+    )
 
 
 from .run_stream import AsyncGraphRunStream  # noqa: E402  (circular-safe tail import)

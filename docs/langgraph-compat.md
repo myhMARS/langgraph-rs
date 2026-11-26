@@ -332,6 +332,27 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `astream_events` 的 v2 / v3 形状（2026-11-26）
+
+LG 的 `astream_events` 是**普通 `def`**：`version="v3"` 返回可 await 的 `AsyncGraphRunStream`，
+`version="v2"` 直接返回**异步生成器**，逐条产出 LangChain 风格的回调事件。
+
+扩展此前只实现 v3，且 `astream_events` 是 `async def`——于是 `version="v2"`（以及任何 v2 调用）
+会拿到协程，`async for` 直接报错。现在：
+
+- 门面改成普通 `def`，按版本返回「协程」或「异步生成器」
+- 新增 v2 发射器：由引擎的 `updates`/`values` 流合成 LG 的 `on_chain_*` 序列
+
+实测两边事件序列逐条相同：
+
+```
+on_chain_start(LangGraph) → on_chain_start(a) → on_chain_stream(a)
+→ on_chain_end(a) → on_chain_stream(LangGraph) → on_chain_end(LangGraph)
+```
+
+每个事件的键也一致（`event` / `name` / `run_id` / `tags` / `metadata` / `data` / `parent_ids`），
+节点事件的 `metadata` 带 `langgraph_node`（子图时再带 `langgraph_checkpoint_ns`）。
+
 ### Checkpointer 的读取协议（2026-11-26）
 
 LG 的 saver 自己承担 `get_tuple` / `list` / `get` / `delete_thread` / `get_next_version`（异步有

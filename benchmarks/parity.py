@@ -474,6 +474,55 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_events_v2_scenario() -> list[dict]:
+    """`astream_events(version="v2")` yields LangChain's `on_chain_*` sequence."""
+
+    import asyncio
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", END)
+        return graph.compile()
+
+    def rs_build():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        return graph.compile()
+
+    async def collect(app):
+        stream = app.astream_events({"value": 0}, version="v2")
+        if not hasattr(stream, "__aiter__"):
+            stream = await stream
+        events = []
+        async for event in stream:
+            events.append(
+                (event["event"], event["name"], tuple(sorted((event.get("data") or {}).keys())))
+            )
+        return events
+
+    lg_view = asyncio.run(collect(lg_build()))
+    rs_view = asyncio.run(collect(rs_build()))
+    return [
+        {
+            "scenario": "events_v2",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(lambda: asyncio.run(collect(rs_build()))),
+                "lg": measure(lambda: asyncio.run(collect(lg_build()))),
+            },
+        }
+    ]
+
+
 def run_send_interrupt_scenario() -> list[dict]:
     """`Send` fan-out tasks interrupt independently and resume by interrupt id."""
 
@@ -3186,6 +3235,7 @@ def main() -> None:
         run_task_id_shape_scenario,
         run_multi_resume_scenario,
         run_send_interrupt_scenario,
+        run_events_v2_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
