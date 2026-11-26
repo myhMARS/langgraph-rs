@@ -768,3 +768,53 @@ class SubgraphUpdateChunkTest(unittest.TestCase):
                 ((), {"after": {"value": 16}}),
             ],
         )
+
+
+class LangChainObjectStateTest(unittest.TestCase):
+    """LangChain objects (messages, documents) survive the state round trip."""
+
+    @staticmethod
+    def _graph(node):
+        graph = langgraph_rs.StateGraph({"messages": "append", "value": "last"})
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph
+
+    def test_node_can_return_a_message_object(self):
+        from langchain_core.messages import AIMessage
+
+        app = self._graph(lambda state: {"messages": [AIMessage("hello")]}).compile()
+        result = app.invoke({"messages": [], "value": 0})
+        self.assertEqual(type(result["messages"][0]).__name__, "AIMessage")
+        self.assertEqual(result["messages"][0].content, "hello")
+
+    def test_message_objects_are_accepted_as_input(self):
+        from langchain_core.messages import HumanMessage
+
+        app = self._graph(lambda state: {"value": 1}).compile()
+        result = app.invoke({"messages": [HumanMessage("hi")], "value": 0})
+        self.assertEqual(type(result["messages"][0]).__name__, "HumanMessage")
+
+    def test_tool_calls_survive_a_checkpoint(self):
+        from langchain_core.messages import AIMessage
+
+        app = self._graph(
+            lambda state: {
+                "messages": [
+                    AIMessage("", tool_calls=[{"name": "t", "args": {"x": 1}, "id": "c1"}])
+                ]
+            }
+        ).compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "msg-tool"}}
+        app.invoke({"messages": [], "value": 0}, config)
+        message = app.get_state(config).values["messages"][0]
+        self.assertEqual(type(message).__name__, "AIMessage")
+        self.assertEqual(message.tool_calls[0]["name"], "t")
+
+    def test_plain_dicts_still_work(self):
+        app = self._graph(
+            lambda state: {"messages": [{"role": "assistant", "content": "hi"}]}
+        ).compile()
+        result = app.invoke({"messages": [], "value": 0})
+        self.assertEqual(result["messages"][0], {"role": "assistant", "content": "hi"})

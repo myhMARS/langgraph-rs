@@ -68,10 +68,40 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
         }
         return Ok(Value::Array(items));
     }
+    // LangGraph stores LangChain objects (messages, documents, ...) as JSON-plus constructor
+    // dicts; the shim owns that encoding so checkpoints stay interchangeable.
+    if let Some(encoded) = encode_object(obj)? {
+        return Ok(encoded);
+    }
     Err(PyTypeError::new_err(format!(
         "value of type `{}` cannot be converted to JSON; use None, bool, int, float, str, list, tuple or dict",
         type_name(obj)
     )))
+}
+
+
+/// Encode a LangChain object through `langgraph_rs._compat.encode_value`, when it handles it.
+fn encode_object(obj: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
+    let py = obj.py();
+    let module = py.import("langgraph_rs._compat")?;
+    let encode = module.getattr("encode_value")?;
+    let encoded = encode.call1((obj,))?;
+    if encoded.is_none() {
+        return Ok(None);
+    }
+    // The encoder returns a plain JSON dict, so this recursion terminates immediately.
+    Ok(Some(py_to_value(&encoded)?))
+}
+
+/// Revive a JSON-plus constructor dict through `langgraph_rs._compat.decode_value`.
+fn decode_object(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResult<Option<Py<PyAny>>> {
+    let module = py.import("langgraph_rs._compat")?;
+    let decode = module.getattr("decode_value")?;
+    let decoded = decode.call1((dict,))?;
+    if decoded.is(dict) {
+        return Ok(None);
+    }
+    Ok(Some(decoded.unbind()))
 }
 
 pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
@@ -101,6 +131,11 @@ pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> 
             let dict = PyDict::new(py);
             for (key, item) in map {
                 dict.set_item(key, value_to_py(py, item)?)?;
+            }
+            if map.get("lc").and_then(Value::as_i64) == Some(1) {
+                if let Some(decoded) = decode_object(py, &dict)? {
+                    return Ok(decoded);
+                }
             }
             dict.into_any().unbind()
         }

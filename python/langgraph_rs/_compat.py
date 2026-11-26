@@ -100,3 +100,58 @@ def jsonschema_of(schema: Any) -> Any:
             "properties": {name: {} for name in annotations},
         }
     return schema
+
+
+# --- LangChain object codec ---------------------------------------------------------------
+#
+# LangGraph serialises objects that JSON cannot represent with `JsonPlusSerializer`, which emits
+# `{"lc": 1, "type": "constructor", "id": ["module", "attr", ...], "kwargs": {...}}` and revives
+# them by importing `id`. The extension uses the same shape, so checkpoints are interchangeable.
+
+def _import_path(path: list[str]) -> Any:
+    module = __import__(".".join(path[:-1]), fromlist=[path[-1]])
+    return getattr(module, path[-1])
+
+
+def encode_value(value: Any) -> Any:
+    """Encode a LangChain object as LangGraph's JSON-plus constructor dict."""
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        kind = type(value)
+        return {
+            "lc": 1,
+            "type": "constructor",
+            "id": [kind.__module__, kind.__name__],
+            "kwargs": model_dump(),
+        }
+    to_json = getattr(value, "to_json", None)
+    if callable(to_json):
+        kind = type(value)
+        payload = to_json()
+        return {
+            "lc": 1,
+            "type": "constructor",
+            "id": [kind.__module__, kind.__name__],
+            "kwargs": payload if isinstance(payload, dict) else {"value": payload},
+        }
+    return None
+
+
+def decode_value(value: Any) -> Any:
+    """Revive a LangGraph JSON-plus constructor dict, leaving anything else untouched."""
+    if not isinstance(value, dict) or value.get("lc") != 1:
+        return value
+    if value.get("type") != "constructor":
+        return value
+    path = value.get("id")
+    if not isinstance(path, list) or not path:
+        return value
+    try:
+        factory = _import_path(path)
+    except Exception:
+        return value
+    kwargs = value.get("kwargs") or {}
+    try:
+        return factory(**kwargs)
+    except Exception:
+        return value

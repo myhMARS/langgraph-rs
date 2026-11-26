@@ -2276,4 +2276,32 @@ Two remaining nuances, both recorded in `docs/langgraph-compat.md`: when the par
 subgraph LangGraph omits the parent input echo while the extension emits the child's input echo, and
 namespace ids are deterministic here versus uuids in LangGraph.
 
-Suite is 426 tests, examples 10/10 identical plus 4/4 liveness, clippy and Rust tests clean.
+Suite is 426 tests, examples 10/10 identical plus 4/4 liveness, clippy and Rust tests clean.### Round 105: LangChain objects in state (JsonPlus codec)
+
+The most consequential gap found so far: graph state rejected LangChain objects.
+
+```
+node returns AIMessage  -> RuntimeError: value of type `AIMessage` cannot be converted to JSON
+invoke({"messages": [HumanMessage("hi")]}) -> TypeError
+```
+
+LangGraph stores these with `JsonPlusSerializer`, which emits
+`{"lc": 1, "type": "constructor", "id": [module, name], "kwargs": {...}}` and revives them by
+importing `id`. The extension now uses the same shape:
+
+* `langgraph_rs._compat.encode_value` turns anything with `model_dump`/`to_json` into that dict;
+  `py_to_value` calls it only on the path that previously failed, so plain JSON values pay nothing.
+* `value_to_py` revives a dict when `lc == 1` (`decode_value` imports `id` and calls it with
+  `kwargs`), otherwise the dict is returned unchanged.
+* Encoding in LangGraph's shape means checkpoints written here stay readable by LangGraph.
+
+Verified: a node returning `AIMessage` yields an `AIMessage`; `HumanMessage` round-trips as input; a
+message with `tool_calls` survives a checkpointer round trip with its calls intact; plain dict
+messages behave exactly as before.
+
+Two adjacent findings recorded for later: our v3 run stream registers only
+`lifecycle`/`subgraphs`/`values` (LangGraph also exposes a `messages` projection), and
+`update_state(as_node=...)` plus `Command(graph=PARENT)` were compared in the same pass and matched
+LangGraph exactly (`next == ('b',)`, `{'log': ['from-sub', 'after']}`).
+
+Suite is 430 tests, parity 40/40, examples 10/10 identical, clippy and Rust tests clean.

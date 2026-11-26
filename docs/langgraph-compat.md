@@ -287,6 +287,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### LangChain 对象可以进状态了（2026-11-26）
+
+LangGraph 的状态里可以放 `AIMessage`、`HumanMessage`、`ToolMessage` 这类 LangChain 对象，
+扩展此前会拒绝：`value of type `AIMessage` cannot be converted to JSON`。这是最影响实用的差异
+——消息就是 agent 的主要载荷。
+
+现在走 **LangGraph 同款 JsonPlus 编码**：
+
+```json
+{"lc": 1, "type": "constructor", "id": ["langchain_core.messages", "AIMessage"], "kwargs": {...}}
+```
+
+- 写入方向：Python 对象 → 上述 JSON（`_compat.encode_value`），因此 checkpoint 里存的是 LG 能读的形状
+- 读取方向：`Value::Object` 且 `lc == 1` → `_compat.decode_value` 用 `id` 路径 import 并重建对象
+- 只对「本来无法转 JSON」的对象走这条路径，普通 dict/list/str 不受影响
+
+实测：节点返回 `AIMessage` → 拿回 `AIMessage`；输入 `HumanMessage` ✓；带 tool_calls 的消息经过
+checkpointer 往返后仍是 `AIMessage` 且 `tool_calls` 完整；纯 dict 消息行为不变。
+
 ### 子图节点的 `updates` 事件（2026-11-26）
 
 父图里跑子图的节点，LangGraph 会在父命名空间发出自己的 `updates` 事件
