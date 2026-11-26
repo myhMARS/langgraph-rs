@@ -899,3 +899,57 @@ class MessageMetadataTest(unittest.TestCase):
         graph.set_finish_point("b")
         graph.compile().invoke({"value": 0})
         self.assertEqual(seen["triggers"], ["branch:to:b"])
+
+
+class BulkUpdateAndHistoryParamsTest(unittest.TestCase):
+    """`bulk_update_state` accepts LangGraph's tuples and history filters match LangGraph."""
+
+    @staticmethod
+    def _app(thread):
+        graph = langgraph_rs.StateGraph({"value": "last", "note": "last"})
+        graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+        graph.add_node("b", lambda state: {"value": (state.get("value") or 0) + 10})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": thread}}
+        app.invoke({"value": 0}, config)
+        return app, config
+
+    def test_bulk_update_accepts_langgraph_tuples(self):
+        app, config = self._app("bulk-tuple")
+        app.bulk_update_state(
+            config,
+            [
+                [({"value": 100}, "a", None)],
+                [({"note": "n1"}, "a", None), ({"value": 200}, "b", None)],
+            ],
+        )
+        values = app.get_state(config).values
+        self.assertEqual((values["value"], values["note"]), (200, "n1"))
+
+    def test_bulk_update_keeps_the_dict_spelling(self):
+        app, config = self._app("bulk-dict")
+        app.bulk_update_state(config, [[{"values": {"value": 7}, "as_node": "a"}]])
+        self.assertEqual(app.get_state(config).values["value"], 7)
+
+    def test_bulk_update_rejects_unknown_shapes(self):
+        app, config = self._app("bulk-bad")
+        with self.assertRaises(TypeError):
+            app.bulk_update_state(config, [[("not-a-dict",)]])
+
+    def test_history_before_accepts_a_config(self):
+        app, config = self._app("hist-before")
+        history = list(app.get_state_history(config))
+        older = list(app.get_state_history(config, before=history[1].config))
+        self.assertEqual([snap.metadata["step"] for snap in older], [0, -1])
+
+    def test_history_limit_and_filter(self):
+        app, config = self._app("hist-limit")
+        self.assertEqual(
+            [snap.metadata["step"] for snap in app.get_state_history(config, limit=2)], [2, 1]
+        )
+        self.assertEqual(
+            list(app.get_state_history(config, filter={"next": ("b",)})), []
+        )

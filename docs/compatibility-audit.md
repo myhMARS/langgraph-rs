@@ -2371,4 +2371,28 @@ source-node spelling).
 New parity scenario `task_triggers` compares the start-chunk `(name, triggers)` pairs for a linear
 graph and a `Send` fan-out on both engines: 41/41 scenarios equivalent.
 
-Suite is 436 tests, examples 10/10, clippy and Rust tests clean.
+Suite is 436 tests, examples 10/10, clippy and Rust tests clean.### Round 109: bulk_update_state shape and history parameters
+
+Measured against LangGraph 1.2.22:
+
+```
+bulk_update_state(config, [[({"value": 100}, "a", None)], [...]])   # 3-tuples, not dicts
+get_state_history(config, before=snapshot.config)                    # a RunnableConfig
+```
+
+Both were wrong on our side, and one of them silently: `bulk_update_state` read `values`/`as_node`
+keys off each update, so LangGraph-style tuples matched nothing and were **skipped without an error**
+(the run returned an unchanged state). It now parses `(values, as_node, task_id)` tuples (and lists),
+keeps the dict spelling as a superset, and raises `TypeError` for shapes it cannot read.
+`get_state_history` accepted only a checkpoint-id string for `before`; it now also accepts a
+`RunnableConfig`, which is what callers get from `snapshot.config`.
+
+Verified equal to LangGraph: `limit=2` -> `[2, 1]`, `before=<step 1>` -> `[0, -1]`,
+`filter={"next": ("b",)}` -> `[]`, and `bulk_update_state` produces `{'value': 200, 'note': 'n1'}`.
+
+Recorded differences that need an engine change: LangGraph writes one checkpoint per *superstep*
+while the extension writes one per *update* (two supersteps produced three checkpoints here), and
+LangGraph derives `next` from the union of every update in the last superstep while the extension
+uses only the last update.
+
+Suite is 441 tests, parity 41/41, clippy and Rust tests clean.

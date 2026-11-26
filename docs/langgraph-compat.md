@@ -287,6 +287,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `bulk_update_state` 与 `get_state_history` 的参数（2026-11-26）
+
+实测 LG 1.2.22 后修正两处：
+
+1. **`bulk_update_state` 的 `supersteps` 是 `(values, as_node, task_id)` 三元组**，不是 dict。
+   我们此前只认 dict，传 LG 形状会被**静默跳过**（值完全没写入）——这是真 bug，已修；
+   dict 拼法保留为超集，无法识别的形状改为抛 `TypeError`。
+2. **`get_state_history(before=...)` 接受 `RunnableConfig`**（快照的 `.config`）。我们此前只收
+   checkpoint id 字符串，传 dict 直接 `TypeError`。现已两种都接受。
+
+参数语义核对一致：`limit=2` → `[2, 1]`；`before=<step1 的 config>` → `[0, -1]`；
+`filter={"next": ("b",)}` → `[]`（LG 同样为空）。
+
+**仍存差异**（LG 的 bulk 是「一个 superstep 一个 checkpoint」）：
+- 我们按「每条 update 一个 checkpoint」写入，两轮 superstep 会多出 checkpoint
+- `next` 取的是最后一条 update 的推导结果；LG 取**同一 superstep 内所有 update 的并集**
+  （例如同时 `as_node="a"` 与 `as_node="b"` 时 LG 给 `('b',)`，我们给 `()`）
+
 ### `messages` 流与投影（2026-11-26）
 
 LG 的 `stream_mode="messages"` 产出 `(message_chunk, metadata)`，v3 run stream 默认带 `messages`

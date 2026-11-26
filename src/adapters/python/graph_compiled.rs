@@ -695,19 +695,51 @@ impl PyCompiledGraph {
                 .cast::<PyList>()
                 .map_err(|_| PyTypeError::new_err("every superstep must be a list of updates"))?;
             for update in updates.iter() {
-                let values = update.get_item("values").ok();
-                let as_node: Option<String> = update
-                    .get_item("as_node")
-                    .ok()
-                    .and_then(|node| node.extract::<String>().ok());
-                let task_id: Option<String> = update
-                    .get_item("task_id")
-                    .ok()
-                    .and_then(|task| task.extract::<String>().ok());
-                let values = match values {
-                    Some(values) => values,
-                    None => continue,
+                // LangGraph's `StateUpdate` is the 3-tuple `(values, as_node, task_id)`; the
+                // dict spelling is accepted too because it reads better in Python.
+                let (values, as_node, task_id) = if let Ok(items) =
+                    update.cast::<pyo3::types::PyTuple>()
+                {
+                    let values = items.get_item(0)?;
+                    let as_node = items
+                        .get_item(1)
+                        .ok()
+                        .and_then(|node| node.extract::<String>().ok());
+                    let task_id = items
+                        .get_item(2)
+                        .ok()
+                        .and_then(|task| task.extract::<String>().ok());
+                    (values, as_node, task_id)
+                } else if let Ok(items) = update.cast::<PyList>() {
+                    let values = items.get_item(0)?;
+                    let as_node = items
+                        .get_item(1)
+                        .ok()
+                        .and_then(|node| node.extract::<String>().ok());
+                    let task_id = items
+                        .get_item(2)
+                        .ok()
+                        .and_then(|task| task.extract::<String>().ok());
+                    (values, as_node, task_id)
+                } else {
+                    let values = update
+                        .get_item("values")
+                        .map_err(|_| {
+                            PyTypeError::new_err(
+                                "bulk_update_state expects `(values, as_node, task_id)` tuples",
+                            )
+                        })?;
+                    let as_node = update
+                        .get_item("as_node")
+                        .ok()
+                        .and_then(|node| node.extract::<String>().ok());
+                    let task_id = update
+                        .get_item("task_id")
+                        .ok()
+                        .and_then(|task| task.extract::<String>().ok());
+                    (values, as_node, task_id)
                 };
+                let values = values;
                 let value = py_to_value(&values)?;
                 let map = value.as_object().cloned().ok_or_else(|| {
                     PyTypeError::new_err("bulk_update_state expects dict updates")
@@ -1247,12 +1279,26 @@ impl PyCompiledGraph {
         &self,
         py: Python<'_>,
         thread_id: &Bound<'_, PyAny>,
-        before: Option<String>,
+        before: Option<&Bound<'_, PyAny>>,
         limit: Option<usize>,
         checkpoint_ns: Option<String>,
         filter: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, parsed_config) = config_from_py(py, Some(thread_id))?;
+        // LangGraph accepts a `RunnableConfig` here (the snapshot's `config`); a bare checkpoint id
+        // keeps working for Rust callers that already have one.
+        let before: Option<String> = match before.filter(|value| !value.is_none()) {
+            Some(value) => match value.extract::<String>() {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    let (_, config) = config_from_py(py, Some(value))?;
+                    config
+                        .checkpoint_id
+                        .or_else(|| config.thread_id.map(|_| String::new()))
+                }
+            },
+            None => None,
+        };
         let filter = match filter {
             Some(filter) => {
                 let value = py_to_value(&filter)?;
