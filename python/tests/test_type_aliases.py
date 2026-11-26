@@ -929,6 +929,30 @@ class BulkUpdateAndHistoryParamsTest(unittest.TestCase):
         values = app.get_state(config).values
         self.assertEqual((values["value"], values["note"]), (200, "n1"))
 
+    def test_bulk_update_writes_one_checkpoint_per_superstep(self):
+        app, config = self._app("bulk-granularity")
+        before = len(list(app.get_state_history(config)))
+        app.bulk_update_state(
+            config,
+            [
+                [({"value": 100}, "a", None)],
+                [({"note": "n1"}, "a", None), ({"value": 200}, "b", None)],
+            ],
+        )
+        self.assertEqual(len(list(app.get_state_history(config))) - before, 2)
+
+    def test_bulk_update_unions_the_superstep_next(self):
+        app, config = self._app("bulk-next")
+        app.bulk_update_state(
+            config,
+            [
+                [({"value": 100}, "a", None)],
+                [({"note": "n1"}, "a", None), ({"value": 200}, "b", None)],
+            ],
+        )
+        # `a` schedules `b`; `b` schedules nothing, so the union is `b`.
+        self.assertEqual(list(app.get_state(config).next), ["b"])
+
     def test_bulk_update_keeps_the_dict_spelling(self):
         app, config = self._app("bulk-dict")
         app.bulk_update_state(config, [[{"values": {"value": 7}, "as_node": "a"}]])

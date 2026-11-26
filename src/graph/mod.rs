@@ -19,6 +19,7 @@ pub(crate) mod visualize;
 
 pub(crate) use options::default_recursion_limit;
 pub(crate) use state_api::metadata_matches;
+pub use state_api::StateUpdateGroup;
 
 use crate::_internal::node::ConditionalEdge;
 

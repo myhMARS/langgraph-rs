@@ -484,6 +484,154 @@ impl<S: State> CompiledGraph<S> {
     }
 }
 
+
+/// One task's writes inside a bulk update superstep (LangGraph `StateUpdate`).
+pub struct StateUpdateGroup {
+    /// Channel writes produced by the task.
+    pub values: Vec<(String, Value)>,
+    /// Node the writes are attributed to; its outgoing routes schedule the next tasks.
+    pub as_node: Option<String>,
+    /// Pending task the writes belong to, when known.
+    pub task_id: Option<String>,
+}
+
+impl<S: State> CompiledGraph<S> {
+    /// Apply every update of one superstep in a single checkpoint.
+    ///
+    /// LangGraph's `bulk_update_state` writes one checkpoint per superstep and derives `next`
+    /// from *all* of its updates, so two tasks updating different channels keep both sets of
+    /// follow-up tasks. [`Self::update_state`] handles one group; this is the batched form.
+    pub fn bulk_update_superstep(
+        &self,
+        thread_id: &str,
+        groups: Vec<StateUpdateGroup>,
+    ) -> Result<StateSnapshot<S>> {
+        let checkpointer = self
+            .checkpointer()
+            .ok_or(Error::MissingCheckpointer("bulk_update_state"))?;
+        let checkpoint = checkpointer
+            .latest_in_shared(thread_id, "")?
+            .ok_or_else(|| {
+                Error::Checkpoint(format!("no checkpoint found for thread `{thread_id}`"))
+            })?;
+        let checkpoint = checkpoint.as_ref();
+
+        let mut values = checkpoint.values.clone();
+        crate::pregel::apply_pending_writes(&self.schema, &mut values, &checkpoint.pending_writes)?;
+        let mut attributed: Vec<(String, String, Value)> = Vec::new();
+        for group in &groups {
+            for (channel, value) in &group.values {
+                attributed.push((
+                    channel.clone(),
+                    group.as_node.clone().unwrap_or_else(|| "<update>".to_string()),
+                    value.clone(),
+                ));
+            }
+        }
+        let updates: Vec<ChannelUpdate> = attributed
+            .into_iter()
+            .map(|(channel, node, value)| ChannelUpdate {
+                channel,
+                value,
+                node,
+            })
+            .collect();
+        apply_updates(&self.schema, &mut values, updates)?;
+        let values = if self.schema.persists_all(&values) {
+            values
+        } else {
+            self.schema.persisted_values(&values)
+        };
+        let state = values_to_state::<S>(&values)?;
+
+        // Union of the follow-up tasks every group's author would schedule.
+        let mut next: Vec<Task> = Vec::new();
+        for group in &groups {
+            let Some(node) = group.as_node.as_deref() else {
+                continue;
+            };
+            if node == crate::END {
+                continue;
+            }
+            if !self.nodes.contains_key(node) {
+                return Err(Error::validation(format!(
+                    "bulk_update_state: `{node}` is not a registered node"
+                )));
+            }
+            if self.edges_of(node).is_none_or(<[_]>::is_empty)
+                && self.conditional_of(node).is_none()
+                && self.destinations_of(node).is_none_or(<[_]>::is_empty)
+            {
+                continue;
+            }
+            let executed = vec![node.to_string()];
+            let (targets, router_sends) = collect_next_nodes(
+                &state,
+                &executed,
+                &HashSet::new(),
+                &[],
+                |candidate| self.edges_of(candidate),
+                |candidate| self.conditional_of(candidate),
+                |candidate| self.nodes.contains_key(candidate),
+                |candidate| self.destinations_of(candidate),
+            )?;
+            for target in dedupe(targets) {
+                if !next.iter().any(|task| task.node == target) {
+                    next.push(Task::new(target));
+                }
+            }
+            for (source, send) in router_sends {
+                let task = send_task(&source, send)?;
+                let duplicate = next.iter().any(|known| {
+                    known.node == task.node && known.input == task.input
+                });
+                if !duplicate {
+                    next.push(task);
+                }
+            }
+        }
+
+        let step = checkpoint.step + 1;
+        let (channel_versions, versions_seen, updated_channels) = versions_for(
+            Some(checkpoint),
+            &values,
+            step,
+            &[],
+            &std::collections::HashMap::new(),
+        );
+        let id = new_checkpoint_id(thread_id, step);
+        crate::pregel::scheduling::assign_v4_ids(&mut next, Some(&id), "", step);
+        let updated = Checkpoint {
+            id,
+            thread_id: thread_id.to_string(),
+            step,
+            values,
+            next,
+            deferred_routes: Vec::new(),
+            resume_tasks: Vec::new(),
+            goto_sources: Vec::new(),
+            completed_tasks: Vec::new(),
+            interrupted: false,
+            paused_before: checkpoint.paused_before,
+            parent_id: Some(checkpoint.id.clone()),
+            created_at_millis: now_millis(),
+            interrupts: Vec::new(),
+            metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
+            namespace: String::new(),
+            task_results: checkpoint.task_results.clone(),
+            channel_versions,
+            versions_seen,
+            updated_channels,
+            pending_writes: Vec::new(),
+            deferred: checkpoint.deferred.clone(),
+        };
+        let mut snapshot = StateSnapshot::from_parts(&updated, state)?;
+        snapshot.step = snapshot.step.saturating_sub(1);
+        checkpointer.put(updated)?;
+        Ok(snapshot)
+    }
+}
+
 /// Compare a snapshot's metadata (and step) against a LangGraph `filter` map.
 pub(crate) fn metadata_matches<S: crate::_internal::state::State>(
     snapshot: &StateSnapshot<S>,

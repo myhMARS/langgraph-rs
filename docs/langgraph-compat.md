@@ -300,10 +300,10 @@ schema introspection 全套由基类提供。扩展现在也这样：
 参数语义核对一致：`limit=2` → `[2, 1]`；`before=<step1 的 config>` → `[0, -1]`；
 `filter={"next": ("b",)}` → `[]`（LG 同样为空）。
 
-**仍存差异**（LG 的 bulk 是「一个 superstep 一个 checkpoint」）：
-- 我们按「每条 update 一个 checkpoint」写入，两轮 superstep 会多出 checkpoint
-- `next` 取的是最后一条 update 的推导结果；LG 取**同一 superstep 内所有 update 的并集**
-  （例如同时 `as_node="a"` 与 `as_node="b"` 时 LG 给 `('b',)`，我们给 `()`）
+**已与 LG 对齐**（引擎新增 `bulk_update_superstep`）：
+- **一个 superstep 一个 checkpoint**：两轮 superstep 只写 2 个 checkpoint（此前 3 个）
+- **`next` 取同一 superstep 内所有 update 的并集**：同时 `as_node="a"` 与 `as_node="b"` 时
+  得 `('b',)`，与 LG 一致（`a` 会调度 `b`，`b` 不再调度）
 
 ### `messages` 流与投影（2026-11-26）
 

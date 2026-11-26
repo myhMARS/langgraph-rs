@@ -2395,4 +2395,28 @@ while the extension writes one per *update* (two supersteps produced three check
 LangGraph derives `next` from the union of every update in the last superstep while the extension
 uses only the last update.
 
-Suite is 441 tests, parity 41/41, clippy and Rust tests clean.
+Suite is 441 tests, parity 41/41, clippy and Rust tests clean.### Round 110: bulk_update_state writes one checkpoint per superstep
+
+The two differences recorded last round needed an engine change rather than a binding fix, so
+`CompiledGraph::bulk_update_superstep(thread_id, [StateUpdateGroup])` was added:
+
+* every update in a superstep is merged into the same value map,
+* `next` is the **union** of the tasks each update's `as_node` schedules (deduplicated by node, and
+  by input for `Send` tasks),
+* exactly one checkpoint is written for the superstep (`source="update"`, step + 1).
+
+`bulk_update_state` now groups the Python supersteps and calls it once per superstep.
+
+Measured against LangGraph 1.2.22 on the same two-superstep call:
+
+```
+before      [2, 1, 0, -1]
+after       [4, 3, 2, 1, 0, -1]      # 2 checkpoints added, same as LangGraph
+values      {'note': 'n1', 'value': 200}
+next        ('b',)                    # union of a's and b's routes
+```
+
+New parity scenario `bulk_update_state` compares the added checkpoint count, the resulting values and
+`next` on both engines: 42/42 scenarios equivalent.
+
+Suite is 443 tests, clippy and Rust tests clean.

@@ -474,6 +474,72 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_bulk_update_scenario() -> list[dict]:
+    """`bulk_update_state` writes one checkpoint per superstep and unions each superstep's next."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        note: str
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+        graph.add_node("b", lambda state: {"value": (state.get("value") or 0) + 10})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        return graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_build():
+        graph = rs.StateGraph({"value": "last", "note": "last"})
+        graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+        graph.add_node("b", lambda state: {"value": (state.get("value") or 0) + 10})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    supersteps = [
+        [({"value": 100}, "a", None)],
+        [({"note": "n1"}, "a", None), ({"value": 200}, "b", None)],
+    ]
+    lg, rs_graph = lg_build(), rs_build()
+    lg_cfg = {"configurable": {"thread_id": "bulk-lg"}}
+    rs_cfg = {"configurable": {"thread_id": "bulk-rs"}}
+    lg.invoke({"value": 0}, lg_cfg)
+    rs_graph.invoke({"value": 0}, rs_cfg)
+    before_lg = len(list(lg.get_state_history(lg_cfg)))
+    before_rs = len(list(rs_graph.get_state_history(rs_cfg)))
+    lg.bulk_update_state(lg_cfg, supersteps)
+    rs_graph.bulk_update_state(rs_cfg, supersteps)
+    lg_after = len(list(lg.get_state_history(lg_cfg))) - before_lg
+    rs_after = len(list(rs_graph.get_state_history(rs_cfg))) - before_rs
+    lg_state = dict(lg.get_state(lg_cfg).values)
+    rs_state = dict(rs_graph.get_state(rs_cfg).values)
+    lg_next = tuple(lg.get_state(lg_cfg).next)
+    rs_next = tuple(rs_graph.get_state(rs_cfg).next)
+    return [
+        {
+            "scenario": "bulk_update_state",
+            "rs": {"added": rs_after, "values": rs_state, "next": rs_next},
+            "lg": {"added": lg_after, "values": lg_state, "next": lg_next},
+            "equivalent": (rs_after, rs_state, rs_next) == (lg_after, lg_state, lg_next),
+            "bench": {
+                "rs": measure(
+                    lambda: rs_build().invoke(
+                        {"value": 0}, {"configurable": {"thread_id": "bulk-bench-rs"}}
+                    )
+                ),
+                "lg": measure(
+                    lambda: lg_build().invoke(
+                        {"value": 0}, {"configurable": {"thread_id": "bulk-bench-lg"}}
+                    )
+                ),
+            },
+        }
+    ]
+
+
 def run_task_triggers_scenario() -> list[dict]:
     lg_linear, rs_linear, lg_fan, rs_fan = task_triggers_pair()
 
@@ -2504,6 +2570,7 @@ def main() -> None:
         run_parallel_interrupt_scenario,
         run_subgraph_updates_scenario,
         run_task_triggers_scenario,
+        run_bulk_update_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

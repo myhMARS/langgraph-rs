@@ -672,6 +672,9 @@ impl PyCompiledGraph {
     }
 
     /// Apply several supersteps of updates at once (LangGraph's `bulk_update_state`).
+    ///
+    /// LangGraph's `supersteps` are lists of `(values, as_node, task_id)` tuples and each list
+    /// becomes exactly one checkpoint whose `next` tasks come from every update in it.
     #[pyo3(signature = (config=None, supersteps=None, *, thread_id=None))]
     fn bulk_update_state(
         &self,
@@ -694,41 +697,30 @@ impl PyCompiledGraph {
             let updates = step
                 .cast::<PyList>()
                 .map_err(|_| PyTypeError::new_err("every superstep must be a list of updates"))?;
+            let mut groups: Vec<crate::graph::StateUpdateGroup> = Vec::new();
             for update in updates.iter() {
-                // LangGraph's `StateUpdate` is the 3-tuple `(values, as_node, task_id)`; the
-                // dict spelling is accepted too because it reads better in Python.
+                // `(values, as_node, task_id)` is LangGraph's shape; the dict spelling is accepted
+                // as a superset because it reads better in Python.
                 let (values, as_node, task_id) = if let Ok(items) =
                     update.cast::<pyo3::types::PyTuple>()
                 {
-                    let values = items.get_item(0)?;
-                    let as_node = items
-                        .get_item(1)
-                        .ok()
-                        .and_then(|node| node.extract::<String>().ok());
-                    let task_id = items
-                        .get_item(2)
-                        .ok()
-                        .and_then(|task| task.extract::<String>().ok());
-                    (values, as_node, task_id)
+                    (
+                        items.get_item(0)?,
+                        items.get_item(1).ok().and_then(|node| node.extract::<String>().ok()),
+                        items.get_item(2).ok().and_then(|task| task.extract::<String>().ok()),
+                    )
                 } else if let Ok(items) = update.cast::<PyList>() {
-                    let values = items.get_item(0)?;
-                    let as_node = items
-                        .get_item(1)
-                        .ok()
-                        .and_then(|node| node.extract::<String>().ok());
-                    let task_id = items
-                        .get_item(2)
-                        .ok()
-                        .and_then(|task| task.extract::<String>().ok());
-                    (values, as_node, task_id)
+                    (
+                        items.get_item(0)?,
+                        items.get_item(1).ok().and_then(|node| node.extract::<String>().ok()),
+                        items.get_item(2).ok().and_then(|task| task.extract::<String>().ok()),
+                    )
                 } else {
-                    let values = update
-                        .get_item("values")
-                        .map_err(|_| {
-                            PyTypeError::new_err(
-                                "bulk_update_state expects `(values, as_node, task_id)` tuples",
-                            )
-                        })?;
+                    let values = update.get_item("values").map_err(|_| {
+                        PyTypeError::new_err(
+                            "bulk_update_state expects `(values, as_node, task_id)` tuples",
+                        )
+                    })?;
                     let as_node = update
                         .get_item("as_node")
                         .ok()
@@ -739,22 +731,21 @@ impl PyCompiledGraph {
                         .and_then(|task| task.extract::<String>().ok());
                     (values, as_node, task_id)
                 };
-                let values = values;
                 let value = py_to_value(&values)?;
-                let map = value.as_object().cloned().ok_or_else(|| {
-                    PyTypeError::new_err("bulk_update_state expects dict updates")
-                })?;
-                let writes: Vec<(String, crate::Value)> =
-                    map.into_iter().collect();
-                let result = py.detach(|| {
-                    self.graph
-                        .update_state_with_task(&thread_id, writes, as_node.as_deref(), task_id.as_deref())
-                });
-                latest = Some(match result {
-                    Ok(snapshot) => snapshot_to_py(py, &snapshot)?,
-                    Err(error) => return Err(to_pyerr(py, error)),
+                let map = value
+                    .as_object()
+                    .cloned()
+                    .ok_or_else(|| PyTypeError::new_err("bulk_update_state expects dict updates"))?;
+                groups.push(crate::graph::StateUpdateGroup {
+                    values: map.into_iter().collect(),
+                    as_node,
+                    task_id,
                 });
             }
+            let snapshot = py
+                .detach(|| self.graph.bulk_update_superstep(&thread_id, groups))
+                .map_err(|error| to_pyerr(py, error))?;
+            latest = Some(snapshot_to_py(py, &snapshot)?);
         }
         Ok(latest.unwrap_or_else(|| py.None()))
     }
