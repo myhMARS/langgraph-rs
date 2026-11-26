@@ -279,7 +279,9 @@ LangGraph 的编译结果是**一个对象**，同时提供 `invoke` 与 `ainvok
 
 - `CompiledGraph` 增加了 `ainvoke` / `astream` / `astream_events`：同步引擎在工作线程上执行
   （`run_in_executor`），事件循环不被阻塞；`astream` 返回 async generator，与 LG 的形态一致
-- `AsyncCompiledGraph.ainvoke` / `astream` 都接受 LG 的 `config=` 参数（此前只有 `thread_id`）
+- `AsyncCompiledGraph.ainvoke` / `astream` / `astream_events` 都接受 LG 的 `config=` 参数（此前只有 `thread_id`）
+- `batch` / `abatch` 接受 LG 的 `config=`（单份或**每个输入一份**）、`return_exceptions=` 与 `context=`；
+  config 列表长度不匹配时抛 `TypeError`
 
 ### 跨引擎 resume 支持矩阵（2026-11）
 

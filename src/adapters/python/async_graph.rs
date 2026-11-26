@@ -218,13 +218,16 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable batch invocation returning the final state of every input.
-    #[pyo3(signature = (inputs, thread_id=None, context=None))]
+    #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None, thread_id=None))]
+    #[allow(clippy::too_many_arguments)]
     fn abatch<'py>(
         &self,
         py: Python<'py>,
         inputs: &Bound<'_, PyAny>,
-        thread_id: Option<String>,
+        config: Option<&Bound<'_, PyAny>>,
+        return_exceptions: bool,
         context: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let list = inputs
             .cast::<PyList>()
@@ -233,18 +236,32 @@ impl PyAsyncCompiledGraph {
             .iter()
             .map(|item| state_from_py(Some(&item)))
             .collect::<PyResult<Vec<_>>>()?;
-        let mut config = run_config(thread_id);
-        if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
+        // LangGraph's `abatch` accepts one config or one per input.
+        let configs = super::graph::graph_compiled::per_input_configs(py, config, states.len())?;
+        let mut base = run_config(thread_id);
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            base = base.with_context(py_to_value(context)?);
         }
         let graph = self.graph.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let results = graph.batch(states, &config).await;
+            let results: Vec<crate::Result<JsonState>> = match configs {
+                Some(configs) => {
+                    let mut out = Vec::with_capacity(configs.len());
+                    for (state, config) in states.into_iter().zip(configs) {
+                        out.push(graph.run(&state, &config).await.map(|outcome| outcome.state));
+                    }
+                    out
+                }
+                None => graph.batch(states, &base).await,
+            };
             Python::attach(|py| {
                 let output = PyList::empty(py);
                 for result in results {
                     match result {
                         Ok(state) => output.append(json_state_to_py(py, &state)?)?,
+                        Err(error) if return_exceptions => {
+                            output.append(to_pyerr(py, error).into_value(py).into_any())?
+                        }
                         Err(error) => return Err(to_pyerr(py, error)),
                     }
                 }
@@ -253,9 +270,9 @@ impl PyAsyncCompiledGraph {
         })
     }
 
-    /// Awaitable stream collection returning a list of chunk dicts.
     /// `astream_events(version="v3")`: an awaitable resolving to an `AsyncGraphRunStream`.
-    #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None))]
+    #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None, config=None))]
+    #[allow(clippy::too_many_arguments)]
     fn astream_events<'py>(
         slf: PyRef<'py, Self>,
         py: Python<'py>,
@@ -264,6 +281,7 @@ impl PyAsyncCompiledGraph {
         version: &str,
         transformers: Option<&Bound<'py, PyAny>>,
         context: Option<&Bound<'py, PyAny>>,
+        config: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let module = py.import("langgraph_rs.stream._events")?;
         let function = module.getattr("astream_events")?;
@@ -279,6 +297,9 @@ impl PyAsyncCompiledGraph {
         if let Some(thread_id) = thread_id {
             kwargs.set_item("thread_id", thread_id)?;
         }
+        if let Some(config) = config {
+            kwargs.set_item("config", config)?;
+        }
         if let Some(transformers) = transformers {
             kwargs.set_item("transformers", transformers)?;
         }
@@ -288,6 +309,7 @@ impl PyAsyncCompiledGraph {
         let graph = slf.into_pyobject(py)?.into_any();
         function.call((graph, input), Some(&kwargs))
     }
+
     #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None, live_sink=None, config=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn astream<'py>(

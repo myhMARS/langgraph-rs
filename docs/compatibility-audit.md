@@ -2048,4 +2048,23 @@ Still different, and documented: `batch`/`abatch` do not take a per-input config
 `astream_log`, `atransform`, `as_tool`, schema introspection helpers) are not implemented because the
 graph does not subclass `RunnableSerializable`.
 
-Python suite is 389 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 389 tests; parity 38/38; clippy and Rust tests clean.### Round 96: batch takes per-input configs
+
+`batch`/`abatch` were the last signature gap on the compiled graph: LangGraph accepts one config or
+**one config per input**, plus `return_exceptions`, while ours took only `(inputs)`.
+
+* `batch(inputs, config=None, *, return_exceptions=False, context=None)` — a config list is parsed
+  into one `RunConfig` per input (`per_input_configs`); when every parsed config is identical the
+  engine's parallel `batch` path is used, otherwise the inputs run one by one with their own config.
+  A list whose length differs from the number of inputs raises `TypeError`.
+* `return_exceptions=True` returns the exception object in the result list instead of raising.
+* `abatch` exists on both compiled graphs now: `AsyncCompiledGraph.abatch` runs natively (config list
+  supported), and `CompiledGraph.abatch` offloads the sync `batch` to a worker thread.
+
+Verified: shared config `[1, 1]`, per-input `[11, 21]`, length mismatch → `TypeError`, failing node →
+`RuntimeError` object in the list, `abatch` matching `batch`.
+
+Along the way a round of editing removed `AsyncCompiledGraph.astream_events`; it was restored (now
+also accepting `config=`) and the suite caught the regression immediately.
+
+Python suite is 394 tests; parity 38/38; clippy and Rust tests clean.

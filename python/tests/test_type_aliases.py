@@ -357,3 +357,45 @@ class CompiledGraphAsyncSurfaceTest(unittest.TestCase):
             return [value async for value in run.values]
 
         self.assertEqual(len(asyncio.run(collect())), 2)
+
+
+class BatchSurfaceTest(unittest.TestCase):
+    """``batch`` / ``abatch`` accept LangGraph's config list and ``return_exceptions``."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        graph.add_node("node", lambda state: {"n": (state.get("n") or 0) + 1})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile()
+
+    def test_shared_config_runs_every_input(self):
+        results = self._app().batch([{"messages": []}, {"messages": []}])
+        self.assertEqual([result["n"] for result in results], [1, 1])
+
+    def test_per_input_configs_are_used(self):
+        results = self._app().batch(
+            [{"n": 10}, {"n": 20}], config=[{"configurable": {}}, {"configurable": {}}]
+        )
+        self.assertEqual([result["n"] for result in results], [11, 21])
+
+    def test_config_list_length_must_match(self):
+        with self.assertRaises(TypeError):
+            self._app().batch([{"n": 1}], config=[{"configurable": {}}, {"configurable": {}}])
+
+    def test_return_exceptions_collects_failures(self):
+        graph = langgraph_rs.StateGraph({"messages": "messages"})
+        graph.add_node("boom", lambda state: 1 / 0)
+        graph.set_entry_point("boom")
+        graph.set_finish_point("boom")
+        app = graph.compile()
+        result = app.batch([{"messages": []}], return_exceptions=True)
+        self.assertIsInstance(result[0], BaseException)
+
+    def test_abatch_matches_batch(self):
+        import asyncio
+
+        app = self._app()
+        results = asyncio.run(app.abatch([{"n": 1}, {"n": 2}]))
+        self.assertEqual([result["n"] for result in results], [2, 3])

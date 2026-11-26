@@ -16,6 +16,37 @@ enum LiveItem {
 }
 
 
+
+/// Parse LangGraph's `batch` config argument: `None`, one config, or one config per input.
+pub(crate) fn per_input_configs(
+    py: Python<'_>,
+    config: Option<&Bound<'_, PyAny>>,
+    count: usize,
+) -> PyResult<Option<Vec<RunConfig>>> {
+    let Some(config) = config.filter(|value| !value.is_none()) else {
+        return Ok(None);
+    };
+    let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = config.cast::<PyList>() {
+        list.iter().collect()
+    } else if let Ok(tuple) = config.cast::<pyo3::types::PyTuple>() {
+        tuple.iter().collect()
+    } else {
+        return Ok(None);
+    };
+    if items.len() != count {
+        return Err(PyTypeError::new_err(format!(
+            "batch config list length {} does not match the number of inputs {count}",
+            items.len()
+        )));
+    }
+    let mut configs = Vec::with_capacity(count);
+    for item in items {
+        let (_, parsed) = crate::adapters::python::convert::config_from_py(py, Some(&item))?;
+        configs.push(parsed);
+    }
+    Ok(Some(configs))
+}
+
 /// Rebuild the interrupt payload carried by a paused run's chunks.
 fn interrupt_from_chunks(chunks: &[crate::StreamChunk]) -> Option<crate::Interrupt> {
     chunks.iter().find_map(|chunk| match chunk {
@@ -453,7 +484,16 @@ impl PyCompiledGraph {
     }
 
     /// Invoke the graph over a list of inputs.
-    fn batch(&self, py: Python<'_>, inputs: &Bound<'_, PyAny>) -> PyResult<Vec<Py<PyAny>>> {
+    #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn batch(
+        &self,
+        py: Python<'_>,
+        inputs: &Bound<'_, PyAny>,
+        config: Option<&Bound<'_, PyAny>>,
+        return_exceptions: bool,
+        context: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
         let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         let list = inputs
             .cast::<PyList>()
@@ -462,15 +502,76 @@ impl PyCompiledGraph {
             .iter()
             .map(|item| state_from_py(Some(&item)))
             .collect::<PyResult<Vec<_>>>()?;
-        let config = RunConfig::new();
-        let results = py.detach(|| self.graph.batch(states, &config));
+        let configs = per_input_configs(py, config, states.len())?;
+        let shared = configs.as_ref().is_none_or(|configs| {
+            configs
+                .windows(2)
+                .all(|pair| pair[0].thread_id == pair[1].thread_id)
+        });
+        let mut base = RunConfig::new();
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            base = base.with_context(py_to_value(context)?);
+        }
+        let results: Vec<crate::Result<JsonState>> = match (shared, configs) {
+            (true, None) => py.detach(|| self.graph.batch(states, &base)),
+            (true, Some(configs)) => {
+                let config = configs.into_iter().next().unwrap_or(base);
+                py.detach(|| self.graph.batch(states, &config))
+            }
+            (false, Some(configs)) => py.detach(|| {
+                states
+                    .into_iter()
+                    .zip(configs)
+                    .map(|(state, config)| self.graph.invoke(&state, &config))
+                    .collect()
+            }),
+            (false, None) => py.detach(|| self.graph.batch(states, &base)),
+        };
         results
             .into_iter()
             .map(|result| match result {
                 Ok(state) => json_state_to_py(py, &state),
-                Err(error) => Err(to_pyerr(py, error)),
+                Err(error) => {
+                    if return_exceptions {
+                        Ok(to_pyerr(py, error).into_value(py).into_any())
+                    } else {
+                        Err(to_pyerr(py, error))
+                    }
+                }
             })
             .collect()
+    }
+
+    #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn abatch<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        inputs: &Bound<'_, PyAny>,
+        config: Option<&Bound<'_, PyAny>>,
+        return_exceptions: bool,
+        context: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // LangGraph exposes `abatch` next to `batch`; the synchronous engine runs on a worker
+        // thread so the event loop stays free.
+        let kwargs = pyo3::types::PyDict::new(py);
+        if return_exceptions {
+            kwargs.set_item("return_exceptions", true)?;
+        }
+        if let Some(context) = context {
+            kwargs.set_item("context", context)?;
+        }
+        let module = py.import("langgraph_rs.stream._events")?;
+        let helper = module.getattr("abatch_via_sync")?;
+        let graph = slf.into_pyobject(py)?.into_any();
+        let config = config.map(|value| value.clone().unbind());
+        let inputs = inputs.clone().unbind();
+        helper.call1((
+            graph,
+            inputs.bind(py),
+            config.as_ref().map(|value| value.bind(py)),
+            kwargs,
+        ))
     }
 
     /// Resume an interrupted thread.
