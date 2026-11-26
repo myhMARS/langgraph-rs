@@ -2304,4 +2304,30 @@ Two adjacent findings recorded for later: our v3 run stream registers only
 `update_state(as_node=...)` plus `Command(graph=PARENT)` were compared in the same pass and matched
 LangGraph exactly (`next == ('b',)`, `{'log': ['from-sub', 'after']}`).
 
-Suite is 430 tests, parity 40/40, examples 10/10 identical, clippy and Rust tests clean.
+Suite is 430 tests, parity 40/40, examples 10/10 identical, clippy and Rust tests clean.### Round 106: message chunks and the `messages` projection
+
+`stream_mode="messages"` produced `(dict, metadata)` — a plain dict where LangGraph yields an
+`AIMessageChunk` — and the v3 run stream registered no `messages` projection.
+
+* The callback handler now keeps `content`/`id`/`tool_call_chunks`/`additional_kwargs`/
+  `response_metadata` when the token is a message chunk, and `_compat.message_chunk` rebuilds an
+  `AIMessageChunk` (with `Human`/`System` variants) from the JSON payload.
+* `MessagesTransformer` is part of `DEFAULT_TRANSFORMERS`, matching LangGraph, so `run.messages`
+  exists without opt-in. Factories are de-duplicated by transformer type, so passing
+  `transformers=[MessagesTransformer]` no longer collides with the default registration.
+* The live path tolerates a graph without a live sink (the synchronous facade): it falls back to
+  plain parts instead of raising.
+
+Verified: first message part is `AIMessageChunk(content='Hello')`, metadata carries
+`langgraph_node`/`langgraph_step`, `run.extensions == ['lifecycle','messages','subgraphs','values']`,
+and consuming `values` then `messages` matches LangGraph's single-consumer behaviour exactly.
+
+Three test expectations were updated because the new default is the LangGraph-accurate one: the two
+projection-set assertions now include `messages`, and the nested-failure test no longer claims no
+subgraph handle is discovered (the outer child did start, so its handle is reported before the error).
+
+Known gap, recorded: metadata lacks LangGraph's `langgraph_triggers` and `langgraph_path`, and there
+is no `langgraph_checkpoint_ns` at the root namespace; those need the task context in the callback
+layer.
+
+Suite is 433 tests, parity 40/40, examples 10/10, clippy and Rust tests clean.

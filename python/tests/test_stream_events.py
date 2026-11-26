@@ -121,8 +121,11 @@ class StreamEventsTest(unittest.TestCase):
     def test_default_projections_match_langgraph(self):
         app = _graph(rs).compile()
         with app.stream_events(INPUT, version="v3") as run:
-            # LangGraph's defaults: `values` plus the lifecycle/subgraph discovery transformers.
-            self.assertEqual(sorted(run.extensions), ["lifecycle", "subgraphs", "values"])
+            # LangGraph's defaults: `values`, `messages` plus the lifecycle/subgraph discovery
+            # transformers (measured on LangGraph 1.2.22: `run.messages` exists by default).
+            self.assertEqual(
+                sorted(run.extensions), ["lifecycle", "messages", "subgraphs", "values"]
+            )
             with self.assertRaises(AttributeError):
                 run.updates
             run.abort()

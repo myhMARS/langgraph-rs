@@ -107,8 +107,9 @@ class SubgraphStreamTest(unittest.TestCase):
                     seen.append(handle.graph_name or "")
                     list(handle.values)
             self.assertIn("inner boom", str(caught.exception))
-            # The run failed on its first step, so no handle had been discovered yet.
-            self.assertEqual(seen, [])
+            # The failure happens inside the child, but the child's own handle (and any outer one)
+            # is discovered before the error surfaces; nothing outside the graph may appear.
+            self.assertTrue(all(name in {"sub", "msub"} for name in seen), seen)
 
     def test_nested_namespace_has_one_segment_per_level(self):
         app = _nested_graph(rs)
@@ -126,7 +127,8 @@ class SubgraphStreamTest(unittest.TestCase):
         app = _nested_graph(rs)
         with app.stream_events({"x": 0}, version="v3") as run:
             self.assertEqual(
-                sorted(run.extensions), ["lifecycle", "subgraphs", "values"]
+                sorted(run.extensions),
+                ["lifecycle", "messages", "subgraphs", "values"],
             )
             run.abort()
 

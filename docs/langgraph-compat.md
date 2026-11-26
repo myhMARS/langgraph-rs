@@ -287,6 +287,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `messages` 流与投影（2026-11-26）
+
+LG 的 `stream_mode="messages"` 产出 `(message_chunk, metadata)`，v3 run stream 默认带 `messages`
+投影。扩展此前：消息是 **dict**（不是 `AIMessageChunk`），且 run stream 只注册了
+`lifecycle`/`subgraphs`/`values`。
+
+现在：
+- 回调层保留 `content`/`id`/`tool_call_chunks`/`additional_kwargs`/`response_metadata`，
+  由 `_compat.message_chunk` 重建为 `AIMessageChunk`（`Human`/`System` 也有对应 chunk 类型）
+- `MessagesTransformer` 进入默认投影集，于是 `run.messages` 默认存在
+- 显式传 `transformers=[MessagesTransformer]` 不会再与默认注册冲突（工厂按类型去重）
+- 没有 live sink 的图（同步引擎门面）在 live 路径上自动降级为非实时 parts，而不是报错
+
+实测：`stream(mode="messages")` 首条为 `AIMessageChunk(content='Hello')`，metadata 含
+`langgraph_node`/`langgraph_step`；`run.extensions` 为 `['lifecycle','messages','subgraphs','values']`
+
+**已知差异**：metadata 里缺 LG 的 `langgraph_triggers` 与 `langgraph_path`（根命名空间下也没有
+`langgraph_checkpoint_ns`），这几个字段需要引擎把任务上下文一并传进回调层。
+
 ### LangChain 对象可以进状态了（2026-11-26）
 
 LangGraph 的状态里可以放 `AIMessage`、`HumanMessage`、`ToolMessage` 这类 LangChain 对象，

@@ -2210,8 +2210,11 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_entry_point("model")
         graph.set_finish_point("model")
         chunks = graph.compile().stream({"text": ""}, stream_mode="messages")
+        # LangGraph yields `(message_chunk, metadata)`; message chunks carry `.content`.
         tokens = "".join(
-            chunk[0]["content"] for chunk in chunks if isinstance(chunk, tuple)
+            chunk[0].content if hasattr(chunk[0], "content") else chunk[0]["content"]
+            for chunk in chunks
+            if isinstance(chunk, tuple)
         )
         self.assertEqual(tokens, "hello world")
 

@@ -287,7 +287,20 @@ class LangChainCallbackHandler:
         step = langgraph_rs.current_step()
         if step is not None:
             metadata["langgraph_step"] = step
-        payload = {"content": token, "tags": self.tags, "metadata": metadata}
+        # LangGraph yields a message *chunk*; keep the fields needed to rebuild one on the
+        # Python side instead of flattening the token to a string.
+        if hasattr(token, "content"):
+            payload = {
+                "content": token.content,
+                "id": getattr(token, "id", None),
+                "tool_call_chunks": list(getattr(token, "tool_call_chunks", []) or []),
+                "additional_kwargs": dict(getattr(token, "additional_kwargs", {}) or {}),
+                "response_metadata": dict(getattr(token, "response_metadata", {}) or {}),
+                "tags": self.tags,
+                "metadata": metadata,
+            }
+        else:
+            payload = {"content": token, "tags": self.tags, "metadata": metadata}
         # A live `stream_events` run reads tokens straight from this bridge, so `run.messages`
         # shows deltas while the model is still generating rather than when the node returns.
         try:

@@ -155,3 +155,38 @@ def decode_value(value: Any) -> Any:
         return factory(**kwargs)
     except Exception:
         return value
+
+
+def message_chunk(payload: Any) -> Any:
+    """Rebuild a LangGraph message chunk from the engine's JSON payload.
+
+    ``stream_mode="messages"`` yields ``(message_chunk, metadata)`` in LangGraph; the engine carries
+    the payload as JSON, so this turns it back into an ``AIMessageChunk`` (falling back to the dict
+    when langchain_core is unavailable).
+    """
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        from langchain_core.messages import AIMessageChunk, HumanMessageChunk, SystemMessageChunk
+    except Exception:  # pragma: no cover - langchain_core is optional at runtime
+        return payload
+    role = str(payload.get("type") or "ai").lower()
+    factory = {
+        "human": HumanMessageChunk,
+        "system": SystemMessageChunk,
+        "ai": AIMessageChunk,
+        "assistant": AIMessageChunk,
+    }.get(role, AIMessageChunk)
+    kwargs: dict[str, Any] = {"content": payload.get("content") or ""}
+    if payload.get("id"):
+        kwargs["id"] = payload["id"]
+    if payload.get("tool_call_chunks"):
+        kwargs["tool_call_chunks"] = payload["tool_call_chunks"]
+    if payload.get("additional_kwargs"):
+        kwargs["additional_kwargs"] = payload["additional_kwargs"]
+    if payload.get("response_metadata"):
+        kwargs["response_metadata"] = payload["response_metadata"]
+    try:
+        return factory(**kwargs)
+    except Exception:  # pragma: no cover - malformed payload
+        return payload

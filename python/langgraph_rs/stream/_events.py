@@ -26,17 +26,19 @@ from .transformers import (
     CustomTransformer,
     DebugTransformer,
     LifecycleTransformer,
+    MessagesTransformer,
     SubgraphTransformer,
     TasksTransformer,
     UpdatesTransformer,
     ValuesTransformer,
 )
 
-# LangGraph registers `values` (plus its messages/lifecycle/subgraphs transformers, which the
-# extension does not implement yet) by default; the other capture projections are opt-in through
+# LangGraph registers `values`, `messages`, `lifecycle` and `subgraphs` by default; the remaining
+# capture projections (`updates`, `custom`, `checkpoints`, `debug`, `tasks`) are opt-in through
 # `transformers=` or the graph's compile-time transformers.
 DEFAULT_TRANSFORMERS: tuple[Callable[[tuple[str, ...]], Any], ...] = (
     ValuesTransformer,
+    MessagesTransformer,
     LifecycleTransformer,
     SubgraphTransformer,
 )
@@ -46,13 +48,28 @@ def _factories(
     extra: Sequence[Callable[[tuple[str, ...]], Any]] | None,
     compile_time: Sequence[Callable[[tuple[str, ...]], Any]] | None = None,
 ) -> list[Callable[[tuple[str, ...]], Any]]:
-    """Built-ins, then the graph's compile-time transformers, then call-site ones."""
-    factories = list(DEFAULT_TRANSFORMERS)
-    for transformer in compile_time or ():
-        factories.append(transformer)
-    for transformer in extra or ():
+    """Built-ins, then the graph's compile-time transformers, then call-site ones.
+
+    A transformer type is registered once: passing `MessagesTransformer` explicitly must not
+    collide with the built-in registration of the same projection.
+    """
+    factories: list[Callable[[tuple[str, ...]], Any]] = list(DEFAULT_TRANSFORMERS)
+    seen = {_transformer_type(factory) for factory in factories}
+    for transformer in (*((compile_time) or ()), *((extra) or ())):
+        kind = _transformer_type(transformer)
+        if kind in seen:
+            continue
+        seen.add(kind)
         factories.append(transformer)
     return factories
+
+
+def _transformer_type(factory: Callable[[tuple[str, ...]], Any]) -> Any:
+    """Class of the transformer a factory builds (factories close over their class)."""
+    try:
+        return type(factory(()))
+    except Exception:  # pragma: no cover - exotic factory
+        return factory
 
 
 def _required_modes(factories: Sequence[Callable[[tuple[str, ...]], Any]]) -> list[str]:
@@ -316,15 +333,20 @@ async def _live_aparts(
         engine.put(part)
 
     async def drive() -> None:
-        async for part in graph.astream(
-            input,
+        call = dict(
             thread_id=thread_id,
             stream_mode=modes,
             version="v2",
             subgraphs=subgraphs,
-            live_sink=sink,
             **kwargs,
-        ):
+        )
+        try:
+            stream = graph.astream(input, live_sink=sink, **call)
+        except TypeError:
+            # A graph without a live sink (the synchronous engine's facade) still streams its
+            # parts, just without token-level liveness.
+            stream = graph.astream(input, **call)
+        async for part in stream:
             engine.put(part)
 
     def run() -> None:

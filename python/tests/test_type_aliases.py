@@ -818,3 +818,46 @@ class LangChainObjectStateTest(unittest.TestCase):
         ).compile()
         result = app.invoke({"messages": [], "value": 0})
         self.assertEqual(result["messages"][0], {"role": "assistant", "content": "hi"})
+
+
+class MessageStreamShapeTest(unittest.TestCase):
+    """`stream_mode="messages"` yields `(message_chunk, metadata)`, like LangGraph."""
+
+    @staticmethod
+    def _app():
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        model = GenericFakeChatModel(messages=iter([AIMessage("Hello")]))
+        graph = langgraph_rs.StateGraph({"messages": "append"})
+        graph.add_node("node", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile()
+
+    def test_chunk_is_a_message_chunk(self):
+        app = self._app()
+        chunk, metadata = next(app.stream({"messages": []}, stream_mode="messages"))
+        self.assertEqual(type(chunk).__name__, "AIMessageChunk")
+        self.assertEqual(chunk.content, "Hello")
+        self.assertEqual(metadata["langgraph_node"], "node")
+
+    def test_run_stream_exposes_the_messages_projection(self):
+        import asyncio
+
+        app = self._app()
+
+        async def collect():
+            run = await app.astream_events({"messages": []}, version="v3")
+            self.assertIn("messages", run.extensions)
+            return len([item async for item in run.messages])
+
+        self.assertGreaterEqual(asyncio.run(collect()), 1)
+
+    def test_explicit_transformer_does_not_collide_with_the_default(self):
+        from langgraph_rs.stream.transformers import MessagesTransformer
+
+        app = self._app()
+        run = app.stream_events({"messages": []}, version="v3", transformers=[MessagesTransformer])
+        self.assertIn("messages", run.extensions)
+        run.abort()
