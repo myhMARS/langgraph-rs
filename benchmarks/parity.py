@@ -474,6 +474,129 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_multi_resume_scenario() -> list[dict]:
+    """Repeated resumes keep consuming one value per interrupt, as LangGraph does."""
+
+    import operator
+
+    class LgState(TypedDict, total=False):
+        log: Annotated[list, operator.add]
+
+    def lg_loop():
+        graph = LgStateGraph(LgState)
+
+        def step(state):
+            answer = lg_interrupt({"ask": len(state.get("log") or [])})
+            return {"log": [answer]}
+
+        graph.add_node("step", step)
+        graph.add_edge(START, "step")
+        graph.add_conditional_edges(
+            "step", lambda state: "step" if len(state.get("log") or []) < 3 else END
+        )
+        return graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_loop():
+        graph = rs.StateGraph({"log": "append"})
+
+        def step(state):
+            answer = rs.interrupt({"ask": len(state.get("log") or [])})
+            return {"log": [answer]}
+
+        graph.add_node("step", step)
+        graph.set_entry_point("step")
+        graph.add_conditional_edges(
+            "step", lambda state: "step" if len(state.get("log") or []) < 3 else END
+        )
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def lg_twice():
+        class LgSingle(TypedDict, total=False):
+            log: list
+
+        graph = LgStateGraph(LgSingle)
+
+        def two(state):
+            first = lg_interrupt({"ask": 1})
+            second = lg_interrupt({"ask": 2})
+            return {"log": [first, second]}
+
+        graph.add_node("two", two)
+        graph.add_edge(START, "two")
+        graph.add_edge("two", END)
+        return graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_twice():
+        graph = rs.StateGraph({"log": "last_value"})
+
+        def two(state):
+            first = rs.interrupt({"ask": 1})
+            second = rs.interrupt({"ask": 2})
+            return {"log": [first, second]}
+
+        graph.add_node("two", two)
+        graph.set_entry_point("two")
+        graph.set_finish_point("two")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def resume_with(resume_command, value):
+        # `rs.Command` takes the resume value as a keyword; `LgCommand` accepts it positionally.
+        return resume_command(resume=value)
+
+    def loop_trace(app, label, resume_command):
+        config = {"configurable": {"thread_id": f"resume-{label}"}}
+        app.invoke({"log": []}, config)
+        trace = []
+        for value in ("one", "two", "three"):
+            out = app.invoke(resume_with(resume_command, value), config)
+            trace.append(
+                (
+                    out.get("log"),
+                    [interrupt.value for interrupt in out.get("__interrupt__", ())],
+                )
+            )
+        return trace
+
+    def twice_trace(app, label, resume_command):
+        config = {"configurable": {"thread_id": f"twice-{label}"}}
+        out = app.invoke({"log": []}, config)
+        trace = [[interrupt.value for interrupt in out.get("__interrupt__", ())]]
+        for value in ("A", "B"):
+            out = app.invoke(resume_with(resume_command, value), config)
+            trace.append(
+                [
+                    out.get("log"),
+                    [interrupt.value for interrupt in out.get("__interrupt__", ())],
+                ]
+            )
+        return trace
+
+    lg_view = {
+        "loop": loop_trace(lg_loop(), "lg", LgCommand),
+        "twice": twice_trace(lg_twice(), "lg", LgCommand),
+    }
+    rs_view = {
+        "loop": loop_trace(rs_loop(), "rs", rs.Command),
+        "twice": twice_trace(rs_twice(), "rs", rs.Command),
+    }
+    return [
+        {
+            "scenario": "multi_resume",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(lambda: rs_loop().invoke({"log": []})),
+                "lg": measure(
+                    lambda: lg_loop().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "resume-bench"}}
+                    )
+                ),
+            },
+        }
+    ]
+
+
 def run_task_id_shape_scenario() -> list[dict]:
     """Task ids and subgraph namespaces are UUID-shaped, as in LangGraph."""
 
@@ -2933,6 +3056,7 @@ def main() -> None:
         run_error_handler_scenario,
         run_graph_export_scenario,
         run_task_id_shape_scenario,
+        run_multi_resume_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

@@ -2670,4 +2670,22 @@ be stable within a task, which they are.
 
 New parity scenario `task_id_shape` checks the shape on both engines (all ids and namespace suffixes
 match the UUID pattern): 48/48 scenarios equivalent. Suite is 450 tests, examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 122: multi-round resume verified (no engine change)
+
+Investigated repeated resumes with the suspicion that a previous answer was replayed.
+
+* **Multi-round resume** (a loop that asks three times): both engines produce
+  `['one'] -> ['one','two'] -> ['one','two','three']`, the same `{'ask': n}` interrupt payloads and
+  the same history steps `[3, 2, 1, 0, -1]`.
+* **Two `interrupt()` calls in one node**: resuming `"A"` pauses on the second question and resuming
+  `"B"` yields `['A', 'B']` on both engines — the resumed run replays the earlier answer, as
+  LangGraph does.
+
+The apparent divergence came from the probe itself: the LangGraph side used `log: list` (a
+last-value channel) while the extension used `append`, so returning the full list doubled the
+entries. With matching reducers the traces are identical. A short-lived change that cleared
+`resume`/`resume_history` on paused tasks was reverted — it broke the two-interrupt replay above,
+which is exactly the behaviour LangGraph relies on.
+
+New parity scenario `multi_resume` locks both traces in: 49/49 scenarios equivalent. Suite is 450
+tests, examples 10/10, clippy and Rust tests clean.

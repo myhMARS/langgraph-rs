@@ -332,6 +332,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 多轮 resume 与单节点多次 `interrupt()`（2026-11-26）
+
+对照 LG 验证了两件事，结论是**行为已经一致**（本轮没有改引擎代码，只补了回归场景）：
+
+1. **多轮 resume**（每次恢复一个值，节点循环询问三次）：
+   两边都是 `['one'] → ['one','two'] → ['one','two','three']`，每轮中断载荷
+   `{'ask': n}` 与历史步数 `[3, 2, 1, 0, -1]` 完全相同。
+2. **一个节点内连续两次 `interrupt()`**：resume `"A"` 后暂停在第二个问题上，
+   再 resume `"B"` 得到 `['A', 'B']` —— 说明恢复后重跑节点时会**重放已消费的旧答案**，
+   两边一致。
+
+调查中曾误判为 bug：LG 侧用了 `log: list`（last-value 通道）而扩展侧用了 `append` 通道，
+节点返回整份列表时 append 会重复累加。**对齐 reducer 后结果逐项相同** —— 这也说明对照实验里
+通道语义必须一致，否则会得到假的差异。
+
 ### 任务 id 与子图命名空间是 UUID 形状（2026-11-26）
 
 LG 的任务 id 是 UUID（`1c0e7fd3-4c28-a50a-0899-e8d6c649ab7a`），子图命名空间是
