@@ -11,7 +11,7 @@ is absent the function raises instead of returning a different digest.
 from __future__ import annotations
 
 import pickle
-from typing import Annotated, Any, Callable, Literal, Sequence, TypedDict, TypeVar, Union
+from typing import Annotated, Any, Callable, Literal, NamedTuple, Sequence, TypeVar, TypedDict, Union
 
 from ._compat import module_getattr, re_export
 
@@ -379,3 +379,19 @@ def get_update_as_tuples(input: Any, keys: Sequence[str]) -> list[tuple[str, Any
 
 _MISSING = re_export(globals(), [])
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+
+class PregelTask(NamedTuple):
+    """A task in a :class:`StateSnapshot` (LangGraph ``langgraph.types.PregelTask``).
+
+    ``id`` / ``name`` / ``path`` are positional, ``error`` / ``interrupts`` / ``state`` / ``result``
+    are optional, matching LangGraph's named tuple.
+    """
+
+    id: str
+    name: str
+    path: tuple[Any, ...] = ()
+    error: Exception | None = None
+    interrupts: tuple[Any, ...] = ()
+    state: Any = None
+    result: Any = None

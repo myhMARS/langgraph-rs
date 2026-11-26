@@ -1,7 +1,17 @@
-"""langgraph.channels.base equivalents (re-exported for import compatibility)."""
+"""``langgraph.channels.base`` equivalents (re-exported for import compatibility).
+
+LangGraph's channel classes are generic over ``Value`` / ``Update`` / ``Checkpoint``; the type
+variables are re-exported so annotations written against LangGraph keep working.
+"""
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 from . import BaseChannel
 
-__all__ = ["BaseChannel"]
+Value = TypeVar("Value")
+Update = TypeVar("Update")
+Checkpoint = TypeVar("Checkpoint")
+
+__all__ = ["BaseChannel", "Checkpoint", "Update", "Value"]

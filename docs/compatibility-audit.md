@@ -1956,4 +1956,36 @@ earlier notes.
 
 `docs/langgraph-compat.md` section 6 now carries a closing statement: five retained differences (three
 supersets, one Rust API choice, one environment limit) and a list of the six differences that were
-closed in this layer, each with the test that locks it in.
+closed in this layer, each with the test that locks it in.### Round 93: module-level API gaps closed
+
+A systematic sweep (import every `langgraph` module, compare the names *defined in* that module —
+dropping re-exports of `Any`/`Callable`/`TypedDict`) found seven public gaps after the previous
+round. All seven are closed:
+
+* `langgraph.callbacks` — the whole module is new: `GraphCallbackHandler` with `on_interrupt` /
+  `on_resume`, the frozen `GraphInterruptEvent` / `GraphResumeEvent` payloads (field lists verified
+  identical to LangGraph), `GraphLifecycleStatus` / `GraphLifecycleEvent`, and working sync/async
+  managers via `get_{sync,async}_graph_callback_manager_for_config` (they filter `config["callbacks"]`
+  down to `GraphCallbackHandler` subclasses and bind `run_id`).
+* `langgraph.pregel.protocol` — `PregelProtocol` with LangGraph's 15 abstract methods and
+  `StreamProtocol` (a callable holder with `modes`). The compiled graphs are registered as virtual
+  subclasses, so `isinstance(app, PregelProtocol)` matches LangGraph.
+* `langgraph.pregel.debug` — nine helpers. Eight of them were compared against LangGraph on identical
+  inputs and produce equal output; `map_debug_checkpoint` and `tasks_w_writes` work on the same data
+  shapes but are necessarily best-effort for `PregelExecutableTask`.
+* TypeVars: `Value` / `Update` / `Checkpoint` (channels.base), `U` / `V` (managed.base),
+  `ContextT` / `StateT` (prebuilt.tool_node). `ToolRuntime` is now `Generic[ContextT, StateT]` like
+  LangGraph, with the public names carrying their defaults.
+* `langgraph.types.PregelTask` was a raise-on-use placeholder; it is now the real seven-field named
+  tuple, which also let `tasks_w_writes` match LangGraph.
+* `langgraph.pregel.main` re-exports `NodeBuilder` / `Pregel`; `langgraph.pregel._write` exports
+  `ChannelWriteTupleEntry`.
+
+Final sweep: **0 public module gaps**. Deliberately absent: the 36 `langgraph._internal.*` modules and
+18 private `langgraph.pregel._*` modules (LangGraph's own engine layout).
+
+Known behavioural gap, recorded in the compat doc: the engine does not yet dispatch `on_interrupt` /
+`on_resume` to `GraphCallbackHandler` itself — the module and managers are implemented and tested, but
+a caller must drive them.
+
+Python suite is 381 tests; parity 38/38; clippy clean.

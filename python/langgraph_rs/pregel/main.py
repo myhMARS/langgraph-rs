@@ -1,13 +1,19 @@
-"""Internal module kept for import compatibility.
+"""``langgraph.pregel.main`` import-compatibility module.
 
-LangGraph ships ``langgraph.pregel.main``; the extension has no counterpart, so the
-module exists only so ``import`` statements keep working."""
+LangGraph defines ``Pregel`` (its compiled-graph runtime) and ``NodeBuilder`` in
+``langgraph.pregel.main``. The extension runs its own engine, so both names are importable
+placeholders that raise with guidance when used; ``CompiledGraph`` is the object to use instead.
+"""
 
 from __future__ import annotations
 
+from .._compat import fill_unsupported, module_getattr
 
-def __getattr__(name: str):
-    raise AttributeError(
-        f"module {__name__!r} has no attribute {name!r}: this LangGraph-internal module"
-        " has no counterpart in the langgraph_rs extension"
-    )
+__all__ = ["NodeBuilder", "Pregel"]
+
+_MISSING = fill_unsupported(
+    globals(),
+    ["NodeBuilder", "Pregel"],
+    hint="Use the compiled graph returned by StateGraph.compile() instead.",
+)
+__getattr__ = module_getattr(__name__, globals(), _MISSING)

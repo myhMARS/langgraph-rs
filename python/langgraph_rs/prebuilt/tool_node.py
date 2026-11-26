@@ -20,6 +20,8 @@ from typing import Any, Callable, Generic, Sequence, TypeVar
 from .._compat import module_getattr, re_export
 
 __all__ = [
+    "ContextT",
+    "StateT",
     "INVALID_TOOL_NAME_ERROR_TEMPLATE",
     "TOOL_CALL_ERROR_TEMPLATE",
     "TOOL_EXECUTION_ERROR_TEMPLATE",
@@ -47,8 +49,17 @@ except Exception:  # pragma: no cover - fall back to a plain marker base
     class _InjectedToolArg:  # type: ignore[no-redef]
         """Base marker for tool arguments the model must not provide."""
 
-_StateT = TypeVar("_StateT")
-_ContextT = TypeVar("_ContextT")
+# LangGraph parameterises ``ToolRuntime`` as ``Generic[ContextT, StateT]``.
+try:  # ``default=`` needs Python 3.13 / typing_extensions.TypeVar
+    from typing_extensions import TypeVar as _ExtTypeVar
+
+    StateT = _ExtTypeVar("StateT", default=dict)
+    ContextT = _ExtTypeVar("ContextT", default=None)
+except Exception:  # pragma: no cover - plain TypeVar is enough for annotations
+    StateT = TypeVar("StateT")
+    ContextT = TypeVar("ContextT")
+_StateT = StateT
+_ContextT = ContextT
 
 
 class InjectedState(_InjectedToolArg):
@@ -60,7 +71,7 @@ class InjectedStore(_InjectedToolArg):
 
 
 @dataclass
-class ToolRuntime(Generic[_StateT, _ContextT]):
+class ToolRuntime(Generic[ContextT, StateT]):
     """Runtime handle LangGraph injects into tools.
 
     The extension fills the fields it knows about at call time (`state`, `store`, `context`,

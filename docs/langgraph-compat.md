@@ -228,6 +228,28 @@ python examples/quickstart/compare.py --check-only
    除生成器用法外还支持 `len()`/下标；`next()` 与 LG 一样可用，因此不构成兼容性问题。
 5. **`RemoteGraph` 未经实时部署验证**：测试用注入的假 SDK 客户端覆盖调用与形状。
 
+### 模块级 API 完整性（2026-11-26 复核）
+
+对 `langgraph` 的 88 个模块逐个导入、只比较「该模块自己定义的名字」（排除 `Any`/`Callable` 这类
+re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的内容：
+
+| 模块 | 补齐内容 |
+| --- | --- |
+| `langgraph.callbacks` | 整模块：`GraphCallbackHandler`、`GraphInterruptEvent`、`GraphResumeEvent`、`GraphLifecycleStatus/Event`、两个 `get_*_graph_callback_manager_for_config`（同步/异步 manager 均可用） |
+| `langgraph.pregel.protocol` | `PregelProtocol`（15 个抽象方法）、`StreamProtocol`；编译后的图注册为虚拟子类，`isinstance(graph, PregelProtocol)` 与 LG 一致 |
+| `langgraph.pregel.debug` | 9 个函数；其中 8 个与 LG 逐项对照结果完全一致，`map_debug_checkpoint` / `tasks_w_writes` 按相同形状实现 |
+| `langgraph.channels.base` | `Value` / `Update` / `Checkpoint` |
+| `langgraph.managed.base` | `U` / `V` |
+| `langgraph.prebuilt.tool_node` | `ContextT` / `StateT`（`ToolRuntime` 参数顺序与 LG 一致：`Generic[ContextT, StateT]`） |
+| `langgraph.types` | `PregelTask` 从占位改为真实 NamedTuple（7 个字段 + 默认值） |
+| `langgraph.pregel.main` / `_write` | `NodeBuilder`、`Pregel`、`ChannelWriteTupleEntry` |
+
+**仍未覆盖（有意）**：`langgraph._internal.*`（36 个私有模块）与 `langgraph.pregel._algo` 等 18 个
+私有模块——LG 的内部执行布局，扩展跑自己的引擎。
+
+**已知行为缺口**：`GraphCallbackHandler` 的 `on_interrupt` / `on_resume` 目前需要调用方自己驱动
+manager（模块与 manager 均已实现并测试）；引擎尚未在暂停/恢复时自动派发这两个事件。
+
 > **本轮结论（第 6 节终版）**：除上述 5 条外，已无可消除的差异。其中 3 条是超集（内部类占位、
 > `ttl`、可重复迭代对象），1 条是原生 Rust API 的设计取舍（完整状态），1 条是环境限制
 > （`RemoteGraph` 无实盘）。此前记录过的 6 条差异（`run.messages` 实时性、未声明键、无 saver 中断、

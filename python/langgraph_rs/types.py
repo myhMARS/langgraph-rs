@@ -8,6 +8,7 @@ from typing import Any, Literal, Protocol, TypedDict
 from ._compat import fill_unsupported, module_getattr, re_export
 from .warnings import LangGraphDeprecatedSinceV10, LangGraphDeprecatedSinceV11
 from .types_extra import (
+    PregelTask as _PregelTask,
     AnyMessage,
     BaseCheckpointSaver,
     CacheKey,
@@ -109,6 +110,9 @@ __all__ = [
 # Runtime values (the extension's classes) are re-exported, but the *type* surface matches
 # LangGraph: `StreamMode` / `All` are `Literal` aliases and `StreamWriter` is a callable type.
 _MISSING = re_export(globals(), ["CachePolicy", "Command", "GraphInterrupt", "Interrupt", "PregelTask", "RetryPolicy", "RunControl", "Send", "StateSnapshot", "Task", "TimeoutPolicy", "interrupt"])
+
+# ``PregelTask`` is a plain named tuple in LangGraph, so the Python definition is used.
+PregelTask = _PregelTask
 fill_unsupported(globals(), _MISSING)
 
 StreamMode = Literal[

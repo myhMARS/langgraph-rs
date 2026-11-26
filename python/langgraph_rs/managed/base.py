@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
+
+# LangGraph parameterises its managed-value helpers with these type variables.
+U = TypeVar("U")
+V = TypeVar("V")
 
 __all__ = [
+    "U",
+    "V",
     "is_managed_value",
     "ManagedValue",
     "ManagedValueMapping",
