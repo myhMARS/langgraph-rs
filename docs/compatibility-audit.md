@@ -2419,4 +2419,28 @@ next        ('b',)                    # union of a's and b's routes
 New parity scenario `bulk_update_state` compares the added checkpoint count, the resulting values and
 `next` on both engines: 42/42 scenarios equivalent.
 
+Suite is 443 tests, clippy and Rust tests clean.### Round 111: message metadata step numbering, plus `goto=[...]` and `Send` after resume
+
+Three behaviours were compared with measured LangGraph output:
+
+1. `Command(goto=["a", "b"])` — both engines run both targets (`{'log': ['fan','a','b']}`), no change
+   needed.
+2. `Send` fan-out after resuming an `interrupt()` — both pause with one interrupt and log `[7, 8]`
+   after `Command(resume=7)`, no change needed.
+3. `langgraph_step` in message metadata — LangGraph counts supersteps **from 1** (first node is
+   `langgraph_step == 1`, second is `2`), while the engine's `current_step()` is 0-based. The handler
+   now emits `step + 1`.
+
+With that, a message chunk and its metadata match LangGraph exactly for a two-node graph:
+
+```
+{'type': 'AIMessageChunk', 'content': 'second',
+ 'meta': {'langgraph_node': 'b', 'langgraph_step': 2,
+          'langgraph_triggers': ['branch:to:b'], 'langgraph_path': ['__pregel_pull', 'b']}}
+```
+
+New parity scenario `message_stream` compares chunk type, content and the four metadata fields
+directly: 43/43 scenarios equivalent. (The examples check was re-run by exit code after a text-grep
+heuristic produced false failures: 10/10 identical.)
+
 Suite is 443 tests, clippy and Rust tests clean.

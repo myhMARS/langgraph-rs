@@ -292,7 +292,9 @@ class LangChainCallbackHandler:
             metadata["langgraph_node"] = node
         step = langgraph_rs.current_step()
         if step is not None:
-            metadata["langgraph_step"] = step
+            # LangGraph counts supersteps from 1 in this metadata (its first superstep is step 1),
+            # while the engine's step counter starts at 0.
+            metadata["langgraph_step"] = step + 1
         triggers = langgraph_rs.current_triggers()
         if triggers:
             metadata["langgraph_triggers"] = tuple(triggers)

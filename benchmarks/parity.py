@@ -474,6 +474,67 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_message_stream_scenario() -> list[dict]:
+    """`stream_mode="messages"` yields a message chunk plus node/step/trigger metadata."""
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.messages import AIMessage as LcAIMessage
+
+    class LgState(TypedDict, total=False):
+        messages: list
+
+    def lg_build():
+        model = GenericFakeChatModel(messages=iter([LcAIMessage("second")]))
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"messages": []})
+        graph.add_node("b", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        return graph.compile()
+
+    def rs_build():
+        model = GenericFakeChatModel(messages=iter([LcAIMessage("second")]))
+        graph = rs.StateGraph({"messages": "append"})
+        graph.add_node("a", lambda state: {"messages": []})
+        graph.add_node("b", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        return graph.compile()
+
+    keys = ("langgraph_node", "langgraph_step", "langgraph_triggers", "langgraph_path")
+
+    def describe(chunk, metadata):
+        content = getattr(chunk, "content", chunk)
+        return {
+            "type": type(chunk).__name__,
+            "content": content,
+            "meta": {key: tuple(metadata[key]) if isinstance(metadata.get(key), (list, tuple))
+                     else metadata.get(key) for key in keys},
+        }
+
+    lg_chunk, lg_meta = next(iter(lg_build().stream({"messages": []}, stream_mode="messages")))
+    rs_chunk, rs_meta = next(iter(rs_build().stream({"messages": []}, stream_mode="messages")))
+    lg_view = describe(lg_chunk, lg_meta)
+    rs_view = describe(rs_chunk, rs_meta)
+    return [
+        {
+            "scenario": "message_stream",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(
+                    lambda: list(rs_build().stream({"messages": []}, stream_mode="messages"))
+                ),
+                "lg": measure(
+                    lambda: list(lg_build().stream({"messages": []}, stream_mode="messages"))
+                ),
+            },
+        }
+    ]
+
+
 def run_bulk_update_scenario() -> list[dict]:
     """`bulk_update_state` writes one checkpoint per superstep and unions each superstep's next."""
 
@@ -2571,6 +2632,7 @@ def main() -> None:
         run_subgraph_updates_scenario,
         run_task_triggers_scenario,
         run_bulk_update_scenario,
+        run_message_stream_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

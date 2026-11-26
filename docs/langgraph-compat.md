@@ -326,6 +326,8 @@ LG 的 `stream_mode="messages"` 产出 `(message_chunk, metadata)`，v3 run stre
 回调层通过 `current_triggers()` 读到。
 
 - `langgraph_path`：`("__pregel_pull", <node>)`，子图命名空间按段追加 —— 与 LG 一致
+- `langgraph_step`：LG 的超级步计数**从 1 开始**（首个超级步是 1）；扩展引擎内部从 0 开始，
+  这里已 +1 对齐（此前我们收 0、LG 收 1）
 - `langgraph_triggers`：LG 给的是**调度通道名**而不是节点名 —— 静态/条件边是
   `("branch:to:<node>",)`，`Send` 扇出是 `("__pregel_push",)`，入口任务同样是 `branch:to:<node>`。
   扩展已按同一约定生成（此前用的是源节点名、且入口任务为空）
