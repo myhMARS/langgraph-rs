@@ -141,6 +141,64 @@ impl<S: State> AsyncCompiledGraph<S> {
         crate::graph::visualize::dot_to_png(&self.to_dot())
     }
 
+    /// Nodes paused before they run (`interrupt_before` at compile time).
+    pub fn interrupt_before(&self) -> &std::collections::HashSet<String> {
+        &self.interrupt_before
+    }
+
+    /// Nodes paused after they run (`interrupt_after` at compile time).
+    pub fn interrupt_after(&self) -> &std::collections::HashSet<String> {
+        &self.interrupt_after
+    }
+
+    /// Per-node retry policies.
+    pub fn retries(&self) -> &indexmap::IndexMap<String, crate::RetryPolicy> {
+        &self.retries
+    }
+
+    /// Per-node timeout policies.
+    pub fn timeouts(&self) -> &indexmap::IndexMap<String, crate::TimeoutPolicy> {
+        &self.timeouts
+    }
+
+    /// Compact ASCII map of the graph (same layout as the synchronous engine).
+    pub fn to_ascii(&self) -> String {
+        crate::graph::visualize::render_ascii(crate::graph::visualize::GraphLayout {
+            nodes: self.nodes.keys().map(String::as_str).collect(),
+            edges: &self.edges,
+            conditional: &self.conditional,
+            entry: &self.entry,
+            retries: &self.retries,
+            error_edges: &self.error_edges,
+            interrupt_before: &self.interrupt_before,
+            interrupt_after: &self.interrupt_after,
+        })
+    }
+
+    /// JSON description of the graph (nodes, edges, entry points).
+    pub fn graph_spec(&self) -> serde_json::Value {
+        let nodes: Vec<serde_json::Value> = self
+            .nodes
+            .keys()
+            .map(|node| serde_json::json!({"id": node}))
+            .collect();
+        let edges: Vec<serde_json::Value> = self
+            .edges
+            .iter()
+            .flat_map(|(source, targets)| {
+                targets
+                    .iter()
+                    .map(move |target| serde_json::json!({"source": source, "target": target}))
+            })
+            .collect();
+        serde_json::json!({
+            "nodes": nodes,
+            "edges": edges,
+            "interrupt_before": self.interrupt_before.iter().collect::<Vec<_>>(),
+            "interrupt_after": self.interrupt_after.iter().collect::<Vec<_>>(),
+        })
+    }
+
     /// Graph name configured with `with_name`.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()

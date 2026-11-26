@@ -212,9 +212,27 @@ impl PyAsyncStateGraph {
     fn add_subgraph(
         mut slf: PyRefMut<'_, Self>,
         name: String,
-        subgraph: PyRef<'_, PyAsyncCompiledGraph>,
+        subgraph: &Bound<'_, PyAny>,
     ) -> PyResult<Py<Self>> {
-        let child = subgraph.graph.clone();
+        let child = {
+            let direct = subgraph
+                .extract::<PyRef<'_, PyAsyncCompiledGraph>>()
+                .ok()
+                .map(|child| child.graph.clone());
+            match direct {
+                Some(child) => child,
+                None => {
+                    let inner = subgraph
+                        .getattr("_inner")
+                        .map_err(|_| PyTypeError::new_err("add_subgraph expects a compiled graph"))?;
+                    inner
+                        .extract::<PyRef<'_, PyAsyncCompiledGraph>>()
+                        .map_err(|_| PyTypeError::new_err("add_subgraph expects a compiled graph"))?
+                        .graph
+                        .clone()
+                }
+            }
+        };
         let builder = std::mem::replace(
             &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
@@ -262,7 +280,7 @@ impl PyAsyncStateGraph {
         interrupt_after: Option<Vec<String>>,
         name: Option<String>,
         transformers: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<PyAsyncCompiledGraph> {
+    ) -> PyResult<Py<PyAny>> {
         let mut builder = self.inner.clone();
         let mut saver = None;
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
@@ -304,10 +322,16 @@ impl PyAsyncStateGraph {
                 .collect::<PyResult<Vec<_>>>()?,
             None => Vec::new(),
         };
-        Ok(PyAsyncCompiledGraph {
-            graph: Arc::new(compiled),
-            saver,
-            stream_transformers,
-        })
+        let native = Py::new(
+            py,
+            PyAsyncCompiledGraph {
+                graph: Arc::new(compiled),
+                saver,
+                stream_transformers,
+            },
+        )?;
+        let module = py.import("langgraph_rs.graph.state")?;
+        let facade = module.getattr("CompiledStateGraph")?;
+        facade.call1((native,)).map(|value| value.unbind())
     }
 }

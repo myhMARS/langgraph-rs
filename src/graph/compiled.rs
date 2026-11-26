@@ -93,6 +93,31 @@ impl<S: State> CompiledGraph<S> {
     }
 
     /// Name given at compile time, when any.
+    /// Nodes paused before they run (`interrupt_before` at compile time).
+    pub fn interrupt_before(&self) -> &HashSet<String> {
+        &self.interrupt_before
+    }
+
+    /// Nodes paused after they run (`interrupt_after` at compile time).
+    pub fn interrupt_after(&self) -> &HashSet<String> {
+        &self.interrupt_after
+    }
+
+    /// Per-node retry policies.
+    pub fn retries(&self) -> &IndexMap<String, RetryPolicy> {
+        &self.retries
+    }
+
+    /// Per-node timeout policies.
+    pub fn timeouts(&self) -> &indexmap::IndexMap<String, TimeoutPolicy> {
+        &self.timeouts
+    }
+
+    /// Per-node cache policies.
+    pub fn cache_policies(&self) -> &IndexMap<String, CachePolicy> {
+        &self.cache_policies
+    }
+
     /// Subgraphs embedded as nodes, keyed by node name.
     pub fn subgraphs(&self) -> &indexmap::IndexMap<String, Arc<CompiledGraph<S>>> {
         &self.subgraphs

@@ -823,6 +823,86 @@ impl PyCompiledGraph {
         self.graph.name().map(|value| value.to_string())
     }
 
+    /// The context schema declared at compile time (LangGraph stores it as an attribute).
+    #[getter]
+    fn context_schema(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.graph.context_schema() {
+            Some(schema) => crate::adapters::python::convert::value_to_py(py, schema),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// Nodes paused before they run (`interrupt_before` at compile time).
+    #[getter]
+    fn interrupt_before_nodes(&self) -> Vec<String> {
+        let mut nodes: Vec<String> = self.graph.interrupt_before().iter().cloned().collect();
+        nodes.sort();
+        nodes
+    }
+
+    /// Nodes paused after they run (`interrupt_after` at compile time).
+    #[getter]
+    fn interrupt_after_nodes(&self) -> Vec<String> {
+        let mut nodes: Vec<String> = self.graph.interrupt_after().iter().cloned().collect();
+        nodes.sort();
+        nodes
+    }
+
+    /// Per-node retry policies, in the shape LangGraph exposes them.
+    #[getter]
+    fn retry_policy(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, policy) in self.graph.retries() {
+            let entry = pyo3::types::PyDict::new(py);
+            entry.set_item("max_attempts", policy.max_attempts)?;
+            entry.set_item("initial_interval", policy.initial_backoff.as_secs_f64())?;
+            entry.set_item("backoff_factor", policy.multiplier)?;
+            entry.set_item("max_interval", policy.max_backoff.as_secs_f64())?;
+            entry.set_item("jitter", policy.jitter)?;
+            entry.set_item("retry_on", policy.retry_on.clone())?;
+            dict.set_item(node, entry)?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// Per-node run timeouts, in seconds.
+    #[getter]
+    fn step_timeout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, policy) in self.graph.timeouts() {
+            if let Some(timeout) = policy.run_timeout {
+                dict.set_item(node, timeout.as_secs_f64())?;
+            }
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// Per-node cache policies.
+    #[getter]
+    fn cache_policy(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, policy) in self.graph.cache_policies() {
+            let entry = pyo3::types::PyDict::new(py);
+            entry.set_item("ttl", policy.ttl().map(|ttl| ttl.as_secs_f64()))?;
+            entry.set_item("has_custom_key", policy.has_custom_key())?;
+            dict.set_item(node, entry)?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// Transformers registered at compile time for `stream_events(version="v3")`.
+    #[getter]
+    fn stream_transformers(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::new(py, self.stream_transformers.iter().map(|item| item.bind(py)))?;
+        Ok(list.into_any().unbind())
+    }
+
+    /// LangGraph's `debug` flag: the extension has no per-run debug switch.
+    #[getter]
+    fn debug(&self) -> bool {
+        false
+    }
+
     /// Iterate over the subgraphs embedded in this graph (LangGraph's `get_subgraphs`).
     #[pyo3(signature = (*, namespace=None, recurse=false))]
     fn get_subgraphs(

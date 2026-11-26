@@ -217,6 +217,237 @@ impl PyAsyncCompiledGraph {
         })
     }
 
+    /// Blocking invocation, matching LangGraph's single-class API.
+    ///
+    /// The async engine runs on the extension's Tokio runtime while the calling thread waits, so
+    /// this works from ordinary Python code as well as from a worker thread.
+    #[pyo3(signature = (input=None, config=None, *, thread_id=None, context=None, checkpoint_ns=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn invoke(
+        &self,
+        py: Python<'_>,
+        input: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let (thread, mut config) =
+            super::convert::config_from_py(py, config.or(thread_id))?;
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            config = config.with_context(py_to_value(context)?);
+        }
+        if let Some(namespace) = checkpoint_ns {
+            config.checkpoint_ns = Some(namespace);
+        }
+        let mut command: Option<crate::Command> = None;
+        if let Some(obj) = input {
+            if let Ok(py_command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
+                let (resume, updates) = py_command.to_resume_command(py)?;
+                let (goto, _sends) = py_command.goto_parts(py)?;
+                // `Command(sends=...)` fan-out is not supported on the blocking path.
+                command = Some(crate::Command {
+                    resume,
+                    update: Some(updates.into_iter().collect()),
+                    goto,
+                    sends: Vec::new(),
+                    parent: false,
+                });
+            }
+        }
+        let continue_thread =
+            command.is_none() && input.is_none_or(|value| value.is_none()) && thread.is_some();
+        let state = if command.is_none() && !continue_thread {
+            Some(state_from_py(input)?)
+        } else {
+            None
+        };
+        let graph = self.graph.clone();
+        let error_thread = thread.clone();
+        let error_ns = config.checkpoint_ns.clone();
+        let result = py.detach(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(async move {
+                match (command, state, continue_thread) {
+                    (Some(command), _, _) => graph.run_command(command, &config).await.map(|outcome| outcome.state),
+                    (None, Some(state), _) => graph.run(&state, &config).await.map(|outcome| outcome.state),
+                    (None, None, true) => {
+                        let thread = thread.clone().unwrap_or_default();
+                        graph.continue_thread_with_config(&thread, &config).await
+                    }
+                    (None, None, false) => Err(crate::Error::validation("invoke requires an input")),
+                }
+            })
+        });
+        match result {
+            Ok(state) => json_state_to_py(py, &state),
+            Err(error) => match async_support::static_pause_values(
+                py,
+                &self.graph,
+                error_thread.as_deref(),
+                error_ns.as_deref(),
+                &error,
+                None,
+            )? {
+                Some(value) => Ok(value),
+                None => Err(to_pyerr(py, error)),
+            },
+        }
+    }
+
+    /// The graph name recorded at compile time (used by the Python `Runnable` facade).
+    #[pyo3(signature = ())]
+    fn _graph_name(&self) -> Option<String> {
+        self.graph.name().map(|value| value.to_string())
+    }
+
+    /// Renderable graph (LangGraph's `get_graph`).
+    #[pyo3(signature = (config=None, *, xray=false))]
+    fn get_graph(
+        &self,
+        config: Option<&Bound<'_, PyAny>>,
+        xray: bool,
+    ) -> crate::adapters::python::graph::graph_compiled::PyGraph {
+        let _ = (config, xray);
+        crate::adapters::python::graph::graph_compiled::PyGraph {
+            mermaid: self.graph.to_mermaid(),
+            ascii: self.graph.to_ascii(),
+            spec: self.graph.graph_spec(),
+        }
+    }
+
+    /// Nodes paused before they run.
+    #[getter]
+    fn interrupt_before_nodes(&self) -> Vec<String> {
+        let mut nodes: Vec<String> = self.graph.interrupt_before().iter().cloned().collect();
+        nodes.sort();
+        nodes
+    }
+
+    /// Nodes paused after they run.
+    #[getter]
+    fn interrupt_after_nodes(&self) -> Vec<String> {
+        let mut nodes: Vec<String> = self.graph.interrupt_after().iter().cloned().collect();
+        nodes.sort();
+        nodes
+    }
+
+    /// Per-node retry policies.
+    #[getter]
+    fn retry_policy(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, policy) in self.graph.retries() {
+            let entry = pyo3::types::PyDict::new(py);
+            entry.set_item("max_attempts", policy.max_attempts)?;
+            entry.set_item("initial_interval", policy.initial_backoff.as_secs_f64())?;
+            entry.set_item("backoff_factor", policy.multiplier)?;
+            entry.set_item("max_interval", policy.max_backoff.as_secs_f64())?;
+            entry.set_item("jitter", policy.jitter)?;
+            entry.set_item("retry_on", policy.retry_on.clone())?;
+            dict.set_item(node, entry)?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// Per-node run timeouts, in seconds.
+    #[getter]
+    fn step_timeout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, policy) in self.graph.timeouts() {
+            if let Some(timeout) = policy.run_timeout {
+                dict.set_item(node, timeout.as_secs_f64())?;
+            }
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// LangGraph's `debug` flag: the extension has no per-run debug switch.
+    #[getter]
+    fn debug(&self) -> bool {
+        false
+    }
+
+    /// Blocking streaming over the async engine.
+    #[pyo3(signature = (input=None, config=None, *, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn stream(
+        &self,
+        py: Python<'_>,
+        input: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        stream_mode: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+        subgraphs: bool,
+        version: Option<String>,
+    ) -> PyResult<Py<crate::adapters::python::types::PyStreamChunks>> {
+        let v2 = match version.as_deref() {
+            None | Some("v1") => false,
+            Some("v2") => true,
+            Some(other) => {
+                return Err(PyTypeError::new_err(format!(
+                    "stream version must be 'v1' or 'v2', got {other:?}"
+                )));
+            }
+        };
+        let (thread, mut config) = super::convert::config_from_py(py, config.or(thread_id))?;
+        let _ = thread;
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            config = config.with_context(py_to_value(context)?);
+        }
+        if subgraphs {
+            config = config.with_stream_subgraphs(true);
+        }
+        let requested = super::graph::stream_modes_from_py(stream_mode)?
+            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        let config = config.with_stream_modes(requested.clone());
+        let state = state_from_py(input)?;
+        let graph = self.graph.clone();
+        let modes = requested.clone();
+        let result = py.detach(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(async move {
+                graph.stream_modes(&state, &config, &modes).await
+            })
+        });
+        let chunks = result.map_err(|error| to_pyerr(py, error))?;
+        let converted = convert_stream_chunks(py, &chunks, v2, &requested)?;
+        Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
+    }
+
+    /// Blocking batch over the async engine.
+    #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None))]
+    fn batch(
+        &self,
+        py: Python<'_>,
+        inputs: &Bound<'_, PyAny>,
+        config: Option<&Bound<'_, PyAny>>,
+        return_exceptions: bool,
+        context: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let list = inputs
+            .cast::<PyList>()
+            .map_err(|_| PyTypeError::new_err("batch expects a list of state dicts"))?;
+        let states: Vec<JsonState> = list
+            .iter()
+            .map(|item| state_from_py(Some(&item)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let (_, mut config) = super::convert::config_from_py(py, config)?;
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            config = config.with_context(py_to_value(context)?);
+        }
+        let graph = self.graph.clone();
+        let results = py.detach(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(async move { graph.batch(states, &config).await })
+        });
+        results
+            .into_iter()
+            .map(|result| match result {
+                Ok(state) => json_state_to_py(py, &state),
+                Err(error) if return_exceptions => Ok(to_pyerr(py, error).into_value(py).into_any()),
+                Err(error) => Err(to_pyerr(py, error)),
+            })
+            .collect()
+    }
+
     /// Awaitable batch invocation returning the final state of every input.
     #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None, thread_id=None))]
     #[allow(clippy::too_many_arguments)]

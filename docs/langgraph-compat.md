@@ -287,6 +287,16 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 异步图同样走门面（2026-11-26）
+
+`AsyncStateGraph.compile()` 现在也返回同一个 `CompiledStateGraph` 门面：异步原生图补上了阻塞式
+`invoke` / `stream` / `batch`（在 Tokio 运行时上 `block_on`，调用线程等待、不阻塞解释器），
+因此两种图在 Python 侧是同一种对象，`isinstance(app, Runnable)` 都成立。异步图没有同步事件流，
+`stream_events` 会显式提示改用 `astream_events`。
+
+同时补齐了**能如实提供**的引擎属性：`interrupt_before_nodes`、`interrupt_after_nodes`、
+`retry_policy`、`step_timeout`、`cache_policy`、`stream_transformers`、`context_schema`、`debug`。
+
 ### 编译后图仍不实现的成员（2026-11-26）
 
 `dir()` 对比后仍缺的成员分两类，都是有意的：

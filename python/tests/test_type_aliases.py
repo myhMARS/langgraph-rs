@@ -535,3 +535,47 @@ class RunnableFacadeTest(unittest.TestCase):
         app = self._app()
         with self.assertRaises(NotImplementedError):
             app.invoke({"messages": []}, interrupt_before=["node"])
+
+
+class GraphIntrospectionAttributesTest(unittest.TestCase):
+    """The engine-internal attributes LangGraph exposes, where they can be truthful."""
+
+    @staticmethod
+    def _app():
+        from langgraph_rs.types import RetryPolicy
+
+        graph = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        graph.add_node("node", lambda state: {"n": 1}, retry_policy=RetryPolicy(max_attempts=3))
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile(interrupt_before=["node"], name="demo")
+
+    def test_interrupt_sets_are_exposed(self):
+        app = self._app()
+        self.assertEqual(app.interrupt_before_nodes, ["node"])
+        self.assertEqual(app.interrupt_after_nodes, [])
+
+    def test_retry_policy_is_exposed_per_node(self):
+        app = self._app()
+        self.assertEqual(app.retry_policy["node"]["max_attempts"], 3)
+        self.assertIn("backoff_factor", app.retry_policy["node"])
+
+    def test_timeouts_and_cache_policies_exist(self):
+        app = self._app()
+        self.assertEqual(app.step_timeout, {})
+        self.assertEqual(app.cache_policy, {})
+        self.assertEqual(app.stream_transformers, [])
+
+    def test_debug_and_name(self):
+        app = self._app()
+        self.assertIs(app.debug, False)
+        self.assertEqual(app.get_name(), "demo")
+
+    def test_async_graph_exposes_the_same_attributes(self):
+        graph = langgraph_rs.AsyncStateGraph({"messages": "messages"})
+        graph.add_node("node", lambda state: {})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile(interrupt_after=["node"])
+        self.assertEqual(app.interrupt_after_nodes, ["node"])
+        self.assertIs(app.debug, False)

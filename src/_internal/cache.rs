@@ -96,6 +96,11 @@ impl CachePolicy {
     }
 
     /// Configured time-to-live.
+    /// Whether a custom cache key function is configured.
+    pub fn has_custom_key(&self) -> bool {
+        self.key_fn.is_some()
+    }
+
     pub fn ttl(&self) -> Option<Duration> {
         self.ttl
     }

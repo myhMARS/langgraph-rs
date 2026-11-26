@@ -250,6 +250,10 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         transformers: Any = None,
         **kwargs: Any,
     ) -> Any:
+        if not hasattr(self._inner, "stream_events"):
+            raise NotImplementedError(
+                "this graph has no synchronous event stream; use `astream_events` instead"
+            )
         thread_id = _thread_id_of(config)
         if thread_id is not None:
             kwargs.setdefault("thread_id", thread_id)

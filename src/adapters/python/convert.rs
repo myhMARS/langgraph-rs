@@ -74,7 +74,7 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     )))
 }
 
-pub(super) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
+pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     use pyo3::conversion::IntoPyObjectExt;
 
     Ok(match value {

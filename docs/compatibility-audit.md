@@ -2138,4 +2138,32 @@ identical plus 4/4 liveness checks; clippy and Rust tests clean.
 
 Remaining names after this round are the engine-internal attributes (`nodes`, `attach_node`,
 `trigger_to_nodes`, `config`, ...) and two `RunnableSerializable`-only helpers
-(`validate`, `get_context_jsonschema`).
+(`validate`, `get_context_jsonschema`).### Round 100: the async graph shares the facade, plus truthful introspection
+
+`AsyncStateGraph.compile()` returned the bare native object, so an async graph was not a `Runnable`
+and could not be run synchronously. Both halves are fixed:
+
+* The async engine gained blocking `invoke` / `stream` / `batch`:
+  `pyo3_async_runtimes::tokio::get_runtime().block_on(...)` inside `py.detach`, i.e. the calling
+  Python thread waits while the Tokio runtime drives the run. `invoke` handles plain state,
+  `Command(...)` and `thread_id`-only continuation, and routes pauses through the same
+  `static_pause_values` helper as `ainvoke`.
+* `AsyncStateGraph.compile()` now wraps the native object in the same `CompiledStateGraph` facade, so
+  `isinstance(app, Runnable)` holds for both graph kinds. The facade raises a clear
+  `NotImplementedError` for `stream_events` on a graph without a synchronous event stream.
+* `add_subgraph` on the async builder accepts the facade (and the native object).
+
+Truthful engine attributes exposed on both graphs: `interrupt_before_nodes`, `interrupt_after_nodes`,
+`retry_policy`, `step_timeout`, `cache_policy`, `stream_transformers`, `context_schema`, `debug`.
+Supporting accessors were added to both engines (`CompiledGraph::{interrupt_before, interrupt_after,
+retries, timeouts, cache_policies}`, `AsyncCompiledGraph::{...}`, `CachePolicy::has_custom_key`,
+`AsyncCompiledGraph::{to_ascii, graph_spec}`).
+
+Verified: async graph `invoke` -> `{'n': 1}`, `stream` -> 3 parts, `batch` -> `[2, 3]`, `ainvoke` -> 6,
+`aget_graph().draw_ascii()` contains the node, and the facade guard message for `stream_events`.
+Suite is 413 tests, parity 38/38, examples 10/10 identical plus 4/4 liveness, clippy and Rust tests clean.
+
+Remaining names are now 20: LangGraph's mutable-attach API (`attach_node`/`attach_edge`/`attach_branch`),
+its own object graph (`nodes`, `builder`, `config`, `checkpointer`, `cache`, `*channels*`,
+`trigger_to_nodes`, `node_error_handler_map`, `schema_to_mapper`, `stream_eager`, `stream_mode`) and
+two `RunnableSerializable` helpers (`validate`, `get_context_jsonschema`).
