@@ -2628,4 +2628,27 @@ Still intentionally absent: `nodes` as `PregelNode`s, `attach_node`/`attach_edge
 `node_error_handler_map`'s internal dispatch, and the private `_*` helpers.
 
 New parity scenario `error_handler` compares the result state and the node set: 46/46 scenarios
-equivalent. Suite is 450 tests, examples 10/10, clippy and Rust tests clean.
+equivalent. Suite is 450 tests, examples 10/10, clippy and Rust tests clean.### Round 120: `get_graph()` returns a real `langchain_core` Graph
+
+LangGraph's `get_graph()` hands back `langchain_core.runnables.graph.Graph` — `Node`/`Edge` named
+tuples plus `draw_mermaid`/`draw_png`/`draw_ascii`. The extension returned its own `Graph` object with
+a `to_dict()` and three drawing methods.
+
+Now the native side only produces the description and the Python facade rebuilds it with
+langchain-core's API, so the returned type, `graph.nodes`, `graph.edges` and the drawing helpers
+match LangGraph. `to_dict()` stays on the returned object as a convenience.
+
+The description itself needed three additions to be equal:
+
+* `nodes` lists `__start__` / `__end__` (last round);
+* the **`__start__ -> entry node` edges** were missing (a conditional entry expands through its path
+  map);
+* conditional edges now carry their concrete targets with `conditional: true` instead of only
+  naming the source.
+
+`draw_ascii()` needs `grandalf`; without it both engines raise the same `ImportError`, so the tests
+that used it now check `draw_mermaid()` instead.
+
+New parity scenario `graph_export` compares the graph type, node set and `(source, target,
+conditional)` edge list: 47/47 scenarios equivalent. Suite is 450 tests, examples 10/10, clippy and
+Rust tests clean.

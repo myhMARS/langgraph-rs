@@ -514,9 +514,11 @@ class RunnableFacadeTest(unittest.TestCase):
 
     def test_native_methods_win_over_runnable_defaults(self):
         app = self._app()
-        # `get_graph` must be the native renderer, not langchain-core's placeholder.
+        # `get_graph` must return the real graph (a langchain-core `Graph`), not the placeholder
+        # langchain-core's `Runnable` default would build.
         graph = app.get_graph(xray=True)
-        self.assertIn("node", graph.draw_ascii())
+        self.assertIn("node", graph.nodes)
+        self.assertIn("node", graph.draw_mermaid())
 
     def test_stream_events_still_uses_the_v3_implementation(self):
         app = self._app()

@@ -474,6 +474,56 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_graph_export_scenario() -> list[dict]:
+    """`get_graph()` exposes LangGraph's node/edge structure (including conditional edges)."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(START, "a")
+        graph.add_conditional_edges("a", lambda state: "b", {"b": "b"})
+        graph.add_edge("b", END)
+        return graph.compile()
+
+    def rs_build():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.set_entry_point("a")
+        graph.add_conditional_edges("a", lambda state: "b", {"b": "b"})
+        graph.set_finish_point("b")
+        return graph.compile()
+
+    def describe(app):
+        graph = app.get_graph()
+        return {
+            "type": f"{type(graph).__module__}.{type(graph).__name__}",
+            "nodes": sorted(graph.nodes),
+            "edges": sorted(
+                (edge.source, edge.target, bool(edge.conditional)) for edge in graph.edges
+            ),
+        }
+
+    lg_view = describe(lg_build())
+    rs_view = describe(rs_build())
+    return [
+        {
+            "scenario": "graph_export",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(lambda: rs_build().get_graph()),
+                "lg": measure(lambda: lg_build().get_graph()),
+            },
+        }
+    ]
+
+
 def run_error_handler_scenario() -> list[dict]:
     """A callable `error_handler` runs `__error_handler__<node>` and ends that branch."""
 
@@ -2806,6 +2856,7 @@ def main() -> None:
         run_durability_pause_scenario,
         run_debug_stream_scenario,
         run_error_handler_scenario,
+        run_graph_export_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

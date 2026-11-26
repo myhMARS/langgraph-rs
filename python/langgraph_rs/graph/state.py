@@ -470,8 +470,39 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return list(self._inner.get_subgraphs(namespace=namespace, recurse=recurse))
 
     def get_graph(self, config: Any = None, *, xray: Any = False) -> Any:
-        """Return the renderable graph (the native `get_graph`, not langchain-core's)."""
-        return self._inner.get_graph(config, xray=xray)
+        """Return the renderable graph.
+
+        LangGraph returns a `langchain_core.runnables.graph.Graph`; when langchain-core is
+        installed the native description is rebuilt into one so `nodes`, `edges` and the drawing
+        helpers behave exactly as they do there. Without it the native graph object is returned.
+        """
+        native = self._inner.get_graph(config, xray=xray)
+        try:
+            from langchain_core.runnables.graph import Graph
+        except Exception:  # pragma: no cover - langchain-core is optional
+            return native
+        description = native.to_dict()
+        graph = Graph()
+        nodes: dict[str, Any] = {}
+        for item in description.get("nodes", ()):
+            node_id = item["id"]
+            nodes[node_id] = graph.add_node(None, id=node_id, metadata=item.get("metadata"))
+        for item in description.get("edges", ()):
+            source, target = item["source"], item["target"]
+            if source not in nodes or target not in nodes:
+                continue
+            graph.add_edge(
+                nodes[source], nodes[target], data=None, conditional=bool(item.get("conditional"))
+            )
+        for item in description.get("conditional_edges", ()):
+            source, target = item["source"], item.get("target")
+            if target is None or source not in nodes or target not in nodes:
+                continue
+            graph.add_edge(nodes[source], nodes[target], data=None, conditional=True)
+        # Convenience kept from the native graph: the raw description LangGraph derives from the
+        # same data via `draw_mermaid()` / `to_json()`.
+        graph.to_dict = lambda: description  # type: ignore[method-assign]
+        return graph
 
     # -- run methods ------------------------------------------------------------------------
     def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:

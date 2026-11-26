@@ -167,24 +167,74 @@ impl<S: State> CompiledGraph<S> {
                 Value::Object(spec)
             })
             .collect();
-        let edges: Vec<Value> = self
-            .edges
-            .iter()
-            .flat_map(|(source, targets)| {
-                targets.iter().map(move |target| {
-                    serde_json::json!({
-                        "source": source,
+        // LangGraph's description starts with the `__start__` edges into the entry nodes.
+        let mut edges: Vec<Value> = Vec::new();
+        match &self.entry {
+            Entry::Static(nodes) => {
+                for target in nodes {
+                    if target == crate::END {
+                        continue;
+                    }
+                    edges.push(serde_json::json!({
+                        "source": crate::START,
                         "target": target,
                         "conditional": false,
-                    })
-                })
-            })
-            .collect();
-        let conditional: Vec<Value> = self
-            .conditional
-            .keys()
-            .map(|source| serde_json::json!({ "source": source, "conditional": true }))
-            .collect();
+                    }));
+                }
+            }
+            Entry::Conditional(edge) => {
+                if let Some(path_map) = &edge.path_map {
+                    let mut targets: Vec<String> = Vec::new();
+                    for (_, destinations) in path_map.entries() {
+                        targets.extend(destinations.iter().cloned());
+                    }
+                    targets.sort();
+                    targets.dedup();
+                    for target in targets {
+                        edges.push(serde_json::json!({
+                            "source": crate::START,
+                            "target": target,
+                            "conditional": true,
+                        }));
+                    }
+                }
+            }
+        }
+        for (source, targets) in &self.edges {
+            for target in targets {
+                edges.push(serde_json::json!({
+                    "source": source,
+                    "target": target,
+                    "conditional": false,
+                }));
+            }
+        }
+        // LangGraph renders a conditional edge to each target its path map declares (a branch
+        // whose targets are only known at run time contributes no target).
+        let mut conditional: Vec<Value> = Vec::new();
+        for (source, branches) in &self.conditional {
+            let mut targets: Vec<String> = Vec::new();
+            for branch in branches {
+                if let Some(path_map) = &branch.path_map {
+                    for (_, destinations) in path_map.entries() {
+                        targets.extend(destinations.iter().cloned());
+                    }
+                }
+            }
+            targets.sort();
+            targets.dedup();
+            if targets.is_empty() {
+                conditional.push(serde_json::json!({ "source": source, "conditional": true }));
+            } else {
+                for target in targets {
+                    conditional.push(serde_json::json!({
+                        "source": source,
+                        "target": target,
+                        "conditional": true,
+                    }));
+                }
+            }
+        }
         serde_json::json!({
             "name": self.name,
             "nodes": nodes,

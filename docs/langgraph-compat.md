@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `get_graph()` 返回真正的 LangChain 图（2026-11-26）
+
+LG 的 `get_graph()` 返回 `langchain_core.runnables.graph.Graph`，带 `Node` / `Edge`（NamedTuple）以及
+`draw_mermaid()` / `draw_png()` / `draw_ascii()`。扩展此前返回原生 `Graph` 对象，只有 `to_dict()`。
+
+现在：原生只提供图描述（`to_dict()`），门面在 Python 里用 **langchain-core 的 `Graph` API** 重建，
+因此 `type(...)` 与 LG 相同、`graph.nodes` / `graph.edges` / 绘图方法都能直接用。`to_dict()` 作为兼容
+便利保留在返回对象上。
+
+为此图描述本身也补齐了两处（LG 有、我们此前没有）：
+
+- `nodes` 含 `__start__` / `__end__`
+- **`__start__ -> 首个节点` 的入口边**（条件入口按 path map 展开）
+- 条件边带上具体目标（`conditional: true`），而不是只列源节点
+
+`draw_ascii()` 依赖 `grandalf`，缺包时与 LG 一样抛 `ImportError`（测试改用 `draw_mermaid()`）。
+
 ### 可调用 `error_handler` 与内省属性（2026-11-26）
 
 实测 LG：`add_node(..., error_handler=<callable>)` 会**合成一个节点** `__error_handler__<node>`，
