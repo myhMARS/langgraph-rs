@@ -817,6 +817,12 @@ impl PyCompiledGraph {
         Ok(dict.into_any().unbind())
     }
 
+    /// The graph name recorded at compile time (used by the Python `Runnable` facade).
+    #[pyo3(signature = ())]
+    fn _graph_name(&self) -> Option<String> {
+        self.graph.name().map(|value| value.to_string())
+    }
+
     /// Iterate over the subgraphs embedded in this graph (LangGraph's `get_subgraphs`).
     #[pyo3(signature = (*, namespace=None, recurse=false))]
     fn get_subgraphs(

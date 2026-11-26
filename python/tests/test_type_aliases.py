@@ -479,3 +479,59 @@ class GraphIntrospectionTest(unittest.TestCase):
         app = self._parent()
         self.assertEqual(sorted(app.channels), ["messages", "n"])
         self.assertIsNone(app.store)
+
+
+class RunnableFacadeTest(unittest.TestCase):
+    """The compiled graph is a LangChain `Runnable`, like LangGraph's is."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        graph.add_node("node", lambda state: {"n": (state.get("n") or 0) + 1})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile()
+
+    def test_compiled_graph_is_a_runnable(self):
+        from langchain_core.runnables import Runnable
+
+        app = self._app()
+        self.assertIsInstance(app, Runnable)
+        self.assertEqual(type(app).__name__, "CompiledStateGraph")
+
+    def test_runnable_helpers_work(self):
+        app = self._app()
+        self.assertEqual(type(app.bind()).__name__, "RunnableBinding")
+        self.assertEqual(type(app.with_config({"tags": ["t"]})).__name__, "RunnableBinding")
+        self.assertEqual(type(app | (lambda value: value)).__name__, "RunnableSequence")
+        self.assertIsNotNone(app.get_input_schema())
+
+    def test_pipe_runs_the_graph(self):
+        app = self._app() | (lambda state: state["n"])
+        self.assertEqual(app.invoke({"n": 1}), 2)
+
+    def test_native_methods_win_over_runnable_defaults(self):
+        app = self._app()
+        # `get_graph` must be the native renderer, not langchain-core's placeholder.
+        graph = app.get_graph(xray=True)
+        self.assertIn("node", graph.draw_ascii())
+
+    def test_stream_events_still_uses_the_v3_implementation(self):
+        app = self._app()
+        run = app.stream_events({"n": 1}, version="v3")
+        self.assertEqual(len(list(run.values)), 2)
+
+    def test_thread_id_keyword_is_forwarded(self):
+        graph = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        graph.add_node("node", lambda state: {"n": 1})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        app.invoke({"messages": []}, thread_id="facade-1")
+        state = app.get_state({"configurable": {"thread_id": "facade-1"}})
+        self.assertEqual(state.values["n"], 1)
+
+    def test_unsupported_run_keyword_is_rejected(self):
+        app = self._app()
+        with self.assertRaises(NotImplementedError):
+            app.invoke({"messages": []}, interrupt_before=["node"])

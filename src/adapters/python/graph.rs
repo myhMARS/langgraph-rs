@@ -89,11 +89,7 @@ impl PyStateGraph {
         }
         // LangGraph lets a compiled subgraph be registered with `add_node(name, subgraph)`; route
         // it to the subgraph path so both spellings behave the same.
-        let subgraph = function
-            .bind(slf.py())
-            .extract::<PyRef<'_, PyCompiledGraph>>()
-            .ok()
-            .map(|child| child.graph.clone());
+        let subgraph = compiled_graph_of(slf.py(), function.bind(slf.py()));
         graph = match subgraph {
             Some(child) => graph.add_subgraph(name.clone(), child),
             None => graph.add_node(name.clone(), node_from_python(name.clone(), function)),
@@ -171,9 +167,11 @@ impl PyStateGraph {
     fn add_subgraph(
         mut slf: PyRefMut<'_, Self>,
         name: String,
-        subgraph: PyRef<'_, PyCompiledGraph>,
+        subgraph: &Bound<'_, PyAny>,
     ) -> PyResult<Py<Self>> {
-        let child = subgraph.graph.clone();
+        let child = compiled_graph_of(slf.py(), subgraph).ok_or_else(|| {
+            PyTypeError::new_err("add_subgraph expects a compiled graph")
+        })?;
         let builder = std::mem::take(&mut slf.inner);
         slf.inner = builder.add_subgraph(name, child);
         Ok(slf.into())
@@ -194,7 +192,7 @@ impl PyStateGraph {
         name: Option<String>,
         context_schema: Option<&Bound<'_, PyAny>>,
         transformers: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<PyCompiledGraph> {
+    ) -> PyResult<Py<PyAny>> {
         let mut options = CompileOptions::new();
         if let Some(name) = name {
             options = options.with_name(name);
@@ -243,12 +241,31 @@ impl PyStateGraph {
                 .collect::<PyResult<Vec<_>>>()?,
             None => Vec::new(),
         };
-        Ok(PyCompiledGraph {
-            graph: Arc::new(compiled),
-            saver,
-            stream_transformers,
-        })
+        let native = Py::new(
+            py,
+            PyCompiledGraph {
+                graph: Arc::new(compiled),
+                saver,
+                stream_transformers,
+            },
+        )?;
+        crate::adapters::python::graph::graph_compiled::wrap_compiled(py, native)
     }
+}
+
+
+/// Resolve a compiled graph from either the native object or the `Runnable` façade around it.
+pub(crate) fn compiled_graph_of(
+    py: Python<'_>,
+    value: &Bound<'_, PyAny>,
+) -> Option<Arc<CompiledGraph<JsonState>>> {
+    if let Ok(child) = value.extract::<PyRef<'_, PyCompiledGraph>>() {
+        return Some(child.graph.clone());
+    }
+    let inner = value.getattr("_inner").ok()?;
+    let child = inner.extract::<PyRef<'_, PyCompiledGraph>>().ok()?;
+    let _ = py;
+    Some(child.graph.clone())
 }
 
 #[path = "graph_compiled.rs"]

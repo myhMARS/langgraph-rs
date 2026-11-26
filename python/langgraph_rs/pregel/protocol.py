@@ -96,7 +96,7 @@ def _register_compiled_graphs() -> None:
         import langgraph_rs
     except Exception:  # pragma: no cover - import cycle during startup
         return
-    for name in ("CompiledGraph", "AsyncCompiledGraph"):
+    for name in ("CompiledGraph", "CompiledStateGraph", "AsyncCompiledGraph"):
         graph = getattr(langgraph_rs, name, None)
         if graph is not None:
             try:

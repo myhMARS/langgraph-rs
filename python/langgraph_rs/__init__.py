@@ -16,6 +16,7 @@ from __future__ import annotations
 from . import langgraph_rs as _native
 from .langgraph_rs import *  # noqa: F401,F403
 from . import channels, pregel
+from .graph.state import CompiledGraph, CompiledStateGraph
 from .graph.message import MessageGraph
 from .prebuilt.tool_node import (
     InjectedState,
@@ -26,6 +27,8 @@ from .prebuilt.tool_node import (
 )
 
 __all__ = [name for name in dir(_native) if not name.startswith("_")] + [
+    "CompiledGraph",
+    "CompiledStateGraph",
     "InjectedState",
     "InjectedStore",
     "MessageGraph",

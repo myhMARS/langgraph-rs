@@ -112,3 +112,14 @@ pub(crate) fn stream_modes_from_py(
 }
 
 
+
+
+/// Wrap a native compiled graph in the `Runnable` façade (`CompiledStateGraph`).
+///
+/// LangGraph's compiled graph is a `Runnable`; the façade supplies that API surface in Python while
+/// every run still executes in the native engine.
+pub(crate) fn wrap_compiled(py: Python<'_>, native: Py<PyCompiledGraph>) -> PyResult<Py<PyAny>> {
+    let module = py.import("langgraph_rs.graph.state")?;
+    let facade = module.getattr("CompiledStateGraph")?;
+    facade.call1((native,)).map(|value| value.unbind())
+}

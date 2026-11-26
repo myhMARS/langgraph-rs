@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from .._compat import module_getattr, re_export
+from abc import ABCMeta
+from typing import Any, AsyncIterator, Iterator, Sequence
+
+from langchain_core.runnables import Runnable
+
+from .._compat import _native, module_getattr, re_export
 from ..channels import BaseChannel, BinaryOperatorAggregate
 from ..types import All, CachePolicy
 
@@ -46,5 +51,238 @@ class BranchSpec:
         return f"BranchSpec(path={self.path!r}, ends={self.ends!r})"
 
 
-_MISSING = re_export(globals(), ["CompiledGraph", "CompiledStateGraph", "END", "START", "StateGraph"])
+_MISSING = re_export(globals(), ["END", "START", "StateGraph"])
+
+_NATIVE_COMPILED = _native.CompiledGraph
+
+# LangGraph's `invoke`/`stream` keywords that the extension cannot honour per run. They are
+# rejected loudly instead of being silently dropped: each of them changes run behaviour.
+_UNSUPPORTED_RUN_KWARGS = {
+    "interrupt_before": "declare `interrupt_before` when compiling the graph",
+    "interrupt_after": "declare `interrupt_after` when compiling the graph",
+    "output_keys": "select the outgoing state in the graph's schema",
+}
+
+# Keyword arguments that only matter to LangGraph's internal streaming/printing and do not change
+# the result, so they are accepted and ignored.
+_IGNORED_RUN_KWARGS = {"print_mode", "debug"}
+
+# Per-method allow-lists: the native graph accepts these (plus its own `thread_id` convenience).
+_COMMON_KWARGS = ("thread_id", "context", "control", "checkpoint_ns")
+_INVOKE_KWARGS = _COMMON_KWARGS
+_STREAM_KWARGS = _COMMON_KWARGS + ("stream_mode", "subgraphs", "version")
+_BATCH_KWARGS = ("thread_id", "context")
+
+
+def _check_kwargs(kwargs: dict[str, Any]) -> None:
+    for name, guidance in _UNSUPPORTED_RUN_KWARGS.items():
+        if kwargs.get(name) is not None:
+            kwargs.pop(name)
+            raise NotImplementedError(
+                f"`{name}` is not supported on a run; {guidance} instead"
+            )
+
+
+def _with_durability(config: Any, durability: Any) -> Any:
+    if durability is None:
+        return config
+    merged = dict(config or {})
+    if isinstance(durability, str):
+        merged["durability"] = durability
+        return merged
+    # LangGraph accepts a `Durability`-like object; only its name is meaningful here.
+    name = getattr(durability, "value", None) or getattr(durability, "name", None)
+    if isinstance(name, str):
+        merged["durability"] = name
+    return merged
+
+
+def _call_kwargs(
+    config: Any,
+    durability: Any,
+    kwargs: dict[str, Any],
+    allowed: Sequence[str] = _COMMON_KWARGS,
+) -> dict[str, Any]:
+    """Split LangGraph's keyword arguments into those the extension forwards and those it drops."""
+    _check_kwargs(kwargs)
+    call: dict[str, Any] = {"config": _with_durability(config, durability)}
+    for name in allowed:
+        if name in kwargs:
+            call[name] = kwargs.pop(name)
+    for name in list(kwargs):
+        if name in _IGNORED_RUN_KWARGS:
+            kwargs.pop(name)
+    if kwargs:
+        unknown = ", ".join(sorted(kwargs))
+        raise TypeError(f"unexpected keyword argument(s): {unknown}")
+    return call
+
+
+def _thread_id_of(config: Any) -> str | None:
+    """Read ``configurable.thread_id`` from a LangGraph config dict."""
+    if not isinstance(config, dict):
+        return None
+    configurable = config.get("configurable") or {}
+    value = configurable.get("thread_id") if isinstance(configurable, dict) else None
+    return value if isinstance(value, str) else None
+
+
+class _CompiledMeta(ABCMeta):
+    """Forward class-level lookups (``hasattr(CompiledStateGraph, ...)``) to the native class."""
+
+    def __getattr__(cls, name: str) -> Any:
+        return getattr(_NATIVE_COMPILED, name)
+
+
+class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
+    """The compiled graph, exposing LangGraph's ``Runnable`` API.
+
+    LangGraph's compiled graph is a ``Runnable``; the extension's engine lives in Rust, so this
+    facade forwards the run methods to the native object while inheriting the ``Runnable`` helpers
+    (``bind``, ``with_config``, ``pipe``, ``map``, ``as_tool``, ``batch_as_completed``,
+    ``astream_log`` and the schema introspection helpers).
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    # -- Runnable plumbing ------------------------------------------------------------------
+    def __getattr__(self, name: str) -> Any:
+        # Everything the facade does not define (resume, stream_live, get_subgraphs, ...) is
+        # answered by the native graph.
+        if name == "_inner":
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+    def __dir__(self) -> list[str]:
+        # `dir()` should list the forwarded native methods too, so the object introspects like
+        # LangGraph's compiled graph.
+        return sorted(set(object.__dir__(self)) | set(dir(self._inner)))
+
+    def __repr__(self) -> str:
+        return f"CompiledStateGraph({self.get_name()!r})"
+
+    def get_name(self, suffix: str | None = None, *, name: str | None = None) -> str:
+        base = name or self._inner._graph_name() or "LangGraph"
+        return f"{base}{suffix}" if suffix else base
+
+    @property
+    def name(self) -> str:
+        return self.get_name()
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        channels = sorted(getattr(self._inner, "channels", {}) or {})
+        return {"title": self.get_name(), "type": "object", "properties": {name: {} for name in channels}}
+
+    @property
+    def output_schema(self) -> dict[str, Any]:
+        return self.input_schema
+
+    @property
+    def config_schema(self) -> dict[str, Any]:
+        return {
+            "title": f"{self.get_name()}Config",
+            "type": "object",
+            "properties": {
+                "configurable": {"type": "object", "properties": {"thread_id": {"type": "string"}}},
+            },
+        }
+
+    async def aget_graph(self, config: Any = None, *, xray: Any = False) -> Any:
+        return self._inner.get_graph(config, xray=xray)
+
+    async def aget_subgraphs(self, *, namespace: Any = None, recurse: bool = False) -> Any:
+        return list(self._inner.get_subgraphs(namespace=namespace, recurse=recurse))
+
+    def get_graph(self, config: Any = None, *, xray: Any = False) -> Any:
+        """Return the renderable graph (the native `get_graph`, not langchain-core's)."""
+        return self._inner.get_graph(config, xray=xray)
+
+    # -- run methods ------------------------------------------------------------------------
+    def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
+        call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
+        return self._inner.invoke(input, **call)
+
+    async def ainvoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
+        call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
+        return await self._inner.ainvoke(input, **call)
+
+    def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
+        call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+        return self._inner.stream(input, **call)
+
+    def astream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> AsyncIterator[Any]:
+        call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+        return self._inner.astream(input, **call)
+
+    def batch(
+        self,
+        inputs: Sequence[Any],
+        config: Any = None,
+        *,
+        return_exceptions: bool = False,
+        **kwargs: Any,
+    ) -> list[Any]:
+        call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
+        return self._inner.batch(inputs, return_exceptions=return_exceptions, **call)
+
+    async def abatch(
+        self,
+        inputs: Sequence[Any],
+        config: Any = None,
+        *,
+        return_exceptions: bool = False,
+        **kwargs: Any,
+    ) -> list[Any]:
+        call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
+        return await self._inner.abatch(inputs, return_exceptions=return_exceptions, **call)
+
+    # `langchain_core.Runnable` also defines these two, but its defaults reject compiled graphs;
+    # the extension's v3 event stream is the one that must be used. The native method takes
+    # `thread_id` (not a config dict), so the thread is read out of the config here.
+    def stream_events(
+        self,
+        input: Any = None,
+        config: Any = None,
+        *,
+        version: str = "v3",
+        transformers: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        thread_id = _thread_id_of(config)
+        if thread_id is not None:
+            kwargs.setdefault("thread_id", thread_id)
+        return self._inner.stream_events(
+            input, version=version, transformers=transformers, **kwargs
+        )
+
+    async def astream_events(
+        self,
+        input: Any = None,
+        config: Any = None,
+        *,
+        version: str = "v3",
+        transformers: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        thread_id = _thread_id_of(config)
+        if thread_id is not None:
+            kwargs.setdefault("thread_id", thread_id)
+        return await self._inner.astream_events(
+            input, version=version, transformers=transformers, **kwargs
+        )
+
+
+CompiledGraph = CompiledStateGraph
+
+# `langgraph_rs.pregel.protocol` registers the compiled graphs while the package is still being
+# imported, i.e. before this facade exists; register it again now that it does.
+try:  # pragma: no cover - import cycle during startup
+    from ..pregel.protocol import PregelProtocol
+
+    PregelProtocol.register(CompiledStateGraph)
+except Exception:  # pragma: no cover
+    pass
+
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

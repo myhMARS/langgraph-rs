@@ -272,6 +272,21 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 * store `search(query=...)` 无索引时的子串匹配 → 现在与 LG 一致：无向量索引时 `query` 被忽略，
   结果只由 `filter` / `limit` / `offset` 决定（对照测试见 `python/tests/test_store_search.py`）。
 
+### 编译后图就是一个 `Runnable`（2026-11-26）
+
+LangGraph 的编译图是 `Runnable`（`CompiledStateGraph → Pregel → PregelProtocol → Runnable`），
+所以 `bind` / `with_config` / `pipe` / `map` / `as_tool` / `batch_as_completed` / `astream_log` /
+schema introspection 全套由基类提供。扩展现在也这样：
+
+- `compile()` 返回 `CompiledStateGraph` 门面：持有原生图，继承 `langchain_core.runnables.Runnable`
+- `invoke` / `ainvoke` / `stream` / `astream` / `batch` / `abatch` / `stream_events` / `astream_events`
+  / `get_graph` 显式转发到原生实现（否则会被 `Runnable` 的默认实现遮蔽）
+- 其余方法（`resume`、`resume_from`、`stream_live`、`get_subgraphs`、`bulk_update_state`…）由
+  `__getattr__` 透传；`dir()` 同时列出原生方法
+- `isinstance(app, Runnable)` 为真，`app | fn`、`app.with_config(...)`、`app.as_tool()` 可用
+- 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
+  `NotImplementedError` 并给出替代做法，而不是静默忽略
+
 ### 编译后图仍不实现的成员（2026-11-26）
 
 `dir()` 对比后仍缺的成员分两类，都是有意的：

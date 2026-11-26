@@ -2105,4 +2105,37 @@ A fresh `dir()` + `inspect.signature` sweep leaves 62 names, now classified in
 `docs/langgraph-compat.md`: the `RunnableSerializable` family (not a `Runnable` subclass by design) and
 LangGraph's own engine-internal attributes (`nodes`, `attach_node`, `trigger_to_nodes`, ...).
 
-Python suite is 401 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 401 tests; parity 38/38; clippy and Rust tests clean.### Round 99: the compiled graph is now a real `Runnable`
+
+LangGraph's compiled graph inherits `langchain_core.runnables.Runnable`
+(`CompiledStateGraph -> Pregel -> PregelProtocol -> Runnable -> ABC`), which is why it ships
+`bind`/`with_config`/`pipe`/`map`/`as_tool`/`batch_as_completed`/`astream_log` and the schema
+introspection helpers. The extension returned the bare PyO3 object, so none of that existed.
+
+`compile()` now returns a `CompiledStateGraph` facade (Python, in `langgraph_rs/graph/state.py`)
+that holds the native graph and inherits `Runnable`:
+
+* `invoke`/`ainvoke`/`stream`/`astream`/`batch`/`abatch`, plus `stream_events`/`astream_events` and
+  `get_graph`, are forwarded explicitly. This matters: `Runnable` defines all of them, so without an
+  override the base-class defaults shadow the engine (the v3 event stream raised
+  "only supported on Runnable subclasses" until it was forwarded).
+* Everything else (`resume`, `resume_from`, `stream_live`, `get_subgraphs`, `bulk_update_state`, ...)
+  is answered by `__getattr__`; a metaclass `__getattr__` forwards class-level lookups so
+  `hasattr(CompiledStateGraph, 'export_checkpoint_msgpack')` still works, and `__dir__` lists both.
+* `get_name`/`name`/`input_schema`/`output_schema`/`config_schema` are provided from the native
+  graph's channel names and compiled name (`_graph_name` added in Rust for that purpose).
+* Unsupported run keywords (`interrupt_before`, `interrupt_after`, `output_keys`) raise
+  `NotImplementedError` with the alternative; `durability` is folded into the config.
+
+Engine-side changes: `compile()` returns the facade; `add_node(name, compiled)` and `add_subgraph`
+accept either the native object or the facade (`compiled_graph_of`); `_graph_name` exposes the
+compiled name.
+
+Verified: `isinstance(app, Runnable)`, `app | fn` runs the graph, `app.bind()/with_config()` return
+`RunnableBinding`, `get_graph(xray=True).draw_ascii()` is the native renderer, `stream_events(v3)`
+still works, and `thread_id=` stays supported. Suite is 408 tests, parity 38/38, examples 10/10
+identical plus 4/4 liveness checks; clippy and Rust tests clean.
+
+Remaining names after this round are the engine-internal attributes (`nodes`, `attach_node`,
+`trigger_to_nodes`, `config`, ...) and two `RunnableSerializable`-only helpers
+(`validate`, `get_context_jsonschema`).
