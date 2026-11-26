@@ -2515,4 +2515,24 @@ What is left, and why it is harder:
 | `prebuilt.tool_node.ToolRuntime` | the injected runtime handle is a Python dataclass the tool receives |
 
 Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
-Rust tests clean.
+Rust tests clean.### Round 115: schema normalisation moves to Python
+
+Two more reverse calls disappeared, along with a second block of Python source embedded in Rust:
+
+* `langgraph_rs/graph/_schema.py` now owns `MessagesState`, `_schema_from_class` and
+  `normalize_schema`. The builders override `__new__` (the native constructor is `tp_new`, so
+  `__init__` would run after the engine already read the schema) and hand the native a plain
+  `{channel: spec}` dict.
+* A channel that implements its own merge is marked `{"__custom_channel__": channel}` by
+  `normalize_schema`; `schema_from_py` looks for that key instead of importing
+  `langgraph_rs.channels` and testing `isinstance`. `is_custom_base_channel` is gone.
+* The `PyModule::from_code` block that defined `MessagesState` / `_schema_from_class` in Rust is
+  deleted; `graph/message.py` and the package root re-export the Python ones.
+
+Shim imports from Rust: 4 -> 3 (`_compat.encode_value`, `_compat.decode_value`, `ToolRuntime`).
+
+One regression to note from the change: the first version of the marker check shadowed the
+unwrapped channel with the marker dict, which broke custom-channel merges until the duplicate
+binding was removed.
+
+Verification: 445 Python tests, parity 43/43, examples 10/10, clippy and Rust tests clean.

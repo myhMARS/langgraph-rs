@@ -376,26 +376,24 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
     if schema.is_none() {
         return Ok(StateSchema::dynamic());
     }
-    let dict = match schema.cast::<PyDict>() {
-        Ok(dict) => dict.clone(),
-        Err(_) => {
-            let module = schema.py().import("langgraph_rs")?;
-            module
-                .getattr("_schema_from_class")?
-                .call1((schema,))?
-                .cast_into::<PyDict>()
-                .map_err(|_| PyTypeError::new_err("schema must be a dict of channel -> spec"))?
-        }
-    };
+    // The Python builder normalises class schemas and marks custom channels before calling here.
+    let dict = schema.cast::<PyDict>().map_err(|_| {
+        PyTypeError::new_err("schema must be a dict of channel -> spec (use langgraph_rs.StateGraph)")
+    })?.clone();
 
     let kernel = Kernel::builtin();
     let mut out = StateSchema::dynamic();
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
-        // A user subclass of `BaseChannel` that overrides `update`/`get` runs its own merge logic;
-        // LangGraph's protocol is `update([write]) -> bool` then `get() -> value`.
-        if is_custom_base_channel(&spec)? {
-            let channel = spec.clone().unbind();
+        // A channel that implements its own merge arrives wrapped by the Python builder as
+        // `{"__custom_channel__": channel}`; LangGraph's protocol is `update([write]) -> bool`
+        // then `get() -> value`.
+        let custom_channel = spec
+            .cast::<PyDict>()
+            .ok()
+            .and_then(|dict| dict.get_item("__custom_channel__").ok().flatten());
+        if let Some(channel) = custom_channel {
+            let channel = channel.unbind();
             out = out.with_channel(
                 name,
                 Channel::reducer(move |_current: &Value, incoming: &Value| {
@@ -754,40 +752,6 @@ pub(super) fn run_config(thread_id: Option<String>) -> RunConfig {
 mod stream_convert;
 pub(crate) use stream_convert::*;
 
-/// Whether `spec` is a `BaseChannel` subclass that overrides the merge protocol.
-fn is_custom_base_channel(spec: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let py = spec.py();
-    let module = match py.import("langgraph_rs.channels") {
-        Ok(module) => module,
-        Err(_) => return Ok(false),
-    };
-    let base = match module.getattr("BaseChannel") {
-        Ok(base) => base,
-        Err(_) => return Ok(false),
-    };
-    let kind = spec.get_type();
-    if !kind.is_subclass(&base)? {
-        return Ok(false);
-    }
-    for name in ["update", "get"] {
-        let own = kind.getattr(name);
-        let inherited = base.getattr(name).ok();
-        match own {
-            // The subclass defines its own merge protocol.
-            Ok(own) => {
-                let is_own = match &inherited {
-                    Some(inherited) => !own.is(inherited),
-                    None => true,
-                };
-                if is_own && own.is_callable() {
-                    return Ok(true);
-                }
-            }
-            Err(_) => continue,
-        }
-    }
-    Ok(false)
-}
 
 pub(crate) fn config_from_py(
     _py: Python<'_>,

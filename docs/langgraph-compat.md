@@ -268,8 +268,12 @@ Python 代码，属于正向调用）。
 同理（Python 包装函数，`create_tool_calling_executor` 是同一个对象）。`AsyncStream` 也从「Rust 里
 `exec` 一段 Python 源码」搬到了 `langgraph_rs/stream/_stream.py`。
 
-`Rust 侧垫片 import` 从 17 处降到 **4 处**（JsonPlus 编解码 ×2、`BaseChannel` 识别、`ToolRuntime`
-构造），下一轮继续。
+**schema 归一化也搬到 Python**：`langgraph_rs/graph/_schema.py` 负责把类式 schema 展开、把自定义
+`BaseChannel` 标记成 `{"__custom_channel__": channel}`；原生 `schema_from_py` 只接受纯字典，不再
+`isinstance` 判断垫片的基类。Rust 里那段 `exec` 出来的 `_schema_from_class` / `MessagesState`
+也随之删除（改由同一 Python 模块提供）。
+
+`Rust 侧垫片 import` 从 17 处降到 **3 处**（JsonPlus 编解码 ×2、`ToolRuntime` 构造），下一轮继续。
 
 **`astream` 的形状也对齐了 LG**：LG 的 `astream` 是 **async generator（不可 await）**，此前我们返回
 可 await 对象；现在是 `async def ... yield`，与 LG 一致（相关测试已改）。

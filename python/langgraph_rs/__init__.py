@@ -16,6 +16,7 @@ from __future__ import annotations
 from . import langgraph_rs as _native
 from .langgraph_rs import *  # noqa: F401,F403
 from . import channels, pregel
+from .graph._schema import MessagesState, _schema_from_class
 from .graph.state import AsyncStateGraph, CompiledGraph, CompiledStateGraph, StateGraph
 from .stream._stream import AsyncStream
 from .graph.message import MessageGraph
@@ -31,6 +32,7 @@ __all__ = [
     "AsyncStream",
     *[name for name in dir(_native) if not name.startswith("_")],
     "AsyncStateGraph",
+    "MessagesState",
     "CompiledGraph",
     "CompiledStateGraph",
     "StateGraph",

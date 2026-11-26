@@ -534,17 +534,6 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.add_class::<PyAsyncStateGraph>()?;
         module.add_class::<PyAsyncCompiledGraph>()?;
     }
-    let schema_module = pyo3::types::PyModule::from_code(
-        module.py(),
-        c"import typing\n\nclass MessagesState(dict):\n    __annotations__ = {'messages': typing.Annotated[list, 'add_messages']}\n\ndef _schema_from_class(cls):\n    # `typing.get_type_hints` resolves PEP 563 string annotations (``from __future__\n    # import annotations`` maps every annotation to a string), which a plain\n    # `__annotations__` walk would silently treat as a last-value channel.\n    try:\n        annotations = typing.get_type_hints(cls, include_extras=True)\n    except Exception:\n        annotations = {}\n        for base in reversed(getattr(cls, '__mro__', [cls])):\n            annotations.update(getattr(base, '__annotations__', {}))\n    out = {}\n    for name, annotation in annotations.items():\n        reducer = 'last_value'\n        if getattr(annotation, '__name__', None) == 'IsLastStep':\n            reducer = 'is_last_step'\n        elif getattr(annotation, '__name__', None) == 'RemainingSteps':\n            reducer = 'remaining_steps'\n        elif typing.get_origin(annotation) is typing.Annotated:\n            args = typing.get_args(annotation)\n            reducer = args[1]\n        out[name] = reducer\n    return out\n",
-        c"langgraph_rs_schema.py",
-        c"langgraph_rs_schema",
-    )?;
-    module.add("MessagesState", schema_module.getattr("MessagesState")?)?;
-    module.add(
-        "_schema_from_class",
-        schema_module.getattr("_schema_from_class")?,
-    )?;
     module.add_function(wrap_pyfunction!(message_graph, module)?)?;
     module.add_function(wrap_pyfunction!(task, module)?)?;
     module.add_function(wrap_pyfunction!(entrypoint, module)?)?;

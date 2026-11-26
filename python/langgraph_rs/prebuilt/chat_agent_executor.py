@@ -94,8 +94,12 @@ _native_create_react_agent = globals()["create_react_agent"]
 
 def create_react_agent(*args: Any, **kwargs: Any) -> Any:
     """Build the agent natively, then apply the facade (LangGraph returns a runnable graph)."""
+    from ..graph._schema import normalize_schema
     from ..graph.state import CompiledStateGraph
 
+    # The extension only accepts a normalised schema dict; class schemas are expanded here.
+    if "state_schema" in kwargs:
+        kwargs["state_schema"] = normalize_schema(kwargs["state_schema"])
     return CompiledStateGraph(_native_create_react_agent(*args, **kwargs))
 
 

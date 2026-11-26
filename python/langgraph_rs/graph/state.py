@@ -186,8 +186,30 @@ class StateGraph(_native.StateGraph):
     """Rust builder whose ``compile()`` returns the ``Runnable`` facade.
 
     The native method returns the engine object; wrapping happens here so the extension never has
-    to call back into Python to build the facade.
+    to call back into Python to build the facade. The schema is normalised here too: class schemas
+    are expanded and custom channels marked, so the engine only sees plain data.
     """
+
+    def __new__(
+        cls,
+        state_schema: Any = None,
+        input_schema: Any = None,
+        output_schema: Any = None,
+        private_schema: Any = None,
+        managed_values: bool = False,
+    ) -> Any:
+        # The native constructor is `tp_new`, so normalisation has to happen here (before the
+        # engine sees the schema); a subclass `__init__` would run too late.
+        from ._schema import normalize_schema
+
+        return super().__new__(
+            cls,
+            normalize_schema(state_schema),
+            input_schema,
+            output_schema,
+            private_schema,
+            managed_values,
+        )
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
         return CompiledStateGraph(super().compile(*args, **kwargs))
@@ -195,6 +217,21 @@ class StateGraph(_native.StateGraph):
 
 class AsyncStateGraph(_native.AsyncStateGraph):
     """Async counterpart of :class:`StateGraph`."""
+
+    def __new__(
+        cls,
+        state_schema: Any = None,
+        input_schema: Any = None,
+        output_schema: Any = None,
+        private_schema: Any = None,
+        managed_values: bool = False,
+    ) -> Any:
+        # The native constructor is `tp_new`, so normalisation has to happen here (before the
+        # engine sees the schema); a subclass `__init__` would run too late.
+        from ._schema import normalize_schema
+
+        # The async builder takes the schema only; the channel views are a sync-builder feature.
+        return super().__new__(cls, normalize_schema(state_schema))
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
         return CompiledStateGraph(super().compile(*args, **kwargs))

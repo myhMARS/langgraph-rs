@@ -252,5 +252,7 @@ def push_message(
     """Write a message to the `messages` stream mode and (optionally) the state channel."""
     return message  # type: ignore[return-value]
 
-_MISSING = re_export(globals(), ["MessagesState", "RemoveMessage", "add_messages", "message_graph"])
+_MISSING = re_export(globals(), ["RemoveMessage", "add_messages", "message_graph"])
+# `MessagesState` lives in `_schema` now that the extension no longer embeds it.
+from ._schema import MessagesState  # noqa: E402  (after the re-export block)
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
