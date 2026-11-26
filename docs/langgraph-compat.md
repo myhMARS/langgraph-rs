@@ -332,6 +332,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `durability="exit"` 的暂停历史（2026-11-26）
+
+实测 LG：`durability="exit"` 下运行暂停时**只保留一个 checkpoint**（`source="loop"`，携带 `next`），
+恢复后总共两个。扩展此前会在暂停时把「本回合输入 checkpoint」也补写出来，导致暂停历史多一条。
+
+现在暂停只补写 post（loop）checkpoint，与 LG 一致：
+
+```
+暂停后  [('loop', 1, ('gate',))]
+恢复后  [('loop', 2, ()), ('loop', 1, ('gate',))]
+```
+
+`durability="sync"` / `"async"` 的历史（`loop 1 / loop 0 / input -1`）本来就一致。
+
 ### `bulk_update_state` 与 `get_state_history` 的参数（2026-11-26）
 
 实测 LG 1.2.22 后修正两处：

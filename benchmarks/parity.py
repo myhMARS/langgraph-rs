@@ -474,6 +474,73 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_durability_pause_scenario() -> list[dict]:
+    """`durability="exit"` keeps one checkpoint at a pause and one after the resume."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        log: list
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("gate", lambda state: {"log": [lg_interrupt("ok?")]})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "gate")
+        graph.add_edge("gate", END)
+        return graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_build():
+        graph = rs.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("gate", lambda state: {"log": [rs.interrupt("ok?")]})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "gate")
+        graph.set_finish_point("gate")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def history(app, config):
+        return [(snap.metadata.get("source"), snap.metadata.get("step"), list(snap.next))
+                for snap in app.get_state_history(config)]
+
+    results = {}
+    for label, build in (("rs", rs_build), ("lg", lg_build)):
+        app = build()
+        config = {"configurable": {"thread_id": f"durability-{label}"}}
+        payload = {"value": 0, "log": []}
+        app.invoke(payload, config, durability="exit")
+        paused = history(app, config)
+        app.invoke(LgCommand(resume="yes") if label == "lg" else rs.Command(resume="yes"),
+                   config, durability="exit")
+        results[label] = {
+            "paused": paused,
+            "resumed": history(app, config),
+            "final": dict(app.get_state(config).values),
+        }
+    return [
+        {
+            "scenario": "durability_pause",
+            "rs": results["rs"],
+            "lg": results["lg"],
+            "equivalent": results["rs"] == results["lg"],
+            "bench": {
+                "rs": measure(
+                    lambda: rs_build().invoke(
+                        {"value": 0, "log": []},
+                        {"configurable": {"thread_id": "durability-bench-rs"}},
+                    )
+                ),
+                "lg": measure(
+                    lambda: lg_build().invoke(
+                        {"value": 0, "log": []},
+                        {"configurable": {"thread_id": "durability-bench-lg"}},
+                    )
+                ),
+            },
+        }
+    ]
+
+
 def run_message_stream_scenario() -> list[dict]:
     """`stream_mode="messages"` yields a message chunk plus node/step/trigger metadata."""
     from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -2633,6 +2700,7 @@ def main() -> None:
         run_task_triggers_scenario,
         run_bulk_update_scenario,
         run_message_stream_scenario,
+        run_durability_pause_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

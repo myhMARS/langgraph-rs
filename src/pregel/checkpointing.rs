@@ -406,30 +406,10 @@ where
     let _ = next;
     // Durability::Exit defers this turn's input/post checkpoints; when the run pauses they
     // are flushed first, and the pause then attaches to the post checkpoint in place.
-    if force_new && let Some(raw) = draft.raw_input {
-        let start_tasks = vec![crate::_internal::node::Task::new(crate::START)];
-        save_checkpoint_via(
-            backend,
-            thread_id,
-            namespace,
-            parent,
-            previous,
-            raw,
-            &start_tasks,
-            step.saturating_sub(1),
-            false,
-            false,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            &[],
-            "input",
-            &std::collections::HashMap::new(),
-            None,
-            emit,
-            sink,
-        )
-        .await?;
+    // Durability::Exit defers this turn's checkpoints; a pause flushes the *post* checkpoint
+    // only, because LangGraph does not keep the raw-input one for a deferred turn (its pause
+    // history has a single entry).
+    if force_new && draft.raw_input.is_some() {
         save_checkpoint_via(
             backend,
             thread_id,

@@ -2553,4 +2553,28 @@ savers, transformers and tools are user code, and returning values requires cons
 objects. Neither is a reverse call into the extension's own logic.
 
 Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
-Rust tests clean.
+Rust tests clean.### Round 117: `durability="exit"` keeps one checkpoint at a pause
+
+Two behaviours were compared; the first already matched, the second did not.
+
+* `stream_mode="custom"` with `get_stream_writer()`: identical on both engines — plain payloads in
+  `custom` mode (`[{'progress': 1}, 'half way']`), the same interleaving in multi-mode
+  (`values`, `custom`, `custom`, `values`), **no** propagation from a subgraph unless
+  `subgraphs=True`, and `((namespace,), payload)` tuples when it is requested.
+* `durability="exit"` across a pause: LangGraph keeps **one** checkpoint (`source="loop"`,
+  carrying `next=('gate',)`) and two after the resume. The extension flushed the deferred raw-input
+  checkpoint as well, so its pause history had an extra `source="input"` entry.
+
+`persist_pause` now flushes only the post checkpoint for a deferred turn. Verified:
+
+```
+rs  paused [('loop', 1, ['gate'])]   resumed [('loop', 2, []), ('loop', 1, ['gate'])]
+lg  paused [('loop', 1, ('gate',))]  resumed [('loop', 2, ()), ('loop', 1, ('gate',))]
+```
+
+`sync` / `async` histories were already identical (`loop 1 / loop 0 / input -1`).
+
+New parity scenario `durability_pause` compares pause history, resume history and final state:
+44/44 scenarios equivalent.
+
+Suite is 445 tests, examples 10/10, streaming-liveness PASS, clippy and Rust tests clean.
