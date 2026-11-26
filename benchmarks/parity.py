@@ -30,6 +30,8 @@ from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
 from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode as LgToolNode
 from langgraph.types import interrupt as lg_interrupt
 
 HERE = Path(__file__).resolve().parent
@@ -472,6 +474,67 @@ def task_triggers_pair():
     )
     rs_fan.set_finish_point("work")
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
+
+
+def run_tool_error_scenario() -> list[dict]:
+    """`ToolNode(handle_tool_errors=...)`: error ToolMessages and propagation."""
+
+    def boom(query: str) -> str:
+        """Always fails."""
+        raise ValueError("kaboom")
+
+    call = {"role": "ai", "content": "", "tool_calls": [
+        {"name": "boom", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}
+    ]}
+
+    def lg_run(handler):
+        node = LgToolNode([boom], handle_tool_errors=handler)
+
+        class S(TypedDict):
+            messages: Annotated[list, add_messages]
+
+        graph = LgStateGraph(S)
+        graph.add_node("tools", node)
+        graph.add_edge(START, "tools")
+        graph.add_edge("tools", END)
+        try:
+            out = graph.compile().invoke({"messages": [{"role": "user", "content": "go"}, call]})
+            last = out["messages"][-1]
+            return {"status": getattr(last, "status", None), "content": str(last.content)}
+        except Exception as exc:  # noqa: BLE001
+            return {"failed": type(exc).__name__}
+
+    def rs_run(handler):
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", rs.prebuilt.ToolNode([boom], handle_tool_errors=handler))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        try:
+            out = graph.compile().invoke({"messages": [{"role": "user", "content": "go"}, call]})
+            last = out["messages"][-1]
+            return {"status": last.get("status"), "content": str(last.get("content"))}
+        except Exception as exc:  # noqa: BLE001
+            return {"failed": type(exc).__name__}
+
+    cases = {}
+    for label, handler in (
+        ("default", True),
+        ("message", "nope"),
+        ("callable", lambda error: f"handled {error}"),
+    ):
+        cases[label] = {"rs": rs_run(handler), "lg": lg_run(handler)}
+    return [
+        {
+            "scenario": "tool_errors",
+            "rs": {name: item["rs"] for name, item in cases.items()},
+            "lg": {name: item["lg"] for name, item in cases.items()},
+            "equivalent": all(item["rs"] == item["lg"] for item in cases.values()),
+            "bench": {
+                "rs": measure(lambda: rs_run(True)),
+                "lg": measure(lambda: lg_run(True)),
+            },
+        }
+    ]
 
 
 def run_command_graph_scenario() -> list[dict]:
@@ -3294,6 +3357,7 @@ def main() -> None:
         run_send_interrupt_scenario,
         run_events_v2_scenario,
         run_command_graph_scenario,
+        run_tool_error_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

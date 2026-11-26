@@ -3,6 +3,8 @@
 
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use std::sync::Arc;
+
 use pyo3::types::{PyAny, PyDict};
 
 use super::convert::*;
@@ -86,9 +88,19 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                 Python::attach(|py| -> Result<serde_json::Value> {
                     let py_args =
                         value_to_py(py, &args).map_err(|error| pyerr_to_error(py, error))?;
+                    // A failing tool reports the exception's `repr`, which is what LangGraph puts
+                    // in the `ToolMessage` (`Error: ValueError('kaboom')`).
+                    let failed = |error: pyo3::PyErr| {
+                        let repr = error
+                            .value(py)
+                            .repr()
+                            .map(|text| text.to_string())
+                            .unwrap_or_else(|_| error.to_string());
+                        crate::_internal::error::Error::other(repr)
+                    };
                     let result = if injected.is_empty() {
                         call_plain_tool(py, &function, py_args.bind(py), &keywords)
-                            .map_err(|error| pyerr_to_error(py, error))?
+                            .map_err(failed)?
                     } else {
                         // LangGraph injects these parameters instead of taking them from the
                         // model: the state mapping and the long-term store object.
@@ -153,11 +165,11 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                             // LangChain tools take the argument mapping as one positional value.
                             function
                                 .call1(py, (kwargs,))
-                                .map_err(|error| pyerr_to_error(py, error))?
+                                .map_err(failed)?
                         } else {
                             function
                                 .call(py, (), Some(&kwargs))
-                                .map_err(|error| pyerr_to_error(py, error))?
+                                .map_err(failed)?
                         }
                     };
                     py_to_value(result.bind(py)).map_err(|error| pyerr_to_error(py, error))
@@ -273,18 +285,29 @@ pub struct PyToolNode {
 #[pymethods]
 impl PyToolNode {
     #[new]
-    #[pyo3(signature = (tools, messages_key=None))]
-    fn new(tools: &Bound<'_, PyAny>, messages_key: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (tools, messages_key=None, handle_tool_errors=None))]
+    fn new(
+        py: Python<'_>,
+        tools: &Bound<'_, PyAny>,
+        messages_key: Option<String>,
+        handle_tool_errors: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
         let mut node = ToolNode::new(tool_definitions(tools)?);
         if let Some(key) = messages_key {
             node = node.messages_key(key);
+        }
+        if let Some(handler) = handle_tool_errors.filter(|value| !value.is_none()) {
+            node = node.error_policy(tool_error_policy(py, handler)?);
         }
         Ok(Self { node })
     }
 
     /// Execute the pending tool calls and return message updates.
     fn __call__(&self, py: Python<'_>, state: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let state = state_from_py(Some(state))?;
+        // LangChain message objects carry `tool_calls` as attributes; the engine's JSON form would
+        // only see the constructor payload, so the calls are flattened here first.
+        let normalized = flatten_messages(py, state, self.node.messages_key_name())?;
+        let state = state_from_py(Some(&normalized))?;
         let output = self
             .node
             .execute(&state)
@@ -299,6 +322,109 @@ impl PyToolNode {
     fn __repr__(&self) -> String {
         "ToolNode()".to_string()
     }
+}
+
+/// Copy `state` with its message list reduced to plain dicts (`role` / `content` / `tool_calls`).
+fn flatten_messages<'py>(
+    py: Python<'py>,
+    state: &Bound<'py, PyAny>,
+    key: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let Ok(dict) = state.cast::<PyDict>() else {
+        return Ok(state.clone());
+    };
+    let copy = PyDict::new(py);
+    for (name, value) in dict.iter() {
+        copy.set_item(name, value)?;
+    }
+    let Some(messages) = dict.get_item(key)? else {
+        return Ok(copy.into_any());
+    };
+    let Ok(items) = messages.try_iter() else {
+        return Ok(copy.into_any());
+    };
+    let flat = pyo3::types::PyList::empty(py);
+    for item in items {
+        let item = item?;
+        let Ok(message) = item.cast::<PyDict>() else {
+            let converted = PyDict::new(py);
+            for attribute in ["type", "role"] {
+                if let Ok(value) = item.getattr(attribute) {
+                    converted.set_item("role", value)?;
+                    break;
+                }
+            }
+            if let Ok(value) = item.getattr("content") {
+                converted.set_item("content", value)?;
+            }
+            if let Ok(value) = item.getattr("tool_calls") {
+                converted.set_item("tool_calls", value)?;
+            }
+            if let Ok(value) = item.getattr("id") {
+                converted.set_item("id", value)?;
+            }
+            flat.append(converted)?;
+            continue;
+        };
+        flat.append(message)?;
+    }
+    copy.set_item(key, flat)?;
+    Ok(copy.into_any())
+}
+
+/// Original message behind an exception `repr` (`ValueError('kaboom')` -> `kaboom`).
+fn exception_text(repr: &str) -> String {
+    let Some(open) = repr.find('(') else {
+        return repr.to_string();
+    };
+    let Some(close) = repr.rfind(')') else {
+        return repr.to_string();
+    };
+    let inner = &repr[open + 1..close];
+    let trimmed = inner.trim();
+    let unquoted = trimmed
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+        .unwrap_or(trimmed);
+    if unquoted.is_empty() {
+        repr.to_string()
+    } else {
+        unquoted.to_string()
+    }
+}
+
+/// Build LangGraph's `handle_tool_errors` policy.
+///
+/// `True` uses the default message, a string replaces the message, `False` propagates, and a
+/// callable receives the exception and returns the message.
+fn tool_error_policy(
+    _py: Python<'_>,
+    handler: &Bound<'_, PyAny>,
+) -> PyResult<Option<crate::prebuilt::ToolErrorPolicy>> {
+    if let Ok(enabled) = handler.extract::<bool>() {
+        return Ok(enabled.then(crate::prebuilt::default_tool_error_policy));
+    }
+    if let Ok(text) = handler.extract::<String>() {
+        return Ok(Some(Arc::new(move |_message: &str| Some(text.clone()))));
+    }
+    if handler.is_callable() {
+        let callable = handler.clone().unbind();
+        return Ok(Some(Arc::new(move |message: &str| {
+            Python::attach(|py| -> Option<String> {
+                // LangGraph hands the handler the original exception; the engine keeps its `repr`
+                // (`ValueError('kaboom')`), so the payload is unwrapped back into the message the
+                // handler would have seen from `str(exc)`.
+                let error = pyo3::exceptions::PyRuntimeError::new_err(exception_text(message));
+                match callable.bind(py).call1((error.value(py),)) {
+                    Ok(value) => value.extract::<String>().ok(),
+                    Err(_) => None,
+                }
+            })
+        })));
+    }
+    // A tuple/type of exceptions only filters what propagates; the extension has no exception
+    // object at this point, so those all use the default message.
+    Ok(Some(crate::prebuilt::default_tool_error_policy()))
 }
 
 /// Route to "tools" when the last message has tool calls, END otherwise.

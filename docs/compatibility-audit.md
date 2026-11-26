@@ -2804,4 +2804,32 @@ watchdog (`run_with_idle_timeout`) never got to poll while a Python coroutine he
 Verified against LangGraph: a silent node raises the idle `NodeTimeoutError`, while a node writing
 `custom()` every 20 ms with `idle_timeout=0.05` completes normally on both engines.
 
-Suite is 461 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.
+Suite is 461 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.### Round 129: `ToolNode(handle_tool_errors=...)`
+
+LangGraph's `ToolNode` decides what a raising tool does through `handle_tool_errors`; the extension
+did not accept the argument at all (`TypeError: ToolNode.__new__() got an unexpected keyword
+argument`), and failed tool messages carried no `status`.
+
+All four shapes now match LangGraph:
+
+| `handle_tool_errors` | resulting `ToolMessage` |
+|---|---|
+| `True` (default) | `status="error"`, content `Error: ValueError('kaboom')\n Please fix your mistakes.` |
+| string | `status="error"`, content is that string |
+| callable | `status="error"`, content is the handler's return value |
+| `False` | the exception propagates and the node fails |
+
+Two details had to follow: a tool error is now formatted from the exception `repr()` (what LangGraph
+writes into the message), and the exception handed to a callable has the original message as its
+`str()` (`kaboom`), not the repr.
+
+This also exposed a deeper problem: `ToolNode` only saw `tool_calls` when the state held plain dict
+messages. LangChain message objects reach the engine as encoded constructor payloads, so
+`AIMessage(...).tool_calls` was invisible and the node silently did nothing. The node now flattens
+messages to `role` / `content` / `tool_calls` before executing.
+
+Known gap: `handle_tool_errors=<exception type or tuple>` cannot filter by type, because the engine
+only keeps the error text; those values fall back to the default message.
+
+Suite is 465 tests (four new), parity 54/54 (new `tool_errors` scenario), examples 10/10, clippy and
+Rust tests clean.

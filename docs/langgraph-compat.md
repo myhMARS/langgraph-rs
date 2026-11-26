@@ -332,6 +332,30 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `ToolNode(handle_tool_errors=...)`（2026-11-26）
+
+LG 的 `ToolNode` 用 `handle_tool_errors` 决定工具抛异常后的行为，扩展此前连这个参数都不接受
+（`TypeError: ToolNode.__new__() got an unexpected keyword argument`），而且失败的工具消息没有
+`status`。
+
+实测四种形态，现已逐条对齐：
+
+| `handle_tool_errors` | 结果 `ToolMessage` |
+|---|---|
+| `True`（默认） | `status="error"`，内容 `Error: ValueError('kaboom')\n Please fix your mistakes.` |
+| 字符串 | `status="error"`，内容就是该字符串 |
+| 可调用对象 | `status="error"`，内容是 `handler(exc)` 的返回值 |
+| `False` | 异常向上抛出，节点失败 |
+
+两处细节也一并修正：
+
+- 工具异常文本改用**异常本体的 `repr()`**（`ValueError('kaboom')`），这正是 LG 写进消息的形式
+- 交给可调用对象的异常，其 `str()` 是**原始消息**（`kaboom`），与 LG 一致
+
+另外修了一个更基础的问题：`ToolNode` 现在会先把 LangChain **消息对象**摊平成
+`role`/`content`/`tool_calls` 字典再执行，否则 `AIMessage(...).tool_calls` 在引擎的 JSON 形态里
+看不到（此前的测试都用字典消息，没暴露这一点）。
+
 ### `idle_timeout` 的语义（2026-11-26）
 
 LG 的 `idle_timeout` 在节点**停止上报进度**时触发，抛

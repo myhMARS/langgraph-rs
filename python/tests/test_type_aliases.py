@@ -1286,3 +1286,44 @@ class IdleTimeoutTest(unittest.TestCase):
             self.assertEqual(await graph.compile().ainvoke({"value": 0}), {"value": 1})
 
         asyncio.run(scenario())
+
+
+class ToolNodeErrorHandlingTest(unittest.TestCase):
+    """`ToolNode(handle_tool_errors=...)` follows LangGraph's four shapes."""
+
+    @staticmethod
+    def _run(handle):
+        from langchain_core.messages import AIMessage
+
+        def boom(query: str) -> str:
+            raise ValueError("kaboom")
+
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"name": "boom", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}],
+        )
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", langgraph_rs.prebuilt.ToolNode([boom], handle_tool_errors=handle))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        return graph.compile().invoke({"messages": [{"role": "user", "content": "go"}, ai]})
+
+    def test_default_message(self):
+        last = self._run(True)["messages"][-1]
+        self.assertEqual(last["status"], "error")
+        self.assertIn("Error: ValueError('kaboom')", last["content"])
+        self.assertIn("Please fix your mistakes.", last["content"])
+
+    def test_string_replaces_the_message(self):
+        last = self._run("nope")["messages"][-1]
+        self.assertEqual(last["content"], "nope")
+        self.assertEqual(last["status"], "error")
+
+    def test_callable_receives_the_error(self):
+        last = self._run(lambda error: f"handled {error}")["messages"][-1]
+        # LangGraph hands the handler the original exception, so `str(exc)` is the message.
+        self.assertEqual(last["content"], "handled kaboom")
+
+    def test_false_propagates(self):
+        with self.assertRaises(Exception):
+            self._run(False)

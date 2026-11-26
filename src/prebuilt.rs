@@ -85,6 +85,17 @@ impl ToolDefinition {
 pub struct ToolNode {
     tools: Arc<HashMap<String, ToolDefinition>>,
     messages_key: String,
+    /// Maps a tool failure message to the `ToolMessage` content; `None` propagates the error
+    /// (LangGraph's `handle_tool_errors`).
+    error_policy: Option<ToolErrorPolicy>,
+}
+
+/// Maps a tool failure message to the `ToolMessage` content (`None` propagates the error).
+pub type ToolErrorPolicy = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// LangGraph's default error message for a failed tool call.
+pub fn default_tool_error_policy() -> ToolErrorPolicy {
+    Arc::new(|message: &str| Some(format!("Error: {message}\n Please fix your mistakes.")))
 }
 
 impl std::fmt::Debug for ToolNode {
@@ -92,6 +103,7 @@ impl std::fmt::Debug for ToolNode {
         f.debug_struct("ToolNode")
             .field("tools", &self.tools.keys().collect::<Vec<_>>())
             .field("messages_key", &self.messages_key)
+            .field("handles_tool_errors", &self.error_policy.is_some())
             .finish()
     }
 }
@@ -109,12 +121,27 @@ impl ToolNode {
         Self {
             tools: Arc::new(tools),
             messages_key: "messages".to_string(),
+            error_policy: Some(default_tool_error_policy()),
         }
     }
 
     /// Channel that stores the message list.
     pub fn messages_key(mut self, key: impl Into<String>) -> Self {
         self.messages_key = key.into();
+        self
+    }
+
+    /// Channel name holding the message list.
+    pub fn messages_key_name(&self) -> &str {
+        &self.messages_key
+    }
+
+    /// How tool failures are reported (LangGraph's `handle_tool_errors`).
+    ///
+    /// `None` propagates the exception; a policy maps the failure message to the content of an
+    /// error `ToolMessage`.
+    pub fn error_policy(mut self, policy: Option<ToolErrorPolicy>) -> Self {
+        self.error_policy = policy;
         self
     }
 
@@ -159,13 +186,24 @@ impl ToolNode {
                         },
                         None,
                     ),
-                    Err(error) => (format!("tool `{name}` failed: {error}"), Some(error.to_string())),
+                    Err(error) => {
+                        let detail = error.to_string();
+                        match &self.error_policy {
+                            Some(policy) => match policy(&detail) {
+                                Some(content) => (content, Some(detail)),
+                                // The policy declined this error, so it propagates.
+                                None => return Err(error),
+                            },
+                            None => return Err(error),
+                        }
+                    }
                 },
                 None => (
                     format!("unknown tool `{name}`"),
                     Some(format!("unknown tool `{name}`")),
                 ),
             };
+            let errored = failed.is_some();
             match failed {
                 Some(message) => {
                     let _ = crate::runtime::context::push_tool_event(json!({
@@ -182,12 +220,17 @@ impl ToolNode {
                     }));
                 }
             }
-            results.push(json!({
+            let mut message = json!({
                 "role": "tool",
                 "tool_call_id": id,
                 "name": name,
                 "content": content,
-            }));
+            });
+            if errored {
+                // LangGraph marks a failed tool call on the `ToolMessage`.
+                message["status"] = Value::String("error".to_string());
+            }
+            results.push(message);
         }
         Ok(NodeOutput::new().update(&self.messages_key, Value::Array(results)))
     }
