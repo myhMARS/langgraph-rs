@@ -263,6 +263,14 @@ Python 代码，属于正向调用）。
 | 原生 `get_context_jsonschema`（调 `_compat.jsonschema_of`） | 原生只返回 schema，门面在 Python 里转 JSON Schema |
 | `graph_pause::dispatch_*`（回调 Python handler） | 改为记录事件，见下节 |
 
+**构造期包装也搬到 Python**：原生 `compile()` 现在直接返回引擎对象，由 Python 的 `StateGraph` /
+`AsyncStateGraph`（`#[pyclass(subclass)]` 的子类）在 `compile()` 里套上门面；`create_react_agent`
+同理（Python 包装函数，`create_tool_calling_executor` 是同一个对象）。`AsyncStream` 也从「Rust 里
+`exec` 一段 Python 源码」搬到了 `langgraph_rs/stream/_stream.py`。
+
+`Rust 侧垫片 import` 从 17 处降到 **4 处**（JsonPlus 编解码 ×2、`BaseChannel` 识别、`ToolRuntime`
+构造），下一轮继续。
+
 **`astream` 的形状也对齐了 LG**：LG 的 `astream` 是 **async generator（不可 await）**，此前我们返回
 可 await 对象；现在是 `async def ... yield`，与 LG 一致（相关测试已改）。
 

@@ -16,7 +16,8 @@ from __future__ import annotations
 from . import langgraph_rs as _native
 from .langgraph_rs import *  # noqa: F401,F403
 from . import channels, pregel
-from .graph.state import CompiledGraph, CompiledStateGraph
+from .graph.state import AsyncStateGraph, CompiledGraph, CompiledStateGraph, StateGraph
+from .stream._stream import AsyncStream
 from .graph.message import MessageGraph
 from .prebuilt.tool_node import (
     InjectedState,
@@ -26,9 +27,13 @@ from .prebuilt.tool_node import (
     ValidationNode,
 )
 
-__all__ = [name for name in dir(_native) if not name.startswith("_")] + [
+__all__ = [
+    "AsyncStream",
+    *[name for name in dir(_native) if not name.startswith("_")],
+    "AsyncStateGraph",
     "CompiledGraph",
     "CompiledStateGraph",
+    "StateGraph",
     "InjectedState",
     "InjectedStore",
     "MessageGraph",
@@ -37,6 +42,8 @@ __all__ = [name for name in dir(_native) if not name.startswith("_")] + [
     "ValidationNode",
 ]
 
+
+from .prebuilt.chat_agent_executor import create_react_agent
 
 def __getattr__(name: str):
     try:

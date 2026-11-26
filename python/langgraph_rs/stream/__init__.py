@@ -8,6 +8,8 @@ transformers are importable but raise until the mux pipeline lands.
 
 from __future__ import annotations
 
+from ._stream import AsyncStream
+
 from . import run_stream, transformers
 from ._types import ProtocolEvent, StreamTransformer, transformer_requires_async
 from .run_stream import (
@@ -30,6 +32,7 @@ from .transformers import (
 )
 
 __all__ = [
+    "AsyncStream",
     "AsyncGraphRunStream",
     "AsyncSubgraphRunStream",
     "CheckpointsTransformer",

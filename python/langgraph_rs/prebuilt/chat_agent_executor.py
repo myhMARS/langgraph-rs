@@ -88,6 +88,17 @@ StateSchema = Any
 StateSchemaType = Any
 
 _MISSING = re_export(globals(), ["create_react_agent"])
+#: The native builder; the public name wraps its result in the `Runnable` facade.
+_native_create_react_agent = globals()["create_react_agent"]
+
+
+def create_react_agent(*args: Any, **kwargs: Any) -> Any:
+    """Build the agent natively, then apply the facade (LangGraph returns a runnable graph)."""
+    from ..graph.state import CompiledStateGraph
+
+    return CompiledStateGraph(_native_create_react_agent(*args, **kwargs))
+
+
 #: Deprecated LangGraph name for `create_react_agent`.
-create_tool_calling_executor = globals().get("create_react_agent")
+create_tool_calling_executor = create_react_agent
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

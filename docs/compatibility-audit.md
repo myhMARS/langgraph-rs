@@ -2491,4 +2491,28 @@ next rounds.
 awaited it were updated, and the facade degrades gracefully when a graph has no `live_sink`.
 
 Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
+Rust tests clean.### Round 114: construction-time wrapping moves to Python
+
+`compile()` no longer returns the facade from Rust; the native method returns the engine object and
+a Python subclass applies the facade:
+
+* `PyStateGraph` / `PyAsyncStateGraph` gained `#[pyclass(subclass)]`;
+* `graph/state.py` defines `StateGraph` / `AsyncStateGraph` subclasses whose `compile()` wraps the
+  native result in `CompiledStateGraph`, and both packages export those names;
+* `create_react_agent` is the same pattern: a Python wrapper over the native builder, and
+  `create_tool_calling_executor` is that same object (identity preserved, as in LangGraph);
+* `wrap_compiled` is deleted, and `AsyncStream` moved out of a Rust `exec` of embedded Python source
+  into `langgraph_rs/stream/_stream.py`.
+
+Shim imports from Rust: 17 -> 4.
+
+What is left, and why it is harder:
+
+| Site | Why it needs Python |
+|---|---|
+| `_compat.encode_value` / `decode_value` | the JsonPlus codec recreates LangChain objects from checkpoints |
+| `channels.BaseChannel` detection | the channel base class lives in the shim; candidates need it to invert |
+| `prebuilt.tool_node.ToolRuntime` | the injected runtime handle is a Python dataclass the tool receives |
+
+Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
 Rust tests clean.

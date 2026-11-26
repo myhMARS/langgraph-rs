@@ -260,7 +260,8 @@ impl PyStateGraph {
                 last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             },
         )?;
-        crate::adapters::python::graph::graph_compiled::wrap_compiled(py, native)
+        // Return the native object: the Python builder wraps it in the `Runnable` facade.
+        Ok(native.into_any())
     }
 }
 

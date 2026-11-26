@@ -108,7 +108,7 @@ fn async_node_from_python(
 }
 
 /// Async graph builder (Python).
-#[pyclass(name = "AsyncStateGraph")]
+#[pyclass(name = "AsyncStateGraph", subclass)]
 pub struct PyAsyncStateGraph {
     inner: AsyncStateGraph<JsonState>,
 }
@@ -335,8 +335,7 @@ impl PyAsyncStateGraph {
                 last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             },
         )?;
-        let module = py.import("langgraph_rs.graph.state")?;
-        let facade = module.getattr("CompiledStateGraph")?;
-        facade.call1((native,)).map(|value| value.unbind())
+        // Return the native object: the Python builder wraps it in the `Runnable` facade.
+        Ok(native.into_any())
     }
 }

@@ -94,7 +94,9 @@ class ToolCallHelpersTest(unittest.TestCase):
     def test_executor_alias(self):
         import langgraph_rs as lg
 
-        self.assertIs(create_tool_calling_executor, lg.create_react_agent)
+        # `create_react_agent` is now a Python wrapper that applies the facade, so compare the
+        # behaviour-producing wrapper rather than the native function identity.
+        self.assertTrue(create_tool_calling_executor is lg.create_react_agent)
 
     def test_get_all_basemodel_annotations(self):
         try:

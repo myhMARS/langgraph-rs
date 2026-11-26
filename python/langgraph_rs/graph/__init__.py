@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from .._compat import module_getattr, re_export
 from .message import MessageGraph, MessagesState, add_messages, message_graph
-from .state import CompiledGraph, CompiledStateGraph, StateGraph
+from .state import AsyncStateGraph, CompiledGraph, CompiledStateGraph, StateGraph
 
 __all__ = [
+    "AsyncStateGraph",
     "CompiledGraph",
     "CompiledStateGraph",
     "END",

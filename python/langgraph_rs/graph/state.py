@@ -14,6 +14,7 @@ from ..types import All, CachePolicy
 
 __all__ = [
     "All",
+    "AsyncStateGraph",
     "BaseChannel",
     "BinaryOperatorAggregate",
     "BranchSpec",
@@ -179,6 +180,24 @@ def _dispatch_lifecycle(graph: Any, config: Any) -> None:
                 manager.on_interrupt(payload)
             except Exception:  # pragma: no cover
                 pass
+
+
+class StateGraph(_native.StateGraph):
+    """Rust builder whose ``compile()`` returns the ``Runnable`` facade.
+
+    The native method returns the engine object; wrapping happens here so the extension never has
+    to call back into Python to build the facade.
+    """
+
+    def compile(self, *args: Any, **kwargs: Any) -> Any:
+        return CompiledStateGraph(super().compile(*args, **kwargs))
+
+
+class AsyncStateGraph(_native.AsyncStateGraph):
+    """Async counterpart of :class:`StateGraph`."""
+
+    def compile(self, *args: Any, **kwargs: Any) -> Any:
+        return CompiledStateGraph(super().compile(*args, **kwargs))
 
 
 class _CompiledMeta(ABCMeta):
@@ -377,8 +396,10 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
                     raise
                 call.pop("live_sink")
                 stream = self._inner.astream(input, **call)
+            from ..stream import AsyncStream
+
             _dispatch_lifecycle(self._inner, config)
-            async for chunk in stream:
+            async for chunk in AsyncStream(stream):
                 yield chunk
             return
         # Async generator over the synchronous stream, collected on a worker thread.

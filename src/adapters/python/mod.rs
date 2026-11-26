@@ -473,13 +473,6 @@ fn version() -> &'static str {
 
 #[pymodule]
 fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let stream_module = pyo3::types::PyModule::from_code(
-        module.py(),
-        c"class AsyncStream:\n    def __init__(self, awaitable):\n        self._awaitable = awaitable\n        self._iter = None\n    def __await__(self):\n        return self._awaitable.__await__()\n    def __aiter__(self):\n        return self\n    async def __anext__(self):\n        if self._iter is None:\n            self._iter = iter(await self._awaitable)\n        try:\n            return next(self._iter)\n        except StopIteration:\n            raise StopAsyncIteration\n",
-        c"langgraph_rs_async_stream.py",
-        c"langgraph_rs_async_stream",
-    )?;
-    module.add("AsyncStream", stream_module.getattr("AsyncStream")?)?;
     module.add_class::<PyStateGraph>()?;
     module.add_class::<PyCompiledGraph>()?;
     module.add_class::<super::python::types::PyStateSnapshot>()?;

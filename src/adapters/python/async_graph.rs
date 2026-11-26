@@ -749,9 +749,8 @@ impl PyAsyncCompiledGraph {
                 Ok(list.into_any().unbind())
             })
         })?;
-        let module = py.import("langgraph_rs")?;
-        let stream = module.getattr("AsyncStream")?.call1((future,))?;
-        Ok(stream)
+        // Return the awaitable directly: the Python facade wraps it in `AsyncStream`.
+        Ok(future)
     }
 
     #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]
