@@ -287,6 +287,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 并行中断会全部返回（2026-11-26）
+
+同一 superstep 里多个并行节点都 `interrupt()` 时，LangGraph 返回**全部**中断（每个任务一条），
+恢复时用 `Command(resume={id: value, ...})` 按 id 分发。扩展此前只返回第一个——不是引擎没收集，
+而是 Python 侧拿的是 `Error::Interrupt`（只带第一个）：暂停 checkpoint 里其实两个都有。
+
+已修：`pause_values` 改用快照里的 `interrupts`（`stream` 路径同样处理），于是
+
+```
+interrupts: [{'ask': 'a'}, {'ask': 'b'}]
+resume(Command(resume={id_a: 'va', id_b: 'vb'})) -> {'a': 'va', 'b': 'vb'}
+```
+
+per-task 归属也保留：`get_state().tasks` 里 `na` 带 1 条、`nb` 带 1 条。
+
 ### `durability` 的传法（实测对齐）
 
 LangGraph 只在 **`invoke`/`stream` 关键字参数** 上认 `durability`；放进 config（顶层或 `configurable`）

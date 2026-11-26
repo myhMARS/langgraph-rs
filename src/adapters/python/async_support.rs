@@ -97,7 +97,7 @@ pub(crate) fn static_pause_values(
                 py,
                 py_config,
                 &snapshot.checkpoint_id,
-                interrupt,
+                &snapshot.interrupts,
             )?;
             Ok(Some(values))
         }

@@ -692,3 +692,40 @@ class DurabilityPlacementTest(unittest.TestCase):
         app = self._app()
         app.invoke({"value": 0}, {"configurable": {"thread_id": "dur-def"}})
         self.assertEqual(len(self._history(app, "dur-def")), 4)
+
+
+class ParallelInterruptTest(unittest.TestCase):
+    """A superstep that pauses several tasks surfaces every interrupt, like LangGraph."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"a": "last", "b": "last"})
+        graph.add_node("na", lambda state: {"a": langgraph_rs.interrupt({"ask": "a"})})
+        graph.add_node("nb", lambda state: {"b": langgraph_rs.interrupt({"ask": "b"})})
+        graph.set_entry_point("na")
+        graph.set_entry_point("nb")
+        graph.set_finish_point("na")
+        graph.set_finish_point("nb")
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_both_interrupts_are_surfaced(self):
+        app = self._app()
+        result = app.invoke({}, {"configurable": {"thread_id": "pi-1"}})
+        payloads = sorted(item.value["ask"] for item in result["__interrupt__"])
+        self.assertEqual(payloads, ["a", "b"])
+
+    def test_resume_by_interrupt_id(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "pi-2"}}
+        result = app.invoke({}, config)
+        resume = {item.id: f"v{item.value['ask']}" for item in result["__interrupt__"]}
+        resumed = app.invoke(langgraph_rs.Command(resume=resume), config)
+        self.assertEqual((resumed["a"], resumed["b"]), ("va", "vb"))
+
+    def test_each_interrupt_keeps_its_task(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "pi-3"}}
+        app.invoke({}, config)
+        snapshot = app.get_state(config)
+        per_task = {task["name"]: len(task["interrupts"]) for task in snapshot.tasks}
+        self.assertEqual(per_task, {"na": 1, "nb": 1})

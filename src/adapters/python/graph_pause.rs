@@ -19,16 +19,9 @@ pub(crate) fn dispatch_interrupt(
     py: Python<'_>,
     py_config: Option<&Bound<'_, PyAny>>,
     checkpoint_id: &str,
-    interrupt: &crate::Interrupt,
+    interrupts: &[crate::Interrupt],
 ) -> PyResult<()> {
-    dispatch_lifecycle(
-        py,
-        py_config,
-        "interrupt",
-        checkpoint_id,
-        "",
-        std::slice::from_ref(interrupt),
-    )
+    dispatch_lifecycle(py, py_config, "interrupt", checkpoint_id, "", interrupts)
 }
 
 /// Dispatch `GraphCallbackHandler.on_resume` when a run continues from a checkpoint.
@@ -157,6 +150,13 @@ pub(crate) fn pause_values(
         .as_ref()
         .map(|snapshot| snapshot.checkpoint_id.clone())
         .unwrap_or_default();
+    // A superstep can pause several tasks at once; LangGraph surfaces every interrupt, and the
+    // paused checkpoint already carries them, so it is authoritative over the error payload (which
+    // holds only the first one).
+    let interrupts: Vec<crate::Interrupt> = match snapshot.as_ref() {
+        Some(snapshot) if !snapshot.interrupts.is_empty() => snapshot.interrupts.clone(),
+        _ => vec![interrupt.clone()],
+    };
     let values = match snapshot {
         Some(snapshot) => json_state_to_py(py, &snapshot.values)?,
         None => match &interrupt.values {
@@ -165,9 +165,9 @@ pub(crate) fn pause_values(
         },
     };
     if !interrupt.static_pause {
-        attach_interrupts(py, values.bind(py), std::slice::from_ref(interrupt))?;
+        attach_interrupts(py, values.bind(py), &interrupts)?;
     }
-    dispatch_interrupt(py, py_config, &checkpoint_id, interrupt)?;
+    dispatch_interrupt(py, py_config, &checkpoint_id, &interrupts)?;
     Ok(Some(values))
 }
 

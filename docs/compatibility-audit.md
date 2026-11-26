@@ -2218,4 +2218,33 @@ LangGraph argument), so no divergence there either.
 
 Suite is 421 tests, parity 38/38, clippy and Rust tests clean. 11 names remain, all LangGraph's own
 object model (`nodes`, `attach_*`, `input_channels`/`output_channels`, `stream_channels*`,
-`node_error_handler_map`, `schema_to_mapper`).
+`node_error_handler_map`, `schema_to_mapper`).### Round 103: every interrupt from a paused superstep is surfaced
+
+Switching from attribute names to measured behaviour found a real gap. Two parallel nodes that both
+call `interrupt()`:
+
+```
+LangGraph: __interrupt__ has 2 entries, resume with Command(resume={id: value, ...})
+extension: __interrupt__ had 1 entry (the run did pause both tasks)
+```
+
+The engine was already correct — `pause_multi_interrupt` persists every interrupt on the pause
+checkpoint (`snapshot.interrupts`, and `get_state().tasks[*].interrupts` showed one per task). The bug
+was in the Python surfacing layer: `pause_values` built `__interrupt__` from
+`Error::Interrupt`, which carries only the *first* interrupt. It now prefers the snapshot's interrupt
+list (falling back to the error payload when there is no checkpointer), and the `stream` path does the
+same before dispatching `GraphCallbackHandler.on_interrupt`.
+
+Verified end to end:
+
+```
+interrupts: [{'ask': 'a'}, {'ask': 'b'}]
+resume(Command(resume={id_a: 'va', id_b: 'vb'})) -> {'a': 'va', 'b': 'vb'}
+get_state().tasks -> {'na': 1 interrupt, 'nb': 1 interrupt}
+```
+
+A new parity scenario (`parallel_interrupts`) runs the same graph on both engines and compares both
+the payloads and the resumed state: 39/39 scenarios equivalent. Subgraph interrupt bubbling and
+multi-mode streaming (`stream_mode=["updates", "values"]`) were compared in the same pass and matched.
+
+Suite is 424 tests; clippy and Rust tests clean.

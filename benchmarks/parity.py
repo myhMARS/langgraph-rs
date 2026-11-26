@@ -365,6 +365,80 @@ def rs_subgraph():
     return parent.compile()
 
 
+def parallel_interrupt_pair() -> tuple[object, object]:
+    """Two parallel nodes that both interrupt: LangGraph surfaces both and resumes by id."""
+
+    class LgState(TypedDict, total=False):
+        a: int
+        b: int
+
+    def lg_node_a(state):
+        return {"a": lg_interrupt({"ask": "a"})}
+
+    def lg_node_b(state):
+        return {"b": lg_interrupt({"ask": "b"})}
+
+    lg_graph = LgStateGraph(LgState)
+    lg_graph.add_node("na", lg_node_a)
+    lg_graph.add_node("nb", lg_node_b)
+    lg_graph.add_edge(START, "na")
+    lg_graph.add_edge(START, "nb")
+    lg_graph.add_edge("na", END)
+    lg_graph.add_edge("nb", END)
+    lg = lg_graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_node_a(state):
+        return {"a": rs.interrupt({"ask": "a"})}
+
+    def rs_node_b(state):
+        return {"b": rs.interrupt({"ask": "b"})}
+
+    rs_graph = rs.StateGraph({"a": "last", "b": "last"})
+    rs_graph.add_node("na", rs_node_a)
+    rs_graph.add_node("nb", rs_node_b)
+    rs_graph.set_entry_point("na")
+    rs_graph.set_entry_point("nb")
+    rs_graph.set_finish_point("na")
+    rs_graph.set_finish_point("nb")
+    return lg, rs_graph.compile(checkpointer=rs.InMemorySaver())
+
+
+def run_parallel_interrupt_scenario() -> list[dict]:
+    lg, rs_graph = parallel_interrupt_pair()
+    lg_cfg = {"configurable": {"thread_id": "par-lg"}}
+    rs_cfg = {"configurable": {"thread_id": "par-rs"}}
+    lg_out = lg.invoke({}, lg_cfg)
+    rs_out = rs_graph.invoke({}, rs_cfg)
+    lg_payloads = sorted(interrupt.value["ask"] for interrupt in lg_out["__interrupt__"])
+    rs_payloads = sorted(interrupt.value["ask"] for interrupt in rs_out["__interrupt__"])
+    lg_resume = lg.invoke(
+        LgCommand(resume={item.id: f"v{item.value['ask']}" for item in lg_out["__interrupt__"]}),
+        lg_cfg,
+    )
+    rs_resume = rs_graph.invoke(
+        rs.Command(resume={item.id: f"v{item.value['ask']}" for item in rs_out["__interrupt__"]}),
+        rs_cfg,
+    )
+    lg_state = {"a": lg_resume.get("a"), "b": lg_resume.get("b")}
+    rs_state = {"a": rs_resume.get("a"), "b": rs_resume.get("b")}
+    return [
+        {
+            "scenario": "parallel_interrupts",
+            "rs": {"payloads": rs_payloads, "resumed": rs_state},
+            "lg": {"payloads": lg_payloads, "resumed": lg_state},
+            "equivalent": rs_payloads == lg_payloads and rs_state == lg_state,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_graph.invoke({}, {"configurable": {"thread_id": "par-bench-rs"}})
+                ),
+                "lg": measure(
+                    lambda: lg.invoke({}, {"configurable": {"thread_id": "par-bench-lg"}})
+                ),
+            },
+        }
+    ]
+
+
 def run_linear_scenarios() -> list[dict]:
     results = []
 
@@ -2287,6 +2361,7 @@ def main() -> None:
     results = []
     for runner in (
         run_linear_scenarios,
+        run_parallel_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

@@ -560,12 +560,17 @@ impl PyCompiledGraph {
         if let Some(thread_id) = thread.as_deref() {
             if let Ok(Some(snapshot)) = self.graph.get_state(thread_id) {
                 if snapshot.interrupted {
-                    if let Some(interrupt) = interrupt_from_chunks(&chunks) {
+                    let interrupts = if snapshot.interrupts.is_empty() {
+                        interrupt_from_chunks(&chunks).into_iter().collect()
+                    } else {
+                        snapshot.interrupts.clone()
+                    };
+                    if !interrupts.is_empty() {
                         crate::adapters::python::graph_pause::dispatch_interrupt(
                             py,
                             py_config.as_ref().map(|value| value.bind(py)),
                             &snapshot.checkpoint_id,
-                            &interrupt,
+                            &interrupts,
                         )?;
                     }
                 }
