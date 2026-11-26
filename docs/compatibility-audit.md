@@ -2688,4 +2688,17 @@ entries. With matching reducers the traces are identical. A short-lived change t
 which is exactly the behaviour LangGraph relies on.
 
 New parity scenario `multi_resume` locks both traces in: 49/49 scenarios equivalent. Suite is 450
-tests, examples 10/10, clippy and Rust tests clean.
+tests, examples 10/10, clippy and Rust tests clean.### Round 123: list `path_map`, `Send` fan-out interrupts, subgraph interrupts
+
+Three comparisons, one of which found a real API gap.
+
+* **`path_map` as a list.** LangGraph accepts `add_conditional_edges(..., path_map=["a", "b"])`;
+  the extension raised `TypeError: path_map must be a dict`. The converter now expands a list of
+  names into `{name: name}` and keeps the dict form.
+* **`Send` fan-out with interrupts.** Both engines pause with `[{ask:0},{ask:1}]`, and resuming each
+  interrupt by id produces `['0:a'] -> ['0:a','1:b']` with the pending payload shrinking in step.
+* **Interrupt inside a subgraph.** The parent's `invoke` surfaces the child's payload, a parent
+  `Command(resume=...)` continues the child, and both end with no pending tasks and the same state.
+
+New parity scenarios `send_interrupts` and `subgraph_interrupt` lock the traces in: 51/51 scenarios
+equivalent. Suite is 452 tests (two new path-map tests), examples 10/10, clippy and Rust tests clean.

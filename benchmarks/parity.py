@@ -474,6 +474,134 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_send_interrupt_scenario() -> list[dict]:
+    """`Send` fan-out tasks interrupt independently and resume by interrupt id."""
+
+    import operator
+
+    class LgState(TypedDict, total=False):
+        log: Annotated[list, operator.add]
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("work", lambda state: {"log": [f"{state['value']}:{lg_interrupt({'ask': state['value']})}"]})
+        graph.add_conditional_edges(
+            START, lambda state: [LgSend("work", {"value": i}) for i in range(2)], ["work"]
+        )
+        graph.add_edge("work", END)
+        return graph.compile(checkpointer=LgInMemorySaver())
+
+    def rs_build():
+        graph = rs.StateGraph({"log": "append"})
+        graph.add_node(
+            "work",
+            lambda state: {"log": [f"{state['value']}:{rs.interrupt({'ask': state['value']})}"]},
+        )
+        graph.add_conditional_edges(
+            START, lambda state: [rs.Send("work", {"value": i}) for i in range(2)], ["work"]
+        )
+        graph.set_finish_point("work")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def trace(app, label):
+        config = {"configurable": {"thread_id": f"send-int-{label}"}}
+        out = app.invoke({"log": []}, config)
+        ids = [interrupt.id for interrupt in out.get("__interrupt__", ())]
+        steps = [[interrupt.value for interrupt in out.get("__interrupt__", ())]]
+        for index, value in enumerate(("a", "b")):
+            out = app.invoke(LgCommand(resume={ids[index]: value}) if label == "lg" else rs.Command(resume={ids[index]: value}), config)
+            steps.append([sorted(out.get("log") or []), [i.value for i in out.get("__interrupt__", ())]])
+        return steps
+
+    rs_view = trace(rs_build(), "rs")
+    lg_view = trace(lg_build(), "lg")
+    return [
+        {
+            "scenario": "send_interrupts",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_build().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "send-int-bench-rs"}}
+                    )
+                ),
+                "lg": measure(
+                    lambda: lg_build().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "send-int-bench"}}
+                    )
+                ),
+            },
+        }
+    ]
+
+
+def run_subgraph_interrupt_scenario() -> list[dict]:
+    """An interrupt inside a subgraph surfaces on the parent and resumes from the parent."""
+
+    class LgState(TypedDict, total=False):
+        log: list
+
+    def lg_build():
+        child = LgStateGraph(LgState)
+        child.add_node("inner", lambda state: {"log": [lg_interrupt({"from": "child"})]})
+        child.add_edge(START, "inner")
+        child.add_edge("inner", END)
+        parent = LgStateGraph(LgState)
+        parent.add_node("child", child.compile())
+        parent.add_edge(START, "child")
+        parent.add_edge("child", END)
+        return parent.compile(checkpointer=LgInMemorySaver())
+
+    def rs_build():
+        child = rs.StateGraph({"log": "append"})
+        child.add_node("inner", lambda state: {"log": [rs.interrupt({"from": "child"})]})
+        child.set_entry_point("inner")
+        child.set_finish_point("inner")
+        parent = rs.StateGraph({"log": "append"})
+        parent.add_node("child", child.compile())
+        parent.set_entry_point("child")
+        parent.set_finish_point("child")
+        return parent.compile(checkpointer=rs.InMemorySaver())
+
+    def trace(app, label, resume_command):
+        config = {"configurable": {"thread_id": f"subgraph-int-{label}"}}
+        out = app.invoke({"log": []}, config)
+        paused = [interrupt.value for interrupt in out.get("__interrupt__", ())]
+        out = app.invoke(resume_command(resume="yes"), config)
+        state = app.get_state(config)
+        return {
+            "paused": paused,
+            "resumed": out.get("log"),
+            "remaining": [interrupt.value for interrupt in out.get("__interrupt__", ())],
+            "next": list(state.next),
+        }
+
+    rs_view = trace(rs_build(), "rs", rs.Command)
+    lg_view = trace(lg_build(), "lg", LgCommand)
+    return [
+        {
+            "scenario": "subgraph_interrupt",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(
+                    lambda: rs_build().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "subgraph-int-bench-rs"}}
+                    )
+                ),
+                "lg": measure(
+                    lambda: lg_build().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "subgraph-int-bench"}}
+                    )
+                ),
+            },
+        }
+    ]
+
+
 def run_multi_resume_scenario() -> list[dict]:
     """Repeated resumes keep consuming one value per interrupt, as LangGraph does."""
 
@@ -3057,6 +3185,8 @@ def main() -> None:
         run_graph_export_scenario,
         run_task_id_shape_scenario,
         run_multi_resume_scenario,
+        run_send_interrupt_scenario,
+        run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

@@ -618,9 +618,17 @@ pub(super) fn path_map_from_py(path_map: &Bound<'_, PyAny>) -> PyResult<Option<P
     if path_map.is_none() {
         return Ok(None);
     }
+    // LangGraph also accepts a plain list of destination names.
+    if let Ok(names) = path_map.extract::<Vec<String>>() {
+        let mut map = PathMap::new();
+        for name in &names {
+            map = map.insert(name.as_str(), vec![normalize_node(name)]);
+        }
+        return Ok(Some(map));
+    }
     let dict = path_map
         .cast::<PyDict>()
-        .map_err(|_| PyTypeError::new_err("path_map must be a dict"))?;
+        .map_err(|_| PyTypeError::new_err("path_map must be a dict or a list of node names"))?;
     let mut map = PathMap::new();
     for (key, targets) in dict.iter() {
         let key: String = key.extract()?;

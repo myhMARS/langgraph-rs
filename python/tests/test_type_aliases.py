@@ -1097,3 +1097,21 @@ class IntrospectionSurfaceTest(unittest.TestCase):
     def test_repr_mimebundle_falls_back_to_text(self):
         bundle = self._app()._repr_mimebundle_()
         self.assertIn("text/plain", bundle)
+
+
+class ConditionalPathMapFormsTest(unittest.TestCase):
+    """LangGraph accepts a list of destinations as the conditional `path_map`."""
+
+    def test_list_path_map(self):
+        graph = langgraph_rs.StateGraph({"log": "append"})
+        graph.add_node("work", lambda state: {"log": ["x"]})
+        graph.add_conditional_edges(langgraph_rs.START, lambda state: ["work"], ["work"])
+        graph.set_finish_point("work")
+        self.assertEqual(graph.compile().invoke({"log": []}), {"log": ["x"]})
+
+    def test_dict_path_map_still_works(self):
+        graph = langgraph_rs.StateGraph({"log": "append"})
+        graph.add_node("work", lambda state: {"log": ["y"]})
+        graph.add_conditional_edges(langgraph_rs.START, lambda state: "k", {"k": "work"})
+        graph.set_finish_point("work")
+        self.assertEqual(graph.compile().invoke({"log": []}), {"log": ["y"]})

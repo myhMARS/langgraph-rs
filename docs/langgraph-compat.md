@@ -332,6 +332,17 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `path_map` 的列表形式 / `Send` 扇出中断 / 子图中断（2026-11-26）
+
+三处对照结果：
+
+1. **`add_conditional_edges(..., path_map=[...])`**：LG 接受「节点名列表」，扩展此前只认 dict
+   （`path_map must be a dict`）。现在列表会展开成 `{name: name}`，dict 形式不变。
+2. **`Send` 扇出各自中断**：两边都暂停并返回两个中断 `[{ask:0},{ask:1}]`；用
+   `Command(resume={id: value})` 逐条恢复得到 `['0:a'] → ['0:a','1:b']`，中断载荷同步减少。
+3. **子图内的 `interrupt()`**：父图 `invoke` 直接看到子图的中断载荷，父图
+   `Command(resume=...)` 即可继续，恢复后 `next` 为空、状态正确 —— 两边相同。
+
 ### 多轮 resume 与单节点多次 `interrupt()`（2026-11-26）
 
 对照 LG 验证了两件事，结论是**行为已经一致**（本轮没有改引擎代码，只补了回归场景）：
