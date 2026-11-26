@@ -358,6 +358,22 @@ impl PyAsyncCompiledGraph {
         Ok(pyo3::types::PyDict::new(py).into_any().unbind())
     }
 
+    /// Transformers registered at compile time (drained by the facade's run stream).
+    #[getter]
+    fn stream_transformers(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let list = pyo3::types::PyList::empty(py);
+        for transformer in &self.stream_transformers {
+            list.append(transformer.bind(py))?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    /// Marker: this native graph implements the async API itself (no shim delegation).
+    #[getter]
+    fn _native_async(&self) -> bool {
+        true
+    }
+
     /// The checkpointer passed to `compile()`, exactly as the caller supplied it.
     #[getter]
     fn checkpointer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -600,45 +616,6 @@ impl PyAsyncCompiledGraph {
         })
     }
 
-    /// `astream_events(version="v3")`: an awaitable resolving to an `AsyncGraphRunStream`.
-    #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None, config=None))]
-    #[allow(clippy::too_many_arguments)]
-    fn astream_events<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        input: Option<&Bound<'py, PyAny>>,
-        thread_id: Option<&Bound<'py, PyAny>>,
-        version: &str,
-        transformers: Option<&Bound<'py, PyAny>>,
-        context: Option<&Bound<'py, PyAny>>,
-        config: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let module = py.import("langgraph_rs.stream._events")?;
-        let function = module.getattr("astream_events")?;
-        let kwargs = pyo3::types::PyDict::new(py);
-        kwargs.set_item("version", version)?;
-        if !slf.stream_transformers.is_empty() {
-            let compiled = pyo3::types::PyList::new(
-                py,
-                slf.stream_transformers.iter().map(|item| item.bind(py)),
-            )?;
-            kwargs.set_item("compile_transformers", compiled)?;
-        }
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        if let Some(config) = config {
-            kwargs.set_item("config", config)?;
-        }
-        if let Some(transformers) = transformers {
-            kwargs.set_item("transformers", transformers)?;
-        }
-        if let Some(context) = context.filter(|value| !value.is_none()) {
-            kwargs.set_item("context", context)?;
-        }
-        let graph = slf.into_pyobject(py)?.into_any();
-        function.call((graph, input), Some(&kwargs))
-    }
 
     #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None, live_sink=None, config=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -863,16 +840,41 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Awaitable `get_state_history` for async callers.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None, filter=None))]
     fn aget_state_history<'py>(
         &self,
         py: Python<'py>,
         thread_id: &Bound<'_, PyAny>,
         checkpoint_ns: Option<String>,
-        before: Option<String>,
+        before: Option<&Bound<'_, PyAny>>,
         limit: Option<usize>,
+        filter: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
+        let before: Option<String> = match before.filter(|value| !value.is_none()) {
+            Some(value) => match value.extract::<String>() {
+                Ok(id) => Some(id),
+                Err(_) => {
+                    let (_, config) = super::convert::config_from_py(py, Some(value))?;
+                    config.checkpoint_id
+                }
+            },
+            None => None,
+        };
+        let filter = match filter {
+            Some(filter) => {
+                let value = super::convert::py_to_value(&filter)?;
+                match value {
+                    serde_json::Value::Object(map) => Some(map),
+                    _ => {
+                        return Err(PyTypeError::new_err(
+                            "aget_state_history filter must be a dict",
+                        ));
+                    }
+                }
+            }
+            None => None,
+        };
         let thread_id = thread_id
             .ok_or_else(|| PyTypeError::new_err("aget_state_history requires a thread id"))?;
         let checkpoint_ns = checkpoint_ns.or_else(|| parsed_config.checkpoint_ns.clone());
@@ -883,6 +885,27 @@ impl PyAsyncCompiledGraph {
                 graph
                     .history_handles(&thread_id, &namespace, None, Some(0))
                     .map_err(|error| to_pyerr(py, error))?;
+                // A metadata filter cannot be answered from checkpoint handles, so those
+                // queries stay eager (the same split as the synchronous reader).
+                if let Some(filter) = filter {
+                    let snapshots = graph
+                        .get_state_history_where_in(
+                            &thread_id,
+                            &namespace,
+                            Some(&filter),
+                            before.as_deref(),
+                            limit,
+                        )
+                        .map_err(|error| to_pyerr(py, error))?;
+                    let items = snapshots
+                        .iter()
+                        .map(|snapshot| snapshot_to_py(py, snapshot))
+                        .collect::<PyResult<Vec<_>>>()?;
+                    let history = crate::adapters::python::types::PyStateHistory::from_items(items);
+                    return Py::new(py, history)
+                        .map(|history| history.into_any())
+                        .map(Some);
+                }
                 let source: std::sync::Arc<
                     dyn crate::adapters::python::types::history::HistorySource,
                 > = graph.clone();

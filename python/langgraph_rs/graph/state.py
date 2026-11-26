@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABCMeta
 from typing import Any, AsyncIterator, Iterator, Sequence
 
@@ -70,7 +71,7 @@ _IGNORED_RUN_KWARGS = {"print_mode", "debug"}
 # Per-method allow-lists: the native graph accepts these (plus its own `thread_id` convenience).
 _COMMON_KWARGS = ("thread_id", "context", "control", "checkpoint_ns")
 _INVOKE_KWARGS = _COMMON_KWARGS
-_STREAM_KWARGS = _COMMON_KWARGS + ("stream_mode", "subgraphs", "version")
+_STREAM_KWARGS = _COMMON_KWARGS + ("stream_mode", "subgraphs", "version", "live_sink")
 _BATCH_KWARGS = ("thread_id", "context")
 
 
@@ -242,6 +243,87 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             },
         }
 
+    async def aget_state(
+        self,
+        thread_id: Any = None,
+        checkpoint_ns: Any = None,
+        subgraphs: bool = False,
+        config: Any = None,
+    ) -> Any:
+        if getattr(self._inner, "_native_async", False):
+            return await self._inner.aget_state(
+                thread_id, checkpoint_ns=checkpoint_ns, subgraphs=subgraphs
+            )
+        return await asyncio.to_thread(
+            self._inner.get_state,
+            thread_id,
+            checkpoint_ns=checkpoint_ns,
+            subgraphs=subgraphs,
+            config=config,
+        )
+
+    async def aget_state_history(
+        self,
+        thread_id: Any,
+        before: Any = None,
+        limit: Any = None,
+        checkpoint_ns: Any = None,
+        filter: Any = None,
+    ) -> Any:
+        if getattr(self._inner, "_native_async", False):
+            return await self._inner.aget_state_history(
+                thread_id, before=before, limit=limit, checkpoint_ns=checkpoint_ns, filter=filter
+            )
+        return await asyncio.to_thread(
+            lambda: list(
+                self._inner.get_state_history(
+                    thread_id,
+                    before=before,
+                    limit=limit,
+                    checkpoint_ns=checkpoint_ns,
+                    filter=filter,
+                )
+            )
+        )
+
+    async def aupdate_state(
+        self,
+        thread_id: Any,
+        values: Any,
+        as_node: Any = None,
+        task_id: Any = None,
+    ) -> Any:
+        if getattr(self._inner, "_native_async", False):
+            return await self._inner.aupdate_state(
+                thread_id, values, as_node=as_node, task_id=task_id
+            )
+        return await asyncio.to_thread(
+            self._inner.update_state, thread_id, values, as_node=as_node, task_id=task_id
+        )
+
+    async def abulk_update_state(
+        self, config: Any = None, supersteps: Any = None, *, thread_id: Any = None
+    ) -> Any:
+        if getattr(self._inner, "_native_async", False):
+            return await self._inner.abulk_update_state(
+                config, supersteps, thread_id=thread_id
+            )
+        return await asyncio.to_thread(
+            self._inner.bulk_update_state, config, supersteps, thread_id=thread_id
+        )
+
+    async def aclear_cache(self, nodes: Any = None) -> Any:
+        if getattr(self._inner, "_native_async", False):
+            return await self._inner.aclear_cache(nodes)
+        return await asyncio.to_thread(self._inner.clear_cache, nodes)
+
+    def get_context_jsonschema(self) -> Any:
+        """LangGraph's context JSON Schema, derived in Python from the declared schema."""
+        from .._compat import jsonschema_of
+
+        raw = self._inner.get_context_jsonschema()
+        return None if raw is None else jsonschema_of(raw)
+
     async def aget_graph(self, config: Any = None, *, xray: Any = False) -> Any:
         return self._inner.get_graph(config, xray=xray)
 
@@ -260,22 +342,51 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return result
 
     async def ainvoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
-        call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
-        result = await self._inner.ainvoke(input, **call)
-        _dispatch_lifecycle(self._inner, config)
-        return result
+        if getattr(self._inner, "_native_async", False):
+            call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
+            result = await self._inner.ainvoke(input, **call)
+            _dispatch_lifecycle(self._inner, config)
+            return result
+        # Python drives Rust: the synchronous call runs on a worker thread so the loop stays free.
+        return await asyncio.to_thread(
+            self.invoke, input, config, durability=durability, **kwargs
+        )
 
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
         call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
-        chunks = self._inner.stream(input, **call)
+        try:
+            chunks = self._inner.stream(input, **call)
+        except TypeError as error:
+            # The synchronous engine has no live sink; the parts still stream, just not live.
+            if "live_sink" not in call or "live_sink" not in str(error):
+                raise
+            call.pop("live_sink")
+            chunks = self._inner.stream(input, **call)
         _dispatch_lifecycle(self._inner, config)
         return chunks
 
-    def astream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> AsyncIterator[Any]:
-        call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
-        stream = self._inner.astream(input, **call)
-        _dispatch_lifecycle(self._inner, config)
-        return stream
+    async def astream(
+        self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any
+    ) -> AsyncIterator[Any]:
+        if getattr(self._inner, "_native_async", False):
+            call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+            try:
+                stream = self._inner.astream(input, **call)
+            except TypeError as error:
+                if "live_sink" not in call or "live_sink" not in str(error):
+                    raise
+                call.pop("live_sink")
+                stream = self._inner.astream(input, **call)
+            _dispatch_lifecycle(self._inner, config)
+            async for chunk in stream:
+                yield chunk
+            return
+        # Async generator over the synchronous stream, collected on a worker thread.
+        chunks = await asyncio.to_thread(
+            self.stream, input, config, durability=durability, **kwargs
+        )
+        for chunk in chunks:
+            yield chunk
 
     def batch(
         self,
@@ -296,8 +407,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return_exceptions: bool = False,
         **kwargs: Any,
     ) -> list[Any]:
-        call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
-        return await self._inner.abatch(inputs, return_exceptions=return_exceptions, **call)
+        if getattr(self._inner, "_native_async", False):
+            call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
+            return await self._inner.abatch(
+                inputs, return_exceptions=return_exceptions, **call
+            )
+        return await asyncio.to_thread(
+            self.batch, inputs, config, return_exceptions=return_exceptions, **kwargs
+        )
 
     # `langchain_core.Runnable` also defines these two, but its defaults reject compiled graphs;
     # the extension's v3 event stream is the one that must be used. The native method takes
@@ -311,15 +428,18 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         transformers: Any = None,
         **kwargs: Any,
     ) -> Any:
-        if not hasattr(self._inner, "stream_events"):
-            raise NotImplementedError(
-                "this graph has no synchronous event stream; use `astream_events` instead"
-            )
+        from ..stream._events import stream_events as _stream_events
+
         thread_id = _thread_id_of(config)
         if thread_id is not None:
             kwargs.setdefault("thread_id", thread_id)
-        return self._inner.stream_events(
-            input, version=version, transformers=transformers, **kwargs
+        return _stream_events(
+            self,
+            input,
+            version=version,
+            transformers=transformers,
+            compile_transformers=getattr(self._inner, "stream_transformers", None) or None,
+            **kwargs,
         )
 
     async def astream_events(
@@ -331,11 +451,18 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         transformers: Any = None,
         **kwargs: Any,
     ) -> Any:
+        from ..stream._events import astream_events as _astream_events
+
         thread_id = _thread_id_of(config)
         if thread_id is not None:
             kwargs.setdefault("thread_id", thread_id)
-        return await self._inner.astream_events(
-            input, version=version, transformers=transformers, **kwargs
+        return await _astream_events(
+            self,
+            input,
+            version=version,
+            transformers=transformers,
+            compile_transformers=getattr(self._inner, "stream_transformers", None) or None,
+            **kwargs,
         )
 
 

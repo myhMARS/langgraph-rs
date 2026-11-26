@@ -352,8 +352,10 @@ class CompiledGraphAsyncSurfaceTest(unittest.TestCase):
     def test_astream_events_returns_a_run_stream(self):
         import asyncio
 
+        # The facade builds the run stream in Python; the native graph only exposes `stream`.
         async def collect():
-            run = await self._app().astream_events({"messages": []}, version="v3")
+            app = self._app()
+            run = await app.astream_events({"messages": []}, version="v3")
             return [value async for value in run.values]
 
         self.assertEqual(len(asyncio.run(collect())), 2)

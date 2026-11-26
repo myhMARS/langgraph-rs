@@ -18,87 +18,8 @@ enum LiveItem {
 
 
 
-/// Run a sync state call on a worker thread and expose it as an awaitable.
-fn async_state_call<'py>(
-    slf: PyRef<'py, PyCompiledGraph>,
-    py: Python<'py>,
-    method: &str,
-    thread_id: Option<&Bound<'py, PyAny>>,
-    checkpoint_ns: Option<String>,
-    subgraphs: bool,
-    config: Option<&Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let module = py.import("langgraph_rs.stream._events")?;
-    let helper = module.getattr("call_via_sync")?;
-    let graph = slf.into_pyobject(py)?.into_any();
-    let kwargs = pyo3::types::PyDict::new(py);
-    if let Some(thread_id) = thread_id {
-        kwargs.set_item("thread_id", thread_id)?;
-    }
-    if let Some(checkpoint_ns) = checkpoint_ns {
-        kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
-    }
-    if subgraphs {
-        kwargs.set_item("subgraphs", true)?;
-    }
-    if let Some(config) = config {
-        kwargs.set_item("config", config)?;
-    }
-    helper.call1((graph, method, kwargs))
-}
 
-fn async_update_call<'py>(
-    slf: PyRef<'py, PyCompiledGraph>,
-    py: Python<'py>,
-    thread_id: &Bound<'py, PyAny>,
-    values: &Bound<'py, PyAny>,
-    as_node: Option<String>,
-    task_id: Option<String>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let module = py.import("langgraph_rs.stream._events")?;
-    let helper = module.getattr("call_via_sync")?;
-    let graph = slf.into_pyobject(py)?.into_any();
-    let kwargs = pyo3::types::PyDict::new(py);
-    let thread_id = thread_id.clone().unbind();
-    kwargs.set_item("thread_id", thread_id.bind(py))?;
-    kwargs.set_item("values", values)?;
-    if let Some(as_node) = as_node {
-        kwargs.set_item("as_node", as_node)?;
-    }
-    if let Some(task_id) = task_id {
-        kwargs.set_item("task_id", task_id)?;
-    }
-    helper.call1((graph, "update_state", kwargs))
-}
 
-fn async_history_call<'py>(
-    slf: PyRef<'py, PyCompiledGraph>,
-    py: Python<'py>,
-    thread_id: &Bound<'py, PyAny>,
-    before: Option<&Bound<'py, PyAny>>,
-    limit: Option<usize>,
-    checkpoint_ns: Option<String>,
-    filter: Option<&Bound<'py, PyAny>>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let module = py.import("langgraph_rs.stream._events")?;
-    let helper = module.getattr("call_via_sync")?;
-    let graph = slf.into_pyobject(py)?.into_any();
-    let kwargs = pyo3::types::PyDict::new(py);
-    kwargs.set_item("thread_id", thread_id)?;
-    if let Some(before) = before {
-        kwargs.set_item("before", before)?;
-    }
-    if let Some(limit) = limit {
-        kwargs.set_item("limit", limit)?;
-    }
-    if let Some(checkpoint_ns) = checkpoint_ns {
-        kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
-    }
-    if let Some(filter) = filter {
-        kwargs.set_item("filter", filter)?;
-    }
-    helper.call1((graph, "get_state_history", kwargs))
-}
 
 /// Parse LangGraph's `batch` config argument: `None`, one config, or one config per input.
 pub(crate) fn per_input_configs(
@@ -437,38 +358,6 @@ impl PyCompiledGraph {
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
         Py::new(py, PyLiveStream::new(receiver, handle, v2, requested))
     }
-    /// Run the graph and return the list of stream chunks.
-    /// `stream_events(version="v3")`: a `GraphRunStream` driven by the caller.
-    #[pyo3(signature = (input=None, thread_id=None, version="v3", transformers=None, context=None))]
-    fn stream_events<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        input: Option<&Bound<'py, PyAny>>,
-        thread_id: Option<&Bound<'py, PyAny>>,
-        version: &str,
-        transformers: Option<&Bound<'py, PyAny>>,
-        context: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let module = py.import("langgraph_rs.stream._events")?;
-        let function = module.getattr("stream_events")?;
-        let kwargs = pyo3::types::PyDict::new(py);
-        kwargs.set_item("version", version)?;
-        if !slf.stream_transformers.is_empty() {
-            let compiled = pyo3::types::PyList::new(py, slf.stream_transformers.iter().map(|item| item.bind(py)))?;
-            kwargs.set_item("compile_transformers", compiled)?;
-        }
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        if let Some(transformers) = transformers {
-            kwargs.set_item("transformers", transformers)?;
-        }
-        if let Some(context) = context.filter(|value| !value.is_none()) {
-            kwargs.set_item("context", context)?;
-        }
-        let graph = slf.into_pyobject(py)?.into_any();
-        function.call((graph, input), Some(&kwargs))
-    }
     #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, control=None, config=None))]
     #[allow(clippy::too_many_arguments)]
     fn stream(
@@ -669,37 +558,6 @@ impl PyCompiledGraph {
             .collect()
     }
 
-    #[pyo3(signature = (inputs, config=None, *, return_exceptions=false, context=None))]
-    #[allow(clippy::too_many_arguments)]
-    fn abatch<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        inputs: &Bound<'_, PyAny>,
-        config: Option<&Bound<'_, PyAny>>,
-        return_exceptions: bool,
-        context: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        // LangGraph exposes `abatch` next to `batch`; the synchronous engine runs on a worker
-        // thread so the event loop stays free.
-        let kwargs = pyo3::types::PyDict::new(py);
-        if return_exceptions {
-            kwargs.set_item("return_exceptions", true)?;
-        }
-        if let Some(context) = context {
-            kwargs.set_item("context", context)?;
-        }
-        let module = py.import("langgraph_rs.stream._events")?;
-        let helper = module.getattr("abatch_via_sync")?;
-        let graph = slf.into_pyobject(py)?.into_any();
-        let config = config.map(|value| value.clone().unbind());
-        let inputs = inputs.clone().unbind();
-        helper.call1((
-            graph,
-            inputs.bind(py),
-            config.as_ref().map(|value| value.bind(py)),
-            kwargs,
-        ))
-    }
 
     /// Apply several supersteps of updates at once (LangGraph's `bulk_update_state`).
     ///
@@ -791,76 +649,10 @@ impl PyCompiledGraph {
         }
     }
 
-    #[pyo3(signature = (thread_id=None, checkpoint_ns=None, subgraphs=false, config=None))]
-    fn aget_state<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        thread_id: Option<&Bound<'py, PyAny>>,
-        checkpoint_ns: Option<String>,
-        subgraphs: bool,
-        config: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        async_state_call(slf, py, "get_state", thread_id, checkpoint_ns, subgraphs, config)
-    }
 
-    #[pyo3(signature = (thread_id, values, as_node=None, task_id=None))]
-    fn aupdate_state<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        thread_id: &Bound<'py, PyAny>,
-        values: &Bound<'py, PyAny>,
-        as_node: Option<String>,
-        task_id: Option<String>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        async_update_call(slf, py, thread_id, values, as_node, task_id)
-    }
 
-    #[pyo3(signature = (thread_id, before=None, limit=None, checkpoint_ns=None, filter=None))]
-    fn aget_state_history<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        thread_id: &Bound<'py, PyAny>,
-        before: Option<&Bound<'py, PyAny>>,
-        limit: Option<usize>,
-        checkpoint_ns: Option<String>,
-        filter: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        async_history_call(slf, py, thread_id, before, limit, checkpoint_ns, filter)
-    }
 
-    #[pyo3(signature = (config=None, supersteps=None, *, thread_id=None))]
-    fn abulk_update_state<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        config: Option<&Bound<'py, PyAny>>,
-        supersteps: Option<&Bound<'py, PyAny>>,
-        thread_id: Option<&Bound<'py, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let module = py.import("langgraph_rs.stream._events")?;
-        let helper = module.getattr("call_via_sync")?;
-        let graph = slf.into_pyobject(py)?.into_any();
-        let kwargs = pyo3::types::PyDict::new(py);
-        if let Some(config) = config {
-            kwargs.set_item("config", config)?;
-        }
-        if let Some(supersteps) = supersteps {
-            kwargs.set_item("supersteps", supersteps)?;
-        }
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        helper.call1((graph, "bulk_update_state", kwargs))
-    }
 
-    #[pyo3(signature = (nodes=None))]
-    fn aclear_cache<'py>(
-        &self,
-        py: Python<'py>,
-        nodes: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        PyCompiledGraph::clear_cache(self, py, nodes)?;
-        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok::<_, pyo3::PyErr>(()) })
-    }
 
     /// The long-term store this graph was compiled with.
     #[getter]
@@ -905,13 +697,9 @@ impl PyCompiledGraph {
         _args: &Bound<'_, pyo3::types::PyTuple>,
         _kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
     ) -> PyResult<Py<PyAny>> {
+        // The schema itself is returned; the facade turns it into JSON Schema in Python.
         match self.graph.context_schema() {
-            Some(schema) => {
-                let module = py.import("langgraph_rs._compat")?;
-                let helper = module.getattr("jsonschema_of")?;
-                let value = crate::adapters::python::convert::value_to_py(py, schema)?;
-                helper.call1((value,)).map(|value| value.unbind())
-            }
+            Some(schema) => crate::adapters::python::convert::value_to_py(py, schema),
             None => Ok(py.None()),
         }
     }
@@ -1586,142 +1374,8 @@ impl PyCompiledGraph {
             .copy_thread(&source_thread, &target_thread)
             .map_err(|error| to_pyerr(py, error))
     }
-    #[pyo3(signature = (input=None, config=None, *, thread_id=None, context=None, checkpoint_ns=None))]
-    #[allow(clippy::too_many_arguments)]
-    fn ainvoke<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        input: Option<&Bound<'_, PyAny>>,
-        config: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<&Bound<'_, PyAny>>,
-        context: Option<&Bound<'_, PyAny>>,
-        checkpoint_ns: Option<String>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        // LangGraph exposes `ainvoke` on the same object; the extension runs the synchronous
-        // engine on a worker thread so the event loop stays free.
-        let kwargs = pyo3::types::PyDict::new(py);
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        if let Some(context) = context {
-            kwargs.set_item("context", context)?;
-        }
-        if let Some(checkpoint_ns) = checkpoint_ns {
-            kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
-        }
-        let module = py.import("langgraph_rs.stream._events")?;
-        let helper = module.getattr("ainvoke_via_sync")?;
-        let graph = slf.into_pyobject(py)?.into_any();
-        let input = input.map(|value| value.clone().unbind());
-        let config = config.map(|value| value.clone().unbind());
-        helper.call1((
-            graph,
-            input.as_ref().map(|value| value.bind(py)),
-            config.as_ref().map(|value| value.bind(py)),
-            kwargs,
-        ))
-    }
 
-    #[pyo3(signature = (input=None, config=None, *, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
-    #[allow(clippy::too_many_arguments)]
-    fn astream<'py>(
-        slf: PyRef<'py, Self>,
-        py: Python<'py>,
-        input: Option<&Bound<'_, PyAny>>,
-        config: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<&Bound<'_, PyAny>>,
-        stream_mode: Option<&Bound<'_, PyAny>>,
-        context: Option<&Bound<'_, PyAny>>,
-        subgraphs: bool,
-        version: Option<String>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        // Async generator over the collected run, matching LangGraph's `astream` shape.
-        let kwargs = pyo3::types::PyDict::new(py);
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        if let Some(stream_mode) = stream_mode {
-            kwargs.set_item("stream_mode", stream_mode)?;
-        }
-        if let Some(context) = context {
-            kwargs.set_item("context", context)?;
-        }
-        if subgraphs {
-            kwargs.set_item("subgraphs", true)?;
-        }
-        if let Some(version) = version {
-            kwargs.set_item("version", version)?;
-        }
-        let module = py.import("langgraph_rs.stream._events")?;
-        let helper = module.getattr("astream_via_sync")?;
-        let graph = slf.into_pyobject(py)?.into_any();
-        let input = input.map(|value| value.clone().unbind());
-        let config = config.map(|value| value.clone().unbind());
-        helper.call1((
-            graph,
-            input.as_ref().map(|value| value.bind(py)),
-            config.as_ref().map(|value| value.bind(py)),
-            kwargs,
-        ))
-    }
 
-    #[pyo3(signature = (input=None, config=None, *, thread_id=None, version="v3", transformers=None, context=None))]
-    #[allow(clippy::too_many_arguments)]
-    fn astream_events<'py>(
-        &self,
-        py: Python<'py>,
-        input: Option<&Bound<'_, PyAny>>,
-        config: Option<&Bound<'_, PyAny>>,
-        thread_id: Option<&Bound<'_, PyAny>>,
-        version: &str,
-        transformers: Option<&Bound<'_, PyAny>>,
-        context: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let _ = config;
-        let module = py.import("langgraph_rs.stream._events")?;
-        let function = module.getattr("astream_events")?;
-        let kwargs = pyo3::types::PyDict::new(py);
-        kwargs.set_item("version", version)?;
-        if !self.stream_transformers.is_empty() {
-            let compiled = pyo3::types::PyList::new(
-                py,
-                self.stream_transformers.iter().map(|item| item.bind(py)),
-            )?;
-            kwargs.set_item("compile_transformers", compiled)?;
-        }
-        if let Some(thread_id) = thread_id {
-            kwargs.set_item("thread_id", thread_id)?;
-        }
-        if let Some(transformers) = transformers {
-            kwargs.set_item("transformers", transformers)?;
-        }
-        if let Some(context) = context.filter(|value| !value.is_none()) {
-            kwargs.set_item("context", context)?;
-        }
-        let graph = self.graph.clone();
-        let saver = self.saver.clone();
-        let transform = self
-            .stream_transformers
-            .iter()
-            .map(|item| item.clone_ref(py))
-            .collect::<Vec<_>>();
-        let bound_graph =
-            Py::new(
-            py,
-            PyCompiledGraph {
-                graph,
-                saver,
-                stream_transformers: transform,
-                checkpointer_py: None,
-                cache_py: None,
-                builder_py: None,
-                last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-            },
-        )?;
-        let input = input.map(|value| value.clone().unbind());
-        let input = input.as_ref().map(|value| value.bind(py));
-        function.call((bound_graph, input), Some(&kwargs))
-    }
 
 }
 

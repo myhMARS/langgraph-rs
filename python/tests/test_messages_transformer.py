@@ -272,7 +272,8 @@ class ReactAgentStreamingTest(unittest.TestCase):
         from langchain_core.messages import AIMessage
 
         model = self._model_class()(messages=iter([AIMessage(content="Hello world")]))
-        return rs.create_react_agent(model, [])
+        # `create_react_agent` returns the native compiled graph; wrap it the way `compile()` does.
+        return rs.CompiledStateGraph(rs.create_react_agent(model, []))
 
     def test_model_chunks_arrive_as_deltas(self):
         with self._app().stream_events(

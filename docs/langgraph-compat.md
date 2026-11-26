@@ -247,6 +247,25 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 **仍未覆盖（有意）**：`langgraph._internal.*`（36 个私有模块）与 `langgraph.pregel._algo` 等 18 个
 私有模块——LG 的内部执行布局，扩展跑自己的引擎。
 
+### 调用方向：Python 驱动 Rust（2026-11-26）
+
+架构约束：**不允许 Rust 反向调用 Python**。所有运行入口都由门面（Python）发起、由原生方法执行；
+引擎只调用「用户提供的 Python 可调用对象」（节点函数、reducer、saver、transformer——这些本来就是
+Python 代码，属于正向调用）。
+
+本轮把原先「原生方法回头调 Python 垫片」的部分全部搬回 Python 侧：
+
+| 原位置 | 处理 |
+|---|---|
+| 原生 `ainvoke`/`astream`/`abatch`（调 `*_via_sync`） | 删除；门面用 `asyncio.to_thread`（同步原生）或直连原生异步 API |
+| 原生 `stream_events`/`astream_events`（import `stream._events`） | 删除；门面直接调垫片并传入**门面自身** |
+| 原生 `aget_state`/`aget_state_history`/`aupdate_state`/`abulk_update_state`/`aclear_cache`（`call_via_sync`） | 删除；门面用 `asyncio.to_thread` 包同步方法 |
+| 原生 `get_context_jsonschema`（调 `_compat.jsonschema_of`） | 原生只返回 schema，门面在 Python 里转 JSON Schema |
+| `graph_pause::dispatch_*`（回调 Python handler） | 改为记录事件，见下节 |
+
+**`astream` 的形状也对齐了 LG**：LG 的 `astream` 是 **async generator（不可 await）**，此前我们返回
+可 await 对象；现在是 `async def ... yield`，与 LG 一致（相关测试已改）。
+
 **`GraphCallbackHandler` 由「事件队列 + 单点派发」驱动**：
 
 - 引擎在暂停/恢复时把事件写进本次运行的 `LifecycleSink`（`RunConfig::with_lifecycle_sink`），

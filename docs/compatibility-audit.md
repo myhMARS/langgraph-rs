@@ -2465,4 +2465,30 @@ Verified on all three lanes: `invoke`, `stream` and `ainvoke` each report
 `('interrupt', 'pending', run_id set)` on the pause and `('resume', 'pending', run_id set)` on the
 resume, and the queue is cleared between runs so a resume does not replay the earlier interrupt.
 
-Suite is 445 tests, parity 43/43, examples 10/10, clippy and Rust tests clean.
+Suite is 445 tests, parity 43/43, examples 10/10, clippy and Rust tests clean.### Round 113: the call direction is now Python -> Rust
+
+New constraint from the goal text: no reverse calls from Rust into Python. Nested Python calls fall
+into two groups, and only the first is acceptable:
+
+* **forward** — the engine invokes a user-provided callable (node function, reducer, saver,
+  transformer). These are the user's code, so the engine must call them.
+* **reverse** — a native method imports a shim module to do work the Python side should own.
+
+The reverse group was removed this round:
+
+| Removed | Replaced by |
+|---|---|
+| native `ainvoke` / `astream` / `abatch` (called `*_via_sync`) | facade: `asyncio.to_thread` for the sync native, direct native async API otherwise |
+| native `stream_events` / `astream_events` (imported `stream._events`) | facade imports the shim itself and passes the facade (not the native) |
+| native `aget_state` / `aget_state_history` / `aupdate_state` / `abulk_update_state` / `aclear_cache` (`call_via_sync`) | facade wraps the synchronous twins in `asyncio.to_thread` |
+| native `get_context_jsonschema` (`_compat.jsonschema_of`) | native returns the raw schema, the facade derives JSON Schema |
+
+Shim imports from Rust dropped from 17 to 7; the seven left are construction-time helpers
+(`compile()` wrapping, the `JsonPlus` codec, `BaseChannel` detection, `tool_node`), listed for the
+next rounds.
+
+`astream` also became an async generator, matching LangGraph (which is not awaitable); the tests that
+awaited it were updated, and the facade degrades gracefully when a graph has no `live_sink`.
+
+Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
+Rust tests clean.

@@ -926,13 +926,14 @@ class AsyncPythonTests(unittest.TestCase):
             parent.set_finish_point("child")
             compiled = parent.compile()
 
-            chunks = await compiled.astream(
-                {"value": 0}, subgraphs=True
-            )
+            chunks = [
+                chunk async for chunk in compiled.astream({"value": 0}, subgraphs=True)
+            ]
             namespaces = [chunk[0] for chunk in chunks if isinstance(chunk, tuple)]
-            updates = await compiled.astream(
-                {"value": 0}, stream_mode=["updates"]
-            )
+            updates = [
+                chunk
+                async for chunk in compiled.astream({"value": 0}, stream_mode=["updates"])
+            ]
             return namespaces, updates
 
         namespaces, updates = asyncio.run(scenario())
@@ -1046,9 +1047,12 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_entry_point("inc")
             graph.set_finish_point("inc")
             compiled = graph.compile()
-            return await compiled.astream(
-                {"value": 0}, stream_mode=["values"], version="v2"
-            )
+            return [
+                chunk
+                async for chunk in compiled.astream(
+                    {"value": 0}, stream_mode=["values"], version="v2"
+                )
+            ]
 
         chunks = asyncio.run(scenario())
         self.assertTrue(chunks)
@@ -1299,9 +1303,12 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_entry_point("emit")
             graph.set_finish_point("emit")
             compiled = graph.compile()
-            return await compiled.astream(
-                {"value": 0}, stream_mode=["messages"], version="v2"
-            )
+            return [
+                chunk
+                async for chunk in compiled.astream(
+                    {"value": 0}, stream_mode=["messages"], version="v2"
+                )
+            ]
 
         chunks = asyncio.run(scenario())
         messages = [chunk for chunk in chunks if chunk["type"] == "messages"]

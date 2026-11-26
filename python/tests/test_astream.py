@@ -12,13 +12,9 @@ class AsyncStreamTests(unittest.TestCase):
             graph.set_entry_point("inc")
             graph.set_finish_point("inc")
             compiled = graph.compile()
-            awaited = await compiled.astream({"value": 0})
-            self.assertIsInstance(awaited, list)
-            self.assertTrue(awaited)
-            streamed = []
-            async for chunk in compiled.astream({"value": 0}):
-                streamed.append(chunk)
-            self.assertTrue(streamed)
+            # LangGraph's `astream` is an async generator (not awaitable).
+            streamed = [chunk async for chunk in compiled.astream({"value": 0})]
+            self.assertEqual(len(streamed), 2)
 
         asyncio.run(scenario())
 
@@ -31,8 +27,7 @@ class AsyncStreamTests(unittest.TestCase):
                 .set_finish_point("inc")
             )
             compiled = graph.compile()
-            chunks = await compiled.astream({"value": 0})
-            self.assertTrue(chunks)
+            chunks = [chunk async for chunk in compiled.astream({"value": 0})]
             self.assertTrue(chunks)
             self.assertTrue(all(isinstance(chunk, dict) for chunk in chunks))
 
@@ -94,9 +89,9 @@ class AsyncStreamTests(unittest.TestCase):
             await compiled.ainvoke(
                 {"value": 0, "log": []}, thread_id="async-stream-resume"
             )
-            chunks = await compiled.astream(
-                None, thread_id="async-stream-resume"
-            )
+            chunks = [
+                chunk async for chunk in compiled.astream(None, thread_id="async-stream-resume")
+            ]
             self.assertTrue(chunks)
             snapshot = await compiled.aget_state("async-stream-resume")
             self.assertEqual(snapshot["values"]["log"], ["a", "b"])
