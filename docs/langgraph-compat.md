@@ -272,6 +272,22 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 * store `search(query=...)` 无索引时的子串匹配 → 现在与 LG 一致：无向量索引时 `query` 被忽略，
   结果只由 `filter` / `limit` / `offset` 决定（对照测试见 `python/tests/test_store_search.py`）。
 
+### 编译后图仍不实现的成员（2026-11-26）
+
+`dir()` 对比后仍缺的成员分两类，都是有意的：
+
+1. **`RunnableSerializable` 家族**（LG 的图同时是 LangChain Runnable）：`bind`、`with_config`、
+   `with_retry`、`with_types`、`with_fallbacks`、`with_listeners`、`with_alisteners`、`pipe`、`map`、
+   `pick`、`assign`、`transform`、`atransform`、`as_tool`、`validate`、`batch_as_completed`、
+   `abatch_as_completed`、`astream_log`、`get_name`、`get_prompts`，以及 schema/introspection 那组
+   （`get_input_schema`、`get_output_schema`、`*_jsonschema`、`input_schema`、`output_schema`、
+   `config_schema`、`InputType`、`OutputType`）。我们的图不是 `Runnable` 子类。
+2. **LG 自己的引擎内部状态属性**：`nodes`、`channels`（返回 `PregelNode`/channel 实例）、
+   `checkpointer`、`config`、`debug`、`stream_mode`、`stream_channels*`、`trigger_to_nodes`、
+   `attach_node`/`attach_edge`/`attach_branch`、`builder`、`cache*`、`retry_policy`、`step_timeout`、
+   `store`、`interrupt_before_nodes`/`interrupt_after_nodes` 等。这些反映 LG 的 Python 对象模型；
+   我们只暴露能如实提供的部分（`channels` 给的是声明过的 channel 名，`store` 给的是真实 store）。
+
 ### 编译后图的同步/异步双 API（2026-11-26）
 
 LangGraph 的编译结果是**一个对象**，同时提供 `invoke` 与 `ainvoke`、`stream` 与 `astream`、
@@ -282,6 +298,8 @@ LangGraph 的编译结果是**一个对象**，同时提供 `invoke` 与 `ainvok
 - `AsyncCompiledGraph.ainvoke` / `astream` / `astream_events` 都接受 LG 的 `config=` 参数（此前只有 `thread_id`）
 - `batch` / `abatch` 接受 LG 的 `config=`（单份或**每个输入一份**）、`return_exceptions=` 与 `context=`；
   config 列表长度不匹配时抛 `TypeError`
+- 图自省：`get_subgraphs(namespace=, recurse=)` 返回内嵌子图（`(name, CompiledGraph)`），
+  `copy(update=)` 返回可再编译的副本，`channels` / `store` 作为属性暴露
 - 状态 API 补齐异步孪生与批量更新：`aget_state` / `aget_state_history` / `aupdate_state` /
   `bulk_update_state` / `abulk_update_state` / `clear_cache` / `aclear_cache`；`get_graph(config, xray=)`
   接受 LG 的参数（`xray` 对渲染结果无影响，子图本就内嵌为节点）

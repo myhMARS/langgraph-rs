@@ -443,3 +443,39 @@ class StateApiSurfaceTest(unittest.TestCase):
         state_n, history_len, updated_n, bulk_n = asyncio.run(scenario())
         self.assertEqual((state_n, updated_n, bulk_n), (1, 5, 7))
         self.assertGreater(history_len, 0)
+
+
+class GraphIntrospectionTest(unittest.TestCase):
+    """`get_subgraphs`, `copy` and the channel/store attributes."""
+
+    @staticmethod
+    def _parent():
+        child = langgraph_rs.StateGraph({"messages": "messages"})
+        child.add_node("inner", lambda state: {})
+        child.set_entry_point("inner")
+        child.set_finish_point("inner")
+        parent = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        parent.add_node("node", lambda state: {})
+        parent.add_subgraph("child", child.compile())
+        parent.set_entry_point("node")
+        parent.set_finish_point("node")
+        return parent.compile()
+
+    def test_get_subgraphs_returns_the_embedded_graph(self):
+        app = self._parent()
+        found = list(app.get_subgraphs())
+        self.assertEqual([name for name, _ in found], ["child"])
+        self.assertEqual(type(found[0][1]).__name__, "CompiledGraph")
+
+    def test_copy_returns_an_independent_object(self):
+        app = self._parent()
+        copied = app.copy()
+        self.assertIsNot(copied, app)
+        # `copy(update)` applies the given fields to the copy
+        renamed = app.copy({"name": "renamed"})
+        self.assertIsNot(renamed, app)
+
+    def test_channels_and_store_attributes(self):
+        app = self._parent()
+        self.assertEqual(sorted(app.channels), ["messages", "n"])
+        self.assertIsNone(app.store)

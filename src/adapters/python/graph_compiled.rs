@@ -795,6 +795,88 @@ impl PyCompiledGraph {
         pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok::<_, pyo3::PyErr>(()) })
     }
 
+    /// The long-term store this graph was compiled with.
+    #[getter]
+    fn store(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.graph.store() {
+            Some(store) => Ok(crate::adapters::python::types::PyStore::new(store.clone())
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// The declared channel names of the compiled graph.
+    #[getter]
+    fn channels(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for name in self.graph.schema().names() {
+            dict.set_item(name, py.None())?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    /// Iterate over the subgraphs embedded in this graph (LangGraph's `get_subgraphs`).
+    #[pyo3(signature = (*, namespace=None, recurse=false))]
+    fn get_subgraphs(
+        &self,
+        py: Python<'_>,
+        namespace: Option<String>,
+        recurse: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let _ = namespace;
+        let items = pyo3::types::PyList::empty(py);
+        for (name, child) in self.graph.subgraphs() {
+            let child_py = Py::new(
+                py,
+                PyCompiledGraph {
+                    graph: child.clone(),
+                    saver: self.saver.clone(),
+                    stream_transformers: Vec::new(),
+                },
+            )?;
+            items.append((name.clone(), child_py))?;
+            if recurse {
+                for (inner_name, inner) in child.subgraphs() {
+                    let nested = Py::new(
+                        py,
+                        PyCompiledGraph {
+                            graph: inner.clone(),
+                            saver: self.saver.clone(),
+                            stream_transformers: Vec::new(),
+                        },
+                    )?;
+                    items.append((format!("{name}|{inner_name}"), nested))?;
+                }
+            }
+        }
+        Ok(items.call_method0("__iter__")?.unbind().into_any())
+    }
+
+    /// Copy the compiled graph (LangGraph's `copy`).
+    #[pyo3(signature = (update=None))]
+    fn copy(&self, py: Python<'_>, update: Option<&Bound<'_, PyAny>>) -> PyResult<Py<Self>> {
+        let mut graph = (*self.graph).clone();
+        if let Some(update) = update.filter(|value| !value.is_none()) {
+            if let Some(name) = update.get_item("name").ok().and_then(|value| value.extract::<String>().ok()) {
+                graph.name = Some(name);
+            }
+        }
+        Py::new(
+            py,
+            PyCompiledGraph {
+                graph: std::sync::Arc::new(graph),
+                saver: self.saver.clone(),
+                stream_transformers: self
+                    .stream_transformers
+                    .iter()
+                    .map(|item| item.clone_ref(py))
+                    .collect(),
+            },
+        )
+    }
+
     /// Resume an interrupted thread.
     fn resume(
         &self,

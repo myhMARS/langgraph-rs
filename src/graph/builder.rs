@@ -68,6 +68,11 @@ pub struct StateGraph<S: State> {
     pub(crate) conditional_entry: Option<ConditionalEdge<S>>,
     /// Hooks that propagate the parent's saver into subgraph children at compile time.
     pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
+    /// Subgraphs added with `add_subgraph` (kept for `get_subgraphs`).
+    pub(crate) subgraphs: IndexMap<String, Arc<CompiledGraph<S>>>,
+    /// Subgraphs added with `add_subgraph_mapped` (their compiled type differs, so only the name
+    /// is kept).
+    pub(crate) subgraph_names: Vec<String>,
 }
 
 impl<S: State> StateGraph<S> {
@@ -89,6 +94,8 @@ impl<S: State> StateGraph<S> {
             cache: None,
             cache_policies: IndexMap::new(),
             store: None,
+            subgraphs: IndexMap::new(),
+            subgraph_names: Vec::new(),
             node_metadata: IndexMap::new(),
             timeouts: IndexMap::new(),
             deferred: HashSet::new(),
@@ -294,6 +301,7 @@ impl<S: State> StateGraph<S> {
         subgraph: Arc<CompiledGraph<S>>,
     ) -> Self {
         let name = name.into();
+        self.subgraphs.insert(name.clone(), subgraph.clone());
         let schema = self.schema.clone();
         // The parent hands its saver to the child at compile time (LangGraph inheritance).
         let child = subgraph.clone();
@@ -336,6 +344,7 @@ impl<S: State> StateGraph<S> {
         Output: Fn(&Sub, &S) -> Result<NodeOutput> + Send + Sync + 'static,
     {
         let name = name.into();
+        self.subgraph_names.push(name.clone());
         let schema = self.schema.clone();
         let child = subgraph.clone();
         self.subgraph_hooks

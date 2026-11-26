@@ -119,6 +119,7 @@ impl<S: State> StateGraph<S> {
             name: options.name,
             context_schema: options.context_schema,
             inherited_saver: Arc::new(std::sync::OnceLock::new()),
+            subgraphs: self.subgraphs,
             subgraph_hooks: self.subgraph_hooks,
         })
     }

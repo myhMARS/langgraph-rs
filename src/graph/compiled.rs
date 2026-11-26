@@ -46,6 +46,8 @@ pub struct CompiledGraph<S: State> {
     pub(crate) inherited_saver: Arc<std::sync::OnceLock<Arc<dyn Checkpointer>>>,
     /// Hooks that hand an inherited saver to this graph's own subgraphs.
     pub(crate) subgraph_hooks: crate::_internal::ports::SaverHooks,
+    /// Compiled graphs embedded as nodes, keyed by node name (`get_subgraphs`).
+    pub(crate) subgraphs: indexmap::IndexMap<String, Arc<CompiledGraph<S>>>,
 }
 
 impl<S: State> Clone for CompiledGraph<S> {
@@ -74,6 +76,7 @@ impl<S: State> Clone for CompiledGraph<S> {
             context_schema: self.context_schema.clone(),
             inherited_saver: self.inherited_saver.clone(),
             subgraph_hooks: self.subgraph_hooks.clone(),
+            subgraphs: self.subgraphs.clone(),
         }
     }
 }
@@ -90,6 +93,11 @@ impl<S: State> CompiledGraph<S> {
     }
 
     /// Name given at compile time, when any.
+    /// Subgraphs embedded as nodes, keyed by node name.
+    pub fn subgraphs(&self) -> &indexmap::IndexMap<String, Arc<CompiledGraph<S>>> {
+        &self.subgraphs
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }

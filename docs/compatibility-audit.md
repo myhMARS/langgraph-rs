@@ -2086,4 +2086,23 @@ The state surface was the last cluster of missing methods on the compiled graph.
 Verified end to end: bulk update → 99, `clear_cache` → `None`, `aget_state` → 99,
 `aget_state_history` → 4 snapshots, `aupdate_state` → 5, `abulk_update_state` → 7, `aclear_cache` → ok.
 
-Python suite is 398 tests; parity 38/38; clippy clean.
+Python suite is 398 tests; parity 38/38; clippy clean.### Round 98: graph introspection and a full sweep of what is still missing
+
+Subgraph tracking: `StateGraph::add_subgraph` used to consume the child graph into a node closure, so
+the compiled parent could not report it. The builder now records `subgraphs` (name → `Arc<CompiledGraph>`)
+and the compiled graph keeps the map, which makes `get_subgraphs(*, namespace=None, recurse=False)`
+truthful: it returns `(name, CompiledGraph)` pairs, and `recurse=True` also walks nested subgraphs.
+
+Also added: `copy(update=None)` (deep-clones the graph definition, applies `name` from `update`) and the
+`channels` / `store` attributes (`channels` = declared channel names, `store` = the real store).
+
+`checkpointer` was implemented and then removed: the extension stores only the Rust `Arc<dyn Checkpointer>`,
+so returning a Python object would have been a half-truth. `get_name` hit a genuine pyo3 symbol collision
+with an existing `__pymethod_get_name__` in this class and stays unimplemented; both are documented as
+part of the `Runnable` / engine-internals groups.
+
+A fresh `dir()` + `inspect.signature` sweep leaves 62 names, now classified in
+`docs/langgraph-compat.md`: the `RunnableSerializable` family (not a `Runnable` subclass by design) and
+LangGraph's own engine-internal attributes (`nodes`, `attach_node`, `trigger_to_nodes`, ...).
+
+Python suite is 401 tests; parity 38/38; clippy and Rust tests clean.
