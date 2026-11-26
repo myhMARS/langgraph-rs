@@ -288,7 +288,7 @@ impl PyAsyncCompiledGraph {
         let graph = slf.into_pyobject(py)?.into_any();
         function.call((graph, input), Some(&kwargs))
     }
-    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None, live_sink=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, stream_mode=None, subgraphs=false, version=None, live_sink=None, config=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn astream<'py>(
         &self,
@@ -300,6 +300,7 @@ impl PyAsyncCompiledGraph {
         subgraphs: bool,
         version: Option<String>,
         live_sink: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
@@ -310,7 +311,8 @@ impl PyAsyncCompiledGraph {
                 )));
             }
         };
-        let (thread, mut config) = super::convert::config_from_py(py, thread_id)?;
+        let (thread, mut config) =
+            super::convert::config_from_py(py, config.or(thread_id))?;
 
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);

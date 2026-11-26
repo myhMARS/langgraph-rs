@@ -272,6 +272,15 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 * store `search(query=...)` 无索引时的子串匹配 → 现在与 LG 一致：无向量索引时 `query` 被忽略，
   结果只由 `filter` / `limit` / `offset` 决定（对照测试见 `python/tests/test_store_search.py`）。
 
+### 编译后图的同步/异步双 API（2026-11-26）
+
+LangGraph 的编译结果是**一个对象**，同时提供 `invoke` 与 `ainvoke`、`stream` 与 `astream`、
+`stream_events` 与 `astream_events`。扩展现在也如此：
+
+- `CompiledGraph` 增加了 `ainvoke` / `astream` / `astream_events`：同步引擎在工作线程上执行
+  （`run_in_executor`），事件循环不被阻塞；`astream` 返回 async generator，与 LG 的形态一致
+- `AsyncCompiledGraph.ainvoke` / `astream` 都接受 LG 的 `config=` 参数（此前只有 `thread_id`）
+
 ### 跨引擎 resume 支持矩阵（2026-11）
 
 | 共享方式 | LangGraph 暂停 → rs 恢复 | rs 暂停 → LangGraph 恢复 | 交替继续（新输入） |

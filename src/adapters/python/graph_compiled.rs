@@ -119,6 +119,7 @@ impl PyLiveStream {
     }
 }
 
+
 impl Drop for PyLiveStream {
     fn drop(&mut self) {
         // The worker stops on its own when the receiver disappears; joining here would block the
@@ -871,6 +872,132 @@ impl PyCompiledGraph {
             .copy_thread(&source_thread, &target_thread)
             .map_err(|error| to_pyerr(py, error))
     }
+    #[pyo3(signature = (input=None, config=None, *, thread_id=None, context=None, checkpoint_ns=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn ainvoke<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        input: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+        checkpoint_ns: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // LangGraph exposes `ainvoke` on the same object; the extension runs the synchronous
+        // engine on a worker thread so the event loop stays free.
+        let kwargs = pyo3::types::PyDict::new(py);
+        if let Some(thread_id) = thread_id {
+            kwargs.set_item("thread_id", thread_id)?;
+        }
+        if let Some(context) = context {
+            kwargs.set_item("context", context)?;
+        }
+        if let Some(checkpoint_ns) = checkpoint_ns {
+            kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
+        }
+        let module = py.import("langgraph_rs.stream._events")?;
+        let helper = module.getattr("ainvoke_via_sync")?;
+        let graph = slf.into_pyobject(py)?.into_any();
+        let input = input.map(|value| value.clone().unbind());
+        let config = config.map(|value| value.clone().unbind());
+        helper.call1((
+            graph,
+            input.as_ref().map(|value| value.bind(py)),
+            config.as_ref().map(|value| value.bind(py)),
+            kwargs,
+        ))
+    }
+
+    #[pyo3(signature = (input=None, config=None, *, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn astream<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        input: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        stream_mode: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+        subgraphs: bool,
+        version: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // Async generator over the collected run, matching LangGraph's `astream` shape.
+        let kwargs = pyo3::types::PyDict::new(py);
+        if let Some(thread_id) = thread_id {
+            kwargs.set_item("thread_id", thread_id)?;
+        }
+        if let Some(stream_mode) = stream_mode {
+            kwargs.set_item("stream_mode", stream_mode)?;
+        }
+        if let Some(context) = context {
+            kwargs.set_item("context", context)?;
+        }
+        if subgraphs {
+            kwargs.set_item("subgraphs", true)?;
+        }
+        if let Some(version) = version {
+            kwargs.set_item("version", version)?;
+        }
+        let module = py.import("langgraph_rs.stream._events")?;
+        let helper = module.getattr("astream_via_sync")?;
+        let graph = slf.into_pyobject(py)?.into_any();
+        let input = input.map(|value| value.clone().unbind());
+        let config = config.map(|value| value.clone().unbind());
+        helper.call1((
+            graph,
+            input.as_ref().map(|value| value.bind(py)),
+            config.as_ref().map(|value| value.bind(py)),
+            kwargs,
+        ))
+    }
+
+    #[pyo3(signature = (input=None, config=None, *, thread_id=None, version="v3", transformers=None, context=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn astream_events<'py>(
+        &self,
+        py: Python<'py>,
+        input: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+        version: &str,
+        transformers: Option<&Bound<'_, PyAny>>,
+        context: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let _ = config;
+        let module = py.import("langgraph_rs.stream._events")?;
+        let function = module.getattr("astream_events")?;
+        let kwargs = pyo3::types::PyDict::new(py);
+        kwargs.set_item("version", version)?;
+        if !self.stream_transformers.is_empty() {
+            let compiled = pyo3::types::PyList::new(
+                py,
+                self.stream_transformers.iter().map(|item| item.bind(py)),
+            )?;
+            kwargs.set_item("compile_transformers", compiled)?;
+        }
+        if let Some(thread_id) = thread_id {
+            kwargs.set_item("thread_id", thread_id)?;
+        }
+        if let Some(transformers) = transformers {
+            kwargs.set_item("transformers", transformers)?;
+        }
+        if let Some(context) = context.filter(|value| !value.is_none()) {
+            kwargs.set_item("context", context)?;
+        }
+        let graph = self.graph.clone();
+        let saver = self.saver.clone();
+        let transform = self
+            .stream_transformers
+            .iter()
+            .map(|item| item.clone_ref(py))
+            .collect::<Vec<_>>();
+        let bound_graph =
+            Py::new(py, PyCompiledGraph { graph, saver, stream_transformers: transform })?;
+        let input = input.map(|value| value.clone().unbind());
+        let input = input.as_ref().map(|value| value.bind(py));
+        function.call((bound_graph, input), Some(&kwargs))
+    }
+
 }
 
 #[path = "graph_support.rs"]

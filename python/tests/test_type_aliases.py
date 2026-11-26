@@ -313,3 +313,47 @@ class GraphLifecycleDispatchTest(unittest.TestCase):
         app = self._graph(langgraph_rs.StateGraph, langgraph_rs.interrupt)
         result = app.invoke({}, config={"configurable": {"thread_id": "life-4"}})
         self.assertIn("__interrupt__", result)
+
+
+class CompiledGraphAsyncSurfaceTest(unittest.TestCase):
+    """LangGraph's compiled graph exposes sync and async APIs on one object."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"messages": "messages"})
+        graph.add_node("node", lambda state: {"messages": []})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile()
+
+    def test_async_methods_exist_on_the_sync_graph(self):
+        app = self._app()
+        for name in ("ainvoke", "astream", "astream_events"):
+            self.assertTrue(hasattr(app, name), name)
+
+    def test_ainvoke_returns_the_state(self):
+        import asyncio
+
+        result = asyncio.run(self._app().ainvoke({"messages": []}))
+        self.assertEqual(sorted(result.keys()), ["messages"])
+
+    def test_astream_is_an_async_generator(self):
+        import asyncio
+        import inspect
+
+        stream = self._app().astream({"messages": []}, stream_mode="values", version="v2")
+        self.assertTrue(inspect.isasyncgen(stream))
+
+        async def count():
+            return [part async for part in stream]
+
+        self.assertEqual(len(asyncio.run(count())), 2)
+
+    def test_astream_events_returns_a_run_stream(self):
+        import asyncio
+
+        async def collect():
+            run = await self._app().astream_events({"messages": []}, version="v3")
+            return [value async for value in run.values]
+
+        self.assertEqual(len(asyncio.run(collect())), 2)

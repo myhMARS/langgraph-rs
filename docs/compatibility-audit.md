@@ -2017,4 +2017,35 @@ Verified on all three lanes — `invoke`, `stream`, `ainvoke` — each producing
 `("interrupt", "pending", checkpoint set, 1 interrupt)` followed by `("resume", "pending", checkpoint set)`.
 `GraphLifecycleDispatchTest` covers the three lanes plus the "no handlers configured" case.
 
-Python suite is 385 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 385 tests; parity 38/38; clippy and Rust tests clean.### Round 95: one compiled graph with both APIs
+
+Comparing `dir()` and `inspect.signature` of the compiled graph against LangGraph's
+`CompiledStateGraph` showed a structural difference: LangGraph returns **one object** carrying both
+sync and async entry points, while the extension had `CompiledGraph` and `AsyncCompiledGraph`
+separately. A migrating caller doing `await app.ainvoke(...)` on the sync object failed with
+`AttributeError`.
+
+`CompiledGraph` now exposes the async twins:
+
+* `ainvoke(input, config=None, *, thread_id, context, checkpoint_ns)` — runs the synchronous engine in
+  a worker thread via `asyncio`'s executor, so a coroutine can be created outside a running loop
+  (LangGraph's shape) and the loop is not blocked.
+* `astream(...)` — an async generator over the collected run, matching LangGraph's
+  `inspect.isasyncgenfunction` shape.
+* `astream_events(..., version="v3")` — delegates to the v3 shim so it returns the same run stream as
+  the async class.
+
+`AsyncCompiledGraph.ainvoke` and `.astream` also accept LangGraph's `config=` argument now (they only
+took `thread_id` before), which is what makes `config={"configurable": {...}, "callbacks": [...]}`
+work on the async lane.
+
+Verified: `await app.ainvoke(...)`, `async for chunk in app.astream(...)`, and
+`await app.astream_events(...)` all work on the sync object; `AsyncCompiledGraph.astream(config=...)`
+runs with a checkpointer.
+
+Still different, and documented: `batch`/`abatch` do not take a per-input config list, and the
+`Runnable` helpers (`with_config`, `bind`, `with_retry`, `pipe`, `map`, `batch_as_completed`,
+`astream_log`, `atransform`, `as_tool`, schema introspection helpers) are not implemented because the
+graph does not subclass `RunnableSerializable`.
+
+Python suite is 389 tests; parity 38/38; clippy and Rust tests clean.

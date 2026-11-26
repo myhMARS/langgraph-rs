@@ -260,6 +260,28 @@ def stream_events(
     return GraphRunStream(lazy_stream(), mux)
 
 
+async def ainvoke_via_sync(graph: Any, input: Any, config: Any = None, kwargs: Any = None) -> Any:
+    """Await the synchronous ``invoke`` on a worker thread (LangGraph's ``ainvoke`` shape)."""
+    loop = asyncio.get_running_loop()
+    kwargs = dict(kwargs or {})
+    return await loop.run_in_executor(None, lambda: graph.invoke(input, config, **kwargs))
+
+
+async def astream_via_sync(graph: Any, input: Any, config: Any = None, kwargs: Any = None):
+    """Async generator over the synchronous ``stream`` result (LangGraph's ``astream`` shape)."""
+    loop = asyncio.get_running_loop()
+    kwargs = dict(kwargs or {})
+    chunks = await loop.run_in_executor(None, lambda: graph.stream(input, config, **kwargs))
+    for chunk in chunks:
+        yield chunk
+
+
+async def _aiter_collected(chunks: Any) -> AsyncIterator[Any]:
+    """Expose a collected sync chunk list as an async iterator (``CompiledGraph.astream``)."""
+    for chunk in chunks:
+        yield chunk
+
+
 async def _live_aparts(
     graph: Any,
     input: Any,
