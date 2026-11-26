@@ -308,8 +308,9 @@ LG 的 `stream_mode="messages"` 产出 `(message_chunk, metadata)`，v3 run stre
 回调层通过 `current_triggers()` 读到。
 
 - `langgraph_path`：`("__pregel_pull", <node>)`，子图命名空间按段追加 —— 与 LG 一致
-- `langgraph_triggers`：`("a",)` 这种调度来源；**入口任务的 triggers 仍为空**（LG 那里是
-  `("branch:to:<node>",)`），这属于已知差异
+- `langgraph_triggers`：LG 给的是**调度通道名**而不是节点名 —— 静态/条件边是
+  `("branch:to:<node>",)`，`Send` 扇出是 `("__pregel_push",)`，入口任务同样是 `branch:to:<node>`。
+  扩展已按同一约定生成（此前用的是源节点名、且入口任务为空）
 - 根命名空间下仍没有 `langgraph_checkpoint_ns`（LG 是 `n:<uuid>`；我们不合成 id）
 
 ### LangChain 对象可以进状态了（2026-11-26）

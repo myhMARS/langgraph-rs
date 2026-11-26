@@ -2350,4 +2350,25 @@ Known differences recorded: the *entry* task still has empty triggers (LangGraph
 `('branch:to:<node>',)`), and there is no `langgraph_checkpoint_ns` at the root namespace because the
 extension does not synthesise checkpoint ids.
 
-Suite is 436 tests, parity 40/40, clippy and Rust tests clean.
+Suite is 436 tests, parity 40/40, clippy and Rust tests clean.### Round 108: task triggers use LangGraph's channel convention
+
+Measuring `stream_mode="tasks"` on LangGraph 1.2.22 showed the trigger is the scheduling **channel**,
+not the node that ran:
+
+```
+a -> b        : a: ('branch:to:a',)   b: ('branch:to:b',)
+Send fan-out  : work: ('__pregel_push',)  (twice)
+```
+
+The extension pushed the *source* node (`['a']`) and left entry tasks empty. `fill_triggers` now
+emits `branch:to:<node>` (or `__pregel_push` for push tasks) and runs for every superstep, so entry
+tasks and `Send` tasks are filled too. Message metadata follows automatically:
+`langgraph_triggers == ('branch:to:b',)` for a node reached through `a -> b`.
+
+Two test expectations were updated to the measured convention (they previously asserted the old
+source-node spelling).
+
+New parity scenario `task_triggers` compares the start-chunk `(name, triggers)` pairs for a linear
+graph and a `Send` fan-out on both engines: 41/41 scenarios equivalent.
+
+Suite is 436 tests, examples 10/10, clippy and Rust tests clean.

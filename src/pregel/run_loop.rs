@@ -323,9 +323,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return Err(crate::pregel::pause::pause_error(interrupt));
         }
 
-        if step == 0 {
-            // Entry tasks are triggered by `START`; later supersteps were filled when
-            // they were scheduled.
+        if !tasks.is_empty() {
+            // A task's trigger is its scheduling channel: `branch:to:<node>` for static and
+            // conditional edges, `__pregel_push` for `Send` fan-out. Tasks carried in from a
+            // previous superstep already have it; entry and push tasks are filled here.
             crate::pregel::scheduling::fill_triggers(
                 &mut tasks,
                 &[crate::START.to_string()],

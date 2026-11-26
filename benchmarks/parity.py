@@ -437,6 +437,72 @@ def subgraph_updates_pair():
     return lg_par.compile(), rs_par.compile()
 
 
+def task_triggers_pair():
+    """Task triggers name the scheduling channel: `branch:to:<node>` and `__pregel_push`."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        log: Annotated[list, operator.add]
+
+    lg_linear = LgStateGraph(LgState)
+    lg_linear.add_node("a", lambda state: {"value": 1})
+    lg_linear.add_node("b", lambda state: {"value": 2})
+    lg_linear.add_edge(START, "a")
+    lg_linear.add_edge("a", "b")
+    lg_linear.add_edge("b", END)
+
+    rs_linear = rs.StateGraph({"value": "last", "log": "append"})
+    rs_linear.add_node("a", lambda state: {"value": 1})
+    rs_linear.add_node("b", lambda state: {"value": 2})
+    rs_linear.set_entry_point("a")
+    rs_linear.add_edge("a", "b")
+    rs_linear.set_finish_point("b")
+
+    lg_fan = LgStateGraph(LgState)
+    lg_fan.add_node("work", lambda state: {"log": [state.get("value")]})
+    lg_fan.add_conditional_edges(
+        START, lambda state: [LgSend("work", {"value": 1}), LgSend("work", {"value": 2})]
+    )
+    lg_fan.add_edge("work", END)
+
+    rs_fan = rs.StateGraph({"value": "last", "log": "append"})
+    rs_fan.add_node("work", lambda state: {"log": [state.get("value")]})
+    rs_fan.add_conditional_edges(
+        START, lambda state: [rs.Send("work", {"value": 1}), rs.Send("work", {"value": 2})]
+    )
+    rs_fan.set_finish_point("work")
+    return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
+
+
+def run_task_triggers_scenario() -> list[dict]:
+    lg_linear, rs_linear, lg_fan, rs_fan = task_triggers_pair()
+
+    def starts(app, payload):
+        out = []
+        for part in app.stream(payload, stream_mode="tasks", version="v2"):
+            data = part["data"] if isinstance(part, dict) else part
+            if data.get("result") is None:
+                out.append((data["name"], tuple(data.get("triggers") or ())))
+        return sorted(out)
+
+    lg_linear_tasks = starts(lg_linear, {"value": 0})
+    rs_linear_tasks = starts(rs_linear, {"value": 0, "log": []})
+    lg_fan_tasks = starts(lg_fan, {"value": 0, "log": []})
+    rs_fan_tasks = starts(rs_fan, {"value": 0, "log": []})
+    return [
+        {
+            "scenario": "task_triggers",
+            "rs": {"linear": rs_linear_tasks, "fan": rs_fan_tasks},
+            "lg": {"linear": lg_linear_tasks, "fan": lg_fan_tasks},
+            "equivalent": rs_linear_tasks == lg_linear_tasks and rs_fan_tasks == lg_fan_tasks,
+            "bench": {
+                "rs": measure(lambda: rs_linear.invoke({"value": 0, "log": []})),
+                "lg": measure(lambda: lg_linear.invoke({"value": 0, "log": []})),
+            },
+        }
+    ]
+
+
 def run_subgraph_updates_scenario() -> list[dict]:
     lg, rs_graph = subgraph_updates_pair()
     lg_flat = [
@@ -2437,6 +2503,7 @@ def main() -> None:
         run_linear_scenarios,
         run_parallel_interrupt_scenario,
         run_subgraph_updates_scenario,
+        run_task_triggers_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

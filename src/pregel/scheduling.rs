@@ -96,26 +96,19 @@ pub(crate) fn send_task(source: &str, send: Send) -> Result<Task> {
 /// executed node (LangGraph records the triggering task's channel writes there).
 pub(crate) fn fill_triggers<'a>(
     tasks: &mut [Task],
-    executed: &[String],
-    edges_of: impl Fn(&str) -> Option<&'a [String]>,
+    _executed: &[String],
+    _edges_of: impl Fn(&str) -> Option<&'a [String]>,
 ) {
+    // LangGraph names the *trigger channel* that scheduled a task, not the node that ran:
+    // `branch:to:<node>` for static and conditional edges, `__pregel_push` for `Send` fan-out.
     for task in tasks.iter_mut() {
         if !task.triggers.is_empty() {
             continue;
         }
-        if executed.is_empty() {
-            task.triggers.push(START.to_string());
-            continue;
-        }
-        for node in executed {
-            if edges_of(node).is_some_and(|targets| targets.iter().any(|t| t == &task.node)) {
-                task.triggers.push(node.clone());
-            }
-        }
-        if task.triggers.is_empty()
-            && let Some(last) = executed.last()
-        {
-            task.triggers.push(last.clone());
+        if task.push {
+            task.triggers.push("__pregel_push".to_string());
+        } else {
+            task.triggers.push(format!("branch:to:{}", task.node));
         }
     }
 }

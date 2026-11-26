@@ -884,9 +884,10 @@ class MessageMetadataTest(unittest.TestCase):
         chunk, metadata = next(self._graph().stream({"messages": []}, stream_mode="messages"))
         self.assertEqual(metadata["langgraph_path"], ("__pregel_pull", "b"))
 
-    def test_triggers_name_the_scheduling_node(self):
+    def test_triggers_name_the_scheduling_channel(self):
+        # LangGraph reports the trigger *channel* (`branch:to:<node>`), not the node that ran.
         chunk, metadata = next(self._graph().stream({"messages": []}, stream_mode="messages"))
-        self.assertEqual(tuple(metadata["langgraph_triggers"]), ("a",))
+        self.assertEqual(tuple(metadata["langgraph_triggers"]), ("branch:to:b",))
 
     def test_current_triggers_is_available_inside_a_node(self):
         seen = {}
@@ -897,4 +898,4 @@ class MessageMetadataTest(unittest.TestCase):
         graph.add_edge("a", "b")
         graph.set_finish_point("b")
         graph.compile().invoke({"value": 0})
-        self.assertEqual(seen["triggers"], ["a"])
+        self.assertEqual(seen["triggers"], ["branch:to:b"])
