@@ -2605,4 +2605,27 @@ the graph a checkpointer (which is what LangGraph requires as well).
 New parity scenario `debug_stream` compares `(type, step, payload keys)` for both cases: 45/45
 scenarios equivalent.
 
-Suite is 445 tests, examples 10/10, clippy and Rust tests clean.
+Suite is 445 tests, examples 10/10, clippy and Rust tests clean.### Round 119: callable error handlers and the introspection surface
+
+Measuring `dir()` on both compiled graphs left 27 names LangGraph has and the extension lacks. Most
+are PregelNode internals (`nodes`, `attach_*`, `*_channels*`, `schema_to_mapper`'s mapper machinery)
+or private helpers; the ones users actually touch were added this round.
+
+**Callable `error_handler`** was a behavioural gap, not just an attribute: LangGraph synthesises a
+`__error_handler__<node>` node, routes the failure there, passes the handler the **state** (not the
+exception), applies its update, and does **not** run the failed node's outgoing edges. The Python
+builder now does the same (registering the synthetic node and handing its name to the engine), and
+the observable result matches: `{'value': 0, 'note': "handled:{'value': 0}"}` on both.
+
+**Introspection attributes:** `input_channels`, `output_channels`, `stream_channels`,
+`stream_channels_list`, `stream_channels_asis`, `node_error_handler_map`, `schema_to_mapper` and
+`_repr_mimebundle_` (PNG when graphviz is available, `text/plain` otherwise).
+
+**Graph description:** `get_graph().to_dict()["nodes"]` now lists `__start__` / `__end__` as well,
+matching LangGraph's description (its edges already referenced them).
+
+Still intentionally absent: `nodes` as `PregelNode`s, `attach_node`/`attach_edge`/`attach_branch`,
+`node_error_handler_map`'s internal dispatch, and the private `_*` helpers.
+
+New parity scenario `error_handler` compares the result state and the node set: 46/46 scenarios
+equivalent. Suite is 450 tests, examples 10/10, clippy and Rust tests clean.

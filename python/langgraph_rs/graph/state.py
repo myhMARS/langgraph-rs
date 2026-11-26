@@ -202,7 +202,7 @@ class StateGraph(_native.StateGraph):
         # engine sees the schema); a subclass `__init__` would run too late.
         from ._schema import normalize_schema
 
-        return super().__new__(
+        instance = super().__new__(
             cls,
             normalize_schema(state_schema),
             input_schema,
@@ -210,9 +210,37 @@ class StateGraph(_native.StateGraph):
             private_schema,
             managed_values,
         )
+        # Kept for the compiled graph's introspection surface (`schema_to_mapper`, ...).
+        instance._builder_schema = state_schema
+        instance._builder_outputs = list(output_schema) if output_schema else None
+        instance._builder_handlers = {}
+        return instance
+
+    def add_node(self, name: Any, action: Any = None, **kwargs: Any) -> Any:
+        """Register nodes, translating LangGraph's callable `error_handler` into a handler node.
+
+        LangGraph synthesises `__error_handler__<node>` and routes the failure there, so the
+        handler sees the state and its update replaces the node's result; the branch then ends.
+        """
+        handler = kwargs.get("error_handler")
+        handlers = getattr(self, "_builder_handlers", None)
+        if handler is not None and not isinstance(handler, str) and callable(handler):
+            hidden = f"__error_handler__{name}"
+            super().add_node(hidden, handler)
+            if handlers is not None:
+                handlers[str(name)] = handler
+            return super().add_node(name, action, **{**kwargs, "error_handler": hidden})
+        if handlers is not None and handler is not None:
+            handlers[str(name)] = handler
+        return super().add_node(name, action, **kwargs)
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
-        return CompiledStateGraph(super().compile(*args, **kwargs))
+        return CompiledStateGraph(
+            super().compile(*args, **kwargs),
+            schema_class=getattr(self, "_builder_schema", None),
+            output_names=getattr(self, "_builder_outputs", None),
+            error_handlers=getattr(self, "_builder_handlers", None),
+        )
 
 
 class AsyncStateGraph(_native.AsyncStateGraph):
@@ -253,8 +281,63 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     ``astream_log`` and the schema introspection helpers).
     """
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        *,
+        schema_class: Any = None,
+        output_names: list[str] | None = None,
+        error_handlers: dict[str, Any] | None = None,
+    ) -> None:
         self._inner = inner
+        self._schema_class = schema_class
+        self._output_names = output_names
+        self._error_handlers = dict(error_handlers or {})
+
+    # -- LangGraph introspection surface -----------------------------------------------------
+    @property
+    def input_channels(self) -> str:
+        """LangGraph's single entry channel."""
+        return "__start__"
+
+    def _channel_names(self) -> list[str]:
+        return sorted(getattr(self._inner, "channels", {}) or {})
+
+    @property
+    def output_channels(self) -> list[str]:
+        return list(self._output_names) if self._output_names else self._channel_names()
+
+    @property
+    def stream_channels(self) -> list[str]:
+        return self.output_channels
+
+    @property
+    def stream_channels_list(self) -> list[str]:
+        return self.stream_channels
+
+    @property
+    def stream_channels_asis(self) -> list[str]:
+        return self.stream_channels
+
+    @property
+    def node_error_handler_map(self) -> dict[str, Any]:
+        return dict(self._error_handlers)
+
+    @property
+    def schema_to_mapper(self) -> dict[Any, Any]:
+        """LangGraph maps each schema class to its output mapper; the extension maps to `None`."""
+        return {} if self._schema_class is None else {self._schema_class: None}
+
+    def _repr_mimebundle_(self, **kwargs: Any) -> dict[str, Any]:
+        """Render the graph in notebooks (PNG, as LangGraph does)."""
+        bundle: dict[str, Any] = {"text/plain": repr(self)}
+        try:
+            png = self._inner.draw_png()
+        except Exception:  # pragma: no cover - graphviz is optional
+            return bundle
+        if png:
+            bundle["image/png"] = png
+        return bundle
 
     # -- Runnable plumbing ------------------------------------------------------------------
     def __getattr__(self, name: str) -> Any:

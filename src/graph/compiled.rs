@@ -144,17 +144,22 @@ impl<S: State> CompiledGraph<S> {
     }
 
     /// Serializable graph description (nodes, static edges, conditional edges).
+    ///
+    /// LangGraph's description includes the synthetic `__start__` / `__end__` nodes, which the
+    /// edges already reference, so they are listed here too.
     pub fn graph_spec(&self) -> Value {
-        let nodes: Vec<Value> = self
-            .nodes
-            .keys()
+        let mut names: Vec<String> = vec![crate::START.to_string()];
+        names.extend(self.nodes.keys().cloned());
+        names.push(crate::END.to_string());
+        let nodes: Vec<Value> = names
+            .into_iter()
             .map(|node| {
                 let mut spec = serde_json::Map::new();
                 spec.insert("id".to_string(), Value::String(node.clone()));
-                if self.deferred.contains(node) {
+                if self.deferred.contains(&node) {
                     spec.insert("deferred".to_string(), Value::Bool(true));
                 }
-                if let Some(metadata) = self.node_metadata.get(node)
+                if let Some(metadata) = self.node_metadata.get(&node)
                     && !metadata.is_empty()
                 {
                     spec.insert("metadata".to_string(), Value::Object(metadata.clone()));

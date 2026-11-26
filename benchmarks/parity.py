@@ -474,6 +474,54 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_error_handler_scenario() -> list[dict]:
+    """A callable `error_handler` runs `__error_handler__<node>` and ends that branch."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        note: str
+
+    def failing(state):
+        raise ValueError("nope")
+
+    def lg_build():
+        graph = LgStateGraph(LgState)
+        graph.add_node("boom", failing, error_handler=lambda state: {"note": f"handled:{state}"})
+        graph.add_node("after", lambda state: {"value": 99})
+        graph.add_edge(START, "boom")
+        graph.add_edge("boom", "after")
+        graph.add_edge("after", END)
+        return graph.compile()
+
+    def rs_build():
+        graph = rs.StateGraph({"value": "last_value", "note": "last_value"})
+        graph.add_node(
+            "boom", failing, error_handler=lambda state: {"note": f"handled:{state}"}
+        )
+        graph.add_node("after", lambda state: {"value": 99})
+        graph.set_entry_point("boom")
+        graph.add_edge("boom", "after")
+        graph.set_finish_point("after")
+        return graph.compile()
+
+    lg_result = lg_build().invoke({"value": 0})
+    rs_result = rs_build().invoke({"value": 0})
+    lg_names = sorted(lg_build().get_graph().nodes)
+    rs_names = sorted(node["id"] for node in rs_build().get_graph().to_dict()["nodes"])
+    return [
+        {
+            "scenario": "error_handler",
+            "rs": {"result": rs_result, "nodes": rs_names},
+            "lg": {"result": lg_result, "nodes": lg_names},
+            "equivalent": rs_result == lg_result and rs_names == lg_names,
+            "bench": {
+                "rs": measure(lambda: rs_build().invoke({"value": 0})),
+                "lg": measure(lambda: lg_build().invoke({"value": 0})),
+            },
+        }
+    ]
+
+
 def run_debug_stream_scenario() -> list[dict]:
     """`stream_mode="debug"` mirrors LangGraph: same entry kinds, steps and payload keys."""
 
@@ -2757,6 +2805,7 @@ def main() -> None:
         run_message_stream_scenario,
         run_durability_pause_scenario,
         run_debug_stream_scenario,
+        run_error_handler_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

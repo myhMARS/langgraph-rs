@@ -332,6 +332,30 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 可调用 `error_handler` 与内省属性（2026-11-26）
+
+实测 LG：`add_node(..., error_handler=<callable>)` 会**合成一个节点** `__error_handler__<node>`，
+把失败路由过去；处理器收到的是**状态**（不是异常对象），其返回值作为更新写入，**失败节点的出边不再
+执行**。扩展此前只接受「节点名」形式。现在可调用形式按同样机制实现：Python builder 注册
+`__error_handler__<node>` 节点并把名字交给引擎，二者可观测行为一致：
+
+```
+{'value': 0, 'note': "handled:{'value': 0}"}   # 两边完全相同
+```
+
+内省属性补齐（LG 有、我们此前缺失的）：
+
+| 属性 | 取值 |
+|---|---|
+| `input_channels` | `'__start__'` |
+| `output_channels` / `stream_channels` / `stream_channels_list` / `stream_channels_asis` | 声明的输出通道，否则全部通道 |
+| `node_error_handler_map` | 节点 → 处理器（可调用对象或节点名） |
+| `schema_to_mapper` | `{schema 类: None}` |
+| `_repr_mimebundle_` | 有 graphviz 时给 `image/png`，否则退回 `text/plain` |
+
+另外 `get_graph().to_dict()` 的 `nodes` 现在包含 `__start__` / `__end__`（LG 的图描述含这两个合成节点，
+边也引用它们，此前我们只列真实节点）。
+
 ### `stream_mode="debug"` 的形状（2026-11-26）
 
 实测 LG 后对齐三点：

@@ -1029,3 +1029,69 @@ class LifecycleQueueTest(unittest.TestCase):
         # A single resume event: the interrupt from the previous run is not replayed.
         self.assertEqual(first, [("interrupt", "pending", True)])
         self.assertEqual(seen, [("resume", "pending", True)])
+
+
+class CallableErrorHandlerTest(unittest.TestCase):
+    """LangGraph's callable `error_handler` runs through a synthesised `__error_handler__` node."""
+
+    @staticmethod
+    def _failing():
+        def boom(state):
+            raise ValueError("nope")
+
+        return boom
+
+    def test_handler_receives_the_state_and_ends_the_branch(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value", "note": "last_value"})
+        graph.add_node(
+            "boom", self._failing(), error_handler=lambda state: {"note": f"handled:{state}"}
+        )
+        graph.add_node("after", lambda state: {"value": 99})
+        graph.set_entry_point("boom")
+        graph.add_edge("boom", "after")
+        graph.set_finish_point("after")
+        result = graph.compile().invoke({"value": 0})
+        # LangGraph's handler receives the state, and the failed node's edges do not run.
+        self.assertEqual(result, {"value": 0, "note": "handled:{'value': 0}"})
+
+    def test_handler_map_keeps_the_callable(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        handler = lambda state: {"value": 0}  # noqa: E731 - LangGraph users pass lambdas
+        graph.add_node("boom", self._failing(), error_handler=handler)
+        graph.set_entry_point("boom")
+        graph.set_finish_point("boom")
+        self.assertIs(graph.compile().node_error_handler_map["boom"], handler)
+
+
+class IntrospectionSurfaceTest(unittest.TestCase):
+    """The attribute surface LangGraph exposes for tooling (`input_channels`, ...)."""
+
+    @staticmethod
+    def _app(**schema):
+        graph = langgraph_rs.StateGraph(schema or {"value": "last_value", "note": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        return graph.compile()
+
+    def test_channel_attributes(self):
+        app = self._app()
+        self.assertEqual(app.input_channels, "__start__")
+        self.assertEqual(app.output_channels, ["note", "value"])
+        self.assertEqual(app.stream_channels, ["note", "value"])
+        self.assertEqual(app.stream_channels_list, ["note", "value"])
+        self.assertEqual(app.stream_channels_asis, ["note", "value"])
+
+    def test_schema_to_mapper_keys_on_the_schema_class(self):
+        class State(dict):
+            __annotations__ = {"value": int}
+
+        graph = langgraph_rs.StateGraph(State)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        self.assertEqual(graph.compile().schema_to_mapper, {State: None})
+
+    def test_repr_mimebundle_falls_back_to_text(self):
+        bundle = self._app()._repr_mimebundle_()
+        self.assertIn("text/plain", bundle)
