@@ -403,6 +403,80 @@ def parallel_interrupt_pair() -> tuple[object, object]:
     return lg, rs_graph.compile(checkpointer=rs.InMemorySaver())
 
 
+def subgraph_updates_pair():
+    """A parent node that runs a subgraph reports its own `updates` chunk, as LangGraph does."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    lg_sub = LgStateGraph(LgState)
+    lg_sub.add_node("inner", lambda state: {"value": (state.get("value") or 0) + 1})
+    lg_sub.add_edge(START, "inner")
+    lg_sub.add_edge("inner", END)
+    lg_par = LgStateGraph(LgState)
+    lg_par.add_node("first", lambda state: {"value": 5})
+    lg_par.add_node("sub", lg_sub.compile())
+    lg_par.add_node("after", lambda state: {"value": (state.get("value") or 0) + 10})
+    lg_par.add_edge(START, "first")
+    lg_par.add_edge("first", "sub")
+    lg_par.add_edge("sub", "after")
+    lg_par.add_edge("after", END)
+
+    rs_sub = rs.StateGraph({"value": "last"})
+    rs_sub.add_node("inner", lambda state: {"value": (state.get("value") or 0) + 1})
+    rs_sub.set_entry_point("inner")
+    rs_sub.set_finish_point("inner")
+    rs_par = rs.StateGraph({"value": "last"})
+    rs_par.add_node("first", lambda state: {"value": 5})
+    rs_par.add_node("sub", rs_sub.compile())
+    rs_par.add_node("after", lambda state: {"value": (state.get("value") or 0) + 10})
+    rs_par.set_entry_point("first")
+    rs_par.add_edge("first", "sub")
+    rs_par.add_edge("sub", "after")
+    rs_par.set_finish_point("after")
+    return lg_par.compile(), rs_par.compile()
+
+
+def run_subgraph_updates_scenario() -> list[dict]:
+    lg, rs_graph = subgraph_updates_pair()
+    lg_flat = [
+        part["data"]
+        for part in lg.stream({"value": 0}, stream_mode="updates", version="v2")
+    ]
+    rs_flat = [
+        part["data"]
+        for part in rs_graph.stream({"value": 0}, stream_mode="updates", version="v2")
+    ]
+    lg_ns = [
+        (part["ns"], part["data"])
+        for part in lg.stream({"value": 0}, stream_mode="updates", subgraphs=True, version="v2")
+    ]
+    rs_ns = [
+        (part["ns"], part["data"])
+        for part in rs_graph.stream(
+            {"value": 0}, stream_mode="updates", subgraphs=True, version="v2"
+        )
+    ]
+    # Namespace ids are opaque (LangGraph uses uuids), so compare the names only.
+    def names(parts):
+        return [
+            (tuple(item.split(":")[0] for item in ns), data) for ns, data in parts
+        ]
+
+    return [
+        {
+            "scenario": "subgraph_updates",
+            "rs": {"flat": rs_flat, "ns": names(rs_ns)},
+            "lg": {"flat": lg_flat, "ns": names(lg_ns)},
+            "equivalent": rs_flat == lg_flat and names(rs_ns) == names(lg_ns),
+            "bench": {
+                "rs": measure(lambda: rs_graph.invoke({"value": 0})),
+                "lg": measure(lambda: lg.invoke({"value": 0})),
+            },
+        }
+    ]
+
+
 def run_parallel_interrupt_scenario() -> list[dict]:
     lg, rs_graph = parallel_interrupt_pair()
     lg_cfg = {"configurable": {"thread_id": "par-lg"}}
@@ -2362,6 +2436,7 @@ def main() -> None:
     for runner in (
         run_linear_scenarios,
         run_parallel_interrupt_scenario,
+        run_subgraph_updates_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

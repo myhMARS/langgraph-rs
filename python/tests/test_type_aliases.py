@@ -729,3 +729,42 @@ class ParallelInterruptTest(unittest.TestCase):
         snapshot = app.get_state(config)
         per_task = {task["name"]: len(task["interrupts"]) for task in snapshot.tasks}
         self.assertEqual(per_task, {"na": 1, "nb": 1})
+
+
+class SubgraphUpdateChunkTest(unittest.TestCase):
+    """A subgraph node reports its own `updates` chunk in the parent namespace."""
+
+    @staticmethod
+    def _app():
+        sub = langgraph_rs.StateGraph({"value": "last"})
+        sub.add_node("inner", lambda state: {"value": (state.get("value") or 0) + 1})
+        sub.set_entry_point("inner")
+        sub.set_finish_point("inner")
+        parent = langgraph_rs.StateGraph({"value": "last"})
+        parent.add_node("first", lambda state: {"value": 5})
+        parent.add_node("sub", sub.compile())
+        parent.add_node("after", lambda state: {"value": (state.get("value") or 0) + 10})
+        parent.set_entry_point("first")
+        parent.add_edge("first", "sub")
+        parent.add_edge("sub", "after")
+        parent.set_finish_point("after")
+        return parent.compile()
+
+    def test_parent_namespace_reports_the_subgraph_node(self):
+        app = self._app()
+        data = [part["data"] for part in app.stream({"value": 0}, stream_mode="updates", version="v2")]
+        self.assertEqual(data, [{"first": {"value": 5}}, {"sub": {"value": 6}}, {"after": {"value": 16}}])
+
+    def test_subgraph_namespace_reports_inner_nodes(self):
+        app = self._app()
+        parts = list(app.stream({"value": 0}, stream_mode="updates", subgraphs=True, version="v2"))
+        named = [(tuple(item.split(":")[0] for item in part["ns"]), part["data"]) for part in parts]
+        self.assertEqual(
+            named,
+            [
+                ((), {"first": {"value": 5}}),
+                (("sub",), {"inner": {"value": 6}}),
+                ((), {"sub": {"value": 6}}),
+                ((), {"after": {"value": 16}}),
+            ],
+        )

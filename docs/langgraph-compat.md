@@ -287,6 +287,26 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 子图节点的 `updates` 事件（2026-11-26）
+
+父图里跑子图的节点，LangGraph 会在父命名空间发出自己的 `updates` 事件
+（`{'sub': {'value': 1}}`），扩展此前只在子图命名空间里发子图内部节点的事件，父节点那次事件缺失。
+
+根因：子图节点的写入是「替换」（`NodeOutput::replace`），而发射 `updates` 事件的代码只在
+`updates` 非空时才发。现在两者任一非空都会发一条事件（`updates` 与 `replaces` 合并成同一个
+channel→value 映射），与 LG 的形状一致。
+
+实测（`stream_mode="updates"`）：
+
+```
+无 subgraphs：  {'sub': {'value': 1}}, {'after': {'value': 11}}        ← 与 LG 相同
+带 subgraphs：  (sub-ns, {'inner': ...}), ((), {'sub': ...}), ((), {'after': ...})
+```
+
+已知细微差异：当父图的**入口就是子图**时，LG 不发出父图的输入回显，而扩展会发一条子图的输入回显
+（子图不是入口时两边完全一致）。命名空间里的 id 形态也不同（LG 用 uuid，扩展用确定性 id），
+两者都是不透明标识，比较时应只比名字。
+
 ### 并行中断会全部返回（2026-11-26）
 
 同一 superstep 里多个并行节点都 `interrupt()` 时，LangGraph 返回**全部**中断（每个任务一条），

@@ -262,18 +262,21 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                     continue;
                 }
                 let (updates, replaces, goto, sends) = output.into_parts();
-                if !updates.is_empty() {
+                if !updates.is_empty() || !replaces.is_empty() {
                     if emit {
-                        let update = Value::Object(
-                            updates
-                                .iter()
-                                .map(|(channel, value)| (channel.clone(), value.clone()))
-                                .collect(),
-                        );
+                        // LangGraph reports a node's writes as one update entry; a subgraph node
+                        // writes replacements, so both kinds feed the chunk.
+                        let mut written = serde_json::Map::new();
+                        for (channel, value) in &updates {
+                            written.insert(channel.clone(), value.clone());
+                        }
+                        for (channel, value) in &replaces {
+                            written.insert(channel.clone(), value.clone());
+                        }
                         sink(StreamChunk::Updates {
                             step,
                             node: node.clone(),
-                            update,
+                            update: Value::Object(written),
                         });
                     }
                     for (channel, value) in updates {

@@ -2247,4 +2247,33 @@ A new parity scenario (`parallel_interrupts`) runs the same graph on both engine
 the payloads and the resumed state: 39/39 scenarios equivalent. Subgraph interrupt bubbling and
 multi-mode streaming (`stream_mode=["updates", "values"]`) were compared in the same pass and matched.
 
-Suite is 424 tests; clippy and Rust tests clean.
+Suite is 424 tests; clippy and Rust tests clean.### Round 104: subgraph nodes emit their own `updates` chunk
+
+Continuing the behavioural comparison found a second real gap: streaming `updates` from a parent graph
+that runs a subgraph never reported the subgraph node itself.
+
+```
+LangGraph: {'sub': {'value': 1}}, {'after': {'value': 11}}
+extension:                              {'after': {'value': 11}}
+```
+
+Cause: `add_subgraph` writes with `NodeOutput::replace` (the child may overwrite channels regardless of
+their reducer), and `process_outcomes` emitted `StreamChunk::Updates` only when the *update* list was
+non-empty — replacements were silent. Both kinds now feed one chunk (`updates` first, then
+`replaces`), which is exactly the `{node: {channel: value}}` shape LangGraph produces.
+
+Verified in both modes:
+
+```
+updates:             {'first': ...,'sub': {'value': 6}, 'after': ...}
+updates+subgraphs:   ((), {'first'}), (('sub',), {'inner'}), ((), {'sub'}), ((), {'after'})
+```
+
+New parity scenario `subgraph_updates` compares the flat and namespaced chunk sequences (namespace ids
+are opaque and differ in form, so only the names are compared): 40/40 scenarios equivalent.
+
+Two remaining nuances, both recorded in `docs/langgraph-compat.md`: when the parent's *entry* is a
+subgraph LangGraph omits the parent input echo while the extension emits the child's input echo, and
+namespace ids are deterministic here versus uuids in LangGraph.
+
+Suite is 426 tests, examples 10/10 identical plus 4/4 liveness, clippy and Rust tests clean.
