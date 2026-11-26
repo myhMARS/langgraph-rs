@@ -242,3 +242,74 @@ class GraphCallbacksModuleTest(unittest.TestCase):
         self.assertTrue(manager.is_async)
         asyncio.run(manager.on_resume(GraphResumeEvent(None, "done", "cp2", ())))
         self.assertEqual(seen, ["cp2"])
+
+
+class GraphLifecycleDispatchTest(unittest.TestCase):
+    """The engine dispatches `on_interrupt` / `on_resume` to `GraphCallbackHandler`s."""
+
+    @staticmethod
+    def _handler(seen):
+        from langgraph_rs.callbacks import GraphCallbackHandler
+
+        class Handler(GraphCallbackHandler):
+            def on_interrupt(self, event):
+                seen.append(("interrupt", event.status, bool(event.checkpoint_id), len(event.interrupts)))
+
+            def on_resume(self, event):
+                seen.append(("resume", event.status, bool(event.checkpoint_id)))
+
+        return Handler()
+
+    @staticmethod
+    def _graph(state_type, interrupt):
+        graph = state_type({"answer": "last"})
+
+        def node(state):
+            if state.get("answer") is None:
+                return {"answer": interrupt({"q": "ok?"})}
+            return {}
+
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_invoke_dispatches_interrupt_and_resume(self):
+        seen = []
+        app = self._graph(langgraph_rs.StateGraph, langgraph_rs.interrupt)
+        config = {"configurable": {"thread_id": "life-1"}, "callbacks": [self._handler(seen)]}
+
+        app.invoke({}, config=config)
+        self.assertEqual(seen, [("interrupt", "pending", True, 1)])
+        app.invoke(langgraph_rs.Command(resume="yes"), config=config)
+        self.assertEqual(seen[-1], ("resume", "pending", True))
+
+    def test_stream_dispatches_interrupt_and_resume(self):
+        seen = []
+        app = self._graph(langgraph_rs.StateGraph, langgraph_rs.interrupt)
+        config = {"configurable": {"thread_id": "life-2"}, "callbacks": [self._handler(seen)]}
+
+        list(app.stream({}, config=config, stream_mode="values", version="v2"))
+        self.assertEqual(seen, [("interrupt", "pending", True, 1)])
+        list(app.stream(langgraph_rs.Command(resume="yes"), config=config, stream_mode="values", version="v2"))
+        self.assertEqual(seen[-1], ("resume", "pending", True))
+
+    def test_ainvoke_dispatches_interrupt_and_resume(self):
+        import asyncio
+
+        seen = []
+        app = self._graph(langgraph_rs.AsyncStateGraph, langgraph_rs.interrupt)
+        config = {"configurable": {"thread_id": "life-3"}, "callbacks": [self._handler(seen)]}
+
+        async def scenario():
+            await app.ainvoke({}, config=config)
+            await app.ainvoke(langgraph_rs.Command(resume="yes"), config=config)
+
+        asyncio.run(scenario())
+        self.assertEqual(seen[0], ("interrupt", "pending", True, 1))
+        self.assertEqual(seen[-1], ("resume", "pending", True))
+
+    def test_runs_without_handlers_are_unaffected(self):
+        app = self._graph(langgraph_rs.StateGraph, langgraph_rs.interrupt)
+        result = app.invoke({}, config={"configurable": {"thread_id": "life-4"}})
+        self.assertIn("__interrupt__", result)

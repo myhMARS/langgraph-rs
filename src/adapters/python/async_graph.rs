@@ -31,7 +31,7 @@ use async_support::*;
 #[pymethods]
 impl PyAsyncCompiledGraph {
     /// Awaitable graph invocation returning the final state dict.
-    #[pyo3(signature = (input=None, thread_id=None, context=None))]
+    #[pyo3(signature = (input=None, thread_id=None, context=None, config=None))]
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn ainvoke<'py>(
         &self,
@@ -39,8 +39,11 @@ impl PyAsyncCompiledGraph {
         input: Option<&Bound<'_, PyAny>>,
         thread_id: Option<&Bound<'_, PyAny>>,
         context: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let (thread, mut config) = super::convert::config_from_py(py, thread_id)?;
+        let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
+        let (thread, mut config) =
+            super::convert::config_from_py(py, config.or(thread_id))?;
         if let Some(context) = context {
             config = config.with_context(py_to_value(context)?);
         }
@@ -73,6 +76,23 @@ impl PyAsyncCompiledGraph {
         }
         let continue_thread =
             resume_start.is_none() && input.is_none_or(|value| value.is_none()) && thread.is_some();
+        // Report a resume to `GraphCallbackHandler` before the run continues.
+        if resume_start.as_ref().is_some_and(|(resume, ..)| resume.is_some()) || continue_thread {
+            if let Some(thread_id) = thread.as_deref() {
+                let snapshot = match config.checkpoint_ns.as_deref() {
+                    Some(namespace) => self.graph.get_state_in(thread_id, namespace).ok().flatten(),
+                    None => self.graph.get_state(thread_id).ok().flatten(),
+                };
+                if let Some(snapshot) = snapshot {
+                    let _ = crate::adapters::python::graph_pause::dispatch_resume(
+                        py,
+                        py_config.as_ref().map(|value| value.bind(py)),
+                        &snapshot.checkpoint_id,
+                        config.checkpoint_ns.as_deref(),
+                    );
+                }
+            }
+        }
         let state = if resume_start.is_none() && !continue_thread {
             Some(state_from_py(input)?)
         } else {
@@ -158,6 +178,7 @@ impl PyAsyncCompiledGraph {
                         stream_thread.as_deref(),
                         static_ns.as_deref(),
                         &error,
+                        py_config.as_ref().map(|value| value.bind(py)),
                     )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
@@ -186,6 +207,7 @@ impl PyAsyncCompiledGraph {
                         Some(thread_id.as_str()),
                         None,
                         &error,
+                        None,
                     )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
@@ -602,6 +624,7 @@ impl PyAsyncCompiledGraph {
                         Some(thread_id.as_str()),
                         checkpoint_ns.as_deref(),
                         &error,
+                        None,
                     )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),

@@ -247,8 +247,10 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 **仍未覆盖（有意）**：`langgraph._internal.*`（36 个私有模块）与 `langgraph.pregel._algo` 等 18 个
 私有模块——LG 的内部执行布局，扩展跑自己的引擎。
 
-**已知行为缺口**：`GraphCallbackHandler` 的 `on_interrupt` / `on_resume` 目前需要调用方自己驱动
-manager（模块与 manager 均已实现并测试）；引擎尚未在暂停/恢复时自动派发这两个事件。
+**`GraphCallbackHandler` 已由引擎自动派发**：`invoke` / `stream` / `ainvoke` 在暂停与恢复时都会
+从 `config["callbacks"]` 取出 `GraphCallbackHandler` 并派发 `on_interrupt` / `on_resume`，事件字段
+（`status="pending"`、`checkpoint_id`、`checkpoint_ns`、`interrupts`）与 LangGraph 实测一致；
+没有配置 handler 的运行时行为不受影响。
 
 > **本轮结论（第 6 节终版）**：除上述 5 条外，已无可消除的差异。其中 3 条是超集（内部类占位、
 > `ttl`、可重复迭代对象），1 条是原生 Rust API 的设计取舍（完整状态），1 条是环境限制

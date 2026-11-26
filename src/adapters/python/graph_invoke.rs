@@ -14,6 +14,8 @@ pub(crate) fn invoke(
     checkpoint_ns: Option<String>,
     config: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
+    // Kept for graph lifecycle dispatch (`GraphCallbackHandler.on_interrupt` / `on_resume`).
+    let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
     let (thread_id, base_config) =
         crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
     // Install the LangChain callback context once for the whole run: nodes on this thread
@@ -78,7 +80,8 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                    )? {
+                        py_config.as_ref().map(|value| value.bind(py)),
+                )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
                     },
@@ -109,7 +112,8 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                    )? {
+                        py_config.as_ref().map(|value| value.bind(py)),
+                )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
                     },
@@ -121,6 +125,20 @@ pub(crate) fn invoke(
             let (resume, updates) = command.to_resume_command(py)?;
             let (goto, sends) = command.goto_parts(py)?;
             let resume_config = invoke_config.clone();
+            let resume_checkpoint = thread_id
+                .as_deref()
+                .and_then(|thread| match static_ns.as_deref() {
+                    Some(namespace) => graph.get_state_in(thread, namespace).ok().flatten(),
+                    None => graph.get_state(thread).ok().flatten(),
+                })
+                .map(|snapshot| snapshot.checkpoint_id)
+                .unwrap_or_default();
+            crate::adapters::python::graph_pause::dispatch_resume(
+                py,
+                py_config.as_ref().map(|value| value.bind(py)),
+                &resume_checkpoint,
+                static_ns.as_deref(),
+            )?;
             let result = py.detach(|| match resume {
                 Some(value) if goto.is_empty() && sends.is_empty() => graph
                     .resume_with_updates_config(thread, value, updates, Vec::new(), &resume_config),
@@ -148,6 +166,7 @@ pub(crate) fn invoke(
                     thread_id.as_deref(),
                     static_ns.as_deref(),
                     &error,
+                    py_config.as_ref().map(|value| value.bind(py)),
                 )? {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -159,6 +178,20 @@ pub(crate) fn invoke(
     let input_is_none = input.map(|value| value.is_none()).unwrap_or(true);
     if input_is_none {
         if let Some(thread) = thread_id.as_deref() {
+            if let Some(snapshot) = match static_ns.as_deref() {
+                Some(namespace) => graph.get_state_in(thread, namespace),
+                None => graph.get_state(thread),
+            }
+            .ok()
+            .flatten()
+            {
+                crate::adapters::python::graph_pause::dispatch_resume(
+                    py,
+                    py_config.as_ref().map(|value| value.bind(py)),
+                    &snapshot.checkpoint_id,
+                    static_ns.as_deref(),
+                )?;
+            }
             let result = py.detach(|| graph.continue_thread_with_config(thread, &config));
             return match result {
                 Ok(state) => json_state_to_py(py, &state),
@@ -168,6 +201,7 @@ pub(crate) fn invoke(
                     thread_id.as_deref(),
                     static_ns.as_deref(),
                     &error,
+                    py_config.as_ref().map(|value| value.bind(py)),
                 )? {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -197,7 +231,8 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                    )? {
+                        py_config.as_ref().map(|value| value.bind(py)),
+                )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
                     },
@@ -215,6 +250,7 @@ pub(crate) fn invoke(
             thread_id.as_deref(),
             static_ns.as_deref(),
             &error,
+            py_config.as_ref().map(|value| value.bind(py)),
         )? {
             Some(value) => Ok(value),
             None => Err(to_pyerr(py, error)),

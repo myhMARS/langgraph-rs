@@ -15,6 +15,29 @@ enum LiveItem {
     Error(String),
 }
 
+
+/// Rebuild the interrupt payload carried by a paused run's chunks.
+fn interrupt_from_chunks(chunks: &[crate::StreamChunk]) -> Option<crate::Interrupt> {
+    chunks.iter().find_map(|chunk| match chunk {
+        crate::StreamChunk::Interrupt {
+            node,
+            id,
+            value,
+            response_schema,
+            static_pause,
+        } => Some(crate::Interrupt {
+            id: id.clone(),
+            node: node.clone(),
+            value: value.clone(),
+            response_schema: response_schema.clone(),
+            values: None,
+            static_pause: *static_pause,
+            task_id: None,
+        }),
+        _ => None,
+    })
+}
+
 /// Pull-based iterator over a run's chunks (`stream_live`).
 ///
 /// The graph runs on a worker thread that pushes every chunk as it is produced — including chunks a
@@ -320,6 +343,7 @@ impl PyCompiledGraph {
                 )));
             }
         };
+        let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
         let (thread, mut config) = config_from_py(py, config.or(thread_id))?;
         let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         if let Some(control) = control {
@@ -343,6 +367,16 @@ impl PyCompiledGraph {
                 })?;
                 let (resume, updates) = command.to_resume_command(py)?;
                 let (goto, sends) = command.goto_parts(py)?;
+                if resume.is_some()
+                    && let Ok(Some(snapshot)) = self.graph.get_state(thread)
+                {
+                    crate::adapters::python::graph_pause::dispatch_resume(
+                        py,
+                        py_config.as_ref().map(|value| value.bind(py)),
+                        &snapshot.checkpoint_id,
+                        None,
+                    )?;
+                }
                 let updates = Some(updates.into_iter().collect());
                 match py.detach(|| {
                     self.graph.stream_thread_with(
@@ -398,6 +432,21 @@ impl PyCompiledGraph {
                 .filter(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested))
                 .collect::<Vec<_>>()
         };
+        // Report a paused run to `GraphCallbackHandler` (LangGraph dispatches during the run).
+        if let Some(thread_id) = thread.as_deref() {
+            if let Ok(Some(snapshot)) = self.graph.get_state(thread_id) {
+                if snapshot.interrupted {
+                    if let Some(interrupt) = interrupt_from_chunks(&chunks) {
+                        crate::adapters::python::graph_pause::dispatch_interrupt(
+                            py,
+                            py_config.as_ref().map(|value| value.bind(py)),
+                            &snapshot.checkpoint_id,
+                            &interrupt,
+                        )?;
+                    }
+                }
+            }
+        }
         let converted = convert_stream_chunks(py, &chunks, v2, &requested)?;
         Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
     }
@@ -435,7 +484,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error, None)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -464,7 +513,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error, None)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -494,7 +543,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error, None)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -509,7 +558,7 @@ impl PyCompiledGraph {
         match result {
             Ok(state) => json_state_to_py(py, &state),
             Err(error) => {
-                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error)?
+                match crate::adapters::python::graph_pause::pause_values(py, &self.graph, Some(thread_id.as_str()), None, &error, None)?
                 {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),

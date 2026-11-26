@@ -1988,4 +1988,33 @@ Known behavioural gap, recorded in the compat doc: the engine does not yet dispa
 `on_resume` to `GraphCallbackHandler` itself — the module and managers are implemented and tested, but
 a caller must drive them.
 
-Python suite is 381 tests; parity 38/38; clippy clean.
+Python suite is 381 tests; parity 38/38; clippy clean.### Round 94: the engine dispatches graph lifecycle callbacks
+
+The gap recorded in the previous round ("`GraphCallbackHandler` exists but the engine never calls it")
+is closed. LangGraph's semantics were measured first, with a handler attached to a real graph:
+
+```
+invoke  -> [('interrupt', 'pending', '1f1e93ff', (), 1)]
+resume  -> [('resume', 'pending', '1f1e93ff', ())]
+```
+
+Implementation:
+
+* `langgraph_rs.callbacks._dispatch_graph_lifecycle(config, kind, ...)` builds the event and hands it
+  to the manager for `config["callbacks"]`; it is a no-op when no `GraphCallbackHandler` is configured
+  and swallows handler errors so a broken callback cannot fail a run.
+* `graph_pause::pause_values` — the single place every paused run flows through — now dispatches
+  `on_interrupt` with the snapshot's `checkpoint_id`, `status="pending"` and the interrupt payload.
+  `pause_values` gained the caller's config for that purpose.
+* `graph_invoke` dispatches `on_resume` for both resume shapes (`Command(resume=...)` and
+  `invoke(None)` on a paused thread), using the checkpoint being resumed.
+* `CompiledGraph.stream` dispatches `on_interrupt` (when the collected chunks show a paused snapshot)
+  and `on_resume` for `Command(resume=...)`.
+* Async: `AsyncCompiledGraph.ainvoke` now accepts LangGraph's `config=` argument (it previously only
+  took `thread_id`), and both pause (`static_pause_values`) and resume dispatch on that lane too.
+
+Verified on all three lanes — `invoke`, `stream`, `ainvoke` — each producing
+`("interrupt", "pending", checkpoint set, 1 interrupt)` followed by `("resume", "pending", checkpoint set)`.
+`GraphLifecycleDispatchTest` covers the three lanes plus the "no handlers configured" case.
+
+Python suite is 385 tests; parity 38/38; clippy and Rust tests clean.
