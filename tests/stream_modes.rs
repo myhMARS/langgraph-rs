@@ -19,6 +19,20 @@ impl State for StreamState {
     }
 }
 
+fn checkpointed_writer_graph() -> langgraph_rs::CompiledGraph<StreamState> {
+    StateGraph::<StreamState>::new()
+        .add_node("emit", |state: &StreamState| {
+            message(json!({ "token": "hello" }))?;
+            custom(json!({ "progress": 0.5 }))?;
+            record_tokens(3, 4)?;
+            Ok(NodeOutput::new().set("value", state.value + 1))
+        })
+        .set_entry_point("emit")
+        .set_finish_point("emit")
+        .compile_with(CompileOptions::new().with_checkpointer(Arc::new(InMemorySaver::new())))
+        .unwrap()
+}
+
 fn writer_graph() -> langgraph_rs::CompiledGraph<StreamState> {
     StateGraph::<StreamState>::new()
         .add_node("emit", |state: &StreamState| {
@@ -39,8 +53,10 @@ fn modes_of(chunks: &[StreamChunk]) -> Vec<StreamMode> {
 
 #[test]
 fn stream_all_contains_writer_and_lifecycle_chunks() {
-    let chunks = writer_graph()
-        .stream(&StreamState::default(), &RunConfig::new())
+    // `checkpoint` debug entries only exist when a checkpointer persists them (LangGraph parity).
+    let config = RunConfig::new().with_thread("stream-all");
+    let chunks = checkpointed_writer_graph()
+        .stream(&StreamState::default(), &config)
         .unwrap();
     assert!(
         chunks
@@ -75,8 +91,8 @@ fn stream_all_contains_writer_and_lifecycle_chunks() {
 
 #[test]
 fn stream_modes_filter_chunks() {
-    let graph = writer_graph();
-    let config = RunConfig::new();
+    let graph = checkpointed_writer_graph();
+    let config = RunConfig::new().with_thread("stream-modes");
 
     let values = graph
         .stream_modes(&StreamState::default(), &config, &[StreamMode::Values])

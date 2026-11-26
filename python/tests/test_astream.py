@@ -56,8 +56,13 @@ class AsyncStreamTests(unittest.TestCase):
         graph.add_node("inc", lambda state: {"value": state["value"] + 1})
         graph.set_entry_point("inc")
         graph.set_finish_point("inc")
-        chunks = graph.compile().stream(
-            {"value": 0}, stream_mode=["debug"], version="v2"
+        # LangGraph only reports `checkpoint` debug entries when a checkpointer persists them,
+        # so the graph needs one for the checkpoint shape to exist at all.
+        chunks = graph.compile(checkpointer=lg.InMemorySaver()).stream(
+            {"value": 0},
+            {"configurable": {"thread_id": "v2-debug"}},
+            stream_mode=["debug"],
+            version="v2",
         )
         debug = [chunk for chunk in chunks if chunk["type"] == "debug"]
         self.assertTrue(debug)

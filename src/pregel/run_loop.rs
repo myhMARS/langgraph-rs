@@ -526,11 +526,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         let next_checkpoint_id = thread_id
             .as_deref()
             .map(|thread| crate::checkpoint::new_checkpoint_id(thread, step));
-        if emit && debug_enabled {
+        if emit && debug_enabled && backend.has_checkpointer() {
             crate::pregel::pause::emit_debug_step(
                 sink,
                 step,
-                &executed,
                 &next_tasks,
                 &values,
                 thread_id.as_deref(),

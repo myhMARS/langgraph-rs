@@ -430,7 +430,6 @@ where
 pub(crate) fn emit_debug_step<F: FnMut(crate::StreamChunk)>(
     sink: &mut F,
     step: usize,
-    executed: &[String],
     next_tasks: &[Task],
     values: &serde_json::Map<String, Value>,
     thread_id: Option<&str>,
@@ -440,7 +439,6 @@ pub(crate) fn emit_debug_step<F: FnMut(crate::StreamChunk)>(
 ) {
     sink(crate::pregel::outcome::debug_chunk(
         step,
-        executed,
         next_tasks,
         &Value::Object(values.clone()),
         thread_id,

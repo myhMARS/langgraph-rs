@@ -2577,4 +2577,32 @@ lg  paused [('loop', 1, ('gate',))]  resumed [('loop', 2, ()), ('loop', 1, ('gat
 New parity scenario `durability_pause` compares pause history, resume history and final state:
 44/44 scenarios equivalent.
 
-Suite is 445 tests, examples 10/10, streaming-liveness PASS, clippy and Rust tests clean.
+Suite is 445 tests, examples 10/10, streaming-liveness PASS, clippy and Rust tests clean.### Round 118: `stream_mode="debug"` matches LangGraph'
+
+Measured against LangGraph 1.2.22, three things differed:
+
+1. LangGraph only emits `checkpoint` debug entries when a **checkpointer** persists them; without one
+   the stream carries `task` / `task_result` only. The extension emitted them unconditionally.
+2. The `checkpoint` payload keys are `config`, `metadata`, `next`, `parent_config`, `tasks`,
+   `values`; the extension added an `executed` key.
+3. `step` is the *displayed* checkpoint step — LangGraph's raw-input checkpoint reports `-1` and the
+   following ones `0, 1, 2`, with `metadata.step` equal to the entry's `step`. The extension was off
+   by one and could not express `-1`.
+
+Fixes: debug chunks are gated on `backend.has_checkpointer()`, `executed` is gone from the payload,
+`StreamChunk::Debug.step` is now `i64` and carries the displayed value. Both streams now match entry
+for entry:
+
+```
+no checkpointer   task 1, task_result 1, task 2, task_result 2
+with checkpointer checkpoint -1, checkpoint 0, task 1, task_result 1,
+                  checkpoint 1, task 2, task_result 2, checkpoint 2
+```
+
+Two Rust stream tests and one Python test assumed checkpoint entries always exist, so they now give
+the graph a checkpointer (which is what LangGraph requires as well).
+
+New parity scenario `debug_stream` compares `(type, step, payload keys)` for both cases: 45/45
+scenarios equivalent.
+
+Suite is 445 tests, examples 10/10, clippy and Rust tests clean.

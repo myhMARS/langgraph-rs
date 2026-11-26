@@ -70,10 +70,9 @@ where
             )
             .await?;
         }
-        if persist && emit {
+        if persist && emit && backend.has_checkpointer() {
             sink(debug_chunk(
                 base_step,
-                &[],
                 &start_tasks,
                 &Value::Object(raw.clone()),
                 thread_id,
@@ -114,10 +113,9 @@ where
         )
         .await?;
     }
-    if persist && emit {
+    if persist && emit && backend.has_checkpointer() {
         sink(debug_chunk(
             base_step,
-            &[],
             tasks,
             &Value::Object(values.clone()),
             thread_id,

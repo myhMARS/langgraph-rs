@@ -474,6 +474,61 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_debug_stream_scenario() -> list[dict]:
+    """`stream_mode="debug"` mirrors LangGraph: same entry kinds, steps and payload keys."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_build(checkpointer):
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        saver = LgInMemorySaver() if checkpointer else None
+        return graph.compile(checkpointer=saver)
+
+    def rs_build(checkpointer):
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        saver = rs.InMemorySaver() if checkpointer else None
+        return graph.compile(checkpointer=saver)
+
+    def describe(app, label, checkpointer):
+        call = {"configurable": {"thread_id": f"debug-{label}"}} if checkpointer else {}
+        out = []
+        for part in app.stream({"value": 0}, call, stream_mode="debug"):
+            payload = part.get("payload") or {}
+            out.append((part["type"], part["step"], tuple(sorted(payload.keys()))))
+        return out
+
+    comparisons = {}
+    for checkpointer in (False, True):
+        key = "with_checkpointer" if checkpointer else "plain"
+        comparisons[key] = {
+            "rs": describe(rs_build(checkpointer), "rs", checkpointer),
+            "lg": describe(lg_build(checkpointer), "lg", checkpointer),
+        }
+    return [
+        {
+            "scenario": "debug_stream",
+            "rs": {name: item["rs"] for name, item in comparisons.items()},
+            "lg": {name: item["lg"] for name, item in comparisons.items()},
+            "equivalent": all(item["rs"] == item["lg"] for item in comparisons.values()),
+            "bench": {
+                "rs": measure(lambda: list(rs_build(False).stream({"value": 0}, stream_mode="debug"))),
+                "lg": measure(lambda: list(lg_build(False).stream({"value": 0}, stream_mode="debug"))),
+            },
+        }
+    ]
+
+
 def run_durability_pause_scenario() -> list[dict]:
     """`durability="exit"` keeps one checkpoint at a pause and one after the resume."""
 
@@ -2701,6 +2756,7 @@ def main() -> None:
         run_bulk_update_scenario,
         run_message_stream_scenario,
         run_durability_pause_scenario,
+        run_debug_stream_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

@@ -99,8 +99,8 @@ pub enum StreamChunk {
     },
     /// Debug record for a completed superstep (`stream_mode="debug"`).
     Debug {
-        /// Superstep index.
-        step: usize,
+        /// Superstep index as LangGraph reports it (its raw-input checkpoint shows `-1`).
+        step: i64,
         /// Structured debug payload.
         payload: Value,
     },

@@ -332,6 +332,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `stream_mode="debug"` 的形状（2026-11-26）
+
+实测 LG 后对齐三点：
+
+1. **只有存在 checkpointer 时才有 `checkpoint` 条目**（无 checkpointer 时只有 `task` /
+   `task_result`）。扩展此前无条件发出 `checkpoint`。
+2. **`checkpoint` 载荷的键**是 `config` / `metadata` / `next` / `parent_config` / `tasks` /
+   `values` —— 我们多了一个 `executed`。
+3. **`step` 用「展示值」**：LG 的原始输入 checkpoint 报 `-1`，随后是 `0, 1, 2`；且 `metadata.step`
+   与条目 `step` 相同。扩展此前整体大 1。
+
+现在两条流都逐条一致：
+
+```
+无 checkpointer:  task 1, task_result 1, task 2, task_result 2
+有 checkpointer:  checkpoint -1, checkpoint 0, task 1, task_result 1,
+                  checkpoint 1, task 2, task_result 2, checkpoint 2
+```
+
 ### `durability="exit"` 的暂停历史（2026-11-26）
 
 实测 LG：`durability="exit"` 下运行暂停时**只保留一个 checkpoint**（`source="loop"`，携带 `next`），

@@ -482,7 +482,6 @@ pub(crate) fn values_chunk(step: usize, values: &serde_json::Map<String, Value>)
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn debug_chunk(
     step: usize,
-    executed: &[String],
     scheduled: &[crate::_internal::node::Task],
     values: &Value,
     thread_id: Option<&str>,
@@ -519,16 +518,19 @@ pub(crate) fn debug_chunk(
         })
         .collect();
     let next: Vec<String> = scheduled.iter().map(|task| task.node.clone()).collect();
+    // LangGraph reports the checkpoint's *displayed* step, which is one less than the stored
+    // counter (its raw-input checkpoint shows `-1`).
+    let step = step as i64 - 1;
     StreamChunk::Debug {
         step,
         payload: serde_json::json!({
             "config": config,
-            "metadata": {"step": step as i64 - 1, "source": source, "parents": {}},
+            "metadata": {"step": step, "source": source, "parents": {}},
             "values": values,
             "next": next,
             "parent_config": parent_config,
+            // LangGraph's `checkpoint` debug payload carries exactly these keys.
             "tasks": tasks,
-            "executed": executed,
         }),
     }
 }
