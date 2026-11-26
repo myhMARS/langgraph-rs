@@ -399,3 +399,47 @@ class BatchSurfaceTest(unittest.TestCase):
         app = self._app()
         results = asyncio.run(app.abatch([{"n": 1}, {"n": 2}]))
         self.assertEqual([result["n"] for result in results], [2, 3])
+
+
+class StateApiSurfaceTest(unittest.TestCase):
+    """Async state twins, `bulk_update_state`, `clear_cache` and `get_graph(config)`."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"messages": "messages", "n": "last"})
+        graph.add_node("node", lambda state: {"n": (state.get("n") or 0) + 1})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        app.invoke({"messages": []}, thread_id="state-1")
+        return app, {"configurable": {"thread_id": "state-1"}}
+
+    def test_bulk_update_state_applies_supersteps(self):
+        app, config = self._app()
+        snapshot = app.bulk_update_state(config, [[{"values": {"n": 42}, "as_node": "node"}]])
+        self.assertEqual(snapshot.values["n"], 42)
+
+    def test_clear_cache_is_available(self):
+        app, _ = self._app()
+        self.assertIsNone(app.clear_cache())
+
+    def test_get_graph_accepts_config_and_xray(self):
+        app, config = self._app()
+        self.assertIsNotNone(app.get_graph(config, xray=True))
+
+    def test_async_state_methods(self):
+        import asyncio
+
+        app, config = self._app()
+
+        async def scenario():
+            state = await app.aget_state(config)
+            history = await app.aget_state_history(config)
+            updated = await app.aupdate_state(config, {"n": 5})
+            bulk = await app.abulk_update_state(config, [[{"values": {"n": 7}, "as_node": "node"}]])
+            await app.aclear_cache()
+            return state.values["n"], len(history), updated.values["n"], bulk.values["n"]
+
+        state_n, history_len, updated_n, bulk_n = asyncio.run(scenario())
+        self.assertEqual((state_n, updated_n, bulk_n), (1, 5, 7))
+        self.assertGreater(history_len, 0)

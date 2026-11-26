@@ -267,6 +267,13 @@ async def ainvoke_via_sync(graph: Any, input: Any, config: Any = None, kwargs: A
     return await loop.run_in_executor(None, lambda: graph.invoke(input, config, **kwargs))
 
 
+async def call_via_sync(graph: Any, method: str, kwargs: Any = None) -> Any:
+    """Await one of the graph's synchronous methods on a worker thread."""
+    loop = asyncio.get_running_loop()
+    kwargs = dict(kwargs or {})
+    return await loop.run_in_executor(None, lambda: getattr(graph, method)(**kwargs))
+
+
 async def abatch_via_sync(graph: Any, inputs: Any, config: Any = None, kwargs: Any = None) -> Any:
     """Await the synchronous ``batch`` on a worker thread (LangGraph's ``abatch`` shape)."""
     loop = asyncio.get_running_loop()

@@ -2067,4 +2067,23 @@ Verified: shared config `[1, 1]`, per-input `[11, 21]`, length mismatch → `Typ
 Along the way a round of editing removed `AsyncCompiledGraph.astream_events`; it was restored (now
 also accepting `config=`) and the suite caught the regression immediately.
 
-Python suite is 394 tests; parity 38/38; clippy and Rust tests clean.
+Python suite is 394 tests; parity 38/38; clippy and Rust tests clean.### Round 97: async state twins, bulk updates and cache clearing
+
+The state surface was the last cluster of missing methods on the compiled graph.
+
+* `aget_state`, `aget_state_history`, `aupdate_state` — awaitables that run the synchronous
+  implementation on a worker thread (`call_via_sync`), so they work outside a running loop and do not
+  block the event loop.
+* `bulk_update_state(config, supersteps)` — LangGraph's shape: a list of supersteps, each a list of
+  `{values, as_node, task_id}` updates. Each update goes through the engine's existing
+  `update_state_with_task`, and the last resulting snapshot is returned. `abulk_update_state` is the
+  awaitable twin.
+* `clear_cache(nodes=None)` / `aclear_cache()` — calls `NodeCache::clear()`. The backends only support
+  a full clear, so `nodes=` is accepted for compatibility and clears everything (documented).
+* `get_graph(config=None, *, xray=False)` — accepts LangGraph's arguments; `xray` does not change the
+  rendering because subgraphs are already embedded as nodes.
+
+Verified end to end: bulk update → 99, `clear_cache` → `None`, `aget_state` → 99,
+`aget_state_history` → 4 snapshots, `aupdate_state` → 5, `abulk_update_state` → 7, `aclear_cache` → ok.
+
+Python suite is 398 tests; parity 38/38; clippy clean.

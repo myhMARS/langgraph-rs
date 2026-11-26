@@ -17,6 +17,89 @@ enum LiveItem {
 
 
 
+
+/// Run a sync state call on a worker thread and expose it as an awaitable.
+fn async_state_call<'py>(
+    slf: PyRef<'py, PyCompiledGraph>,
+    py: Python<'py>,
+    method: &str,
+    thread_id: Option<&Bound<'py, PyAny>>,
+    checkpoint_ns: Option<String>,
+    subgraphs: bool,
+    config: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let module = py.import("langgraph_rs.stream._events")?;
+    let helper = module.getattr("call_via_sync")?;
+    let graph = slf.into_pyobject(py)?.into_any();
+    let kwargs = pyo3::types::PyDict::new(py);
+    if let Some(thread_id) = thread_id {
+        kwargs.set_item("thread_id", thread_id)?;
+    }
+    if let Some(checkpoint_ns) = checkpoint_ns {
+        kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
+    }
+    if subgraphs {
+        kwargs.set_item("subgraphs", true)?;
+    }
+    if let Some(config) = config {
+        kwargs.set_item("config", config)?;
+    }
+    helper.call1((graph, method, kwargs))
+}
+
+fn async_update_call<'py>(
+    slf: PyRef<'py, PyCompiledGraph>,
+    py: Python<'py>,
+    thread_id: &Bound<'py, PyAny>,
+    values: &Bound<'py, PyAny>,
+    as_node: Option<String>,
+    task_id: Option<String>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let module = py.import("langgraph_rs.stream._events")?;
+    let helper = module.getattr("call_via_sync")?;
+    let graph = slf.into_pyobject(py)?.into_any();
+    let kwargs = pyo3::types::PyDict::new(py);
+    let thread_id = thread_id.clone().unbind();
+    kwargs.set_item("thread_id", thread_id.bind(py))?;
+    kwargs.set_item("values", values)?;
+    if let Some(as_node) = as_node {
+        kwargs.set_item("as_node", as_node)?;
+    }
+    if let Some(task_id) = task_id {
+        kwargs.set_item("task_id", task_id)?;
+    }
+    helper.call1((graph, "update_state", kwargs))
+}
+
+fn async_history_call<'py>(
+    slf: PyRef<'py, PyCompiledGraph>,
+    py: Python<'py>,
+    thread_id: &Bound<'py, PyAny>,
+    before: Option<&Bound<'py, PyAny>>,
+    limit: Option<usize>,
+    checkpoint_ns: Option<String>,
+    filter: Option<&Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let module = py.import("langgraph_rs.stream._events")?;
+    let helper = module.getattr("call_via_sync")?;
+    let graph = slf.into_pyobject(py)?.into_any();
+    let kwargs = pyo3::types::PyDict::new(py);
+    kwargs.set_item("thread_id", thread_id)?;
+    if let Some(before) = before {
+        kwargs.set_item("before", before)?;
+    }
+    if let Some(limit) = limit {
+        kwargs.set_item("limit", limit)?;
+    }
+    if let Some(checkpoint_ns) = checkpoint_ns {
+        kwargs.set_item("checkpoint_ns", checkpoint_ns)?;
+    }
+    if let Some(filter) = filter {
+        kwargs.set_item("filter", filter)?;
+    }
+    helper.call1((graph, "get_state_history", kwargs))
+}
+
 /// Parse LangGraph's `batch` config argument: `None`, one config, or one config per input.
 pub(crate) fn per_input_configs(
     py: Python<'_>,
@@ -574,6 +657,144 @@ impl PyCompiledGraph {
         ))
     }
 
+    /// Apply several supersteps of updates at once (LangGraph's `bulk_update_state`).
+    #[pyo3(signature = (config=None, supersteps=None, *, thread_id=None))]
+    fn bulk_update_state(
+        &self,
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        supersteps: Option<&Bound<'_, PyAny>>,
+        thread_id: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let (parsed_thread, _) = config_from_py(py, config.or(thread_id))?;
+        let thread_id = parsed_thread
+            .ok_or_else(|| PyTypeError::new_err("bulk_update_state requires a thread id"))?;
+        let supersteps = supersteps.ok_or_else(|| {
+            PyTypeError::new_err("bulk_update_state requires a list of supersteps")
+        })?;
+        let steps = supersteps
+            .cast::<PyList>()
+            .map_err(|_| PyTypeError::new_err("supersteps must be a list of lists"))?;
+        let mut latest: Option<Py<PyAny>> = None;
+        for step in steps.iter() {
+            let updates = step
+                .cast::<PyList>()
+                .map_err(|_| PyTypeError::new_err("every superstep must be a list of updates"))?;
+            for update in updates.iter() {
+                let values = update.get_item("values").ok();
+                let as_node: Option<String> = update
+                    .get_item("as_node")
+                    .ok()
+                    .and_then(|node| node.extract::<String>().ok());
+                let task_id: Option<String> = update
+                    .get_item("task_id")
+                    .ok()
+                    .and_then(|task| task.extract::<String>().ok());
+                let values = match values {
+                    Some(values) => values,
+                    None => continue,
+                };
+                let value = py_to_value(&values)?;
+                let map = value.as_object().cloned().ok_or_else(|| {
+                    PyTypeError::new_err("bulk_update_state expects dict updates")
+                })?;
+                let writes: Vec<(String, crate::Value)> =
+                    map.into_iter().collect();
+                let result = py.detach(|| {
+                    self.graph
+                        .update_state_with_task(&thread_id, writes, as_node.as_deref(), task_id.as_deref())
+                });
+                latest = Some(match result {
+                    Ok(snapshot) => snapshot_to_py(py, &snapshot)?,
+                    Err(error) => return Err(to_pyerr(py, error)),
+                });
+            }
+        }
+        Ok(latest.unwrap_or_else(|| py.None()))
+    }
+
+    /// Clear cached node outputs (LangGraph's `clear_cache`).
+    #[pyo3(signature = (nodes=None))]
+    fn clear_cache(&self, py: Python<'_>, nodes: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+        // The cache backends only support a full clear; `nodes` is accepted for compatibility.
+        let _ = nodes;
+        match self.graph.cache() {
+            Some(cache) => cache.clear().map_err(|error| to_pyerr(py, error)),
+            None => Ok(()),
+        }
+    }
+
+    #[pyo3(signature = (thread_id=None, checkpoint_ns=None, subgraphs=false, config=None))]
+    fn aget_state<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        thread_id: Option<&Bound<'py, PyAny>>,
+        checkpoint_ns: Option<String>,
+        subgraphs: bool,
+        config: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        async_state_call(slf, py, "get_state", thread_id, checkpoint_ns, subgraphs, config)
+    }
+
+    #[pyo3(signature = (thread_id, values, as_node=None, task_id=None))]
+    fn aupdate_state<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        thread_id: &Bound<'py, PyAny>,
+        values: &Bound<'py, PyAny>,
+        as_node: Option<String>,
+        task_id: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        async_update_call(slf, py, thread_id, values, as_node, task_id)
+    }
+
+    #[pyo3(signature = (thread_id, before=None, limit=None, checkpoint_ns=None, filter=None))]
+    fn aget_state_history<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        thread_id: &Bound<'py, PyAny>,
+        before: Option<&Bound<'py, PyAny>>,
+        limit: Option<usize>,
+        checkpoint_ns: Option<String>,
+        filter: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        async_history_call(slf, py, thread_id, before, limit, checkpoint_ns, filter)
+    }
+
+    #[pyo3(signature = (config=None, supersteps=None, *, thread_id=None))]
+    fn abulk_update_state<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        config: Option<&Bound<'py, PyAny>>,
+        supersteps: Option<&Bound<'py, PyAny>>,
+        thread_id: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let module = py.import("langgraph_rs.stream._events")?;
+        let helper = module.getattr("call_via_sync")?;
+        let graph = slf.into_pyobject(py)?.into_any();
+        let kwargs = pyo3::types::PyDict::new(py);
+        if let Some(config) = config {
+            kwargs.set_item("config", config)?;
+        }
+        if let Some(supersteps) = supersteps {
+            kwargs.set_item("supersteps", supersteps)?;
+        }
+        if let Some(thread_id) = thread_id {
+            kwargs.set_item("thread_id", thread_id)?;
+        }
+        helper.call1((graph, "bulk_update_state", kwargs))
+    }
+
+    #[pyo3(signature = (nodes=None))]
+    fn aclear_cache<'py>(
+        &self,
+        py: Python<'py>,
+        nodes: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        PyCompiledGraph::clear_cache(self, py, nodes)?;
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok::<_, pyo3::PyErr>(()) })
+    }
+
     /// Resume an interrupted thread.
     fn resume(
         &self,
@@ -890,7 +1111,11 @@ impl PyCompiledGraph {
     }
 
     /// Graph description object (`draw_mermaid()` / `to_dict()`).
-    fn get_graph(&self) -> PyGraph {
+    #[pyo3(signature = (config=None, *, xray=false))]
+    fn get_graph(&self, config: Option<&Bound<'_, PyAny>>, xray: bool) -> PyGraph {
+        // `xray` (and the config) are accepted for LangGraph compatibility; the extension renders
+        // the same graph either way because subgraphs are embedded as nodes already.
+        let _ = (config, xray);
         PyGraph {
             mermaid: self.graph.to_mermaid(),
             ascii: self.graph.to_ascii(),

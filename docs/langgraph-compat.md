@@ -282,6 +282,9 @@ LangGraph 的编译结果是**一个对象**，同时提供 `invoke` 与 `ainvok
 - `AsyncCompiledGraph.ainvoke` / `astream` / `astream_events` 都接受 LG 的 `config=` 参数（此前只有 `thread_id`）
 - `batch` / `abatch` 接受 LG 的 `config=`（单份或**每个输入一份**）、`return_exceptions=` 与 `context=`；
   config 列表长度不匹配时抛 `TypeError`
+- 状态 API 补齐异步孪生与批量更新：`aget_state` / `aget_state_history` / `aupdate_state` /
+  `bulk_update_state` / `abulk_update_state` / `clear_cache` / `aclear_cache`；`get_graph(config, xray=)`
+  接受 LG 的参数（`xray` 对渲染结果无影响，子图本就内嵌为节点）
 
 ### 跨引擎 resume 支持矩阵（2026-11）
 
