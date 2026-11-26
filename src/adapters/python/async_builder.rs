@@ -332,6 +332,7 @@ impl PyAsyncStateGraph {
                     .filter(|value| !value.is_none())
                     .map(|value| value.clone().unbind()),
                 builder_py: Some(slf.into_pyobject(py)?.into_any().unbind()),
+                last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             },
         )?;
         let module = py.import("langgraph_rs.graph.state")?;

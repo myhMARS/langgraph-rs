@@ -257,6 +257,7 @@ impl PyStateGraph {
                 checkpointer_py,
                 cache_py,
                 builder_py: Some(slf.into_pyobject(py)?.into_any().unbind()),
+                last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             },
         )?;
         crate::adapters::python::graph::graph_compiled::wrap_compiled(py, native)

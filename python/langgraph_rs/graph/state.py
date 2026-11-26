@@ -127,6 +127,59 @@ def _thread_id_of(config: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _dispatch_lifecycle(graph: Any, config: Any) -> None:
+    """Drain the run's recorded transitions and hand them to ``GraphCallbackHandler``s.
+
+    The engine records pause/resume events into a queue (LangGraph's loop does the same); this is
+    the single place that turns them into callbacks, once per run and with a run id.
+    """
+    try:
+        events = graph.take_lifecycle_events()
+    except Exception:  # pragma: no cover - a graph without the queue
+        return
+    if not events:
+        return
+    from uuid import uuid4
+
+    from ..callbacks import (
+        GraphInterruptEvent,
+        GraphResumeEvent,
+        get_sync_graph_callback_manager_for_config,
+    )
+
+    try:
+        manager = get_sync_graph_callback_manager_for_config(config or {}, run_id=uuid4())
+    except Exception:  # pragma: no cover - a broken config must not break the run
+        return
+    if not manager.handlers:
+        return
+    for event in events:
+        namespace = tuple(part for part in str(event.get("namespace") or "").split("|") if part)
+        if event.get("kind") == "resume":
+            payload = GraphResumeEvent(
+                run_id=manager.run_id,
+                status=event.get("status") or "pending",
+                checkpoint_id=event.get("checkpoint_id") or "",
+                checkpoint_ns=namespace,
+            )
+            try:
+                manager.on_resume(payload)
+            except Exception:  # pragma: no cover - a broken handler must not break the run
+                pass
+        else:
+            payload = GraphInterruptEvent(
+                run_id=manager.run_id,
+                status=event.get("status") or "pending",
+                checkpoint_id=event.get("checkpoint_id") or "",
+                checkpoint_ns=namespace,
+                interrupts=tuple(event.get("interrupts") or ()),
+            )
+            try:
+                manager.on_interrupt(payload)
+            except Exception:  # pragma: no cover
+                pass
+
+
 class _CompiledMeta(ABCMeta):
     """Forward class-level lookups (``hasattr(CompiledStateGraph, ...)``) to the native class."""
 
@@ -202,19 +255,27 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     # -- run methods ------------------------------------------------------------------------
     def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
         call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
-        return self._inner.invoke(input, **call)
+        result = self._inner.invoke(input, **call)
+        _dispatch_lifecycle(self._inner, config)
+        return result
 
     async def ainvoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
         call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
-        return await self._inner.ainvoke(input, **call)
+        result = await self._inner.ainvoke(input, **call)
+        _dispatch_lifecycle(self._inner, config)
+        return result
 
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
         call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
-        return self._inner.stream(input, **call)
+        chunks = self._inner.stream(input, **call)
+        _dispatch_lifecycle(self._inner, config)
+        return chunks
 
     def astream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> AsyncIterator[Any]:
         call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
-        return self._inner.astream(input, **call)
+        stream = self._inner.astream(input, **call)
+        _dispatch_lifecycle(self._inner, config)
+        return stream
 
     def batch(
         self,

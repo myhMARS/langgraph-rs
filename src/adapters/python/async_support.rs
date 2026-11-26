@@ -69,7 +69,7 @@ pub(crate) fn static_pause_values(
     thread: Option<&str>,
     namespace: Option<&str>,
     error: &crate::Error,
-    py_config: Option<&Bound<'_, PyAny>>,
+    lifecycle: Option<&crate::_internal::lifecycle::LifecycleSink>,
 ) -> PyResult<Option<Py<PyAny>>> {
     let crate::Error::Interrupt(interrupt) = error else {
         return Ok(None);
@@ -93,12 +93,13 @@ pub(crate) fn static_pause_values(
                     std::slice::from_ref(interrupt),
                 )?;
             }
-            crate::adapters::python::graph_pause::dispatch_interrupt(
-                py,
-                py_config,
+            crate::adapters::python::graph_pause::record_interrupt(
+                lifecycle,
+                if interrupt.static_pause { "interrupt_before" } else { "pending" },
                 &snapshot.checkpoint_id,
+                namespace.unwrap_or(""),
                 &snapshot.interrupts,
-            )?;
+            );
             Ok(Some(values))
         }
         None => match &interrupt.values {

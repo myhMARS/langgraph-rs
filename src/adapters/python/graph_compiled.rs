@@ -256,9 +256,26 @@ pub struct PyCompiledGraph {
     pub(crate) cache_py: Option<Py<PyAny>>,
     /// The builder this graph was compiled from (LangGraph's `builder` attribute).
     pub(crate) builder_py: Option<Py<PyAny>>,
+    /// Pause/resume transitions recorded by the last run (drained by the facade).
+    pub(crate) last_lifecycle:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::lifecycle::LifecycleEvent>>>,
 }
 
 impl PyCompiledGraph {
+    /// Move the run's recorded transitions onto the object, replacing the previous run's.
+    pub(crate) fn store_lifecycle(
+        &self,
+        sink: &crate::_internal::lifecycle::LifecycleSink,
+    ) {
+        let Ok(mut recorded) = sink.lock() else {
+            return;
+        };
+        if let Ok(mut events) = self.last_lifecycle.lock() {
+            events.clear();
+            events.append(&mut recorded);
+        }
+    }
+
     pub(crate) fn from_inner_with_saver(
         graph: CompiledGraph<JsonState>,
         saver: Option<Arc<dyn Checkpointer>>,
@@ -270,6 +287,7 @@ impl PyCompiledGraph {
             checkpointer_py: None,
             cache_py: None,
             builder_py: None,
+            last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 }
@@ -289,7 +307,10 @@ impl PyCompiledGraph {
         checkpoint_ns: Option<String>,
         config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        graph_invoke::invoke(
+        // The run records pause/resume transitions into this queue; the facade drains it.
+        let lifecycle: crate::_internal::lifecycle::LifecycleSink =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let result = graph_invoke::invoke(
             py,
             &self.graph,
             input,
@@ -298,8 +319,12 @@ impl PyCompiledGraph {
             control,
             checkpoint_ns,
             config,
-        )
+            Some(&lifecycle),
+        );
+        self.store_lifecycle(&lifecycle);
+        result
     }
+
 
     /// Run the graph and return `{"state": ..., "report": ...}`.
     #[pyo3(signature = (input=None, thread_id=None, context=None))]
@@ -467,7 +492,6 @@ impl PyCompiledGraph {
                 )));
             }
         };
-        let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
         let (thread, mut config) = config_from_py(py, config.or(thread_id))?;
         let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         if let Some(control) = control {
@@ -481,7 +505,12 @@ impl PyCompiledGraph {
         }
         let requested =
             stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Values]);
-        let config = config.clone().with_stream_modes(requested.clone());
+        let lifecycle: crate::_internal::lifecycle::LifecycleSink =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let config = config
+            .clone()
+            .with_stream_modes(requested.clone())
+            .with_lifecycle_sink(lifecycle.clone());
         let mut streamed = Vec::new();
         let mut handled = false;
         if let Some(obj) = input {
@@ -494,12 +523,11 @@ impl PyCompiledGraph {
                 if resume.is_some()
                     && let Ok(Some(snapshot)) = self.graph.get_state(thread)
                 {
-                    crate::adapters::python::graph_pause::dispatch_resume(
-                        py,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                    crate::adapters::python::graph_pause::record_resume(
+                        config.lifecycle.as_ref(),
                         &snapshot.checkpoint_id,
-                        None,
-                    )?;
+                        "",
+                    );
                 }
                 let updates = Some(updates.into_iter().collect());
                 match py.detach(|| {
@@ -566,16 +594,18 @@ impl PyCompiledGraph {
                         snapshot.interrupts.clone()
                     };
                     if !interrupts.is_empty() {
-                        crate::adapters::python::graph_pause::dispatch_interrupt(
-                            py,
-                            py_config.as_ref().map(|value| value.bind(py)),
+                        crate::adapters::python::graph_pause::record_interrupt(
+                            config.lifecycle.as_ref(),
+                            "pending",
                             &snapshot.checkpoint_id,
+                            "",
                             &interrupts,
-                        )?;
+                        );
                     }
                 }
             }
         }
+        self.store_lifecycle(&lifecycle);
         let converted = convert_stream_chunks(py, &chunks, v2, &requested)?;
         Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
     }
@@ -1022,6 +1052,46 @@ impl PyCompiledGraph {
         false
     }
 
+    /// Drain the pause/resume transitions recorded by the last run.
+    ///
+    /// The engine records them into the run's queue; the Python facade calls this once per run and
+    /// dispatches them to `GraphCallbackHandler`s, the way LangGraph drains its loop queue.
+    #[pyo3(signature = ())]
+    fn take_lifecycle_events(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let events = match self.last_lifecycle.lock() {
+            Ok(mut events) => std::mem::take(&mut *events),
+            Err(_) => Vec::new(),
+        };
+        let list = pyo3::types::PyList::empty(py);
+        for event in events {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("kind", event.kind.as_str())?;
+            dict.set_item("status", event.status)?;
+            dict.set_item("checkpoint_id", event.checkpoint_id)?;
+            dict.set_item("namespace", event.namespace)?;
+            let interrupts = pyo3::types::PyList::empty(py);
+            for interrupt in &event.interrupts {
+                let item = Py::new(
+                    py,
+                    crate::adapters::python::types::PyInterrupt {
+                        id: interrupt.id.clone(),
+                        value: value_to_py(py, &interrupt.value)?,
+                        node: Some(interrupt.node.clone()),
+                        resumable: true,
+                        response_schema: match &interrupt.response_schema {
+                            Some(schema) => Some(value_to_py(py, schema)?),
+                            None => None,
+                        },
+                    },
+                )?;
+                interrupts.append(item)?;
+            }
+            dict.set_item("interrupts", interrupts)?;
+            list.append(dict)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
     /// Iterate over the subgraphs embedded in this graph (LangGraph's `get_subgraphs`).
     #[pyo3(signature = (*, namespace=None, recurse=false))]
     fn get_subgraphs(
@@ -1042,6 +1112,7 @@ impl PyCompiledGraph {
                     checkpointer_py: None,
                     cache_py: None,
                     builder_py: None,
+                    last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
                 },
             )?;
             items.append((name.clone(), child_py))?;
@@ -1056,6 +1127,7 @@ impl PyCompiledGraph {
                             checkpointer_py: None,
                             cache_py: None,
                             builder_py: None,
+                            last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
                         },
                     )?;
                     items.append((format!("{name}|{inner_name}"), nested))?;
@@ -1082,6 +1154,12 @@ impl PyCompiledGraph {
                 checkpointer_py: self.checkpointer_py.as_ref().map(|value| value.clone_ref(py)),
                 cache_py: self.cache_py.as_ref().map(|value| value.clone_ref(py)),
                 builder_py: self.builder_py.as_ref().map(|value| value.clone_ref(py)),
+                last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(
+                    self.last_lifecycle
+                        .lock()
+                        .map(|events| events.clone())
+                        .unwrap_or_default(),
+                )),
                 stream_transformers: self
                     .stream_transformers
                     .iter()
@@ -1637,6 +1715,7 @@ impl PyCompiledGraph {
                 checkpointer_py: None,
                 cache_py: None,
                 builder_py: None,
+                last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             },
         )?;
         let input = input.map(|value| value.clone().unbind());

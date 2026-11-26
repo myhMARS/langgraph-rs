@@ -247,10 +247,16 @@ re-export 噪音）后，**公开模块的名字缺口为 0**。本轮补齐的�
 **仍未覆盖（有意）**：`langgraph._internal.*`（36 个私有模块）与 `langgraph.pregel._algo` 等 18 个
 私有模块——LG 的内部执行布局，扩展跑自己的引擎。
 
-**`GraphCallbackHandler` 已由引擎自动派发**：`invoke` / `stream` / `ainvoke` 在暂停与恢复时都会
-从 `config["callbacks"]` 取出 `GraphCallbackHandler` 并派发 `on_interrupt` / `on_resume`，事件字段
-（`status="pending"`、`checkpoint_id`、`checkpoint_ns`、`interrupts`）与 LangGraph 实测一致；
-没有配置 handler 的运行时行为不受影响。
+**`GraphCallbackHandler` 由「事件队列 + 单点派发」驱动**：
+
+- 引擎在暂停/恢复时把事件写进本次运行的 `LifecycleSink`（`RunConfig::with_lifecycle_sink`），
+  **不在 Rust 里回调 Python**——与 LG 的 loop 队列同构
+- Python 门面在 `invoke`/`ainvoke`/`stream`/`astream` 返回后调用一次 `take_lifecycle_events()`
+  并派发：**一次运行只建一个 manager**，`run_id` 是真实 UUID（此前恒为 `None`）
+- `status` 由引擎给出（动态中断 `pending`、静态断点 `interrupt_before`）
+- 没有配置 handler 时队列仍是空的，运行时行为不受影响
+
+事件字段（`status`、`checkpoint_id`、`checkpoint_ns`、`interrupts`）与 LangGraph 实测一致。
 
 > **本轮结论（第 6 节终版）**：除上述 5 条外，已无可消除的差异。其中 3 条是超集（内部类占位、
 > `ttl`、可重复迭代对象），1 条是原生 Rust API 的设计取舍（完整状态），1 条是环境限制

@@ -13,9 +13,8 @@ pub(crate) fn invoke(
     control: Option<PyRef<'_, crate::adapters::python::types::PyRunControl>>,
     checkpoint_ns: Option<String>,
     config: Option<&Bound<'_, PyAny>>,
+    lifecycle: Option<&crate::_internal::lifecycle::LifecycleSink>,
 ) -> PyResult<Py<PyAny>> {
-    // Kept for graph lifecycle dispatch (`GraphCallbackHandler.on_interrupt` / `on_resume`).
-    let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
     let (thread_id, base_config) =
         crate::adapters::python::convert::config_from_py(py, config.or(thread_id))?;
     // Install the LangChain callback context once for the whole run: nodes on this thread
@@ -32,6 +31,9 @@ pub(crate) fn invoke(
     }
     if let Some(context) = context {
         invoke_config = invoke_config.with_context(py_to_value(context)?);
+    }
+    if let Some(lifecycle) = lifecycle {
+        invoke_config = invoke_config.with_lifecycle_sink(lifecycle.clone());
     }
     if let Some(obj) = input {
         if let Ok(command) = obj.cast::<PyCommand>().map(|cell| cell.borrow()) {
@@ -80,7 +82,7 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                        config.lifecycle.as_ref(),
                 )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
@@ -112,7 +114,7 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                        config.lifecycle.as_ref(),
                 )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
@@ -133,12 +135,11 @@ pub(crate) fn invoke(
                 })
                 .map(|snapshot| snapshot.checkpoint_id)
                 .unwrap_or_default();
-            crate::adapters::python::graph_pause::dispatch_resume(
-                py,
-                py_config.as_ref().map(|value| value.bind(py)),
+            crate::adapters::python::graph_pause::record_resume(
+                resume_config.lifecycle.as_ref(),
                 &resume_checkpoint,
-                static_ns.as_deref(),
-            )?;
+                static_ns.as_deref().unwrap_or(""),
+            );
             let result = py.detach(|| match resume {
                 Some(value) if goto.is_empty() && sends.is_empty() => graph
                     .resume_with_updates_config(thread, value, updates, Vec::new(), &resume_config),
@@ -166,7 +167,7 @@ pub(crate) fn invoke(
                     thread_id.as_deref(),
                     static_ns.as_deref(),
                     &error,
-                    py_config.as_ref().map(|value| value.bind(py)),
+                    resume_config.lifecycle.as_ref(),
                 )? {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -185,12 +186,11 @@ pub(crate) fn invoke(
             .ok()
             .flatten()
             {
-                crate::adapters::python::graph_pause::dispatch_resume(
-                    py,
-                    py_config.as_ref().map(|value| value.bind(py)),
+                crate::adapters::python::graph_pause::record_resume(
+                    config.lifecycle.as_ref(),
                     &snapshot.checkpoint_id,
-                    static_ns.as_deref(),
-                )?;
+                    static_ns.as_deref().unwrap_or(""),
+                );
             }
             let result = py.detach(|| graph.continue_thread_with_config(thread, &config));
             return match result {
@@ -201,7 +201,7 @@ pub(crate) fn invoke(
                     thread_id.as_deref(),
                     static_ns.as_deref(),
                     &error,
-                    py_config.as_ref().map(|value| value.bind(py)),
+                    config.lifecycle.as_ref(),
                 )? {
                     Some(value) => Ok(value),
                     None => Err(to_pyerr(py, error)),
@@ -231,7 +231,7 @@ pub(crate) fn invoke(
                         thread_id.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                        config.lifecycle.as_ref(),
                 )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
@@ -250,7 +250,7 @@ pub(crate) fn invoke(
             thread_id.as_deref(),
             static_ns.as_deref(),
             &error,
-            py_config.as_ref().map(|value| value.bind(py)),
+            config.lifecycle.as_ref(),
         )? {
             Some(value) => Ok(value),
             None => Err(to_pyerr(py, error)),

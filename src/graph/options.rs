@@ -254,6 +254,8 @@ pub struct RunConfig {
     pub control: Option<crate::RunControl>,
     /// Receives node-produced chunks immediately (live streaming); internal.
     pub live_sink: Option<crate::runtime::context::LiveSink>,
+    /// Records pause/resume transitions for the callback layer; internal.
+    pub lifecycle: Option<crate::_internal::lifecycle::LifecycleSink>,
 }
 
 impl RunConfig {
@@ -261,6 +263,16 @@ impl RunConfig {
     #[must_use]
     pub fn with_live_sink(mut self, sink: crate::runtime::context::LiveSink) -> Self {
         self.live_sink = Some(sink);
+        self
+    }
+
+    /// Install the queue that records pause/resume transitions.
+    #[must_use]
+    pub fn with_lifecycle_sink(
+        mut self,
+        sink: crate::_internal::lifecycle::LifecycleSink,
+    ) -> Self {
+        self.lifecycle = Some(sink);
         self
     }
 }

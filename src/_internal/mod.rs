@@ -8,6 +8,7 @@ pub mod cache;
 pub mod command;
 pub mod error;
 pub mod interop;
+pub mod lifecycle;
 pub mod node;
 pub mod plugin;
 pub mod ports;

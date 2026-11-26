@@ -11,86 +11,41 @@ use crate::adapters::python::types::PyInterrupt;
 use crate::adapters::python::{json_state_to_py, value_to_py};
 
 
-/// Dispatch `GraphCallbackHandler.on_interrupt` for a paused run.
+/// Record a pause for the callback layer.
 ///
-/// Mirrors LangGraph: the event carries the loop status (`pending`), the checkpoint the paused run
-/// is on and the interrupt payloads.
-pub(crate) fn dispatch_interrupt(
-    py: Python<'_>,
-    py_config: Option<&Bound<'_, PyAny>>,
+/// The engine does not call into Python here: it appends an event to the run's
+/// [`LifecycleSink`](crate::_internal::lifecycle::LifecycleSink), and the Python facade drains it
+/// once the call returns — the same shape as LangGraph's loop queue.
+pub(crate) fn record_interrupt(
+    lifecycle: Option<&crate::_internal::lifecycle::LifecycleSink>,
+    status: &str,
     checkpoint_id: &str,
+    namespace: &str,
     interrupts: &[crate::Interrupt],
-) -> PyResult<()> {
-    dispatch_lifecycle(py, py_config, "interrupt", checkpoint_id, "", interrupts)
+) {
+    crate::_internal::lifecycle::record(
+        lifecycle,
+        crate::_internal::lifecycle::LifecycleEvent::interrupt(
+            status,
+            checkpoint_id,
+            namespace,
+            interrupts.to_vec(),
+        ),
+    );
 }
 
-/// Dispatch `GraphCallbackHandler.on_resume` when a run continues from a checkpoint.
-pub(crate) fn dispatch_resume(
-    py: Python<'_>,
-    py_config: Option<&Bound<'_, PyAny>>,
+/// Record a resume for the callback layer.
+pub(crate) fn record_resume(
+    lifecycle: Option<&crate::_internal::lifecycle::LifecycleSink>,
     checkpoint_id: &str,
-    namespace: Option<&str>,
-) -> PyResult<()> {
-    dispatch_lifecycle(
-        py,
-        py_config,
-        "resume",
-        checkpoint_id,
-        namespace.unwrap_or(""),
-        &[],
-    )
+    namespace: &str,
+) {
+    crate::_internal::lifecycle::record(
+        lifecycle,
+        crate::_internal::lifecycle::LifecycleEvent::resume("pending", checkpoint_id, namespace),
+    );
 }
 
-/// Call `langgraph_rs.callbacks._dispatch_graph_lifecycle` with the event data.
-fn dispatch_lifecycle(
-    py: Python<'_>,
-    py_config: Option<&Bound<'_, PyAny>>,
-    kind: &str,
-    checkpoint_id: &str,
-    checkpoint_ns: &str,
-    interrupts: &[crate::Interrupt],
-) -> PyResult<()> {
-    let Some(config) = py_config else {
-        return Ok(());
-    };
-    let Ok(module) = py.import("langgraph_rs.callbacks") else {
-        return Ok(());
-    };
-    let Ok(dispatcher) = module.getattr("_dispatch_graph_lifecycle") else {
-        return Ok(());
-    };
-    let namespace: Vec<String> = if checkpoint_ns.is_empty() {
-        Vec::new()
-    } else {
-        checkpoint_ns.split('|').map(|part| part.to_string()).collect()
-    };
-    let mut payloads: Vec<Py<PyAny>> = Vec::with_capacity(interrupts.len());
-    for interrupt in interrupts {
-        payloads.push(Py::new(
-            py,
-            PyInterrupt {
-                id: interrupt.id.clone(),
-                value: value_to_py(py, &interrupt.value)?,
-                node: Some(interrupt.node.clone()),
-                resumable: true,
-                response_schema: match &interrupt.response_schema {
-                    Some(schema) => Some(value_to_py(py, schema)?),
-                    None => None,
-                },
-            },
-        )?
-        .into_any());
-    }
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("status", "pending")?;
-    kwargs.set_item("checkpoint_id", checkpoint_id)?;
-    kwargs.set_item("checkpoint_ns", pyo3::types::PyTuple::new(py, namespace)?)?;
-    kwargs.set_item("interrupts", pyo3::types::PyTuple::new(py, payloads)?)?;
-    let _ = dispatcher.call((config, kind), Some(&kwargs));
-    Ok(())
-}
-
-/// Add LangGraph's `__interrupt__` entry to a state dict.
 pub(crate) fn attach_interrupts(
     py: Python<'_>,
     values: &Bound<'_, PyAny>,
@@ -131,7 +86,7 @@ pub(crate) fn pause_values(
     thread: Option<&str>,
     namespace: Option<&str>,
     error: &crate::Error,
-    py_config: Option<&Bound<'_, PyAny>>,
+    lifecycle: Option<&crate::_internal::lifecycle::LifecycleSink>,
 ) -> PyResult<Option<Py<PyAny>>> {
     let crate::Error::Interrupt(interrupt) = error else {
         return Ok(None);
@@ -167,7 +122,13 @@ pub(crate) fn pause_values(
     if !interrupt.static_pause {
         attach_interrupts(py, values.bind(py), &interrupts)?;
     }
-    dispatch_interrupt(py, py_config, &checkpoint_id, &interrupts)?;
+    record_interrupt(
+        lifecycle,
+        if interrupt.static_pause { "interrupt_before" } else { "pending" },
+        &checkpoint_id,
+        namespace.unwrap_or(""),
+        &interrupts,
+    );
     Ok(Some(values))
 }
 

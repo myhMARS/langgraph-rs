@@ -977,3 +977,53 @@ class BulkUpdateAndHistoryParamsTest(unittest.TestCase):
         self.assertEqual(
             list(app.get_state_history(config, filter={"next": ("b",)})), []
         )
+
+
+class LifecycleQueueTest(unittest.TestCase):
+    """Pause/resume events travel through the run queue and carry a run id."""
+
+    @staticmethod
+    def _app(state_type, interrupt, node_fn=None):
+        graph = state_type({"answer": "last"})
+
+        def node(state):
+            if state.get("answer") is None:
+                return {"answer": interrupt({"q": "ok?"})}
+            return {}
+
+        graph.add_node("node", node_fn or node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    @staticmethod
+    def _handler(seen):
+        from langgraph_rs.callbacks import GraphCallbackHandler
+
+        class Handler(GraphCallbackHandler):
+            def on_interrupt(self, event):
+                seen.append(("interrupt", event.status, event.run_id is not None))
+
+            def on_resume(self, event):
+                seen.append(("resume", event.status, event.run_id is not None))
+
+        return Handler()
+
+    def test_events_carry_a_run_id(self):
+        seen = []
+        app = self._app(langgraph_rs.StateGraph, langgraph_rs.interrupt)
+        config = {"configurable": {"thread_id": "life-run-id"}, "callbacks": [self._handler(seen)]}
+        app.invoke({}, config=config)
+        self.assertEqual(seen, [("interrupt", "pending", True)])
+
+    def test_queue_is_drained_between_runs(self):
+        seen = []
+        app = self._app(langgraph_rs.StateGraph, langgraph_rs.interrupt)
+        config = {"configurable": {"thread_id": "life-drain"}, "callbacks": [self._handler(seen)]}
+        app.invoke({}, config=config)
+        first = list(seen)
+        seen.clear()
+        app.invoke(langgraph_rs.Command(resume="yes"), config=config)
+        # A single resume event: the interrupt from the previous run is not replayed.
+        self.assertEqual(first, [("interrupt", "pending", True)])
+        self.assertEqual(seen, [("resume", "pending", True)])

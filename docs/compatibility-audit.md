@@ -2443,4 +2443,26 @@ New parity scenario `message_stream` compares chunk type, content and the four m
 directly: 43/43 scenarios equivalent. (The examples check was re-run by exit code after a text-grep
 heuristic produced false failures: 10/10 identical.)
 
-Suite is 443 tests, clippy and Rust tests clean.
+Suite is 443 tests, clippy and Rust tests clean.### Round 112: graph lifecycle events go through a run queue
+
+The callback dispatch used to be inverted: Rust called into Python at every pause/resume site (five
+of them), building a callback manager per event, with `status` hardcoded and `run_id` always `None`.
+LangGraph does the opposite — its loop pushes events onto a queue and the streaming layer drains it
+once per iteration.
+
+The extension now follows that shape:
+
+* `_internal::lifecycle` defines `LifecycleEvent` (`kind`, `status`, `checkpoint_id`, `namespace`,
+  `interrupts`) and `LifecycleSink`. `RunConfig::with_lifecycle_sink` carries it.
+* The pause and resume sites only **record** (`graph_pause::record_interrupt` / `record_resume`);
+  there is no Python call from Rust any more, and `callbacks._dispatch_graph_lifecycle` is gone.
+* Each entry point attaches a sink for its run and copies the drained events onto the object
+  (`take_lifecycle_events()`), sync and async alike.
+* The Python facade drains once per call in `invoke`/`ainvoke`/`stream`/`astream` and dispatches
+  through **one** manager with a fresh `run_id`.
+
+Verified on all three lanes: `invoke`, `stream` and `ainvoke` each report
+`('interrupt', 'pending', run_id set)` on the pause and `('resume', 'pending', run_id set)` on the
+resume, and the queue is cleared between runs so a resume does not replay the earlier interrupt.
+
+Suite is 445 tests, parity 43/43, examples 10/10, clippy and Rust tests clean.

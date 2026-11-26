@@ -27,6 +27,9 @@ pub struct PyAsyncCompiledGraph {
     pub(crate) checkpointer_py: Option<Py<PyAny>>,
     /// The builder this graph was compiled from (LangGraph's `builder` attribute).
     pub(crate) builder_py: Option<Py<PyAny>>,
+    /// Pause/resume transitions recorded by the last run (drained by the facade).
+    pub(crate) last_lifecycle:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::lifecycle::LifecycleEvent>>>,
 }
 
 #[path = "async_support.rs"]
@@ -45,7 +48,6 @@ impl PyAsyncCompiledGraph {
         context: Option<&Bound<'_, PyAny>>,
         config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let py_config: Option<Py<PyAny>> = config.map(|value| value.clone().unbind());
         let (thread, mut config) =
             super::convert::config_from_py(py, config.or(thread_id))?;
         if let Some(context) = context {
@@ -78,6 +80,9 @@ impl PyAsyncCompiledGraph {
                 });
             }
         }
+        let lifecycle: crate::_internal::lifecycle::LifecycleSink =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        config = config.with_lifecycle_sink(lifecycle.clone());
         let continue_thread =
             resume_start.is_none() && input.is_none_or(|value| value.is_none()) && thread.is_some();
         // Report a resume to `GraphCallbackHandler` before the run continues.
@@ -88,11 +93,10 @@ impl PyAsyncCompiledGraph {
                     None => self.graph.get_state(thread_id).ok().flatten(),
                 };
                 if let Some(snapshot) = snapshot {
-                    let _ = crate::adapters::python::graph_pause::dispatch_resume(
-                        py,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                    crate::adapters::python::graph_pause::record_resume(
+                        config.lifecycle.as_ref(),
                         &snapshot.checkpoint_id,
-                        config.checkpoint_ns.as_deref(),
+                        config.checkpoint_ns.as_deref().unwrap_or(""),
                     );
                 }
             }
@@ -105,6 +109,7 @@ impl PyAsyncCompiledGraph {
         let graph = self.graph.clone();
         let stream_thread = thread.clone();
         let static_ns = config.checkpoint_ns.clone();
+        let recorded = self.last_lifecycle.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = if let Some((resume, updates, goto, sends)) = resume_start {
                 let thread = stream_thread.as_deref();
@@ -173,7 +178,7 @@ impl PyAsyncCompiledGraph {
                     .await
                     .map(|outcome| outcome.state)
             };
-            match result {
+            let outcome = match result {
                 Ok(state) => Python::attach(|py| json_state_to_py(py, &state)),
                 Err(error) => Python::attach(|py| {
                     match async_support::static_pause_values(
@@ -182,13 +187,20 @@ impl PyAsyncCompiledGraph {
                         stream_thread.as_deref(),
                         static_ns.as_deref(),
                         &error,
-                        py_config.as_ref().map(|value| value.bind(py)),
+                        config.lifecycle.as_ref(),
                     )? {
                         Some(value) => Ok(value),
                         None => Err(to_pyerr(py, error)),
                     }
                 }),
+            };
+            if let Ok(mut events) = lifecycle.lock()
+                && let Ok(mut target) = recorded.lock()
+            {
+                target.clear();
+                target.append(&mut events);
             }
+            outcome
         })
     }
 
@@ -414,6 +426,43 @@ impl PyAsyncCompiledGraph {
     #[getter]
     fn debug(&self) -> bool {
         false
+    }
+
+    /// Drain the pause/resume transitions recorded by the last run.
+    #[pyo3(signature = ())]
+    fn take_lifecycle_events(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let events = match self.last_lifecycle.lock() {
+            Ok(mut events) => std::mem::take(&mut *events),
+            Err(_) => Vec::new(),
+        };
+        let list = pyo3::types::PyList::empty(py);
+        for event in events {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("kind", event.kind.as_str())?;
+            dict.set_item("status", event.status)?;
+            dict.set_item("checkpoint_id", event.checkpoint_id)?;
+            dict.set_item("namespace", event.namespace)?;
+            let interrupts = pyo3::types::PyList::empty(py);
+            for interrupt in &event.interrupts {
+                let item = Py::new(
+                    py,
+                    crate::adapters::python::types::PyInterrupt {
+                        id: interrupt.id.clone(),
+                        value: value_to_py(py, &interrupt.value)?,
+                        node: Some(interrupt.node.clone()),
+                        resumable: true,
+                        response_schema: match &interrupt.response_schema {
+                            Some(schema) => Some(value_to_py(py, schema)?),
+                            None => None,
+                        },
+                    },
+                )?;
+                interrupts.append(item)?;
+            }
+            dict.set_item("interrupts", interrupts)?;
+            list.append(dict)?;
+        }
+        Ok(list.into_any().unbind())
     }
 
     /// Blocking streaming over the async engine.
