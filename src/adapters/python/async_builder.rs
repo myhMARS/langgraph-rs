@@ -270,7 +270,7 @@ impl PyAsyncStateGraph {
     #[pyo3(signature = (checkpointer=None, recursion_limit=None, cache=None, store=None, interrupt_before=None, interrupt_after=None, name=None, transformers=None))]
     #[allow(clippy::too_many_arguments)]
     fn compile(
-        &self,
+        slf: PyRef<'_, Self>,
         py: Python<'_>,
         checkpointer: Option<&Bound<'_, PyAny>>,
         recursion_limit: Option<usize>,
@@ -281,7 +281,7 @@ impl PyAsyncStateGraph {
         name: Option<String>,
         transformers: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        let mut builder = self.inner.clone();
+        let mut builder = slf.inner.clone();
         let mut saver = None;
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
             // An in-memory saver cannot block, so the `BlockingSaver` wrapper would only add
@@ -331,6 +331,7 @@ impl PyAsyncStateGraph {
                 checkpointer_py: checkpointer
                     .filter(|value| !value.is_none())
                     .map(|value| value.clone().unbind()),
+                builder_py: Some(slf.into_pyobject(py)?.into_any().unbind()),
             },
         )?;
         let module = py.import("langgraph_rs.graph.state")?;

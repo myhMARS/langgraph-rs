@@ -627,3 +627,68 @@ class CustomChannelTest(unittest.TestCase):
         graph.set_entry_point("a")
         graph.set_finish_point("a")
         self.assertEqual(graph.compile().invoke({"value": 0})["value"], 1)
+
+
+class BuilderAndSchemaAttributesTest(unittest.TestCase):
+    """`builder`, `stream_mode`, `config`, `validate`, `get_context_jsonschema`."""
+
+    @staticmethod
+    def _app(**kwargs):
+        graph = langgraph_rs.StateGraph({"messages": "messages"})
+        graph.add_node("node", lambda state: {})
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        return graph.compile(**kwargs)
+
+    def test_builder_is_the_source_graph(self):
+        app = self._app()
+        self.assertEqual(type(app.builder).__name__, "StateGraph")
+
+    def test_stream_defaults(self):
+        app = self._app()
+        self.assertEqual(app.stream_mode, "values")
+        self.assertIs(app.stream_eager, False)
+        self.assertEqual(app.config, {})
+
+    def test_validate_returns_the_compiled_graph(self):
+        app = self._app()
+        self.assertIsNotNone(app.validate())
+
+    def test_context_jsonschema(self):
+        from typing import TypedDict
+
+        class Context(TypedDict, total=False):
+            user: str
+
+        app = self._app(context_schema=Context)
+        schema = app.get_context_jsonschema()
+        self.assertEqual(schema["type"], "object")
+        self.assertIn("user", schema["properties"])
+        self.assertIsNone(self._app().get_context_jsonschema())
+
+
+class DurabilityPlacementTest(unittest.TestCase):
+    """`durability` is honoured as the invoke keyword, like LangGraph."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def _history(self, app, thread):
+        return list(app.get_state_history({"configurable": {"thread_id": thread}}))
+
+    def test_keyword_exit_writes_one_checkpoint(self):
+        app = self._app()
+        app.invoke({"value": 0}, {"configurable": {"thread_id": "dur-kw"}}, durability="exit")
+        self.assertEqual(len(self._history(app, "dur-kw")), 1)
+
+    def test_default_keeps_every_superstep(self):
+        app = self._app()
+        app.invoke({"value": 0}, {"configurable": {"thread_id": "dur-def"}})
+        self.assertEqual(len(self._history(app, "dur-def")), 4)

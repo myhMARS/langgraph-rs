@@ -254,6 +254,8 @@ pub struct PyCompiledGraph {
     pub(crate) checkpointer_py: Option<Py<PyAny>>,
     /// The cache object passed to `compile()` (LangGraph's `cache` attribute).
     pub(crate) cache_py: Option<Py<PyAny>>,
+    /// The builder this graph was compiled from (LangGraph's `builder` attribute).
+    pub(crate) builder_py: Option<Py<PyAny>>,
 }
 
 impl PyCompiledGraph {
@@ -267,6 +269,7 @@ impl PyCompiledGraph {
             stream_transformers: Vec::new(),
             checkpointer_py: None,
             cache_py: None,
+            builder_py: None,
         }
     }
 }
@@ -829,6 +832,60 @@ impl PyCompiledGraph {
         self.graph.name().map(|value| value.to_string())
     }
 
+    /// LangGraph's `validate`: the graph is validated when it is compiled, so this is the graph.
+    #[pyo3(signature = (*_args, **_kwargs))]
+    fn validate(slf: PyRef<'_, Self>, _args: &Bound<'_, pyo3::types::PyTuple>, _kwargs: Option<&Bound<'_, pyo3::types::PyDict>>) -> PyResult<Py<PyAny>> {
+        let py = slf.py();
+        Ok(slf.into_pyobject(py)?.into_any().unbind())
+    }
+
+    /// JSON schema of the compiled context schema (LangGraph's `get_context_jsonschema`).
+    #[pyo3(signature = (*_args, **_kwargs))]
+    fn get_context_jsonschema(
+        &self,
+        py: Python<'_>,
+        _args: &Bound<'_, pyo3::types::PyTuple>,
+        _kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
+    ) -> PyResult<Py<PyAny>> {
+        match self.graph.context_schema() {
+            Some(schema) => {
+                let module = py.import("langgraph_rs._compat")?;
+                let helper = module.getattr("jsonschema_of")?;
+                let value = crate::adapters::python::convert::value_to_py(py, schema)?;
+                helper.call1((value,)).map(|value| value.unbind())
+            }
+            None => Ok(py.None()),
+        }
+    }
+
+    /// The builder this graph was compiled from (LangGraph's `builder`).
+    #[getter]
+    fn builder(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.builder_py.as_ref() {
+            Some(value) => Ok(value.clone_ref(py)),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// Default stream mode of this graph (`values`, as in LangGraph).
+    #[getter]
+    fn stream_mode(&self) -> &'static str {
+        "values"
+    }
+
+    /// Whether chunks are forwarded eagerly while a node runs. The extension streams per node, so
+    /// this is always `false` — matching LangGraph's default.
+    #[getter]
+    fn stream_eager(&self) -> bool {
+        false
+    }
+
+    /// Graph-level config defaults. The extension has none, so this is empty.
+    #[getter]
+    fn config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(pyo3::types::PyDict::new(py).into_any().unbind())
+    }
+
     /// The checkpointer passed to `compile()`, exactly as the caller supplied it.
     #[getter]
     fn checkpointer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -956,6 +1013,7 @@ impl PyCompiledGraph {
                     stream_transformers: Vec::new(),
                     checkpointer_py: None,
                     cache_py: None,
+                    builder_py: None,
                 },
             )?;
             items.append((name.clone(), child_py))?;
@@ -969,6 +1027,7 @@ impl PyCompiledGraph {
                             stream_transformers: Vec::new(),
                             checkpointer_py: None,
                             cache_py: None,
+                            builder_py: None,
                         },
                     )?;
                     items.append((format!("{name}|{inner_name}"), nested))?;
@@ -994,6 +1053,7 @@ impl PyCompiledGraph {
                 saver: self.saver.clone(),
                 checkpointer_py: self.checkpointer_py.as_ref().map(|value| value.clone_ref(py)),
                 cache_py: self.cache_py.as_ref().map(|value| value.clone_ref(py)),
+                builder_py: self.builder_py.as_ref().map(|value| value.clone_ref(py)),
                 stream_transformers: self
                     .stream_transformers
                     .iter()
@@ -1534,6 +1594,7 @@ impl PyCompiledGraph {
                 stream_transformers: transform,
                 checkpointer_py: None,
                 cache_py: None,
+                builder_py: None,
             },
         )?;
         let input = input.map(|value| value.clone().unbind());

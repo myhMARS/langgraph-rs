@@ -25,6 +25,8 @@ pub struct PyAsyncCompiledGraph {
     pub(crate) stream_transformers: Vec<Py<PyAny>>,
     /// The checkpointer object passed to `compile()` (LangGraph's `checkpointer` attribute).
     pub(crate) checkpointer_py: Option<Py<PyAny>>,
+    /// The builder this graph was compiled from (LangGraph's `builder` attribute).
+    pub(crate) builder_py: Option<Py<PyAny>>,
 }
 
 #[path = "async_support.rs"]
@@ -315,6 +317,33 @@ impl PyAsyncCompiledGraph {
             ascii: self.graph.to_ascii(),
             spec: self.graph.graph_spec(),
         }
+    }
+
+    /// The builder this graph was compiled from (LangGraph's `builder`).
+    #[getter]
+    fn builder(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.builder_py.as_ref() {
+            Some(value) => Ok(value.clone_ref(py)),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// Default stream mode of this graph (`values`, as in LangGraph).
+    #[getter]
+    fn stream_mode(&self) -> &'static str {
+        "values"
+    }
+
+    /// Chunks are streamed per node, never eagerly (LangGraph's default).
+    #[getter]
+    fn stream_eager(&self) -> bool {
+        false
+    }
+
+    /// Graph-level config defaults: the extension has none.
+    #[getter]
+    fn config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(pyo3::types::PyDict::new(py).into_any().unbind())
     }
 
     /// The checkpointer passed to `compile()`, exactly as the caller supplied it.

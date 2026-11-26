@@ -287,6 +287,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `durability` 的传法（实测对齐）
+
+LangGraph 只在 **`invoke`/`stream` 关键字参数** 上认 `durability`；放进 config（顶层或 `configurable`）
+都被忽略。扩展的行为（实测）：
+
+| 传法 | LangGraph 1.2.22 | 本扩展 |
+|---|---|---|
+| `invoke(..., durability="exit")` | 生效（1 个 checkpoint） | 生效（1 个） |
+| `config["configurable"]["durability"]` | 忽略 | 忽略 |
+| `config["durability"]`（顶层） | 忽略 | **生效**（超集） |
+| 不传 | 每 superstep 都写（4 个） | 4 个 |
+
+即：按 LangGraph 正确写法（关键字参数）行为完全一致；多出来的「顶层 config 也认」是超集。
+
 ### 自定义 channel 已支持（2026-11-26）
 
 LangGraph 的 `BaseChannel` 是开放类层次：继承它、实现 `update(values) -> bool` 与 `get()` 就得到
@@ -314,7 +328,9 @@ class MaxValue(BaseChannel):
 
 同时补齐了**能如实提供**的引擎属性：`interrupt_before_nodes`、`interrupt_after_nodes`、
 `retry_policy`、`step_timeout`、`cache_policy`、`stream_transformers`、`context_schema`、`debug`、
-`checkpointer`（返回 `compile()` 时传入的原始对象）、`cache`、`trigger_to_nodes`。
+`checkpointer`（返回 `compile()` 时传入的原始对象）、`cache`、`trigger_to_nodes`、`builder`
+（返回编译它的 `StateGraph`）、`stream_mode`（`values`）、`stream_eager`（`false`）、`config`（空）、
+`validate()`（编译期已校验，返回自身）、`get_context_jsonschema()`（由 `context_schema` 生成）。
 
 ### 编译后图仍不实现的成员（2026-11-26）
 

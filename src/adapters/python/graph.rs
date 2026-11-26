@@ -181,7 +181,7 @@ impl PyStateGraph {
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (checkpointer=None, recursion_limit=None, interrupt_before=None, interrupt_after=None, cache=None, store=None, name=None, context_schema=None, transformers=None))]
     fn compile(
-        &self,
+        slf: PyRef<'_, Self>,
         py: Python<'_>,
         checkpointer: Option<&Bound<'_, PyAny>>,
         recursion_limit: Option<usize>,
@@ -201,7 +201,7 @@ impl PyStateGraph {
             options = options.with_context_schema(super::convert::context_schema_value(py, schema)?);
         }
         let mut saver = None;
-        let mut builder = self.inner.clone();
+        let mut builder = slf.inner.clone();
         if let Some(checkpointer) = checkpointer_from_py(checkpointer)? {
             options = options.with_checkpointer(checkpointer.clone());
             saver = Some(checkpointer);
@@ -256,6 +256,7 @@ impl PyStateGraph {
                 stream_transformers,
                 checkpointer_py,
                 cache_py,
+                builder_py: Some(slf.into_pyobject(py)?.into_any().unbind()),
             },
         )?;
         crate::adapters::python::graph::graph_compiled::wrap_compiled(py, native)

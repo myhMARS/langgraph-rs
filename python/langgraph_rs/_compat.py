@@ -71,3 +71,32 @@ def module_getattr(module: str, namespace: dict, missing: list[str]):
             ) from None
 
     return __getattr__
+
+def jsonschema_of(schema: Any) -> Any:
+    """Normalise a declared context schema into a JSON schema.
+
+    LangGraph accepts a pydantic model, a ``TypedDict`` or a plain dict here; the extension stores
+    whatever the caller passed, so this turns each form into a JSON schema dict.
+    """
+    if schema is None:
+        return None
+    if isinstance(schema, dict):
+        if "properties" in schema or "type" in schema:
+            return schema
+        return {
+            "title": "Context",
+            "type": "object",
+            "properties": {name: {} for name in schema},
+        }
+    for attribute in ("model_json_schema",):
+        method = getattr(schema, attribute, None)
+        if callable(method):
+            return method()
+    annotations = getattr(schema, "__annotations__", None)
+    if isinstance(annotations, dict):
+        return {
+            "title": getattr(schema, "__name__", "Context"),
+            "type": "object",
+            "properties": {name: {} for name in annotations},
+        }
+    return schema

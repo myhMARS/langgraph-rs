@@ -2192,4 +2192,30 @@ Attributes added this round, all truthful:
 Suite is 415 tests, parity 38/38, examples 10/10 identical, clippy and Rust tests clean.
 Remaining name count is 15, all LangGraph internals (`nodes`, `builder`, `config`,
 `attach_node`/`attach_edge`/`attach_branch`, `*channels*`, `stream_eager`, `stream_mode`,
-`node_error_handler_map`, `schema_to_mapper`) plus `validate`/`get_context_jsonschema`.
+`node_error_handler_map`, `schema_to_mapper`) plus `validate`/`get_context_jsonschema`.### Round 102: builder/stream attributes, plus a measured `durability` comparison
+
+Attributes added (all truthful): `builder` (the `StateGraph` that produced the graph — `compile` now
+takes `PyRef<Self>` and stores it), `stream_mode` (`"values"`), `stream_eager` (`false`), `config`
+(empty), `validate()` (compilation already validates, so it returns the graph) and
+`get_context_jsonschema()` (derived from the declared context schema through a new
+`langgraph_rs._compat.jsonschema_of` helper).
+
+Behaviour measured against LangGraph 1.2.22 rather than assumed — `durability` is read by LangGraph
+from `config[CONF][CONFIG_KEY_DURABILITY]`, i.e. only the invoke/stream keyword reaches it:
+
+```
+placement                       LangGraph   extension
+invoke(..., durability="exit")   1 checkpoint  1 checkpoint
+config["configurable"][...]      ignored       ignored
+config["durability"] (top)       ignored       honoured (superset)
+no argument                      4 checkpoints 4 checkpoints
+```
+
+Correct LangGraph usage therefore matches exactly; the extra top-level acceptance is a superset and is
+documented. `recursion_limit` was checked in the same pass: both raise `GraphRecursionError` with the
+same message. `Command(parent=True)` is rejected by both (it is an engine-internal field, not a
+LangGraph argument), so no divergence there either.
+
+Suite is 421 tests, parity 38/38, clippy and Rust tests clean. 11 names remain, all LangGraph's own
+object model (`nodes`, `attach_*`, `input_channels`/`output_channels`, `stream_channels*`,
+`node_error_handler_map`, `schema_to_mapper`).
