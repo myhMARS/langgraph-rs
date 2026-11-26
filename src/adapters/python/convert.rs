@@ -280,6 +280,17 @@ pub(super) fn usage_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Usage> {
     Ok(usage)
 }
 
+/// Milliseconds of a run timeout recorded in a node failure message, when it is one.
+///
+/// The engine formats timeouts as ``node `<name>` timed out after <millis> ms``; the retry layer then
+/// appends the attempt count, so the prefix is what identifies the shape.
+fn timeout_millis(node: &str, message: &str) -> Option<u64> {
+    let prefix = format!("node `{node}` timed out after ");
+    let rest = message.strip_prefix(&prefix)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
+}
+
 pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
     match error {
         Error::Interrupt(interrupt) => {
@@ -297,6 +308,37 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
              You can increase the limit by setting the `recursion_limit` config key.\n\
              For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT"
         )),
+        // A run timeout that went through the retry bookkeeping arrives wrapped as a node
+        // failure; LangGraph reports both shapes as `NodeTimeoutError`.
+        Error::Node { node, message } if timeout_millis(&node, &message).is_some() => {
+            let millis = timeout_millis(&node, &message).unwrap_or_default();
+            let seconds = millis as f64 / 1000.0;
+            match py.import("langgraph_rs.errors").and_then(|module| {
+                let factory = module.getattr("NodeTimeoutError")?;
+                let kwargs = pyo3::types::PyDict::new(py);
+                kwargs.set_item("kind", "run")?;
+                kwargs.set_item("run_timeout", seconds)?;
+                factory.call((node.clone(), seconds), Some(&kwargs))
+            }) {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(format!("node `{node}` timed out")),
+            }
+        }
+        // LangGraph raises `NodeTimeoutError` (an `os.error`-style exception carrying the node,
+        // the elapsed time and the configured timeout) instead of a bare `RuntimeError`.
+        Error::Timeout { node, millis } => {
+            let seconds = millis as f64 / 1000.0;
+            match py.import("langgraph_rs.errors").and_then(|module| {
+                let factory = module.getattr("NodeTimeoutError")?;
+                let kwargs = pyo3::types::PyDict::new(py);
+                kwargs.set_item("kind", "run")?;
+                kwargs.set_item("run_timeout", seconds)?;
+                factory.call((node.clone(), seconds), Some(&kwargs))
+            }) {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(Error::Timeout { node, millis }.to_string()),
+            }
+        }
         other => PyRuntimeError::new_err(other.to_string()),
     }
 }

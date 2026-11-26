@@ -644,9 +644,10 @@ class PythonParityRound2Tests(unittest.TestCase):
         )
         graph.set_entry_point("slow")
         graph.set_finish_point("slow")
-        with self.assertRaises(Exception) as raised:
-            graph.compile().invoke({"value": 0})
-        self.assertIn("timed out", str(raised.exception))
+        # LangGraph refuses a timeout on a synchronous node: it cannot be cancelled safely.
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertIn("only supported for async nodes", str(raised.exception))
 
     def test_deferred_node_runs_after_regular_nodes(self):
         graph = lg.StateGraph({"value": "last_value", "log": "append"})
@@ -869,7 +870,8 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_finish_point("slow")
             with self.assertRaises(Exception) as raised:
                 await graph.compile().ainvoke({"value": 0})
-            self.assertIn("TimeoutError", str(raised.exception))
+            # LangGraph reports a run timeout as `NodeTimeoutError`.
+            self.assertIn("exceeded its run timeout", str(raised.exception))
 
         asyncio.run(scenario())
 

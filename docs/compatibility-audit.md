@@ -2763,4 +2763,27 @@ LangGraph logs `wrote to unknown channel ... ignoring it` and continues. The str
 existing, tested design choice of this project.
 
 New parity scenario `command_graph` covers both forms: 53/53 scenarios equivalent. Suite is 457
-tests, examples 10/10, clippy and Rust tests clean.
+tests, examples 10/10, clippy and Rust tests clean.### Round 127: LangGraph's timeout rules
+
+Two divergences from LangGraph's timeout behaviour:
+
+1. **A timeout on a synchronous node is rejected.** LangGraph raises at `compile()`:
+   `Node timeouts are only supported for async nodes because sync Python execution cannot be safely
+   cancelled in-process. Node 'x' is sync.` The extension used to "expire" the node, report a
+   failure, and leave the thread running — exactly the hazard LangGraph avoids. The Python builders
+   now reject it at compile with the same message.
+2. **The error type is `NodeTimeoutError`.** LangGraph raises `langgraph.errors.NodeTimeoutError`
+   with `Node 'x' exceeded its run timeout of 0.050s (elapsed: 0.063s).`; the extension surfaced
+   `RuntimeError: node 'x' failed: python node raised TimeoutError: ...`. `to_pyerr` now maps both
+   the raw `Error::Timeout` and the retry-wrapped node failure to `NodeTimeoutError` with that
+   message shape (`elapsed` is approximated by the configured timeout; LangGraph reports the measured
+   duration).
+
+`add_node(timeout=...)` also accepts plain seconds and `timedelta` (LangGraph accepts seconds,
+`timedelta` or a `TimeoutPolicy`) by wrapping them in a `TimeoutPolicy`.
+
+Two per-Send timeout paths had to stay: the Python coroutine runs on a private loop, so the
+executor's Tokio timeout cannot interrupt it — `asyncio.wait_for` enforces it and the resulting
+`TimeoutError` is mapped back to `Error::Timeout`.
+
+Suite is 459 tests (two new), parity 53/53, examples 10/10, clippy and Rust tests clean.

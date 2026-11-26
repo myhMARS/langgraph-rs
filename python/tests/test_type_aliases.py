@@ -1202,3 +1202,42 @@ class EventsVersionShapeTest(unittest.TestCase):
             return [value async for value in run.values]
 
         self.assertEqual(len(asyncio.run(collect())), 2)
+
+
+class TimeoutPolicySemanticsTest(unittest.TestCase):
+    """LangGraph's timeout rules: async nodes only, reported as `NodeTimeoutError`."""
+
+    def test_sync_node_timeout_is_rejected_at_compile(self):
+        import time
+
+        def slow(state):
+            time.sleep(0.05)
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("slow", slow, timeout=0.01)
+        graph.set_entry_point("slow")
+        graph.set_finish_point("slow")
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertIn("only supported for async nodes", str(raised.exception))
+
+    def test_async_node_timeout_raises_node_timeout_error(self):
+        import asyncio
+
+        from langgraph_rs.errors import NodeTimeoutError
+
+        async def scenario():
+            async def slow(state):
+                await asyncio.sleep(0.2)
+                return {"value": 1}
+
+            graph = langgraph_rs.AsyncStateGraph({"value": "last_value"})
+            # Plain seconds are accepted, as in LangGraph.
+            graph.add_node("slow", slow, timeout=0.02)
+            graph.set_entry_point("slow")
+            graph.set_finish_point("slow")
+            with self.assertRaises(NodeTimeoutError):
+                await graph.compile().ainvoke({"value": 0})
+
+        asyncio.run(scenario())

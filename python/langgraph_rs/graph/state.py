@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from abc import ABCMeta
 from typing import Any, AsyncIterator, Iterator, Sequence
 
@@ -222,6 +223,14 @@ class StateGraph(_native.StateGraph):
         LangGraph synthesises `__error_handler__<node>` and routes the failure there, so the
         handler sees the state and its update replaces the node's result; the branch then ends.
         """
+        timeout = kwargs.get("timeout")
+        if timeout is not None:
+            # LangGraph accepts seconds / `timedelta` / `TimeoutPolicy`; the engine takes the
+            # policy object, so plain durations are wrapped here.
+            if not isinstance(timeout, _native.TimeoutPolicy):
+                kwargs["timeout"] = _native.TimeoutPolicy(run_timeout=timeout)
+            if not inspect.iscoroutinefunction(action):
+                self.__dict__.setdefault("_sync_timeouts", {})[str(name)] = True
         handler = kwargs.get("error_handler")
         handlers = getattr(self, "_builder_handlers", None)
         if handler is not None and not isinstance(handler, str) and callable(handler):
@@ -235,6 +244,15 @@ class StateGraph(_native.StateGraph):
         return super().add_node(name, action, **kwargs)
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
+        # LangGraph refuses a timeout on a synchronous node: the thread cannot be cancelled, so a
+        # timeout would abandon work instead of stopping it.
+        sync_timeouts = getattr(self, "_sync_timeouts", None) or {}
+        if sync_timeouts:
+            name = sorted(sync_timeouts)[0]
+            raise ValueError(
+                "Node timeouts are only supported for async nodes because sync Python execution "
+                f"cannot be safely cancelled in-process. Node {name!r} is sync."
+            )
         return CompiledStateGraph(
             super().compile(*args, **kwargs),
             schema_class=getattr(self, "_builder_schema", None),
@@ -260,6 +278,13 @@ class AsyncStateGraph(_native.AsyncStateGraph):
 
         # The async builder takes the schema only; the channel views are a sync-builder feature.
         return super().__new__(cls, normalize_schema(state_schema))
+
+    def add_node(self, name: Any, action: Any = None, **kwargs: Any) -> Any:
+        """Wrap plain durations in `TimeoutPolicy`, as LangGraph accepts both."""
+        timeout = kwargs.get("timeout")
+        if timeout is not None and not isinstance(timeout, _native.TimeoutPolicy):
+            kwargs["timeout"] = _native.TimeoutPolicy(run_timeout=timeout)
+        return super().add_node(name, action, **kwargs)
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
         return CompiledStateGraph(super().compile(*args, **kwargs))

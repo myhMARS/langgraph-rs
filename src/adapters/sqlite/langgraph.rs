@@ -457,7 +457,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
                 .and_then(|bytes| crate::interop::msgpack::decode(&bytes).ok())
                 .map(|document| crate::_internal::error::NodeFailure {
                     node: node.clone(),
-                    message: match &document {
+                        message: match &document {
                         Value::Object(map) => map
                             .get("message")
                             .and_then(Value::as_str)

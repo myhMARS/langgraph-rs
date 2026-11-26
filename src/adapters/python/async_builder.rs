@@ -14,6 +14,7 @@ use crate::tokio_runtime::AsyncStateGraph;
 fn async_node_from_python(
     name: String,
     function: Py<PyAny>,
+    run_timeout_millis: Option<u64>,
 ) -> impl Fn(
     JsonState,
     AsyncContext,
@@ -34,6 +35,7 @@ fn async_node_from_python(
                 let resume = context.take_resume();
                 let run_timeout = context.run_timeout();
                 let node_name = name.as_ref().clone();
+                let timeout_name = node_name.clone();
                 let task_id = crate::runtime::context::current_task_id();
                 let callback_guard = install_langchain_callbacks(py);
                 let task_context = match task_id {
@@ -47,7 +49,19 @@ fn async_node_from_python(
                             .as_ref()
                             .bind(py)
                             .call1((py_state,))
-                            .map_err(|error| pyerr_to_error(py, error))?;
+                            .map_err(|error| {
+                                // `asyncio.wait_for` raises `TimeoutError`; report it the way the
+                                // engine reports its own run timeouts.
+                                if let Some(millis) = run_timeout_millis
+                                    && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
+                                {
+                                    return Error::Timeout {
+                                        node: timeout_name.clone(),
+                                        millis,
+                                    };
+                                }
+                                pyerr_to_error(py, error)
+                            })?;
                         // Python async nodes: drive the returned awaitable to completion on a
                         // private event loop while the task context stays installed, so
                         // interrupt()/custom()/usage helpers keep working inside coroutines.
@@ -55,6 +69,10 @@ fn async_node_from_python(
                             .hasattr("__await__")
                             .map_err(|error| pyerr_to_error(py, error))?
                         {
+                            // A per-task timeout (e.g. `Send(..., timeout=...)`) has to be
+                            // enforced here: the Python coroutine runs on a private loop, so the
+                            // executor's Tokio timeout cannot interrupt it. The resulting
+                            // `TimeoutError` is mapped back to the engine's timeout below.
                             let value = match run_timeout {
                                 Some(timeout) => py
                                     .import("asyncio")
@@ -68,8 +86,18 @@ fn async_node_from_python(
                             // Reuse the thread's asyncio loop: `asyncio.run` would create and
                             // tear down a loop per node (~1 ms each), which dominates an
                             // otherwise sub-millisecond orchestration step.
-                            run_timed_awaitable(py, &value)
-                                .map_err(|error| pyerr_to_error(py, error))?
+                            run_timed_awaitable(py, &value).map_err(|error| {
+                                // `asyncio.wait_for` (installed around timed nodes) raises here.
+                                if let Some(millis) = run_timeout_millis
+                                    && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
+                                {
+                                    return Error::Timeout {
+                                        node: timeout_name.clone(),
+                                        millis,
+                                    };
+                                }
+                                pyerr_to_error(py, error)
+                            })?
                         } else {
                             value
                         };
@@ -142,9 +170,13 @@ impl PyAsyncStateGraph {
             &mut slf.inner,
             AsyncStateGraph::with_schema(StateSchema::dynamic()),
         );
-        // Python coroutines are driven by a private asyncio loop, so a Tokio
-        // timeout cannot interrupt them; enforce the run timeout with
-        // asyncio.wait_for inside the node itself instead.
+        // Python coroutines are driven by a private asyncio loop, so a Tokio timeout cannot
+        // interrupt them; the run timeout is enforced with `asyncio.wait_for` inside the node and
+        // converted back into the engine's timeout below.
+        let run_timeout_millis = timeout
+            .as_ref()
+            .and_then(|policy| policy.run_timeout)
+            .map(|seconds| (seconds * 1000.0) as u64);
         let function = match timeout.as_ref().and_then(|policy| policy.run_timeout) {
             Some(seconds) => wrap_async_timeout(py, function, seconds)?,
             None => function,
@@ -156,7 +188,10 @@ impl PyAsyncStateGraph {
         if let Some(destinations) = destinations {
             builder = builder.set_destinations(name.clone(), destinations);
         }
-        builder = builder.add_node(name.clone(), async_node_from_python(name.clone(), function));
+        builder = builder.add_node(
+            name.clone(),
+            async_node_from_python(name.clone(), function, run_timeout_millis),
+        );
         if let Some(policy) = retry_policy {
             builder = builder.set_retry(name.clone(), policy.to_policy());
         }

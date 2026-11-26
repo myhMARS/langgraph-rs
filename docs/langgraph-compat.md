@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 超时策略的语义（2026-11-26）
+
+对照 LG 修正两处：
+
+1. **同步节点不允许超时**：LG 在 `compile()` 就抛
+   `ValueError: Node timeouts are only supported for async nodes because sync Python execution
+   cannot be safely cancelled in-process. Node 'x' is sync.`
+   扩展此前会「超时放弃」并报错，但线程仍在跑（正是 LG 拒绝的原因）。现在编译期同样拒绝。
+2. **超时错误类型**：LG 抛 `NodeTimeoutError`（`langgraph.errors`），消息形如
+   `Node 'x' exceeded its run timeout of 0.050s (elapsed: 0.063s).`；扩展此前抛
+   `RuntimeError: node 'x' failed: python node raised TimeoutError: ...`。
+
+   现在引擎的 `Error::Timeout`（含经重试包装后的形态）统一映射为 `NodeTimeoutError`，
+   消息格式与 LG 相同；`elapsed` 用配置的超时值近似（LG 是实测耗时）。
+
+另外 `add_node(timeout=...)` 现在接受**秒数 / `timedelta` / `TimeoutPolicy`**（LG 的三种形态），
+普通数值会被包成 `TimeoutPolicy(run_timeout=...)`。
+
 ### `Command(graph=...)` 的语义（2026-11-26）
 
 LG 只有 `Command.PARENT`（字符串 `"__parent__"`）表示「回到外层图」；而 `graph="<子图名>"` 只是在
