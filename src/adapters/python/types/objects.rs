@@ -14,9 +14,83 @@ use crate::RedisSaver;
 use crate::adapters::python::convert::{py_to_value, value_to_py};
 use crate::store::StoreItem;
 
-#[pyclass(name = "InMemorySaver")]
+#[pyclass(name = "InMemorySaver", subclass)]
 pub struct PyInMemorySaver {
     pub(super) inner: Arc<crate::InMemorySaver>,
+}
+
+/// LangGraph's `CheckpointTuple`: the checkpoint, the config addressing it, and its pending writes.
+fn checkpoint_tuple_to_py(
+    py: Python<'_>,
+    checkpoint: &crate::checkpoint::Checkpoint,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let config = PyDict::new(py);
+    let configurable = PyDict::new(py);
+    configurable.set_item("thread_id", &checkpoint.thread_id)?;
+    configurable.set_item("checkpoint_ns", &checkpoint.namespace)?;
+    configurable.set_item("checkpoint_id", &checkpoint.id)?;
+    config.set_item("configurable", configurable)?;
+    dict.set_item("config", config)?;
+
+    let body = PyDict::new(py);
+    body.set_item("v", 4)?;
+    body.set_item("id", &checkpoint.id)?;
+    body.set_item("ts", "1970-01-01T00:00:00+00:00")?;
+    body.set_item(
+        "updated_channels",
+        value_to_py(py, &serde_json::Value::Array(
+            checkpoint
+                .updated_channels
+                .iter()
+                .cloned()
+                .map(serde_json::Value::String)
+                .collect(),
+        ))?,
+    )?;
+    body.set_item(
+        "channel_values",
+        value_to_py(py, &serde_json::Value::Object(checkpoint.values.clone()))?,
+    )?;
+    body.set_item(
+        "channel_versions",
+        value_to_py(py, &serde_json::Value::Object(checkpoint.channel_versions.clone()))?,
+    )?;
+    body.set_item(
+        "versions_seen",
+        value_to_py(
+            py,
+            &serde_json::to_value(&checkpoint.versions_seen)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+        )?,
+    )?;
+    dict.set_item("checkpoint", body)?;
+
+    let metadata = PyDict::new(py);
+    metadata.set_item("source", checkpoint.metadata.get("source").and_then(|value| value.as_str()).unwrap_or("loop"))?;
+    metadata.set_item("step", checkpoint.step as i64 - 1)?;
+    metadata.set_item("writes", py.None())?;
+    metadata.set_item("parents", PyDict::new(py))?;
+    dict.set_item("metadata", metadata)?;
+
+    match &checkpoint.parent_id {
+        Some(parent) => {
+            let parent_config = PyDict::new(py);
+            let configurable = PyDict::new(py);
+            configurable.set_item("thread_id", &checkpoint.thread_id)?;
+            configurable.set_item("checkpoint_ns", &checkpoint.namespace)?;
+            configurable.set_item("checkpoint_id", parent)?;
+            parent_config.set_item("configurable", configurable)?;
+            dict.set_item("parent_config", parent_config)?;
+        }
+        None => dict.set_item("parent_config", py.None())?,
+    }
+    let writes = pyo3::types::PyList::empty(py);
+    for write in &checkpoint.pending_writes {
+        writes.append((&write.task_id, &write.channel, value_to_py(py, &write.value)?))?;
+    }
+    dict.set_item("pending_writes", writes)?;
+    Ok(dict.into_any().unbind())
 }
 
 #[pymethods]
@@ -30,6 +104,78 @@ impl PyInMemorySaver {
 
     fn __repr__(&self) -> &'static str {
         "InMemorySaver()"
+    }
+
+    /// LangGraph's `get_tuple(config)`: the newest checkpoint of the addressed thread.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, checkpoint_id=None))]
+    fn _checkpoint_tuple(
+        &self,
+        py: Python<'_>,
+        thread_id: &str,
+        checkpoint_ns: Option<&str>,
+        checkpoint_id: Option<&str>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        use crate::Checkpointer as _;
+        let namespace = checkpoint_ns.unwrap_or("");
+        let checkpoint = match checkpoint_id {
+            Some(id) => self
+                .inner
+                .history_in_shared(thread_id, namespace)
+                .map_err(|error| PyTypeError::new_err(error.to_string()))?
+                .into_iter()
+                .find(|checkpoint| checkpoint.id == id),
+            None => self
+                .inner
+                .latest_in_shared(thread_id, namespace)
+                .map_err(|error| PyTypeError::new_err(error.to_string()))?,
+        };
+        checkpoint
+            .map(|checkpoint| checkpoint_tuple_to_py(py, checkpoint.as_ref()))
+            .transpose()
+    }
+
+    /// LangGraph's `list(config)`: the thread history, newest first.
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None))]
+    fn _checkpoint_tuples(
+        &self,
+        py: Python<'_>,
+        thread_id: &str,
+        checkpoint_ns: Option<&str>,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> PyResult<Py<PyAny>> {
+        use crate::Checkpointer as _;
+        let checkpoint_ns = checkpoint_ns.unwrap_or("");
+        let checkpoints = self
+            .inner
+            .history_page_in_shared(thread_id, checkpoint_ns, before, limit)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        let list = pyo3::types::PyList::empty(py);
+        for checkpoint in checkpoints {
+            list.append(checkpoint_tuple_to_py(py, checkpoint.as_ref())?)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    /// LangGraph's `delete_thread(thread_id)`.
+    fn delete_thread(&self, thread_id: &str) -> PyResult<()> {
+        use crate::Checkpointer as _;
+        self.inner
+            .delete_thread(thread_id)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))
+    }
+
+    /// LangGraph's channel version counter (`"<counter:032x>.<hash>.<timestamp>"`).
+    #[pyo3(signature = (_current=None, _channel=None))]
+    fn get_next_version(&self, _current: Option<&Bound<'_, PyAny>>, _channel: Option<&str>) -> String {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let value = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        format!("{value:032x}.0.{nanos}")
     }
 }
 

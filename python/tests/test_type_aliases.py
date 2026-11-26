@@ -1115,3 +1115,47 @@ class ConditionalPathMapFormsTest(unittest.TestCase):
         graph.add_conditional_edges(langgraph_rs.START, lambda state: "k", {"k": "work"})
         graph.set_finish_point("work")
         self.assertEqual(graph.compile().invoke({"log": []}), {"log": ["y"]})
+
+
+class CheckpointSaverProtocolTest(unittest.TestCase):
+    """`InMemorySaver` implements LangGraph's read side of `BaseCheckpointSaver`."""
+
+    @staticmethod
+    def _saver_and_config(thread="saver-protocol"):
+        from langgraph_rs.checkpoint.memory import InMemorySaver
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        saver = InMemorySaver()
+        config = {"configurable": {"thread_id": thread}}
+        graph.compile(checkpointer=saver).invoke({"value": 0}, config)
+        return saver, config
+
+    def test_get_tuple_returns_a_checkpoint_tuple(self):
+        saver, config = self._saver_and_config()
+        found = saver.get_tuple(config)
+        self.assertEqual(type(found).__name__, "CheckpointTuple")
+        # LangGraph's tuple is a NamedTuple: attribute access, and both halves present.
+        self.assertIn("channel_values", found.checkpoint)
+        self.assertEqual(found.metadata["source"], "loop")
+        # Each call rebuilds the tuple from the stored checkpoint; the contents match.
+        self.assertEqual(saver.get(config), found.checkpoint)
+
+    def test_list_walks_the_history_with_metadata_filters(self):
+        saver, config = self._saver_and_config()
+        self.assertEqual(len(list(saver.list(config))), 3)
+        self.assertEqual(len(list(saver.list(config, limit=2))), 2)
+        self.assertEqual(
+            [entry.metadata["source"] for entry in saver.list(config, filter={"source": "loop"})],
+            ["loop", "loop"],
+        )
+
+    def test_delete_thread_and_version_counter(self):
+        saver, config = self._saver_and_config()
+        saver.delete_thread(config["configurable"]["thread_id"])
+        self.assertIsNone(saver.get_tuple(config))
+        version = saver.get_next_version(None, None)
+        self.assertIsInstance(version, str)
+        self.assertEqual(version.split(".")[0], "0" * 31 + "1")

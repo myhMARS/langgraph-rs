@@ -2701,4 +2701,29 @@ Three comparisons, one of which found a real API gap.
   `Command(resume=...)` continues the child, and both end with no pending tasks and the same state.
 
 New parity scenarios `send_interrupts` and `subgraph_interrupt` lock the traces in: 51/51 scenarios
-equivalent. Suite is 452 tests (two new path-map tests), examples 10/10, clippy and Rust tests clean.
+equivalent. Suite is 452 tests (two new path-map tests), examples 10/10, clippy and Rust tests clean.### Round 124: the checkpointer read protocol
+
+`dir()` on the extension's `InMemorySaver` was empty: checkpoint management lived on the graph
+(`threads()`, `get_state_history()`), while LangGraph's savers expose `get_tuple`, `list`, `get`,
+`delete_thread`, `get_next_version` and async twins.
+
+The native saver now carries the read side (`_checkpoint_tuple`, `_checkpoint_tuples`,
+`delete_thread`, `get_next_version`) and a Python subclass in `checkpoint/memory.py` shapes it into
+LangGraph's API:
+
+* `get_tuple(config)` returns a `CheckpointTuple` **NamedTuple** (attribute access, as in LangGraph;
+  the shim previously stubbed it as unimplemented), with LangGraph's checkpoint body keys
+  (`v`, `id`, `ts`, `channel_values`, `channel_versions`, `versions_seen`, `updated_channels`).
+* `get(config)` returns the checkpoint, `list(...)` walks the history newest-first and honours
+  `before` / `limit` / metadata `filter`, `delete_thread` removes the thread, and
+  `get_next_version` returns LangGraph's `"<counter:032x>.0.<timestamp>"` string.
+* `aget_tuple` / `alist` / `adelete_thread` mirror the async side.
+
+`Checkpoint`, `CheckpointMetadata`, `PendingWrite` and `CheckpointTuple` are now real definitions in
+`checkpoint/base.py` instead of "not implemented" stubs.
+
+The write side (`put` / `put_writes`) still runs inside the engine rather than through the saver
+object; that is documented in the compatibility notes.
+
+Suite is 455 tests (three new saver tests), parity 51/51, examples 10/10, clippy and Rust tests
+clean.

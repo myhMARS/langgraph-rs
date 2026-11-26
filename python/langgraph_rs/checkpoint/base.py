@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence, TypedDict
 
 from .._compat import fill_unsupported, module_getattr
 from ..errors import EmptyChannelError
@@ -134,9 +134,44 @@ def writes_sort_key(task_path: str, task_id: str = "", idx: int = 0) -> tuple[st
     return (task_path, task_id, idx)
 
 
+class Checkpoint(TypedDict, total=False):
+    """LangGraph's checkpoint body."""
+
+    v: int
+    id: str
+    ts: str
+    channel_values: dict[str, Any]
+    channel_versions: ChannelVersions
+    versions_seen: dict[str, ChannelVersions]
+    updated_channels: list[str] | None
+
+
+class CheckpointMetadata(TypedDict, total=False):
+    """LangGraph's checkpoint metadata."""
+
+    source: str
+    step: int
+    parents: dict[str, str]
+    run_id: str
+
+
+#: `(task_id, channel, value)` triple as stored by a saver.
+PendingWrite = tuple[str, str, Any]
+
+
+class CheckpointTuple(NamedTuple):
+    """LangGraph's `CheckpointTuple`: attribute *and* item access, as there."""
+
+    config: dict[str, Any]
+    checkpoint: Checkpoint
+    metadata: CheckpointMetadata
+    parent_config: dict[str, Any] | None
+    pending_writes: list[PendingWrite] | None
+
+
 _MISSING = fill_unsupported(
     globals(),
-    ["BaseCheckpointSaver", "Checkpoint", "CheckpointMetadata", "CheckpointTuple", "PendingWrite"],
+    ["BaseCheckpointSaver"],
     hint="Use a concrete saver, or pass an object implementing the saver protocol to compile().",
 )
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

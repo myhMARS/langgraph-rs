@@ -332,6 +332,26 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### Checkpointer 的读取协议（2026-11-26）
+
+LG 的 saver 自己承担 `get_tuple` / `list` / `get` / `delete_thread` / `get_next_version`（异步有
+`aget_tuple` / `alist` / `adelete_thread`）。扩展此前把这些能力放在**图**上
+（`threads()` / `get_state_history()`），saver 对象只有构造与 `repr`。
+
+现在 `InMemorySaver` / `AsyncInMemorySaver` 也提供读取协议：
+
+| 方法 | 行为 |
+|---|---|
+| `get_tuple(config)` | 返回 LG 的 `CheckpointTuple`（NamedTuple：`config` / `checkpoint` / `metadata` / `parent_config` / `pending_writes`），属性访问与 LG 一致 |
+| `get(config)` | `get_tuple(...).checkpoint` |
+| `list(config, *, before, limit, filter)` | 按最新优先遍历，`filter` 匹配 metadata 键 |
+| `delete_thread(thread_id)` | 删除整条线程 |
+| `get_next_version(current, channel)` | 返回 LG 形状的版本串 `"<counter:032x>.0.<timestamp>"` |
+| 异步 `aget_tuple` / `alist` / `adelete_thread` | 对应异步版本 |
+
+`checkpoint` 体的键与 LG 相同（`v` / `id` / `ts` / `channel_values` / `channel_versions` /
+`versions_seen` / `updated_channels`）。`put` / `put_writes` 仍由引擎内部完成（不经 saver 对象）。
+
 ### `path_map` 的列表形式 / `Send` 扇出中断 / 子图中断（2026-11-26）
 
 三处对照结果：
