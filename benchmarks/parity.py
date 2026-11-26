@@ -474,6 +474,81 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_task_id_shape_scenario() -> list[dict]:
+    """Task ids and subgraph namespaces are UUID-shaped, as in LangGraph."""
+
+    import re
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+    def lg_ids():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", END)
+        return [part["id"] for part in graph.compile().stream({"value": 0}, stream_mode="tasks")]
+
+    def rs_ids():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        return [
+            part["data"]["id"]
+            for part in graph.compile().stream({"value": 0}, stream_mode="tasks", version="v2")
+        ]
+
+    def lg_namespaces():
+        child = LgStateGraph(LgState)
+        child.add_node("inner", lambda state: {"value": 1})
+        child.add_edge(START, "inner")
+        child.add_edge("inner", END)
+        parent = LgStateGraph(LgState)
+        parent.add_node("child", child.compile())
+        parent.add_edge(START, "child")
+        parent.add_edge("child", END)
+        parts = list(parent.compile().stream({"value": 0}, stream_mode="updates", subgraphs=True))
+        return sorted({ns[0] for ns, _ in parts if ns})
+
+    def rs_namespaces():
+        child = rs.StateGraph({"value": "last_value"})
+        child.add_node("inner", lambda state: {"value": 1})
+        child.set_entry_point("inner")
+        child.set_finish_point("inner")
+        parent = rs.StateGraph({"value": "last_value"})
+        parent.add_node("child", child.compile())
+        parent.set_entry_point("child")
+        parent.set_finish_point("child")
+        parts = list(parent.compile().stream({"value": 0}, stream_mode="updates", subgraphs=True))
+        return sorted({part[0][0] for part in parts if isinstance(part, tuple) and part[0]})
+
+    def shape(ids, namespaces):
+        return {
+            "ids_uuid": all(uuid_re.match(value) for value in ids),
+            "namespaces_uuid": all(
+                uuid_re.match(value.split(":", 1)[-1]) for value in namespaces
+            ),
+        }
+
+    lg_view = shape(lg_ids(), lg_namespaces())
+    rs_view = shape(rs_ids(), rs_namespaces())
+    return [
+        {
+            "scenario": "task_id_shape",
+            "rs": rs_view,
+            "lg": lg_view,
+            "equivalent": rs_view == lg_view,
+            "bench": {
+                "rs": measure(lambda: rs_ids()),
+                "lg": measure(lambda: lg_ids()),
+            },
+        }
+    ]
+
+
 def run_graph_export_scenario() -> list[dict]:
     """`get_graph()` exposes LangGraph's node/edge structure (including conditional edges)."""
 
@@ -2857,6 +2932,7 @@ def main() -> None:
         run_debug_stream_scenario,
         run_error_handler_scenario,
         run_graph_export_scenario,
+        run_task_id_shape_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
         run_checkpoint_scenarios,

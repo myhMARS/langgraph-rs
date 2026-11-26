@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 任务 id 与子图命名空间是 UUID 形状（2026-11-26）
+
+LG 的任务 id 是 UUID（`1c0e7fd3-4c28-a50a-0899-e8d6c649ab7a`），子图命名空间是
+`<节点名>:<task_id>`，因此形如 `('child:3820a0d1-...',)`。扩展此前用
+`<节点名>-<毫秒>-<序号>`，命名空间是 `child:child-1795688892058-8`，用户在 tasks 流与
+`subgraphs=True` 的命名空间里会看到完全不同的形状。
+
+现在 `new_task_id` 用 时钟/进程号/计数器 经 SplitMix64 生成 128 位，按 UUID v4 的形状输出（无额外依赖），
+命名空间随之对齐：
+
+```
+tasks 流 id:     0e06feea-ef23-47a8-8fe7-edae83fac2a2
+子图命名空间:     ('child:92a7f918-320b-477c-9cf6-aeb5e03b66b3',)
+```
+
+LG 的 id 每次运行都不同（随机），扩展同样不是固定值，只保证同一任务内一致。
+
 ### `get_graph()` 返回真正的 LangChain 图（2026-11-26）
 
 LG 的 `get_graph()` 返回 `langchain_core.runnables.graph.Graph`，带 `Node` / `Edge`（NamedTuple）以及

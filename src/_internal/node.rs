@@ -508,17 +508,44 @@ impl<S> fmt::Debug for ConditionalEdge<S> {
     }
 }
 
-/// Generate a stable-enough task id for scheduling and `update_state(task_id=...)`.
+/// Generate a task id for scheduling and `update_state(task_id=...)`.
+///
+/// LangGraph's task ids are UUIDs (they appear verbatim in `stream_mode="tasks"` payloads and in
+/// subgraph namespaces), so one is derived here from the clock, the process id and a counter —
+/// without pulling in a UUID dependency.
 pub(crate) fn new_task_id(node: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let _ = node;
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
+        .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default();
-    format!("{node}-{millis}-{sequence}")
+    // SplitMix64 over the clock/pid/counter gives 128 usable bits, spread over two rounds.
+    let mut seed = millis
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (u64::from(std::process::id())).rotate_left(32)
+        ^ sequence.wrapping_mul(0xD6E8_FEB8_6659_FD93);
+    let mut next = || {
+        seed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = seed;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let high = next();
+    let low = next();
+    let bytes = ((u128::from(high) << 64) | u128::from(low)).to_be_bytes();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-4{:01x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5],
+        bytes[6] & 0x0f, bytes[7],
+        (bytes[8] & 0x3f) | 0x80, bytes[9],
+        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
 }
 
 /// A concrete unit of scheduled work.

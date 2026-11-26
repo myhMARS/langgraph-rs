@@ -2651,4 +2651,23 @@ that used it now check `draw_mermaid()` instead.
 
 New parity scenario `graph_export` compares the graph type, node set and `(source, target,
 conditional)` edge list: 47/47 scenarios equivalent. Suite is 450 tests, examples 10/10, clippy and
+Rust tests clean.### Round 121: UUID-shaped task ids and subgraph namespaces
+
+LangGraph's task ids are UUIDs and its subgraph namespace is `<node>:<task_id>`, so `stream_mode="tasks"`
+and `subgraphs=True` payloads show values like `child:3820a0d1-dd47-...`. The extension generated
+`<node>-<millis>-<sequence>` instead (`child:child-1795688892058-8`), which users see verbatim.
+
+`new_task_id` now folds the clock, the process id and a counter through SplitMix64 into 128 bits and
+formats them as a UUID v4 string — no new dependency. Both task ids and namespaces are UUID-shaped:
+
+```
+tasks id:   0e06feea-ef23-47a8-8fe7-edae83fac2a2
+namespace:  ('child:92a7f918-320b-477c-9cf6-aeb5e03b66b3',)
+```
+
+LangGraph's ids differ on every run; the extension's are likewise generated per run and only need to
+be stable within a task, which they are.
+
+New parity scenario `task_id_shape` checks the shape on both engines (all ids and namespace suffixes
+match the UUID pattern): 48/48 scenarios equivalent. Suite is 450 tests, examples 10/10, clippy and
 Rust tests clean.
