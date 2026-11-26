@@ -474,6 +474,63 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_command_graph_scenario() -> list[dict]:
+    """`Command(graph=<name>)` from a parent node routes by `goto` (only PARENT crosses graphs)."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_build(graph_name):
+        child = LgStateGraph(LgState)
+        child.add_node("inner", lambda state: {"value": 7})
+        child.add_edge(START, "inner")
+        child.add_edge("inner", END)
+        parent = LgStateGraph(LgState)
+        parent.add_node(
+            "start",
+            lambda state: LgCommand(goto="child", **({"graph": graph_name} if graph_name else {})),
+        )
+        parent.add_node("child", child.compile())
+        parent.add_edge(START, "start")
+        parent.add_edge("child", END)
+        return parent.compile()
+
+    def rs_build(graph_name):
+        child = rs.StateGraph({"value": "last_value"})
+        child.add_node("inner", lambda state: {"value": 7})
+        child.set_entry_point("inner")
+        child.set_finish_point("inner")
+        parent = rs.StateGraph({"value": "last_value"})
+        parent.add_node(
+            "start",
+            lambda state: rs.Command(goto="child", **({"graph": graph_name} if graph_name else {})),
+        )
+        parent.add_node("child", child.compile())
+        parent.set_entry_point("start")
+        parent.set_finish_point("child")
+        return parent.compile()
+
+    cases = {}
+    for graph_name in ("child", None):
+        key = "with_graph_name" if graph_name else "without"
+        cases[key] = {
+            "rs": dict(rs_build(graph_name).invoke({"value": 0})),
+            "lg": dict(lg_build(graph_name).invoke({"value": 0})),
+        }
+    return [
+        {
+            "scenario": "command_graph",
+            "rs": {name: item["rs"] for name, item in cases.items()},
+            "lg": {name: item["lg"] for name, item in cases.items()},
+            "equivalent": all(item["rs"] == item["lg"] for item in cases.values()),
+            "bench": {
+                "rs": measure(lambda: rs_build(None).invoke({"value": 0})),
+                "lg": measure(lambda: lg_build(None).invoke({"value": 0})),
+            },
+        }
+    ]
+
+
 def run_events_v2_scenario() -> list[dict]:
     """`astream_events(version="v2")` yields LangChain's `on_chain_*` sequence."""
 
@@ -3236,6 +3293,7 @@ def main() -> None:
         run_multi_resume_scenario,
         run_send_interrupt_scenario,
         run_events_v2_scenario,
+        run_command_graph_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

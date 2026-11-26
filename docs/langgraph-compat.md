@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `Command(graph=...)` 的语义（2026-11-26）
+
+LG 只有 `Command.PARENT`（字符串 `"__parent__"`）表示「回到外层图」；而 `graph="<子图名>"` 只是在
+跨图边界时才被解读，**在父图节点里返回时等于没写**。扩展此前把「任何 `graph=`」都当成父图路由，
+于是父图里的 `Command(goto="child", graph="child")` 直接报
+`Command(graph=PARENT) can only be returned from inside a subgraph`。
+
+现在只有 `graph=Command.PARENT` 触发父图路由，其余 `graph=` 值按 LG 的行为被忽略：
+
+```
+Command(goto="child", graph="child")  -> {'value': 7}   # 两边相同
+Command(goto="child")                 -> {'value': 7}   # 两边相同
+```
+
+**一处有意的不同**：`Command(goto="<不存在的节点>")` 扩展会报
+`invalid route from ...: unknown destination node`，LG 只是在日志里告警并忽略该写入。这条严格性
+是本项目既有设计（`test_bindings` 有对应断言），保留。
+
 ### `astream_events` 的 v2 / v3 形状（2026-11-26）
 
 LG 的 `astream_events` 是**普通 `def`**：`version="v3"` 返回可 await 的 `AsyncGraphRunStream`，

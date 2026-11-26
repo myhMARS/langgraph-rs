@@ -2746,4 +2746,21 @@ with the same keys per event (`event`, `name`, `run_id`, `tags`, `metadata`, `da
 `langgraph_node` (plus `langgraph_checkpoint_ns` for subgraphs) in node metadata.
 
 New parity scenario `events_v2` compares the `(event, name, data keys)` sequence: 52/52 scenarios
-equivalent. Suite is 457 tests (two new), examples 10/10, clippy and Rust tests clean.
+equivalent. Suite is 457 tests (two new), examples 10/10, clippy and Rust tests clean.### Round 126: `Command(graph=...)` only crosses graphs for `Command.PARENT`
+
+LangGraph's `Command.PARENT` is the string `"__parent__"`; every other `graph=` value is a *graph
+name* that only matters when a command crosses that graph's boundary, so from a parent node it has
+no effect. The extension treated **any** `graph=` value as parent routing, which made
+`Command(goto="child", graph="child")` raise
+`Command(graph=PARENT) can only be returned from inside a subgraph`.
+
+`to_output` now compares against the `PARENT_GRAPH` constant, so both
+`Command(goto="child", graph="child")` and `Command(goto="child")` route normally and return
+`{'value': 7}` on both engines.
+
+Kept deliberately strict: `Command(goto="<unknown>")` fails with `unknown destination node`, where
+LangGraph logs `wrote to unknown channel ... ignoring it` and continues. The strict form is an
+existing, tested design choice of this project.
+
+New parity scenario `command_graph` covers both forms: 53/53 scenarios equivalent. Suite is 457
+tests, examples 10/10, clippy and Rust tests clean.

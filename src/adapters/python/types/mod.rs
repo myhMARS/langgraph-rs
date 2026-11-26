@@ -168,6 +168,9 @@ impl PyInterrupt {
     }
 }
 
+/// `Command.PARENT`: target the enclosing graph from inside a subgraph.
+pub(crate) const PARENT_GRAPH: &str = "__parent__";
+
 #[pyclass(name = "Command")]
 #[derive(Default)]
 pub struct PyCommand {
@@ -213,7 +216,9 @@ impl PyCommand {
     /// Convert a Command returned by a node into channel writes + goto targets.
     pub(super) fn to_output(&self, py: Python<'_>) -> PyResult<NodeOutput> {
         let mut output = NodeOutput::new();
-        let parent = self.graph.is_some();
+        // LangGraph only treats `Command.PARENT` (`"__parent__"`) as parent routing; a plain
+        // graph *name* is a different feature and has no effect at the parent level.
+        let parent = matches!(self.graph.as_deref(), Some(PARENT_GRAPH));
         if let Some(update) = &self.update {
             if !update.bind(py).is_none() {
                 let dict = update.bind(py).cast::<PyDict>().map_err(|_| {
