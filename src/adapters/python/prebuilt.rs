@@ -117,30 +117,31 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                                 },
                                 // LangGraph fills a `ToolRuntime` handle with what the run knows.
                                 Injection::Runtime => (|| -> PyResult<Py<PyAny>> {
-                                    let module = py.import("langgraph_rs.prebuilt.tool_node")?;
-                                    let runtime_class = module.getattr("ToolRuntime")?;
-                                    let runtime_kwargs = pyo3::types::PyDict::new(py);
+                                    // Built natively: the extension owns the handle it injects.
                                     let state = serde_json::Value::Object(state.0.clone());
-                                    runtime_kwargs
-                                        .set_item("state", value_to_py(py, &state)?)?;
-                                    runtime_kwargs.set_item(
-                                        "context",
-                                        match crate::current_context() {
-                                            Some(context) => value_to_py(py, &context)?,
-                                            None => py.None(),
+                                    let runtime = super::types::PyToolRuntime {
+                                        state: Some(value_to_py(py, &state)?),
+                                        context: match crate::current_context() {
+                                            Some(context) => Some(value_to_py(py, &context)?),
+                                            None => None,
                                         },
-                                    )?;
-                                    runtime_kwargs.set_item(
-                                        "store",
-                                        match crate::get_store() {
-                                            Some(store) => pyo3::IntoPyObjectExt::into_py_any(
-                                                super::types::PyStore::new(store),
-                                                py,
-                                            )?,
-                                            None => py.None(),
+                                        config: None,
+                                        stream_writer: None,
+                                        tool_call_id: None,
+                                        store: match crate::get_store() {
+                                            Some(store) => Some(
+                                                pyo3::IntoPyObjectExt::into_py_any(
+                                                    super::types::PyStore::new(store),
+                                                    py,
+                                                )?,
+                                            ),
+                                            None => None,
                                         },
-                                    )?;
-                                    Ok(runtime_class.call((), Some(&runtime_kwargs))?.unbind())
+                                        tools: None,
+                                        execution_info: None,
+                                        server_info: None,
+                                    };
+                                    Ok(Py::new(py, runtime)?.into_any())
                                 })()
                                 .map_err(|error| pyerr_to_error(py, error))?
                             };

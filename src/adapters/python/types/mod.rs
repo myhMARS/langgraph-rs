@@ -57,6 +57,71 @@ impl PySend {
 
 /// A `Command` returned from a node or passed to `invoke`/`stream`.
 /// Python `Interrupt` value surfaced by `__interrupt__` stream entries.
+/// The runtime handle LangGraph injects into tools.
+///
+/// Constructed by the engine when a tool declares a `ToolRuntime` parameter, so the extension does
+/// not have to import the shim's dataclass.
+#[pyclass(name = "ToolRuntime", module = "langgraph_rs")]
+pub struct PyToolRuntime {
+    #[pyo3(get, set)]
+    pub state: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub context: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub config: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub stream_writer: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub tool_call_id: Option<String>,
+    #[pyo3(get, set)]
+    pub store: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub tools: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub execution_info: Option<Py<PyAny>>,
+    #[pyo3(get, set)]
+    pub server_info: Option<Py<PyAny>>,
+}
+
+#[pymethods]
+impl PyToolRuntime {
+    #[new]
+    #[pyo3(signature = (state=None, context=None, config=None, stream_writer=None, tool_call_id=None, store=None, tools=None, execution_info=None, server_info=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        state: Option<Py<PyAny>>,
+        context: Option<Py<PyAny>>,
+        config: Option<Py<PyAny>>,
+        stream_writer: Option<Py<PyAny>>,
+        tool_call_id: Option<String>,
+        store: Option<Py<PyAny>>,
+        tools: Option<Py<PyAny>>,
+        execution_info: Option<Py<PyAny>>,
+        server_info: Option<Py<PyAny>>,
+    ) -> Self {
+        Self {
+            state,
+            context,
+            config,
+            stream_writer,
+            tool_call_id,
+            store,
+            tools,
+            execution_info,
+            server_info,
+        }
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        let state = self
+            .state
+            .as_ref()
+            .map(|value| value.bind(py).repr().map(|text| text.to_string()).unwrap_or_default())
+            .unwrap_or_else(|| "None".to_string());
+        format!("ToolRuntime(state={state})")
+    }
+}
+
 #[pyclass(name = "Interrupt", module = "langgraph_rs")]
 pub struct PyInterrupt {
     #[pyo3(get)]

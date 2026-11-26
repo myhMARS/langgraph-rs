@@ -541,6 +541,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(get_config, module)?)?;
     module.add_function(wrap_pyfunction!(get_stream_writer, module)?)?;
     module.add_class::<PyInterrupt>()?;
+    module.add_class::<crate::adapters::python::types::PyToolRuntime>()?;
     module.add_class::<PyStreamWriter>()?;
     module.add_class::<PyRunControl>()?;
     module.add_function(wrap_pyfunction!(current_context, module)?)?;

@@ -273,7 +273,15 @@ Python 代码，属于正向调用）。
 `isinstance` 判断垫片的基类。Rust 里那段 `exec` 出来的 `_schema_from_class` / `MessagesState`
 也随之删除（改由同一 Python 模块提供）。
 
-`Rust 侧垫片 import` 从 17 处降到 **3 处**（JsonPlus 编解码 ×2、`ToolRuntime` 构造），下一轮继续。
+**JsonPlus 编解码改成原生实现**：`encode_object` 只用对象自己的 `model_dump`/`to_json` 加
+`type().__module__`/`__qualname__` 组装 `{"lc":1,...}`；`decode_object` 用 `importlib` 还原类并
+`cls(**kwargs)`。两边都不再 import 垫片。
+
+**`ToolRuntime` 改成原生 `#[pyclass]`**：引擎构造注入句柄时不再 import 垫片的 dataclass，垫片反向
+re-export 原生类（`langgraph_rs.prebuilt.tool_node.ToolRuntime` 仍是同一个对象）。
+
+**结论：Rust 侧对 `langgraph_rs.*` 垫片的 import 现在是 0 处。** 剩余的 Python 交互只有两类必要形式：
+调用用户可调用对象（节点/reducer/saver/transformer/工具）、以及构造 Python 对象作为返回值。
 
 **`astream` 的形状也对齐了 LG**：LG 的 `astream` 是 **async generator（不可 await）**，此前我们返回
 可 await 对象；现在是 `async def ... yield`，与 LG 一致（相关测试已改）。

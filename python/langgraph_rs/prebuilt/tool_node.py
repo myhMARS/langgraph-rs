@@ -70,24 +70,9 @@ class InjectedStore(_InjectedToolArg):
     """Annotation for injecting the long-term store into a tool argument."""
 
 
-@dataclass
-class ToolRuntime(Generic[ContextT, StateT]):
-    """Runtime handle LangGraph injects into tools.
-
-    The extension fills the fields it knows about at call time (`state`, `store`, `context`,
-    `stream_writer`, `config`); `tool_call_id`, `execution_info` and `server_info` stay `None`
-    because the engine does not track them for tool calls.
-    """
-
-    state: Any = None
-    context: Any = None
-    config: Any = None
-    stream_writer: Any = None
-    tool_call_id: str | None = None
-    store: Any = None
-    tools: list[Any] = field(default_factory=list)
-    execution_info: Any = None
-    server_info: Any = None
+# The runtime handle is a native class: the engine builds it when a tool declares a
+# `ToolRuntime` parameter, so the shim no longer re-implements the object.
+from ..langgraph_rs import ToolRuntime  # noqa: E402  (native re-export)
 
 
 def _validation_error_text(error: Exception) -> str:

@@ -80,28 +80,115 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
 }
 
 
-/// Encode a LangChain object through `langgraph_rs._compat.encode_value`, when it handles it.
+/// Encode a LangChain object as LangGraph's JSON-plus constructor dict.
+///
+/// The encoding is `{"lc": 1, "type": "constructor", "id": [module, name], "kwargs": ...}` and is
+/// produced from the object's own `model_dump` / `to_json`, so the extension carries the data
+/// without calling into the shim.
 fn encode_object(obj: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
-    let py = obj.py();
-    let module = py.import("langgraph_rs._compat")?;
-    let encode = module.getattr("encode_value")?;
-    let encoded = encode.call1((obj,))?;
-    if encoded.is_none() {
-        return Ok(None);
-    }
-    // The encoder returns a plain JSON dict, so this recursion terminates immediately.
-    Ok(Some(py_to_value(&encoded)?))
+    let kind = obj.get_type();
+    let module: String = kind.getattr("__module__")?.extract()?;
+    let name: String = kind.getattr("__qualname__")?.extract().or_else(|_| {
+        kind.getattr("__name__")
+            .and_then(|value| value.extract::<String>())
+    })?;
+    let kwargs = if let Ok(model_dump) = obj.getattr("model_dump") {
+        if model_dump.is_callable() {
+            Some(model_dump.call0()?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let kwargs = match kwargs {
+        Some(kwargs) => kwargs,
+        None => match obj.getattr("to_json") {
+            Ok(to_json) if to_json.is_callable() => {
+                let payload = to_json.call0()?;
+                if payload.cast::<PyDict>().is_ok() {
+                    payload
+                } else {
+                    let wrapper = PyDict::new(obj.py());
+                    wrapper.set_item("value", payload)?;
+                    wrapper.into_any()
+                }
+            }
+            _ => return Ok(None),
+        },
+    };
+    let dict = PyDict::new(obj.py());
+    dict.set_item("lc", 1)?;
+    dict.set_item("type", "constructor")?;
+    dict.set_item("id", (module, name))?;
+    dict.set_item("kwargs", kwargs)?;
+    Ok(Some(py_to_value(&dict.into_any())?))
 }
 
-/// Revive a JSON-plus constructor dict through `langgraph_rs._compat.decode_value`.
+/// Revive a JSON-plus constructor dict: import the recorded class and rebuild it from `kwargs`.
 fn decode_object(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResult<Option<Py<PyAny>>> {
-    let module = py.import("langgraph_rs._compat")?;
-    let decode = module.getattr("decode_value")?;
-    let decoded = decode.call1((dict,))?;
-    if decoded.is(dict) {
+    let Some(serde_json::Value::Number(lc)) = dict
+        .get_item("lc")?
+        .map(|value| py_to_value(&value))
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    if lc.as_i64() != Some(1) {
         return Ok(None);
     }
-    Ok(Some(decoded.unbind()))
+    let Some(serde_json::Value::String(kind)) = dict
+        .get_item("type")?
+        .map(|value| py_to_value(&value))
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    if kind != "constructor" {
+        return Ok(None);
+    }
+    let Some(serde_json::Value::Array(path)) = dict
+        .get_item("id")?
+        .map(|value| py_to_value(&value))
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    let names: Vec<String> = path
+        .iter()
+        .filter_map(|item| item.as_str().map(str::to_owned))
+        .collect();
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let Some(module_name) = names.first() else {
+        return Ok(None);
+    };
+    let Some(class_name) = names.last() else {
+        return Ok(None);
+    };
+    let Ok(module) = py.import(module_name.as_str()) else {
+        return Ok(None);
+    };
+    let Ok(factory) = module.getattr(class_name.as_str()) else {
+        return Ok(None);
+    };
+    let kwargs = match dict.get_item("kwargs")? {
+        Some(value) if value.cast::<PyDict>().is_ok() => value,
+        Some(value) => {
+            let wrapper = PyDict::new(py);
+            wrapper.set_item("value", value)?;
+            wrapper.into_any()
+        }
+        None => PyDict::new(py).into_any(),
+    };
+    let kwargs = kwargs.cast::<PyDict>().map_err(|_| {
+        PyTypeError::new_err("a constructor payload must carry a `kwargs` mapping")
+    })?;
+    Ok(match factory.call((), Some(kwargs)) {
+        Ok(value) => Some(value.unbind()),
+        Err(_) => None,
+    })
 }
 
 pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {

@@ -2535,4 +2535,22 @@ One regression to note from the change: the first version of the marker check sh
 unwrapped channel with the marker dict, which broke custom-channel merges until the duplicate
 binding was removed.
 
-Verification: 445 Python tests, parity 43/43, examples 10/10, clippy and Rust tests clean.
+Verification: 445 Python tests, parity 43/43, examples 10/10, clippy and Rust tests clean.### Round 116: the last three reverse calls are gone
+
+Shim imports from Rust are now **zero**.
+
+* **JsonPlus codec, native.** `encode_object` reads the object's own `model_dump` / `to_json` and
+  `type().__module__` / `__qualname__` to build `{"lc": 1, "type": "constructor", "id": [...],
+  "kwargs": ...}`; `decode_object` imports the recorded module with `importlib`, resolves the class
+  and rebuilds it from `kwargs`. Both stay behaviourally identical to the shim's versions (missing
+  classes fall back to the raw dict, non-dict payloads are wrapped under `value`).
+* **`ToolRuntime` is a `#[pyclass]`.** The engine constructs the handle it injects into tools
+  natively; `langgraph_rs.prebuilt.tool_node` re-exports the native class so user `isinstance`
+  checks and annotations keep working. `create_react_agent` dependency unchanged.
+
+What remains, and why it is legitimate: the engine still *calls* Python — node functions, reducers,
+savers, transformers and tools are user code, and returning values requires constructing Python
+objects. Neither is a reverse call into the extension's own logic.
+
+Verification: 445 Python tests, parity 43/43, examples 10/10, streaming-liveness PASS, clippy and
+Rust tests clean.
