@@ -579,3 +579,51 @@ class GraphIntrospectionAttributesTest(unittest.TestCase):
         app = graph.compile(interrupt_after=["node"])
         self.assertEqual(app.interrupt_after_nodes, ["node"])
         self.assertIs(app.debug, False)
+
+
+class CustomChannelTest(unittest.TestCase):
+    """A `BaseChannel` subclass that overrides `update`/`get` runs its own merge logic."""
+
+    @staticmethod
+    def _max_channel_class():
+        from langgraph_rs.channels import BaseChannel
+
+        class MaxValue(BaseChannel):
+            __channel_spec__ = None
+
+            def __init__(self):
+                super().__init__()
+                self._value = None
+
+            def update(self, values):
+                for value in values:
+                    if value is None:
+                        continue
+                    self._value = value if self._value is None else max(self._value, value)
+                return True
+
+            def get(self):
+                return self._value
+
+        return MaxValue
+
+    def test_custom_channel_merge(self):
+        MaxValue = self._max_channel_class()
+        graph = langgraph_rs.StateGraph({"best": MaxValue()})
+        graph.add_node("a", lambda state: {"best": 5})
+        graph.add_node("b", lambda state: {"best": 3})
+        graph.add_node("c", lambda state: {"best": 9})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", "c")
+        graph.set_finish_point("c")
+        self.assertEqual(graph.compile().invoke({"best": None})["best"], 9)
+
+    def test_builtin_channels_still_use_their_spec(self):
+        from langgraph_rs.channels import LastValue
+
+        graph = langgraph_rs.StateGraph({"value": LastValue(int)})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.set_entry_point("a")
+        graph.set_finish_point("a")
+        self.assertEqual(graph.compile().invoke({"value": 0})["value"], 1)

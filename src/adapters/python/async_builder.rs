@@ -328,6 +328,9 @@ impl PyAsyncStateGraph {
                 graph: Arc::new(compiled),
                 saver,
                 stream_transformers,
+                checkpointer_py: checkpointer
+                    .filter(|value| !value.is_none())
+                    .map(|value| value.clone().unbind()),
             },
         )?;
         let module = py.import("langgraph_rs.graph.state")?;

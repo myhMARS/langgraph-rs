@@ -23,6 +23,8 @@ pub struct PyAsyncCompiledGraph {
     saver: Option<Arc<dyn Checkpointer>>,
     /// Transformers registered at compile time for `astream_events(version="v3")`.
     pub(crate) stream_transformers: Vec<Py<PyAny>>,
+    /// The checkpointer object passed to `compile()` (LangGraph's `checkpointer` attribute).
+    pub(crate) checkpointer_py: Option<Py<PyAny>>,
 }
 
 #[path = "async_support.rs"]
@@ -313,6 +315,25 @@ impl PyAsyncCompiledGraph {
             ascii: self.graph.to_ascii(),
             spec: self.graph.graph_spec(),
         }
+    }
+
+    /// The checkpointer passed to `compile()`, exactly as the caller supplied it.
+    #[getter]
+    fn checkpointer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.checkpointer_py.as_ref() {
+            Some(value) => Ok(value.clone_ref(py)),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// Nodes reachable from each node through static edges.
+    #[getter]
+    fn trigger_to_nodes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, targets) in self.graph.static_triggers() {
+            dict.set_item(node, targets)?;
+        }
+        Ok(dict.into_any().unbind())
     }
 
     /// Nodes paused before they run.

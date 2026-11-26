@@ -2166,4 +2166,30 @@ Suite is 413 tests, parity 38/38, examples 10/10 identical plus 4/4 liveness, cl
 Remaining names are now 20: LangGraph's mutable-attach API (`attach_node`/`attach_edge`/`attach_branch`),
 its own object graph (`nodes`, `builder`, `config`, `checkpointer`, `cache`, `*channels*`,
 `trigger_to_nodes`, `node_error_handler_map`, `schema_to_mapper`, `stream_eager`, `stream_mode`) and
-two `RunnableSerializable` helpers (`validate`, `get_context_jsonschema`).
+two `RunnableSerializable` helpers (`validate`, `get_context_jsonschema`).### Round 101: custom `BaseChannel` subclasses and the remaining truthful attributes
+
+LangGraph's `BaseChannel` is an open class hierarchy: inherit it, implement `update(values) -> bool`
+and `get()`, and the channel owns its merge semantics. The extension silently treated such a subclass
+as `LastValue` (or rejected it when `__channel_spec__` was `None`), which is the one architecture-level
+capability gap that was actually closable.
+
+`convert.rs` now detects a `BaseChannel` subclass that overrides `update`/`get` and bridges it to an
+engine reducer: each write calls `channel.update([write])`, then reads `channel.get()`. Verified with a
+`MaxValue` channel (max of 5, 3, 9 -> 9) and a `Union` channel (`['x','y','z']`) in a three-node graph.
+Builtin channels (`LastValue(int)`, ...) still resolve through `__channel_spec__`, and unknown specs
+still raise at build time instead of degrading.
+
+Documented limitation: the channel's private state lives in the Python object, so resuming from a
+checkpoint restores the value but not the channel's internal fields; such channels must be able to
+derive their state from the JSON value.
+
+Attributes added this round, all truthful:
+* `checkpointer` — the exact object passed to `compile()` (stored alongside the Rust handle)
+* `cache` — the cache backend object (sync graph)
+* `trigger_to_nodes` — derived from the static edges (`CompiledGraph::static_triggers`,
+  `AsyncCompiledGraph::static_triggers`)
+
+Suite is 415 tests, parity 38/38, examples 10/10 identical, clippy and Rust tests clean.
+Remaining name count is 15, all LangGraph internals (`nodes`, `builder`, `config`,
+`attach_node`/`attach_edge`/`attach_branch`, `*channels*`, `stream_eager`, `stream_mode`,
+`node_error_handler_map`, `schema_to_mapper`) plus `validate`/`get_context_jsonschema`.

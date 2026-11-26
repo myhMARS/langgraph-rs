@@ -241,12 +241,21 @@ impl PyStateGraph {
                 .collect::<PyResult<Vec<_>>>()?,
             None => Vec::new(),
         };
+        // Keep the objects the caller passed: LangGraph exposes them as `checkpointer` / `cache`.
+        let checkpointer_py = checkpointer
+            .filter(|value| !value.is_none())
+            .map(|value| value.clone().unbind());
+        let cache_py = cache
+            .filter(|value| !value.is_none())
+            .map(|value| value.clone().unbind());
         let native = Py::new(
             py,
             PyCompiledGraph {
                 graph: Arc::new(compiled),
                 saver,
                 stream_transformers,
+                checkpointer_py,
+                cache_py,
             },
         )?;
         crate::adapters::python::graph::graph_compiled::wrap_compiled(py, native)

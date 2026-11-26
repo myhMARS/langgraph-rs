@@ -250,6 +250,10 @@ pub struct PyCompiledGraph {
     pub(crate) saver: Option<Arc<dyn Checkpointer>>,
     /// Transformers registered at compile time for `stream_events(version="v3")`.
     pub(crate) stream_transformers: Vec<Py<PyAny>>,
+    /// The checkpointer object passed to `compile()` (LangGraph's `checkpointer` attribute).
+    pub(crate) checkpointer_py: Option<Py<PyAny>>,
+    /// The cache object passed to `compile()` (LangGraph's `cache` attribute).
+    pub(crate) cache_py: Option<Py<PyAny>>,
 }
 
 impl PyCompiledGraph {
@@ -261,6 +265,8 @@ impl PyCompiledGraph {
             graph: Arc::new(graph),
             saver,
             stream_transformers: Vec::new(),
+            checkpointer_py: None,
+            cache_py: None,
         }
     }
 }
@@ -823,6 +829,34 @@ impl PyCompiledGraph {
         self.graph.name().map(|value| value.to_string())
     }
 
+    /// The checkpointer passed to `compile()`, exactly as the caller supplied it.
+    #[getter]
+    fn checkpointer(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.checkpointer_py.as_ref() {
+            Some(value) => Ok(value.clone_ref(py)),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// The cache backend passed to `compile()`.
+    #[getter]
+    fn cache(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match self.cache_py.as_ref() {
+            Some(value) => Ok(value.clone_ref(py)),
+            None => Ok(py.None()),
+        }
+    }
+
+    /// Nodes reachable from each node through static edges (LangGraph's `trigger_to_nodes`).
+    #[getter]
+    fn trigger_to_nodes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (node, targets) in self.graph.static_triggers() {
+            dict.set_item(node, targets)?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
     /// The context schema declared at compile time (LangGraph stores it as an attribute).
     #[getter]
     fn context_schema(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -920,6 +954,8 @@ impl PyCompiledGraph {
                     graph: child.clone(),
                     saver: self.saver.clone(),
                     stream_transformers: Vec::new(),
+                    checkpointer_py: None,
+                    cache_py: None,
                 },
             )?;
             items.append((name.clone(), child_py))?;
@@ -931,6 +967,8 @@ impl PyCompiledGraph {
                             graph: inner.clone(),
                             saver: self.saver.clone(),
                             stream_transformers: Vec::new(),
+                            checkpointer_py: None,
+                            cache_py: None,
                         },
                     )?;
                     items.append((format!("{name}|{inner_name}"), nested))?;
@@ -954,6 +992,8 @@ impl PyCompiledGraph {
             PyCompiledGraph {
                 graph: std::sync::Arc::new(graph),
                 saver: self.saver.clone(),
+                checkpointer_py: self.checkpointer_py.as_ref().map(|value| value.clone_ref(py)),
+                cache_py: self.cache_py.as_ref().map(|value| value.clone_ref(py)),
                 stream_transformers: self
                     .stream_transformers
                     .iter()
@@ -1486,7 +1526,16 @@ impl PyCompiledGraph {
             .map(|item| item.clone_ref(py))
             .collect::<Vec<_>>();
         let bound_graph =
-            Py::new(py, PyCompiledGraph { graph, saver, stream_transformers: transform })?;
+            Py::new(
+            py,
+            PyCompiledGraph {
+                graph,
+                saver,
+                stream_transformers: transform,
+                checkpointer_py: None,
+                cache_py: None,
+            },
+        )?;
         let input = input.map(|value| value.clone().unbind());
         let input = input.as_ref().map(|value| value.bind(py));
         function.call((bound_graph, input), Some(&kwargs))

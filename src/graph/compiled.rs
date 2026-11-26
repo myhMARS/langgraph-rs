@@ -118,6 +118,17 @@ impl<S: State> CompiledGraph<S> {
         &self.cache_policies
     }
 
+    /// Static edge targets of every node (`trigger_to_nodes`).
+    pub fn static_triggers(&self) -> Vec<(String, Vec<String>)> {
+        let mut triggers: Vec<(String, Vec<String>)> = self
+            .edges
+            .iter()
+            .map(|(source, targets)| (source.clone(), targets.clone()))
+            .collect();
+        triggers.sort_by(|a, b| a.0.cmp(&b.0));
+        triggers
+    }
+
     /// Subgraphs embedded as nodes, keyed by node name.
     pub fn subgraphs(&self) -> &indexmap::IndexMap<String, Arc<CompiledGraph<S>>> {
         &self.subgraphs

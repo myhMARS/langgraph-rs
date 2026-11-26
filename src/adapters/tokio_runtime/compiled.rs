@@ -199,6 +199,17 @@ impl<S: State> AsyncCompiledGraph<S> {
         })
     }
 
+    /// Static edge targets of every node (`trigger_to_nodes`).
+    pub fn static_triggers(&self) -> Vec<(String, Vec<String>)> {
+        let mut triggers: Vec<(String, Vec<String>)> = self
+            .edges
+            .iter()
+            .map(|(source, targets)| (source.clone(), targets.clone()))
+            .collect();
+        triggers.sort_by(|a, b| a.0.cmp(&b.0));
+        triggers
+    }
+
     /// Graph name configured with `with_name`.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()

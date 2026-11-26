@@ -287,6 +287,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 自定义 channel 已支持（2026-11-26）
+
+LangGraph 的 `BaseChannel` 是开放类层次：继承它、实现 `update(values) -> bool` 与 `get()` 就得到
+自定义合并语义。扩展现在也支持——检测到子类覆写了 `update`/`get` 时，把它桥接成引擎的 reducer：
+
+```python
+class MaxValue(BaseChannel):
+    __channel_spec__ = None          # 声明「不是内置 channel」
+    def update(self, values): ...    # 自己维护状态
+    def get(self): ...
+```
+
+实测：`MaxValue`（取最大）+ `Union`（去重累积）在三级图里得到 `{'best': 9, 'items': ['x','y','z']}`。
+未知的内置 channel 仍然在构图时抛错，不会静默降级。
+
+已知限制：自定义 channel 的内部状态由 Python 对象持有，从 checkpoint 恢复时不会重建该对象
+（值仍会随 checkpoint 恢复，但 `update` 依赖的私有状态需要 channel 自己能从 JSON 值推导）。
+
 ### 异步图同样走门面（2026-11-26）
 
 `AsyncStateGraph.compile()` 现在也返回同一个 `CompiledStateGraph` 门面：异步原生图补上了阻塞式
@@ -295,7 +313,8 @@ schema introspection 全套由基类提供。扩展现在也这样：
 `stream_events` 会显式提示改用 `astream_events`。
 
 同时补齐了**能如实提供**的引擎属性：`interrupt_before_nodes`、`interrupt_after_nodes`、
-`retry_policy`、`step_timeout`、`cache_policy`、`stream_transformers`、`context_schema`、`debug`。
+`retry_policy`、`step_timeout`、`cache_policy`、`stream_transformers`、`context_schema`、`debug`、
+`checkpointer`（返回 `compile()` 时传入的原始对象）、`cache`、`trigger_to_nodes`。
 
 ### 编译后图仍不实现的成员（2026-11-26）
 

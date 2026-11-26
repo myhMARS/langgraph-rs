@@ -357,6 +357,32 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
     let mut out = StateSchema::dynamic();
     for (key, spec) in dict.iter() {
         let name: String = key.extract()?;
+        // A user subclass of `BaseChannel` that overrides `update`/`get` runs its own merge logic;
+        // LangGraph's protocol is `update([write]) -> bool` then `get() -> value`.
+        if is_custom_base_channel(&spec)? {
+            let channel = spec.clone().unbind();
+            out = out.with_channel(
+                name,
+                Channel::reducer(move |_current: &Value, incoming: &Value| {
+                    Python::attach(|py| -> Result<Value> {
+                        let bound = channel.bind(py);
+                        let write = value_to_py(py, incoming)
+                            .map_err(|error| crate::Error::other(error.to_string()))?;
+                        let writes = PyList::new(py, [write])
+                            .map_err(|error| crate::Error::other(error.to_string()))?;
+                        bound
+                            .call_method1("update", (writes,))
+                            .map_err(|error| crate::Error::other(error.to_string()))?;
+                        let current = bound
+                            .call_method0("get")
+                            .map_err(|error| crate::Error::other(error.to_string()))?;
+                        py_to_value(&current)
+                            .map_err(|error| crate::Error::other(error.to_string()))
+                    })
+                }),
+            );
+            continue;
+        }
         // LangGraph's channel objects (`LastValue`, `Topic`, ...) carry their reducer spec.
         if let Ok(channel_spec) = spec.getattr("__channel_spec__") {
             if channel_spec.is_none() {
@@ -693,7 +719,41 @@ pub(super) fn run_config(thread_id: Option<String>) -> RunConfig {
 mod stream_convert;
 pub(crate) use stream_convert::*;
 
-/// Parse a plain thread id or a LangGraph RunnableConfig-shaped dict into run config.
+/// Whether `spec` is a `BaseChannel` subclass that overrides the merge protocol.
+fn is_custom_base_channel(spec: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let py = spec.py();
+    let module = match py.import("langgraph_rs.channels") {
+        Ok(module) => module,
+        Err(_) => return Ok(false),
+    };
+    let base = match module.getattr("BaseChannel") {
+        Ok(base) => base,
+        Err(_) => return Ok(false),
+    };
+    let kind = spec.get_type();
+    if !kind.is_subclass(&base)? {
+        return Ok(false);
+    }
+    for name in ["update", "get"] {
+        let own = kind.getattr(name);
+        let inherited = base.getattr(name).ok();
+        match own {
+            // The subclass defines its own merge protocol.
+            Ok(own) => {
+                let is_own = match &inherited {
+                    Some(inherited) => !own.is(inherited),
+                    None => true,
+                };
+                if is_own && own.is_callable() {
+                    return Ok(true);
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    Ok(false)
+}
+
 pub(crate) fn config_from_py(
     _py: Python<'_>,
     value: Option<&Bound<'_, PyAny>>,
