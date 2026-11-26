@@ -2330,4 +2330,24 @@ Known gap, recorded: metadata lacks LangGraph's `langgraph_triggers` and `langgr
 is no `langgraph_checkpoint_ns` at the root namespace; those need the task context in the callback
 layer.
 
-Suite is 433 tests, parity 40/40, examples 10/10, clippy and Rust tests clean.
+Suite is 433 tests, parity 40/40, examples 10/10, clippy and Rust tests clean.### Round 107: `langgraph_triggers` and `langgraph_path` in message metadata
+
+LangGraph's message metadata carries the task's pull path and the nodes that triggered it; ours had
+neither. The triggers now travel with the run:
+
+* `TaskContext` gained a `triggers` field, filled from `Task.triggers` in both execution paths
+  (inline and the timed helper thread).
+* `current_triggers()` is exposed to Python next to `current_node()`/`current_step()`.
+* The callback handler emits `langgraph_triggers` (only when non-empty) and `langgraph_path`, whose
+  shape is LangGraph's `("__pregel_pull", node)` extended by the subgraph namespace segments.
+* Both keys are restored as **tuples** on the Python side; JSON carries them as arrays, so the v1 and
+  v2 chunk converters rebuild the tuple types (this was a real bug: an earlier attempt returned lists).
+
+Verified: a node reached through `a -> b` reports `langgraph_path == ('__pregel_pull', 'b')` and
+`langgraph_triggers == ('a',)`; `langgraph_rs.current_triggers()` returns `['a']` inside the node.
+
+Known differences recorded: the *entry* task still has empty triggers (LangGraph reports
+`('branch:to:<node>',)`), and there is no `langgraph_checkpoint_ns` at the root namespace because the
+extension does not synthesise checkpoint ids.
+
+Suite is 436 tests, parity 40/40, clippy and Rust tests clean.

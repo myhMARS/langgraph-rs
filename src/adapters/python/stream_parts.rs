@@ -58,9 +58,20 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
                     .and_then(serde_json::Value::as_object)
                 {
                     for (key, value) in extra {
-                        if key != "langgraph_node" && key != "tags" {
-                            metadata.set_item(key, value_to_py(py, value)?)?;
+                        if key == "langgraph_node" || key == "tags" {
+                            continue;
                         }
+                        // LangGraph reports these as tuples; JSON carries them as arrays.
+                        let is_tuple = matches!(key.as_str(), "langgraph_triggers" | "langgraph_path");
+                        if is_tuple && let Some(items) = value.as_array() {
+                            let tuple = PyTuple::new(
+                                py,
+                                items.iter().map(|item| value_to_py(py, item)).collect::<PyResult<Vec<_>>>()?,
+                            )?;
+                            metadata.set_item(key, tuple)?;
+                            continue;
+                        }
+                        metadata.set_item(key, value_to_py(py, value)?)?;
                     }
                 }
             }
@@ -461,9 +472,24 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                     .and_then(serde_json::Value::as_object)
                 {
                     for (key, value) in extra {
-                        if key != "langgraph_node" && key != "tags" {
-                            metadata.set_item(key, value_to_py(py, value)?)?;
+                        if key == "langgraph_node" || key == "tags" {
+                            continue;
                         }
+                        // LangGraph reports these as tuples; JSON carries them as arrays.
+                        let is_tuple =
+                            matches!(key.as_str(), "langgraph_triggers" | "langgraph_path");
+                        if is_tuple && let Some(items) = value.as_array() {
+                            let tuple = PyTuple::new(
+                                py,
+                                items
+                                    .iter()
+                                    .map(|item| value_to_py(py, item))
+                                    .collect::<PyResult<Vec<_>>>()?,
+                            )?;
+                            metadata.set_item(key, tuple)?;
+                            continue;
+                        }
+                        metadata.set_item(key, value_to_py(py, value)?)?;
                     }
                 }
             }

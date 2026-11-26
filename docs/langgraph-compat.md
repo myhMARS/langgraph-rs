@@ -303,8 +303,14 @@ LG 的 `stream_mode="messages"` 产出 `(message_chunk, metadata)`，v3 run stre
 实测：`stream(mode="messages")` 首条为 `AIMessageChunk(content='Hello')`，metadata 含
 `langgraph_node`/`langgraph_step`；`run.extensions` 为 `['lifecycle','messages','subgraphs','values']`
 
-**已知差异**：metadata 里缺 LG 的 `langgraph_triggers` 与 `langgraph_path`（根命名空间下也没有
-`langgraph_checkpoint_ns`），这几个字段需要引擎把任务上下文一并传进回调层。
+**metadata 字段**（本轮补齐）：`langgraph_triggers` 与 `langgraph_path` 现在都有，且是 tuple
+（JSON 里是数组，转换层按 LG 的类型还原）。引擎把任务的 triggers 装进 `TaskContext`，
+回调层通过 `current_triggers()` 读到。
+
+- `langgraph_path`：`("__pregel_pull", <node>)`，子图命名空间按段追加 —— 与 LG 一致
+- `langgraph_triggers`：`("a",)` 这种调度来源；**入口任务的 triggers 仍为空**（LG 那里是
+  `("branch:to:<node>",)`），这属于已知差异
+- 根命名空间下仍没有 `langgraph_checkpoint_ns`（LG 是 `n:<uuid>`；我们不合成 id）
 
 ### LangChain 对象可以进状态了（2026-11-26）
 

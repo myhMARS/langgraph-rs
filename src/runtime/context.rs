@@ -193,6 +193,8 @@ pub(crate) struct TaskContext {
     custom: Vec<Value>,
     tools: Vec<Value>,
     messages: Vec<Value>,
+    /// Nodes (or `START`) that triggered this task, for LangGraph's `langgraph_triggers` metadata.
+    triggers: Vec<String>,
     /// Channel writes the node performed itself (LangGraph's `CONFIG_KEY_SEND`).
     writes: Vec<(String, Value)>,
     usage: Vec<Usage>,
@@ -218,9 +220,16 @@ impl TaskContext {
             tools: Vec::new(),
             messages: Vec::new(),
             writes: Vec::new(),
+            triggers: Vec::new(),
             usage: Vec::new(),
             error: None,
         }
+    }
+
+    /// Record the nodes (or `START`) that triggered this task.
+    pub(crate) fn with_triggers(mut self, triggers: Vec<String>) -> Self {
+        self.triggers = triggers;
+        self
     }
 
     pub(crate) fn with_task_id(mut self, task_id: impl Into<String>) -> Self {
@@ -303,6 +312,16 @@ pub fn current_task_id() -> Option<String> {
         slot.borrow()
             .as_ref()
             .and_then(|context| context.task_id.clone())
+    })
+}
+
+/// Nodes (or `START`) that triggered the currently running task.
+pub fn current_triggers() -> Vec<String> {
+    CURRENT_TASK.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|context| context.triggers.clone())
+            .unwrap_or_default()
     })
 }
 

@@ -288,7 +288,8 @@ fn run_task<S: State>(graph: &CompiledGraph<S>, state: &S, task: &Task) -> TaskO
                 let context = TaskContext::new(task.node.clone(), task.resume_history.clone())
                     .with_task_id(task.id.clone())
                     .with_error(task.error.clone())
-                    .with_pending_resume(task.resume.clone());
+                    .with_pending_resume(task.resume.clone())
+                    .with_triggers(task.triggers.clone());
                 crate::runtime::context::with_task(context, || node(node_state))
             }
         };
@@ -410,6 +411,7 @@ fn run_node_timed<S: State>(
     let resume = task.resume_history.clone();
     let task_id = task.id.clone();
     let error = task.error.clone();
+    let triggers = task.triggers.clone();
     let run = crate::runtime::context::capture_run_context();
     let step = crate::runtime::context::capture_step_context();
     let collector = crate::runtime::context::current_subgraph_collector();
@@ -422,7 +424,8 @@ fn run_node_timed<S: State>(
         let context = TaskContext::new(node_name.clone(), resume.clone())
             .with_task_id(task_id)
             .with_error(error)
-            .with_pending_resume(resume.last().cloned());
+            .with_pending_resume(resume.last().cloned())
+            .with_triggers(triggers);
         let outcome = crate::runtime::context::with_task(context, || node(&node_state));
         let _ = sender.send(outcome);
     });

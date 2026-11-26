@@ -861,3 +861,40 @@ class MessageStreamShapeTest(unittest.TestCase):
         run = app.stream_events({"messages": []}, version="v3", transformers=[MessagesTransformer])
         self.assertIn("messages", run.extensions)
         run.abort()
+
+
+class MessageMetadataTest(unittest.TestCase):
+    """Message metadata carries the node path and, after the first superstep, the triggers."""
+
+    @staticmethod
+    def _graph():
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        model = GenericFakeChatModel(messages=iter([AIMessage("second")]))
+        graph = langgraph_rs.StateGraph({"messages": "append"})
+        graph.add_node("a", lambda state: {"messages": []})
+        graph.add_node("b", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        return graph.compile()
+
+    def test_path_is_reported(self):
+        chunk, metadata = next(self._graph().stream({"messages": []}, stream_mode="messages"))
+        self.assertEqual(metadata["langgraph_path"], ("__pregel_pull", "b"))
+
+    def test_triggers_name_the_scheduling_node(self):
+        chunk, metadata = next(self._graph().stream({"messages": []}, stream_mode="messages"))
+        self.assertEqual(tuple(metadata["langgraph_triggers"]), ("a",))
+
+    def test_current_triggers_is_available_inside_a_node(self):
+        seen = {}
+        graph = langgraph_rs.StateGraph({"value": "last"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: (seen.update({"triggers": langgraph_rs.current_triggers()}) or {"value": 2}))
+        graph.set_entry_point("a")
+        graph.add_edge("a", "b")
+        graph.set_finish_point("b")
+        graph.compile().invoke({"value": 0})
+        self.assertEqual(seen["triggers"], ["a"])

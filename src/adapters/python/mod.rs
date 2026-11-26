@@ -99,6 +99,12 @@ fn current_node() -> Option<String> {
     crate::current_node()
 }
 
+/// Nodes (or `START`) that triggered the currently running task.
+#[pyfunction]
+fn current_triggers() -> Vec<String> {
+    crate::runtime::context::current_triggers()
+}
+
 /// Superstep currently executing, when called from a node or callback.
 #[pyfunction]
 fn current_step() -> Option<usize> {
@@ -287,6 +293,15 @@ class LangChainCallbackHandler:
         step = langgraph_rs.current_step()
         if step is not None:
             metadata["langgraph_step"] = step
+        triggers = langgraph_rs.current_triggers()
+        if triggers:
+            metadata["langgraph_triggers"] = tuple(triggers)
+        if node:
+            # LangGraph reports the task's pull path; subgraph namespaces extend it segment by segment.
+            path = ["__pregel_pull", node]
+            if namespace:
+                path.extend(part for part in namespace.split("|") if part)
+            metadata["langgraph_path"] = tuple(path)
         # LangGraph yields a message *chunk*; keep the fields needed to rebuild one on the
         # Python side instead of flattening the token to a string.
         if hasattr(token, "content"):
@@ -548,6 +563,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_thread_id, module)?)?;
     module.add_function(wrap_pyfunction!(current_namespace, module)?)?;
     module.add_function(wrap_pyfunction!(current_node, module)?)?;
+    module.add_function(wrap_pyfunction!(current_triggers, module)?)?;
     module.add_function(wrap_pyfunction!(current_step, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
