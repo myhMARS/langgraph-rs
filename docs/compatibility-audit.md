@@ -3189,4 +3189,30 @@ schema in Rust and raises `RuntimeError: resume value is missing required respon
 Also checked and matching: `get_state_history` with `limit` / `before` / `filter` on a three-turn
 thread (identical step numbers and counts).
 
-Suite is 504 tests (three new), parity 69/69, examples 10/10, clippy and Rust tests clean.
+Suite is 504 tests (three new), parity 69/69, examples 10/10, clippy and Rust tests clean.### Round 146: node exceptions are re-raised unchanged
+
+LangGraph hands the caller the node's **original** exception: `ValueError("kaboom")` arrives as
+`ValueError: kaboom`, even after retries are exhausted. The extension wrapped everything in
+`RuntimeError: node 'b' failed: python node raised ValueError: ValueError: kaboom`, so user code doing
+`except ValueError` / `except ValidationError` never matched.
+
+`pyerr_to_error` now stores the exception object in a global table and leaves an invisible marker in
+the message; `to_pyerr` swaps the marker back for the exception as its last step. Verified:
+
+```
+ValueError("kaboom")            -> ValueError: kaboom
+retries exhausted (max 2)       -> ValueError: kaboom
+KeyError("missing")             -> KeyError: 'missing'
+```
+
+Fixed along the way: task-level timeouts (`Send(..., timeout=...)`) bypassed the `NodeTimeoutError`
+mapping (only the node policy was consulted), which the parity suite caught as
+`send_timeout` regressing. They now raise `NodeTimeoutError: Node 'worker' exceeded its run timeout of
+0.050s ...` again.
+
+Known difference, documented: after a node fails, LangGraph's
+`snapshot.tasks[i].error` holds the message (`"ValueError('kaboom')"`) while the extension reports
+`None`, because a failed run writes no checkpoint carrying that task error.
+
+Suite is 507 tests (three new), parity 70/70 (new `node_exception` scenario), examples 10/10, clippy
+and Rust tests clean.

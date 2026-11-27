@@ -1968,3 +1968,42 @@ class InvalidNodeOutputTest(unittest.TestCase):
         with self.assertRaises(InvalidUpdateError) as raised:
             graph.compile().invoke({"value": 0})
         self.assertIn("Expected dict, got ['not-a-dict']", str(raised.exception))
+
+
+class NodeExceptionPropagationTest(unittest.TestCase):
+    """A failing node re-raises its original exception, as LangGraph does."""
+
+    @staticmethod
+    def _app(factory, **kwargs):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", factory, **kwargs)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile()
+
+    def test_value_error_is_reraised(self):
+        def boom(state):
+            raise ValueError("kaboom")
+
+        with self.assertRaises(ValueError) as raised:
+            self._app(boom).invoke({"value": 0})
+        self.assertEqual(str(raised.exception), "kaboom")
+
+    def test_key_error_is_reraised(self):
+        def boom(state):
+            raise KeyError("missing")
+
+        with self.assertRaises(KeyError):
+            self._app(boom).invoke({"value": 0})
+
+    def test_retries_keep_the_original_exception(self):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("kaboom")
+
+        app = self._app(boom, retry_policy=langgraph_rs.RetryPolicy(max_attempts=2, initial_interval=0.01))
+        with self.assertRaises(ValueError):
+            app.invoke({"value": 0})
+        self.assertEqual(len(attempts), 2)

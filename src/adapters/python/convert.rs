@@ -424,7 +424,76 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
                 Err(_) => PyRuntimeError::new_err(Error::Timeout { node, millis }.to_string()),
             }
         }
-        other => PyRuntimeError::new_err(other.to_string()),
+        // A Python exception raised inside a node is re-raised with its original type, as
+        // LangGraph does (`ValueError: kaboom`, pydantic `ValidationError`, ...).
+        Error::Node { message, .. } | Error::Other(message)
+            if python_error_id(&message).is_some() =>
+        {
+            match python_error_id(&message).and_then(take_python_error) {
+                Some(exception) => PyErr::from_value(exception.bind(py).clone()),
+                None => PyRuntimeError::new_err(strip_python_error_marker(&message)),
+            }
+        }
+        other => PyRuntimeError::new_err(strip_python_error_marker(&other.to_string())),
+    }
+}
+
+/// Python exceptions raised inside a node, kept until the run surfaces them again.
+///
+/// LangGraph re-raises the original exception (`ValueError: kaboom`, pydantic `ValidationError`,
+/// ...), so the object has to survive the engine's error handling. The message carries a marker
+/// with the id; `to_pyerr` swaps it back for the exception.
+static PY_ERRORS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, Py<PyAny>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+static PY_ERROR_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn stash_python_error(py: Python<'_>, error: &PyErr) -> u64 {
+    let id = PY_ERROR_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut stash) = PY_ERRORS.lock() {
+        // Keep the map small when many errors are produced and never consumed.
+        if stash.len() > 64 {
+            stash.clear();
+        }
+        stash.insert(id, error.value(py).clone().into_any().unbind());
+    }
+    id
+}
+
+pub(super) fn take_python_error(id: u64) -> Option<Py<PyAny>> {
+    PY_ERRORS
+        .lock()
+        .ok()
+        .and_then(|mut stash| stash.remove(&id))
+}
+
+/// Id of the Python exception carried by an engine error message, when it has one.
+pub(crate) fn python_error_id(message: &str) -> Option<u64> {
+    let marker = "\u{1}pyerr:";
+    let start = message.rfind(marker)? + marker.len();
+    let rest = &message[start..];
+    let end = rest.find('\u{1}')?;
+    rest[..end].parse().ok()
+}
+
+/// Strip the marker from a message that is shown to users.
+pub(crate) fn strip_python_error_marker(message: &str) -> String {
+    match message.rfind("\u{1}pyerr:") {
+        Some(start) => {
+            let rest = &message[start..];
+            match rest.find('\u{1}') {
+                Some(_) => {
+                    let end = rest[1..].find('\u{1}').map(|offset| start + 1 + offset + 1);
+                    match end {
+                        Some(end) => format!("{}{}", &message[..start], &message[end..]),
+                        None => message.to_string(),
+                    }
+                }
+                None => message.to_string(),
+            }
+        }
+        None => message.to_string(),
     }
 }
 
@@ -451,8 +520,10 @@ pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
             None => Error::Interrupt(Interrupt::with_schema(node, value, schema)),
         }
     } else {
+        // Keep the exception so `to_pyerr` can re-raise it, as LangGraph does.
+        let id = stash_python_error(py, &error);
         Error::other(format!(
-            "python node raised {}: {error}",
+            "python node raised {}: {error}\u{1}pyerr:{id}\u{1}",
             type_name(error.value(py))
         ))
     }

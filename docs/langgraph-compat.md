@@ -332,6 +332,28 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 节点异常按原样抛出（2026-11-27）
+
+LG 把节点里抛出的异常**原样**抛给调用方：`ValueError("kaboom")` 就是 `ValueError: kaboom`（重试耗尽
+后也一样）。扩展此前一律包成
+`RuntimeError: node 'b' failed: python node raised ValueError: ValueError: kaboom`，用户代码里的
+`except ValueError` / `except ValidationError` 全部失效。
+
+实现方式：`pyerr_to_error` 把异常对象存进全局表并在消息里留一个不可见标记，`to_pyerr` 在最后一步
+把标记换回原异常对象。三条路径都验证过：
+
+```
+ValueError("kaboom")  → ValueError: kaboom
+重试耗尽（max_attempts=2） → ValueError: kaboom（不是包装文本）
+KeyError("missing")   → KeyError: 'missing'
+```
+
+顺带修正：`Send(..., timeout=...)` 这类**任务级**超时此前没进 `NodeTimeoutError` 映射（只看了节点策略），
+现在同样抛 `NodeTimeoutError: Node 'worker' exceeded its run timeout of 0.050s ...`。
+
+**仍缺（已记录）**：节点失败后 `snapshot.tasks[i].error` 里 LG 会留错误字符串
+（`"ValueError('kaboom')"`），扩展目前是 `None`（失败不写检查点，快照里没有这条任务错误）。
+
 ### `interrupt(response_schema=...)` 与非法节点输出（2026-11-27）
 
 **`response_schema` 可以传类**：LG 接受 pydantic / TypedDict 类或 JSON schema 字典。扩展此前只认

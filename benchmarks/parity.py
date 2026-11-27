@@ -493,6 +493,52 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_node_exception_scenario() -> list[dict]:
+    """A failing node re-raises its original exception type and message."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        def boom(state):
+            raise ValueError("kaboom")
+
+        graph = LgStateGraph(LgState)
+        graph.add_node("b", boom)
+        graph.add_edge(START, "b")
+        graph.add_edge("b", END)
+        try:
+            graph.compile().invoke({"value": 0})
+            return None
+        except BaseException as exc:
+            return {"type": type(exc).__name__, "message": str(exc)}
+
+    def rs_run():
+        def boom(state):
+            raise ValueError("kaboom")
+
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("b", boom)
+        graph.add_edge(rs.START, "b")
+        graph.add_edge("b", rs.END)
+        try:
+            graph.compile().invoke({"value": 0})
+            return None
+        except BaseException as exc:
+            return {"type": type(exc).__name__, "message": str(exc)}
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "node_exception",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_tool_interrupt_scenario() -> list[dict]:
     """`interrupt()` inside a tool pauses and resumes the graph."""
 
@@ -4291,6 +4337,7 @@ def main() -> None:
         run_checkpoint_history_scenario,
         run_defer_scenario,
         run_tool_interrupt_scenario,
+        run_node_exception_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

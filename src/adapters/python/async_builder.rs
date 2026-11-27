@@ -121,7 +121,10 @@ fn async_node_from_python(
                                         millis,
                                     };
                                 }
-                                if let Some(millis) = run_timeout_millis
+                                let effective_timeout = run_timeout_millis.or_else(|| {
+                                    run_timeout.map(|timeout| timeout.as_millis() as u64)
+                                });
+                                if let Some(millis) = effective_timeout
                                     && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
                                 {
                                     return Error::Timeout {
@@ -165,7 +168,10 @@ fn async_node_from_python(
                                         millis,
                                     };
                                 }
-                                if let Some(millis) = run_timeout_millis
+                                let effective_timeout = run_timeout_millis.or_else(|| {
+                                    run_timeout.map(|timeout| timeout.as_millis() as u64)
+                                });
+                                if let Some(millis) = effective_timeout
                                     && error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
                                 {
                                     return Error::Timeout {
@@ -251,6 +257,8 @@ impl PyAsyncStateGraph {
         // Python coroutines are driven by a private asyncio loop, so a Tokio timeout cannot
         // interrupt them; the run timeout is enforced with `asyncio.wait_for` inside the node and
         // converted back into the engine's timeout below.
+        // A per-Send timeout (`Send(..., timeout=...)`) arrives through the task context rather
+        // than the node policy, so both sources are considered.
         let run_timeout_millis = timeout
             .as_ref()
             .and_then(|policy| policy.run_timeout)
