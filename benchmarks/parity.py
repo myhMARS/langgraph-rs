@@ -488,6 +488,67 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_error_types_scenario() -> list[dict]:
+    """Conflicting writes raise `InvalidUpdateError`, and a `Command` on a fresh thread starts."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        seen: dict
+
+    def lg_run():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(START, "a")
+        graph.add_edge(START, "b")
+        graph.add_edge("a", END)
+        graph.add_edge("b", END)
+        try:
+            graph.compile().invoke({"value": 0})
+            error = None
+        except BaseException as exc:
+            error = type(exc).__name__
+        runner = LgStateGraph(LgState)
+        runner.add_node("n", lambda state: {"value": 1, "seen": dict(state)})
+        runner.add_edge(START, "n")
+        runner.add_edge("n", END)
+        app = runner.compile(checkpointer=LgInMemorySaver())
+        fresh = app.invoke(LgCommand(resume=5), {"configurable": {"thread_id": "err-lg"}})
+        return {"error": error, "fresh": dict(fresh)}
+
+    def rs_run():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(rs.START, "a")
+        graph.add_edge(rs.START, "b")
+        graph.add_edge("a", rs.END)
+        graph.add_edge("b", rs.END)
+        try:
+            graph.compile().invoke({"value": 0})
+            error = None
+        except BaseException as exc:
+            error = type(exc).__name__
+        runner = rs.StateGraph({"value": "last_value", "seen": "last_value"})
+        runner.add_node("n", lambda state: {"value": 1, "seen": dict(state)})
+        runner.add_edge(rs.START, "n")
+        runner.add_edge("n", rs.END)
+        app = runner.compile(checkpointer=rs.InMemorySaver())
+        fresh = app.invoke(rs.Command(resume=5), {"configurable": {"thread_id": "err-rs"}})
+        return {"error": error, "fresh": dict(fresh)}
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "error_types",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_saver_surface_scenario() -> list[dict]:
     """The checkpointer exposes LangGraph's sync and async surface."""
 
@@ -4006,6 +4067,7 @@ def main() -> None:
         run_policy_surface_scenario,
         run_store_surface_scenario,
         run_saver_surface_scenario,
+        run_error_types_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

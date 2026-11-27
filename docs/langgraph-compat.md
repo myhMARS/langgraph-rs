@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 错误类型与"新线程上的 Command"（2026-11-27）
+
+**并发写冲突**：LG 抛 `InvalidUpdateError`，消息是
+`At key 'value': Can receive only one value per step. Use an Annotated key to handle multiple
+values.` 加上排错链接；扩展此前抛裸 `RuntimeError: conflicting concurrent writes to channel ...`。
+现在映射为 `InvalidUpdateError`，消息与 LG 逐字一致。
+
+**新线程上的 `Command`**：LG 不会报错 —— 没有检查点时它**从起点开始跑**，`resume` 被忽略，
+`update` 作为初始输入：
+
+```
+invoke(Command(resume=5))        → 节点看到 {}           （resume 被忽略）
+invoke(Command(update={"value": 9})) → 节点看到 {'value': 9}
+```
+
+扩展此前抛 `RuntimeError: checkpoint failure: no checkpoint found for thread ...`。现在与 LG 一致。
+
 ### 顶层导出的 saver / store 是"兼容类"（2026-11-27）
 
 `langgraph_rs.InMemorySaver` 之前指向**原生类**（只有 `delete_thread` / `get_next_version`），而带

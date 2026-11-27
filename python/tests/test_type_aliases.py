@@ -1760,3 +1760,43 @@ class CheckpointerSurfaceTest(unittest.TestCase):
         from langgraph_rs.store.memory import InMemoryStore as ShimStore
 
         self.assertIs(langgraph_rs.InMemoryStore, ShimStore)
+
+
+class ErrorTypeParityTest(unittest.TestCase):
+    """Error types match LangGraph's, not bare `RuntimeError`."""
+
+    def test_concurrent_write_raises_invalid_update(self):
+        from langgraph_rs.errors import InvalidUpdateError
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("a", langgraph_rs.END)
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(InvalidUpdateError) as raised:
+            graph.compile().invoke({"value": 0})
+        self.assertIn("At key 'value'", str(raised.exception))
+
+    def test_command_on_a_fresh_thread_starts_the_run(self):
+        def node(state):
+            return {"value": 1, "seen": dict(state)}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value", "seen": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        # `resume` is ignored without a checkpoint; `update` becomes the input.
+        self.assertEqual(
+            app.invoke(langgraph_rs.Command(resume=5), {"configurable": {"thread_id": "fresh-1"}}),
+            {"value": 1, "seen": {}},
+        )
+        self.assertEqual(
+            app.invoke(
+                langgraph_rs.Command(update={"value": 9}),
+                {"configurable": {"thread_id": "fresh-2"}},
+            ),
+            {"value": 1, "seen": {"value": 9}},
+        )

@@ -141,6 +141,37 @@ pub(crate) fn invoke(
                 &resume_checkpoint,
                 static_ns.as_deref().unwrap_or(""),
             );
+            // LangGraph starts a fresh thread when a `Command` arrives for one: `resume` is then
+            // ignored and `update` becomes the input.
+            let has_checkpoint = match static_ns.as_deref() {
+                Some(namespace) => graph.get_state_in(thread, namespace).ok().flatten(),
+                None => graph.get_state(thread).ok().flatten(),
+            }
+            .is_some();
+            if !has_checkpoint {
+                // `update` becomes the initial input, as LangGraph does.
+                let input_state = py.detach(|| {
+                    let mut state = crate::JsonState::new();
+                    for (channel, value) in updates.clone() {
+                        state = state.with(channel, value);
+                    }
+                    graph.invoke(&state, &resume_config)
+                });
+                return match input_state {
+                    Ok(state) => json_state_to_py(py, &state),
+                    Err(error) => match crate::adapters::python::graph_pause::pause_values(
+                        py,
+                        graph,
+                        thread_id.as_deref(),
+                        static_ns.as_deref(),
+                        &error,
+                        resume_config.lifecycle.as_ref(),
+                    )? {
+                        Some(value) => Ok(value),
+                        None => Err(to_pyerr(py, error)),
+                    },
+                };
+            }
             let result = py.detach(|| match resume {
                 Some(value) if goto.is_empty() && sends.is_empty() => graph
                     .resume_with_updates_config(thread, value, updates, Vec::new(), &resume_config),

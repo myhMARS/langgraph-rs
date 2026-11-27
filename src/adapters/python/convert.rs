@@ -315,6 +315,22 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
              You can increase the limit by setting the `recursion_limit` config key.\n\
              For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT"
         )),
+        // LangGraph reports conflicting writes to a plain channel as `InvalidUpdateError`.
+        Error::ConcurrentUpdate { channel, .. } => {
+            let message = format!(
+                "At key '{channel}': Can receive only one value per step. Use an Annotated key to \
+                 handle multiple values.\nFor troubleshooting, visit: \
+                 https://docs.langchain.com/oss/python/langgraph/errors/INVALID_CONCURRENT_GRAPH_UPDATE"
+            );
+            match py
+                .import("langgraph_rs.errors")
+                .and_then(|module| module.getattr("InvalidUpdateError"))
+                .and_then(|class| class.call1((message.clone(),)))
+            {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(message),
+            }
+        }
         // An idle timeout (the node stopped reporting progress) is a distinct LangGraph error kind.
         Error::IdleTimeout { node, millis } => {
             let seconds = millis as f64 / 1000.0;

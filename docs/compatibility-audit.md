@@ -3083,4 +3083,23 @@ calling `super().__init__(index)` produced `object.__init__() takes exactly one 
 the store-index tests.
 
 Suite is 495 tests (four new), parity 65/65 (new `saver_surface` scenario), examples 10/10, clippy and
+Rust tests clean.### Round 141: error types and `Command` on a fresh thread
+
+A sweep of common failure paths against LangGraph found two divergences:
+
+* **Conflicting writes to a plain channel** — LangGraph raises `InvalidUpdateError` with
+  `At key 'value': Can receive only one value per step. Use an Annotated key to handle multiple
+  values.` plus the troubleshooting link; the extension raised a bare `RuntimeError: conflicting
+  concurrent writes to channel ...`. `Error::ConcurrentUpdate` now maps to `InvalidUpdateError` with
+  LangGraph's exact message.
+* **A `Command` for a thread without checkpoints** — LangGraph simply starts the run: `resume` is
+  ignored and `update` becomes the initial input (`invoke(Command(resume=5))` gives the node `{}`,
+  `invoke(Command(update={"value": 9}))` gives it `{"value": 9}`). The extension raised
+  `RuntimeError: checkpoint failure: no checkpoint found for thread ...`; it now starts the run the
+  same way.
+
+Also checked and already matching: the recursion limit (`GraphRecursionError` with the documented
+message), unknown channel writes (silently ignored in both), and `get_state` for an unknown thread.
+
+Suite is 497 tests (two new), parity 66/66 (new `error_types` scenario), examples 10/10, clippy and
 Rust tests clean.
