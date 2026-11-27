@@ -207,8 +207,8 @@ parity 场景 `delta_history` 就是按这个语义比对（LG 把值拆成 seed
 **2. `BaseChannel` 协议补全**：`get` / `update` / `is_available` / `consume` / `finish` / `checkpoint` /
 `from_checkpoint` / `copy`。空通道的 `checkpoint()` 返回 `MISSING`（与 LG 一致），`copy()` 因此可用。
 
-**类扫描剩余 5 处**：`ToolRuntime.emit_output_delta`、`RetryPolicy.count/index`、
-`PregelExecutableTask`（7 个成员）、`ChannelProtocol`（7 个）、`NodeBuilder`（10 个）—— 都是内部协议细节。
+（后续章节补齐了那 5 处：`emit_output_delta`、`PregelExecutableTask`、`ChannelProtocol`、`NodeBuilder`；
+现在只剩 `RetryPolicy.count/index` 一处，见上文。）
 
 ### 最后一批小成员（2026-11-27）
 
@@ -646,9 +646,8 @@ LG 的 `stream_mode="messages"` 里，模型**没有逐 token 流式**时会给�
 | `Interrupt` | `interrupt_id`、`from_ns(value, ns)` | `interrupt_id` 是 `id` 的别名；`from_ns` 给出稳定的命名空间 id |
 | `TimeoutPolicy` | — | `repr` 改成 LG 的单引号形式：`TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on='auto')` |
 
-**仍未对齐（已记录）**：`StateSnapshot` 是 dict 子类（LG 是 NamedTuple）——字段属性可读，但
-`dir()` 形状与 `isinstance(snapshot, tuple)` 不同；`InMemoryStore` 缺 `embeddings` / `index_config`
-属性；`InMemorySaver` 缺 `put` / `put_writes`（引擎内部写入路径）；`StateGraph` 缺
+**这四项后来都补齐了**（见后文）：`StateSnapshot` 改成 NamedTuple；`InMemoryStore` 有
+`embeddings` / `index_config`；`InMemorySaver` 有 `put` / `put_writes`；`StateGraph` 有
 `add_sequence` / `set_node_defaults` / `validate`。
 
 ### 无检查点器时的行为、`Command` 字段、缓存 TTL（2026-11-27）
@@ -966,8 +965,8 @@ KeyError("missing")   → KeyError: 'missing'
 顺带修正：`Send(..., timeout=...)` 这类**任务级**超时此前没进 `NodeTimeoutError` 映射（只看了节点策略），
 现在同样抛 `NodeTimeoutError: Node 'worker' exceeded its run timeout of 0.050s ...`。
 
-**仍缺（已记录）**：节点失败后 `snapshot.tasks[i].error` 里 LG 会留错误字符串
-（`"ValueError('kaboom')"`），扩展目前是 `None`（失败不写检查点，快照里没有这条任务错误）。
+**已补齐**：节点失败后 `snapshot.tasks[i].error` 现在与 LG 一致，都是 `"ValueError('kaboom')"`
+（失败记录写回上一个检查点，见后文"失败任务"一节）。
 
 ### `interrupt(response_schema=...)` 与非法节点输出（2026-11-27）
 
@@ -1075,9 +1074,9 @@ InMemorySaver` → `langgraph_rs.checkpoint.memory`）能拿到的方法，走�
 （原生 `put_document` 接收 LangGraph 形状的检查点文档并落盘，`put_writes` 在其上追加 pending writes；与 LG
 实测一致：id 保持、pending writes 追加、历史长度不变）。引擎自己的写入仍走内部路径。
 
-**仍缺（已记录）**：`prune` /
-`with_allowlist` / `get_delta_channel_history` / `delete_for_runs` 以及 `serde` / `storage` /
-`writes` / `blobs` 等内部属性。
+**之后的补齐**：`with_allowlist`、`get_delta_channel_history`（`seed` 带真实通道值）、`delete_for_runs`
+（与 LG 一样抛 `NotImplementedError`）、`config_specs`、`serde` 都已提供。`prune` 与 LG 的
+`InMemorySaver` 一致，同样抛 `NotImplementedError`。`storage` / `writes` / `blobs` 是 LG 内部属性，未提供。
 
 ### `CachePolicy.key_func` 与 `InMemoryStore` 的批量/异步面（2026-11-27）
 
@@ -1663,21 +1662,14 @@ class MaxValue(BaseChannel):
 （返回编译它的 `StateGraph`）、`stream_mode`（`values`）、`stream_eager`（`false`）、`config`（空）、
 `validate()`（编译期已校验，返回自身）、`get_context_jsonschema()`（由 `context_schema` 生成）。
 
-### 编译后图仍不实现的成员（2026-11-26）
+### 编译后图的成员（已对齐，2026-11-27 复核）
 
-`dir()` 对比后仍缺的成员分两类，都是有意的：
+**这块早期是缺的，现已补齐**：编译图是 `Runnable` 子类（`bind` / `with_config` / `with_retry` /
+`pipe` / `batch_as_completed` / `as_tool` / schema introspection 等全部可用），并且
+`isinstance(app, Pregel)` 为真。与 LangGraph 的 `Pregel` 逐成员比对后**没有缺失项**。
 
-1. **`RunnableSerializable` 家族**（LG 的图同时是 LangChain Runnable）：`bind`、`with_config`、
-   `with_retry`、`with_types`、`with_fallbacks`、`with_listeners`、`with_alisteners`、`pipe`、`map`、
-   `pick`、`assign`、`transform`、`atransform`、`as_tool`、`validate`、`batch_as_completed`、
-   `abatch_as_completed`、`astream_log`、`get_name`、`get_prompts`，以及 schema/introspection 那组
-   （`get_input_schema`、`get_output_schema`、`*_jsonschema`、`input_schema`、`output_schema`、
-   `config_schema`、`InputType`、`OutputType`）。我们的图不是 `Runnable` 子类。
-2. **LG 自己的引擎内部状态属性**：`nodes`、`channels`（返回 `PregelNode`/channel 实例）、
-   `checkpointer`、`config`、`debug`、`stream_mode`、`stream_channels*`、`trigger_to_nodes`、
-   `attach_node`/`attach_edge`/`attach_branch`、`builder`、`cache*`、`retry_policy`、`step_timeout`、
-   `store`、`interrupt_before_nodes`/`interrupt_after_nodes` 等。这些反映 LG 的 Python 对象模型；
-   我们只暴露能如实提供的部分（`channels` 给的是声明过的 channel 名，`store` 给的是真实 store）。
+仍是差别的只有 3 个**Pregel 内部成员**：`nodes`、`attach_node` / `attach_edge` / `attach_branch`
+不存在 —— 它们操作的是 LG Python 侧的 `PregelNode` 对象图，扩展的节点表在 Rust 引擎里，无法如实暴露。
 
 ### 编译后图的同步/异步双 API（2026-11-26）
 

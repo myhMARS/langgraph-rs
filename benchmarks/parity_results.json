@@ -11,13 +11,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 44381.0,
-        "ops_per_sec": 22532.2
+        "ns_per_op": 69726.0,
+        "ops_per_sec": 14341.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1832367.0,
-        "ops_per_sec": 545.7
+        "ns_per_op": 2252186.0,
+        "ops_per_sec": 444.0
       }
     }
   },
@@ -33,13 +33,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 12839.0,
-        "ops_per_sec": 77887.7
+        "ns_per_op": 22536.0,
+        "ops_per_sec": 44373.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 669005.0,
-        "ops_per_sec": 1494.8
+        "ns_per_op": 781335.0,
+        "ops_per_sec": 1279.9
       }
     }
   },
@@ -55,13 +55,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 22984.0,
-        "ops_per_sec": 43508.5
+        "ns_per_op": 34901.0,
+        "ops_per_sec": 28652.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1252620.0,
-        "ops_per_sec": 798.3
+        "ns_per_op": 1480304.0,
+        "ops_per_sec": 675.5
       }
     }
   },
@@ -87,13 +87,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 86581.0,
-        "ops_per_sec": 11549.9
+        "ns_per_op": 130759.0,
+        "ops_per_sec": 7647.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4531905.0,
-        "ops_per_sec": 220.7
+        "ns_per_op": 5331354.0,
+        "ops_per_sec": 187.6
       }
     }
   },
@@ -109,13 +109,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 10522.0,
-        "ops_per_sec": 95039.0
+        "ns_per_op": 21283.0,
+        "ops_per_sec": 46985.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 461013.0,
-        "ops_per_sec": 2169.1
+        "ns_per_op": 514770.0,
+        "ops_per_sec": 1942.6
       }
     }
   },
@@ -131,13 +131,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 60953.0,
-        "ops_per_sec": 16406.1
+        "ns_per_op": 81178.0,
+        "ops_per_sec": 12318.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1645706.0,
-        "ops_per_sec": 607.6
+        "ns_per_op": 2021102.0,
+        "ops_per_sec": 494.8
       }
     }
   },
@@ -153,13 +153,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 12619.0,
-        "ops_per_sec": 79245.6
+        "ns_per_op": 16257.0,
+        "ops_per_sec": 61512.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 477600.0,
-        "ops_per_sec": 2093.8
+        "ns_per_op": 495638.0,
+        "ops_per_sec": 2017.6
       }
     }
   },
@@ -177,13 +177,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 79255.0,
-        "ops_per_sec": 12617.5
+        "ns_per_op": 106912.0,
+        "ops_per_sec": 9353.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1734951.0,
-        "ops_per_sec": 576.4
+        "ns_per_op": 1971743.0,
+        "ops_per_sec": 507.2
       }
     }
   },
@@ -205,12 +205,12 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 3835621.0,
-        "ops_per_sec": 260.7
+        "ns_per_op": 2162066.0,
+        "ops_per_sec": 462.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 954494109.0,
+        "ns_per_op": 968698520.0,
         "ops_per_sec": 1.0
       }
     }
@@ -227,13 +227,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 12426.0,
-        "ops_per_sec": 80476.4
+        "ns_per_op": 27695.0,
+        "ops_per_sec": 36107.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1680154.0,
-        "ops_per_sec": 595.2
+        "ns_per_op": 1133103.0,
+        "ops_per_sec": 882.5
       }
     }
   },
@@ -251,13 +251,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 50548.0,
-        "ops_per_sec": 19783.2
+        "ns_per_op": 40972.0,
+        "ops_per_sec": 24406.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1420088.0,
-        "ops_per_sec": 704.2
+        "ns_per_op": 802163.0,
+        "ops_per_sec": 1246.6
       }
     }
   },
@@ -276,13 +276,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 30796523.0,
-        "ops_per_sec": 32.5
+        "ns_per_op": 31105135.0,
+        "ops_per_sec": 32.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 30916594.0,
-        "ops_per_sec": 32.3
+        "ns_per_op": 31011828.0,
+        "ops_per_sec": 32.2
       }
     }
   },
@@ -304,13 +304,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 12337.0,
-        "ops_per_sec": 81057.0
+        "ns_per_op": 25748.0,
+        "ops_per_sec": 38838.0
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 745863.0,
-        "ops_per_sec": 1340.7
+        "ns_per_op": 549910.0,
+        "ops_per_sec": 1818.5
       }
     }
   },
@@ -326,13 +326,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 35719596.0,
-        "ops_per_sec": 28.0
+        "ns_per_op": 36163322.0,
+        "ops_per_sec": 27.7
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 46329831.0,
-        "ops_per_sec": 21.6
+        "ns_per_op": 43320552.0,
+        "ops_per_sec": 23.1
       }
     }
   },
@@ -349,13 +349,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 142034.0,
-        "ops_per_sec": 7040.6
+        "ns_per_op": 103100.0,
+        "ops_per_sec": 9699.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3580503.0,
-        "ops_per_sec": 279.3
+        "ns_per_op": 1917156.0,
+        "ops_per_sec": 521.6
       }
     }
   },
@@ -367,13 +367,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 533712.0,
-        "ops_per_sec": 1873.7
+        "ns_per_op": 786250.0,
+        "ops_per_sec": 1271.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4056349.0,
-        "ops_per_sec": 246.5
+        "ns_per_op": 2447091.0,
+        "ops_per_sec": 408.6
       }
     }
   },
@@ -407,13 +407,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 45594.0,
-        "ops_per_sec": 21932.7
+        "ns_per_op": 64084.0,
+        "ops_per_sec": 15604.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 880112.0,
-        "ops_per_sec": 1136.2
+        "ns_per_op": 620118.0,
+        "ops_per_sec": 1612.6
       }
     }
   },
@@ -429,13 +429,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 221446.0,
-        "ops_per_sec": 4515.8
+        "ns_per_op": 226694.0,
+        "ops_per_sec": 4411.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 8136807.0,
-        "ops_per_sec": 122.9
+        "ns_per_op": 4847657.0,
+        "ops_per_sec": 206.3
       }
     }
   },
@@ -453,12 +453,12 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 61984335.0,
+        "ns_per_op": 62241356.0,
         "ops_per_sec": 16.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 62150679.0,
+        "ns_per_op": 62261162.0,
         "ops_per_sec": 16.1
       }
     }
@@ -475,13 +475,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 238398.0,
-        "ops_per_sec": 4194.7
+        "ns_per_op": 139421.0,
+        "ops_per_sec": 7172.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 7054821.0,
-        "ops_per_sec": 141.7
+        "ns_per_op": 4249318.0,
+        "ops_per_sec": 235.3
       }
     }
   },
@@ -502,13 +502,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 164472.0,
-        "ops_per_sec": 6080.1
+        "ns_per_op": 104580.0,
+        "ops_per_sec": 9562.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 6001614.0,
-        "ops_per_sec": 166.6
+        "ns_per_op": 3521597.0,
+        "ops_per_sec": 284.0
       }
     }
   },
@@ -532,13 +532,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 347541.0,
-        "ops_per_sec": 2877.4
+        "ns_per_op": 296278.0,
+        "ops_per_sec": 3375.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 7183103.0,
-        "ops_per_sec": 139.2
+        "ns_per_op": 4280133.0,
+        "ops_per_sec": 233.6
       }
     }
   },
@@ -564,13 +564,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 176332.0,
-        "ops_per_sec": 5671.1
+        "ns_per_op": 150577.0,
+        "ops_per_sec": 6641.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3055882.0,
-        "ops_per_sec": 327.2
+        "ns_per_op": 1768628.0,
+        "ops_per_sec": 565.4
       }
     }
   },
@@ -592,13 +592,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 48029.0,
-        "ops_per_sec": 20820.8
+        "ns_per_op": 21348.0,
+        "ops_per_sec": 46842.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1315991.0,
-        "ops_per_sec": 759.9
+        "ns_per_op": 715600.0,
+        "ops_per_sec": 1397.4
       }
     }
   },
@@ -614,13 +614,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 30406.0,
-        "ops_per_sec": 32888.2
+        "ns_per_op": 21662.0,
+        "ops_per_sec": 46163.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3198273.0,
-        "ops_per_sec": 312.7
+        "ns_per_op": 1803760.0,
+        "ops_per_sec": 554.4
       }
     }
   },
@@ -636,13 +636,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 98225.0,
-        "ops_per_sec": 10180.7
+        "ns_per_op": 46676.0,
+        "ops_per_sec": 21424.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 1543258.0,
-        "ops_per_sec": 648.0
+        "ns_per_op": 983271.0,
+        "ops_per_sec": 1017.0
       }
     }
   },
@@ -664,13 +664,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 184586.0,
-        "ops_per_sec": 5417.5
+        "ns_per_op": 142821.0,
+        "ops_per_sec": 7001.8
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4283116.0,
-        "ops_per_sec": 233.5
+        "ns_per_op": 3160411.0,
+        "ops_per_sec": 316.4
       }
     }
   },
@@ -686,13 +686,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 31987611.0,
-        "ops_per_sec": 31.3
+        "ns_per_op": 31750634.0,
+        "ops_per_sec": 31.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 155322680.0,
-        "ops_per_sec": 6.4
+        "ns_per_op": 152411472.0,
+        "ops_per_sec": 6.6
       }
     }
   },
@@ -708,13 +708,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 1280654.0,
-        "ops_per_sec": 780.9
+        "ns_per_op": 683103.0,
+        "ops_per_sec": 1463.9
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 19800417.0,
-        "ops_per_sec": 50.5
+        "ns_per_op": 19495286.0,
+        "ops_per_sec": 51.3
       }
     }
   },
@@ -730,13 +730,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 377042.0,
-        "ops_per_sec": 2652.2
+        "ns_per_op": 219532.0,
+        "ops_per_sec": 4555.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3737052.0,
-        "ops_per_sec": 267.6
+        "ns_per_op": 2558719.0,
+        "ops_per_sec": 390.8
       }
     }
   },
@@ -766,13 +766,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 203198.0,
-        "ops_per_sec": 4921.3
+        "ns_per_op": 155145.0,
+        "ops_per_sec": 6445.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3901885.0,
-        "ops_per_sec": 256.3
+        "ns_per_op": 2283158.0,
+        "ops_per_sec": 438.0
       }
     }
   },
@@ -892,13 +892,3441 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 70570.0,
-        "ops_per_sec": 14170.3
+        "ns_per_op": 35325.0,
+        "ops_per_sec": 28308.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2633865.0,
-        "ops_per_sec": 379.7
+        "ns_per_op": 1520456.0,
+        "ops_per_sec": 657.7
+      }
+    }
+  },
+  {
+    "scenario": "task_triggers",
+    "rs": {
+      "linear": [
+        [
+          "a",
+          [
+            "branch:to:a"
+          ]
+        ],
+        [
+          "b",
+          [
+            "branch:to:b"
+          ]
+        ]
+      ],
+      "fan": [
+        [
+          "work",
+          [
+            "__pregel_push"
+          ]
+        ],
+        [
+          "work",
+          [
+            "__pregel_push"
+          ]
+        ]
+      ]
+    },
+    "lg": {
+      "linear": [
+        [
+          "a",
+          [
+            "branch:to:a"
+          ]
+        ],
+        [
+          "b",
+          [
+            "branch:to:b"
+          ]
+        ]
+      ],
+      "fan": [
+        [
+          "work",
+          [
+            "__pregel_push"
+          ]
+        ],
+        [
+          "work",
+          [
+            "__pregel_push"
+          ]
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 19668.0,
+        "ops_per_sec": 50844.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 789498.0,
+        "ops_per_sec": 1266.6
+      }
+    }
+  },
+  {
+    "scenario": "bulk_update_state",
+    "rs": {
+      "added": 2,
+      "values": {
+        "note": "n1",
+        "value": 200
+      },
+      "next": [
+        "b"
+      ],
+      "config_keys": [
+        "configurable"
+      ]
+    },
+    "lg": {
+      "added": 2,
+      "values": {
+        "value": 200,
+        "note": "n1"
+      },
+      "next": [
+        "b"
+      ],
+      "config_keys": [
+        "configurable"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 87751.0,
+        "ops_per_sec": 11395.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2858159.0,
+        "ops_per_sec": 349.9
+      }
+    }
+  },
+  {
+    "scenario": "message_stream",
+    "rs": {
+      "type": "AIMessageChunk",
+      "content": "second",
+      "meta": {
+        "langgraph_node": "b",
+        "langgraph_step": 2,
+        "langgraph_triggers": [
+          "branch:to:b"
+        ],
+        "langgraph_path": [
+          "__pregel_pull",
+          "b"
+        ]
+      }
+    },
+    "lg": {
+      "type": "AIMessageChunk",
+      "content": "second",
+      "meta": {
+        "langgraph_node": "b",
+        "langgraph_step": 2,
+        "langgraph_triggers": [
+          "branch:to:b"
+        ],
+        "langgraph_path": [
+          "__pregel_pull",
+          "b"
+        ]
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 746126.0,
+        "ops_per_sec": 1340.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2864481.0,
+        "ops_per_sec": 349.1
+      }
+    }
+  },
+  {
+    "scenario": "durability_pause",
+    "rs": {
+      "paused": [
+        [
+          "loop",
+          1,
+          [
+            "gate"
+          ]
+        ]
+      ],
+      "resumed": [
+        [
+          "loop",
+          2,
+          []
+        ],
+        [
+          "loop",
+          1,
+          [
+            "gate"
+          ]
+        ]
+      ],
+      "final": {
+        "log": [
+          "yes"
+        ],
+        "value": 1
+      }
+    },
+    "lg": {
+      "paused": [
+        [
+          "loop",
+          1,
+          [
+            "gate"
+          ]
+        ]
+      ],
+      "resumed": [
+        [
+          "loop",
+          2,
+          []
+        ],
+        [
+          "loop",
+          1,
+          [
+            "gate"
+          ]
+        ]
+      ],
+      "final": {
+        "value": 1,
+        "log": [
+          "yes"
+        ]
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 114597.0,
+        "ops_per_sec": 8726.2
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2617430.0,
+        "ops_per_sec": 382.1
+      }
+    }
+  },
+  {
+    "scenario": "debug_stream",
+    "rs": {
+      "plain": [
+        [
+          "task",
+          1,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          1,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "task",
+          2,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          2,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ]
+      ],
+      "with_checkpointer": [
+        [
+          "checkpoint",
+          -1,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "checkpoint",
+          0,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "task",
+          1,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          1,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "checkpoint",
+          1,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "task",
+          2,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          2,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "checkpoint",
+          2,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ]
+      ]
+    },
+    "lg": {
+      "plain": [
+        [
+          "task",
+          1,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          1,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "task",
+          2,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          2,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ]
+      ],
+      "with_checkpointer": [
+        [
+          "checkpoint",
+          -1,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "checkpoint",
+          0,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "task",
+          1,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          1,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "checkpoint",
+          1,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ],
+        [
+          "task",
+          2,
+          [
+            "id",
+            "input",
+            "name",
+            "triggers"
+          ]
+        ],
+        [
+          "task_result",
+          2,
+          [
+            "error",
+            "id",
+            "interrupts",
+            "name",
+            "result"
+          ]
+        ],
+        [
+          "checkpoint",
+          2,
+          [
+            "config",
+            "metadata",
+            "next",
+            "parent_config",
+            "tasks",
+            "values"
+          ]
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 73722.0,
+        "ops_per_sec": 13564.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1188832.0,
+        "ops_per_sec": 841.2
+      }
+    }
+  },
+  {
+    "scenario": "error_handler",
+    "rs": {
+      "result": {
+        "note": "handled:{'value': 0}",
+        "value": 0
+      },
+      "nodes": [
+        "__end__",
+        "__error_handler__boom",
+        "__start__",
+        "after",
+        "boom"
+      ]
+    },
+    "lg": {
+      "result": {
+        "value": 0,
+        "note": "handled:{'value': 0}"
+      },
+      "nodes": [
+        "__end__",
+        "__error_handler__boom",
+        "__start__",
+        "after",
+        "boom"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 71032.0,
+        "ops_per_sec": 14078.2
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1666019.0,
+        "ops_per_sec": 600.2
+      }
+    }
+  },
+  {
+    "scenario": "graph_export",
+    "rs": {
+      "type": "langchain_core.runnables.graph.Graph",
+      "nodes": [
+        "__end__",
+        "__start__",
+        "a",
+        "b"
+      ],
+      "edges": [
+        [
+          "__start__",
+          "a",
+          false
+        ],
+        [
+          "a",
+          "b",
+          true
+        ],
+        [
+          "b",
+          "__end__",
+          false
+        ]
+      ]
+    },
+    "lg": {
+      "type": "langchain_core.runnables.graph.Graph",
+      "nodes": [
+        "__end__",
+        "__start__",
+        "a",
+        "b"
+      ],
+      "edges": [
+        [
+          "__start__",
+          "a",
+          false
+        ],
+        [
+          "a",
+          "b",
+          true
+        ],
+        [
+          "b",
+          "__end__",
+          false
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 56060.0,
+        "ops_per_sec": 17838.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 627530.0,
+        "ops_per_sec": 1593.5
+      }
+    }
+  },
+  {
+    "scenario": "task_id_shape",
+    "rs": {
+      "ids_uuid": true,
+      "namespaces_uuid": true
+    },
+    "lg": {
+      "ids_uuid": true,
+      "namespaces_uuid": true
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 43079.0,
+        "ops_per_sec": 23213.2
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 819769.0,
+        "ops_per_sec": 1219.9
+      }
+    }
+  },
+  {
+    "scenario": "multi_resume",
+    "rs": {
+      "loop": [
+        [
+          [
+            "one"
+          ],
+          [
+            {
+              "ask": 1
+            }
+          ]
+        ],
+        [
+          [
+            "one",
+            "two"
+          ],
+          [
+            {
+              "ask": 2
+            }
+          ]
+        ],
+        [
+          [
+            "one",
+            "two",
+            "three"
+          ],
+          []
+        ]
+      ],
+      "twice": [
+        [
+          {
+            "ask": 1
+          }
+        ],
+        [
+          [],
+          [
+            {
+              "ask": 2
+            }
+          ]
+        ],
+        [
+          [
+            "A",
+            "B"
+          ],
+          []
+        ]
+      ]
+    },
+    "lg": {
+      "loop": [
+        [
+          [
+            "one"
+          ],
+          [
+            {
+              "ask": 1
+            }
+          ]
+        ],
+        [
+          [
+            "one",
+            "two"
+          ],
+          [
+            {
+              "ask": 2
+            }
+          ]
+        ],
+        [
+          [
+            "one",
+            "two",
+            "three"
+          ],
+          []
+        ]
+      ],
+      "twice": [
+        [
+          {
+            "ask": 1
+          }
+        ],
+        [
+          [],
+          [
+            {
+              "ask": 2
+            }
+          ]
+        ],
+        [
+          [
+            "A",
+            "B"
+          ],
+          []
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 57438.0,
+        "ops_per_sec": 17410.1
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2326364.0,
+        "ops_per_sec": 429.9
+      }
+    }
+  },
+  {
+    "scenario": "send_interrupts",
+    "rs": [
+      [
+        [
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          "0:a"
+        ],
+        [
+          1
+        ]
+      ],
+      [
+        [
+          "0:a",
+          "1:b"
+        ],
+        []
+      ]
+    ],
+    "lg": [
+      [
+        [
+          0,
+          1
+        ]
+      ],
+      [
+        [
+          "0:a"
+        ],
+        [
+          1
+        ]
+      ],
+      [
+        [
+          "0:a",
+          "1:b"
+        ],
+        []
+      ]
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 258343.0,
+        "ops_per_sec": 3870.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 3046832.0,
+        "ops_per_sec": 328.2
+      }
+    }
+  },
+  {
+    "scenario": "events_v2",
+    "rs": [
+      [
+        "on_chain_start",
+        "LangGraph",
+        [
+          "input"
+        ]
+      ],
+      [
+        "on_chain_start",
+        "a",
+        [
+          "input"
+        ]
+      ],
+      [
+        "on_chain_stream",
+        "a",
+        [
+          "chunk"
+        ]
+      ],
+      [
+        "on_chain_end",
+        "a",
+        [
+          "input",
+          "output"
+        ]
+      ],
+      [
+        "on_chain_stream",
+        "LangGraph",
+        [
+          "chunk"
+        ]
+      ],
+      [
+        "on_chain_end",
+        "LangGraph",
+        [
+          "output"
+        ]
+      ]
+    ],
+    "lg": [
+      [
+        "on_chain_start",
+        "LangGraph",
+        [
+          "input"
+        ]
+      ],
+      [
+        "on_chain_start",
+        "a",
+        [
+          "input"
+        ]
+      ],
+      [
+        "on_chain_stream",
+        "a",
+        [
+          "chunk"
+        ]
+      ],
+      [
+        "on_chain_end",
+        "a",
+        [
+          "input",
+          "output"
+        ]
+      ],
+      [
+        "on_chain_stream",
+        "LangGraph",
+        [
+          "chunk"
+        ]
+      ],
+      [
+        "on_chain_end",
+        "LangGraph",
+        [
+          "output"
+        ]
+      ]
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 757221.0,
+        "ops_per_sec": 1320.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4023453.0,
+        "ops_per_sec": 248.5
+      }
+    }
+  },
+  {
+    "scenario": "command_graph",
+    "rs": {
+      "with_graph_name": {
+        "value": 7
+      },
+      "without": {
+        "value": 7
+      }
+    },
+    "lg": {
+      "with_graph_name": {
+        "value": 7
+      },
+      "without": {
+        "value": 7
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 68796.0,
+        "ops_per_sec": 14535.7
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2068437.0,
+        "ops_per_sec": 483.5
+      }
+    }
+  },
+  {
+    "scenario": "tool_errors",
+    "rs": {
+      "default": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "message": {
+        "status": "error",
+        "content": "nope"
+      },
+      "callable": {
+        "status": "error",
+        "content": "handled kaboom"
+      },
+      "callable_types": {
+        "status": "error",
+        "content": "handled kaboom"
+      },
+      "type_match": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "type_tuple": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "type_miss": {
+        "failed": "ValueError"
+      },
+      "seen": [
+        "ValueError"
+      ]
+    },
+    "lg": {
+      "default": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "message": {
+        "status": "error",
+        "content": "nope"
+      },
+      "callable": {
+        "status": "error",
+        "content": "handled kaboom"
+      },
+      "callable_types": {
+        "status": "error",
+        "content": "handled kaboom"
+      },
+      "type_match": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "type_tuple": {
+        "status": "error",
+        "content": "Error: ValueError('kaboom')\n Please fix your mistakes."
+      },
+      "type_miss": {
+        "failed": "ValueError"
+      },
+      "seen": [
+        "ValueError"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 277525.0,
+        "ops_per_sec": 3603.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4398296.0,
+        "ops_per_sec": 227.4
+      }
+    }
+  },
+  {
+    "scenario": "validation_node",
+    "rs": [
+      {
+        "status": null,
+        "name": null,
+        "content": ""
+      },
+      {
+        "status": "success",
+        "name": "search",
+        "content": "{\"query\":\"x\"}"
+      },
+      {
+        "status": "success",
+        "name": "need_int",
+        "content": "1 validation error for Validation\ncount\n"
+      }
+    ],
+    "lg": [
+      {
+        "status": null,
+        "name": null,
+        "content": ""
+      },
+      {
+        "status": "success",
+        "name": "search",
+        "content": "{\"query\":\"x\"}"
+      },
+      {
+        "status": "success",
+        "name": "need_int",
+        "content": "1 validation error for Validation\ncount\n"
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 772826.0,
+        "ops_per_sec": 1294.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 5453111.0,
+        "ops_per_sec": 183.4
+      }
+    }
+  },
+  {
+    "scenario": "wrap_tool_call",
+    "rs": {
+      "seen": [
+        [
+          "ToolCallRequest",
+          "add"
+        ]
+      ],
+      "status": "success",
+      "content": "3"
+    },
+    "lg": {
+      "seen": [
+        [
+          "ToolCallRequest",
+          "add"
+        ]
+      ],
+      "status": "success",
+      "content": "3"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 263195.0,
+        "ops_per_sec": 3799.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4438898.0,
+        "ops_per_sec": 225.3
+      }
+    }
+  },
+  {
+    "scenario": "tasks_stream",
+    "rs": [
+      {
+        "keys": [
+          "id",
+          "input",
+          "name",
+          "triggers"
+        ],
+        "name": "a",
+        "input": {
+          "value": 0
+        },
+        "triggers": [
+          "branch:to:a"
+        ]
+      },
+      {
+        "keys": [
+          "error",
+          "id",
+          "interrupts",
+          "name",
+          "result"
+        ],
+        "name": "a",
+        "input": null,
+        "triggers": []
+      },
+      {
+        "keys": [
+          "id",
+          "input",
+          "name",
+          "triggers"
+        ],
+        "name": "b",
+        "input": {
+          "value": 1
+        },
+        "triggers": [
+          "branch:to:b"
+        ]
+      },
+      {
+        "keys": [
+          "error",
+          "id",
+          "interrupts",
+          "name",
+          "result"
+        ],
+        "name": "b",
+        "input": null,
+        "triggers": []
+      }
+    ],
+    "lg": [
+      {
+        "keys": [
+          "id",
+          "input",
+          "name",
+          "triggers"
+        ],
+        "name": "a",
+        "input": {
+          "value": 0
+        },
+        "triggers": [
+          "branch:to:a"
+        ]
+      },
+      {
+        "keys": [
+          "error",
+          "id",
+          "interrupts",
+          "name",
+          "result"
+        ],
+        "name": "a",
+        "input": null,
+        "triggers": []
+      },
+      {
+        "keys": [
+          "id",
+          "input",
+          "name",
+          "triggers"
+        ],
+        "name": "b",
+        "input": {
+          "value": 1
+        },
+        "triggers": [
+          "branch:to:b"
+        ]
+      },
+      {
+        "keys": [
+          "error",
+          "id",
+          "interrupts",
+          "name",
+          "result"
+        ],
+        "name": "b",
+        "input": null,
+        "triggers": []
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 62680.0,
+        "ops_per_sec": 15954.1
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1570422.0,
+        "ops_per_sec": 636.8
+      }
+    }
+  },
+  {
+    "scenario": "subgraph_stream",
+    "rs": {
+      "updates": [
+        [
+          [
+            "sub"
+          ],
+          {
+            "inner": {
+              "value": 7
+            }
+          }
+        ],
+        [
+          [],
+          {
+            "sub": {
+              "value": 7
+            }
+          }
+        ],
+        [
+          [],
+          {
+            "tail": {
+              "value": 9
+            }
+          }
+        ]
+      ],
+      "values": [
+        [
+          [],
+          {
+            "value": 0
+          }
+        ],
+        [
+          [
+            "sub"
+          ],
+          {
+            "value": 0
+          }
+        ],
+        [
+          [
+            "sub"
+          ],
+          {
+            "value": 7
+          }
+        ],
+        [
+          [],
+          {
+            "value": 7
+          }
+        ],
+        [
+          [],
+          {
+            "value": 9
+          }
+        ]
+      ]
+    },
+    "lg": {
+      "updates": [
+        [
+          [
+            "sub"
+          ],
+          {
+            "inner": {
+              "value": 7
+            }
+          }
+        ],
+        [
+          [],
+          {
+            "sub": {
+              "value": 7
+            }
+          }
+        ],
+        [
+          [],
+          {
+            "tail": {
+              "value": 9
+            }
+          }
+        ]
+      ],
+      "values": [
+        [
+          [],
+          {
+            "value": 0
+          }
+        ],
+        [
+          [
+            "sub"
+          ],
+          {
+            "value": 0
+          }
+        ],
+        [
+          [
+            "sub"
+          ],
+          {
+            "value": 7
+          }
+        ],
+        [
+          [],
+          {
+            "value": 7
+          }
+        ],
+        [
+          [],
+          {
+            "value": 9
+          }
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 137160.0,
+        "ops_per_sec": 7290.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 3294127.0,
+        "ops_per_sec": 303.6
+      }
+    }
+  },
+  {
+    "scenario": "message_tokens",
+    "rs": [
+      {
+        "content": "hello",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      },
+      {
+        "content": " ",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      },
+      {
+        "content": "world",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      }
+    ],
+    "lg": [
+      {
+        "content": "hello",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      },
+      {
+        "content": " ",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      },
+      {
+        "content": "world",
+        "node": "model",
+        "step": 1,
+        "has_checkpoint_ns": true,
+        "path": [
+          "__pregel_pull",
+          "model"
+        ],
+        "triggers": [
+          "branch:to:model"
+        ]
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 592615.0,
+        "ops_per_sec": 1687.4
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2528025.0,
+        "ops_per_sec": 395.6
+      }
+    }
+  },
+  {
+    "scenario": "react_agent_loop",
+    "rs": [
+      {
+        "type": "user",
+        "content": "double 21",
+        "tool_calls": []
+      },
+      {
+        "type": "ai",
+        "content": "",
+        "tool_calls": [
+          "double"
+        ]
+      },
+      {
+        "type": "tool",
+        "content": "42",
+        "tool_calls": []
+      },
+      {
+        "type": "ai",
+        "content": "the answer is 42",
+        "tool_calls": []
+      }
+    ],
+    "lg": [
+      {
+        "type": "user",
+        "content": "double 21",
+        "tool_calls": []
+      },
+      {
+        "type": "ai",
+        "content": "",
+        "tool_calls": [
+          "double"
+        ]
+      },
+      {
+        "type": "tool",
+        "content": "42",
+        "tool_calls": []
+      },
+      {
+        "type": "ai",
+        "content": "the answer is 42",
+        "tool_calls": []
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 3364026.0,
+        "ops_per_sec": 297.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 9058300.0,
+        "ops_per_sec": 110.4
+      }
+    }
+  },
+  {
+    "scenario": "snapshot_shape",
+    "rs": {
+      "next": "tuple",
+      "interrupts": "tuple",
+      "tasks": "tuple",
+      "parents": {}
+    },
+    "lg": {
+      "next": "tuple",
+      "interrupts": "tuple",
+      "tasks": "tuple",
+      "parents": {}
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 71784.0,
+        "ops_per_sec": 13930.7
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2635299.0,
+        "ops_per_sec": 379.5
+      }
+    }
+  },
+  {
+    "scenario": "snapshot_objects",
+    "rs": {
+      "task_type": "PregelTask",
+      "task_name": "ask",
+      "task_path": [
+        "__pregel_pull",
+        "ask"
+      ],
+      "interrupt_type": "Interrupt",
+      "interrupt_value": "q?"
+    },
+    "lg": {
+      "task_type": "PregelTask",
+      "task_name": "ask",
+      "task_path": [
+        "__pregel_pull",
+        "ask"
+      ],
+      "interrupt_type": "Interrupt",
+      "interrupt_value": "q?"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 120663.0,
+        "ops_per_sec": 8287.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2156130.0,
+        "ops_per_sec": 463.8
+      }
+    }
+  },
+  {
+    "scenario": "policy_surface",
+    "rs": {
+      "retry_jitter": false,
+      "retry_on": true,
+      "cache_key_func": true,
+      "cache_ttl": 30.0,
+      "timeout_refresh_on": "auto",
+      "timeout_cls": "policy"
+    },
+    "lg": {
+      "retry_jitter": false,
+      "retry_on": true,
+      "cache_key_func": true,
+      "cache_ttl": 30,
+      "timeout_refresh_on": "auto",
+      "timeout_cls": "policy"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 864.0,
+        "ops_per_sec": 1157407.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 313.0,
+        "ops_per_sec": 3194887.6
+      }
+    }
+  },
+  {
+    "scenario": "store_surface",
+    "rs": {
+      "batch": [
+        {
+          "v": 1
+        },
+        null,
+        [
+          "k"
+        ],
+        [
+          [
+            "a"
+          ]
+        ]
+      ],
+      "namespace": [
+        "a"
+      ],
+      "namespace_type": "tuple",
+      "created_at_type": "datetime",
+      "supports_ttl": false,
+      "async_get": {
+        "v": 1
+      }
+    },
+    "lg": {
+      "batch": [
+        {
+          "v": 1
+        },
+        null,
+        [
+          "k"
+        ],
+        [
+          [
+            "a"
+          ]
+        ]
+      ],
+      "namespace": [
+        "a"
+      ],
+      "namespace_type": "tuple",
+      "created_at_type": "datetime",
+      "supports_ttl": false,
+      "async_get": {
+        "v": 1
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 788825.0,
+        "ops_per_sec": 1267.7
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 572563.0,
+        "ops_per_sec": 1746.5
+      }
+    }
+  },
+  {
+    "scenario": "saver_surface",
+    "rs": {
+      "get_tuple": true,
+      "list": true,
+      "delete_thread": true,
+      "get_next_version": true,
+      "copy_thread": true,
+      "aget_tuple": true,
+      "alist": true,
+      "adelete_thread": true,
+      "aput": true,
+      "aput_writes": true,
+      "acopy_thread": true
+    },
+    "lg": {
+      "get_tuple": true,
+      "list": true,
+      "delete_thread": true,
+      "get_next_version": true,
+      "copy_thread": true,
+      "aget_tuple": true,
+      "alist": true,
+      "adelete_thread": true,
+      "aput": true,
+      "aput_writes": true,
+      "acopy_thread": true
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 209.0,
+        "ops_per_sec": 4784685.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1015.0,
+        "ops_per_sec": 985221.5
+      }
+    }
+  },
+  {
+    "scenario": "retry_on",
+    "rs": {
+      "callable_true": 3,
+      "callable_false": 1,
+      "type": 3,
+      "type_miss": 1,
+      "sequence": 3,
+      "repr_type": "RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=<class 'ValueError'>)",
+      "repr_sequence": "RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=[<class 'ValueError'>, <class 'KeyError'>])"
+    },
+    "lg": {
+      "callable_true": 3,
+      "callable_false": 1,
+      "type": 3,
+      "type_miss": 1,
+      "sequence": 3,
+      "repr_type": "RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=<class 'ValueError'>)",
+      "repr_sequence": "RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=[<class 'ValueError'>, <class 'KeyError'>])"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 999.0,
+        "ops_per_sec": 1001001.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 320.0,
+        "ops_per_sec": 3125001.8
+      }
+    }
+  },
+  {
+    "scenario": "subgraph_debug",
+    "rs": {
+      "kinds": [
+        [
+          0,
+          "task"
+        ],
+        [
+          1,
+          "task"
+        ],
+        [
+          1,
+          "task_result"
+        ],
+        [
+          0,
+          "task_result"
+        ]
+      ],
+      "keys": [
+        "payload",
+        "step",
+        "timestamp",
+        "type"
+      ]
+    },
+    "lg": {
+      "kinds": [
+        [
+          0,
+          "task"
+        ],
+        [
+          1,
+          "task"
+        ],
+        [
+          1,
+          "task_result"
+        ],
+        [
+          0,
+          "task_result"
+        ]
+      ],
+      "keys": [
+        "payload",
+        "step",
+        "timestamp",
+        "type"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 101891.0,
+        "ops_per_sec": 9814.4
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2780162.0,
+        "ops_per_sec": 359.7
+      }
+    }
+  },
+  {
+    "scenario": "tool_runtime",
+    "rs": {
+      "schema": [
+        "query"
+      ],
+      "content": "state=['messages']|cfg=True|writer=True"
+    },
+    "lg": {
+      "schema": [
+        "query"
+      ],
+      "content": "state=['messages']|cfg=True|writer=True"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 2756539.0,
+        "ops_per_sec": 362.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 10748868.0,
+        "ops_per_sec": 93.0
+      }
+    }
+  },
+  {
+    "scenario": "validation_errors",
+    "rs": [
+      {
+        "kind": "no_entry",
+        "error": "ValueError",
+        "message": "Graph must have an entrypoint: add at least one edge from START to another node"
+      },
+      {
+        "kind": "unknown_target",
+        "error": "ValueError",
+        "message": "Found edge ending at unknown node `b`"
+      },
+      {
+        "kind": "unknown_branch",
+        "error": "ValueError",
+        "message": "At 'a' node, 'condition' branch found unknown target 'other'"
+      },
+      {
+        "kind": "duplicate",
+        "error": "ValueError",
+        "message": "Node `a` already present."
+      }
+    ],
+    "lg": [
+      {
+        "kind": "no_entry",
+        "error": "ValueError",
+        "message": "Graph must have an entrypoint: add at least one edge from START to another node"
+      },
+      {
+        "kind": "unknown_target",
+        "error": "ValueError",
+        "message": "Found edge ending at unknown node `b`"
+      },
+      {
+        "kind": "unknown_branch",
+        "error": "ValueError",
+        "message": "At 'a' node, 'condition' branch found unknown target 'other'"
+      },
+      {
+        "kind": "duplicate",
+        "error": "ValueError",
+        "message": "Node `a` already present."
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 75808.0,
+        "ops_per_sec": 13191.2
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 181832.0,
+        "ops_per_sec": 5499.6
+      }
+    }
+  },
+  {
+    "scenario": "deprecations",
+    "rs": {
+      "validation_node": [
+        [
+          "LangGraphDeprecatedSinceV10",
+          "ValidationNode is deprecated. Please use `create_agent` from `langchain.agents` with custom tool error handling. Deprecated in LangGraph V1.0 to be removed in V2.0."
+        ]
+      ],
+      "message_graph": [
+        [
+          "LangGraphDeprecatedSinceV10",
+          "MessageGraph is deprecated in LangGraph v1.0.0, to be removed in v2.0.0. Please use StateGraph with a `messages` key instead. Deprecated in LangGraph V1.0 to be removed in V2.0."
+        ]
+      ]
+    },
+    "lg": {
+      "validation_node": [
+        [
+          "LangGraphDeprecatedSinceV10",
+          "ValidationNode is deprecated. Please use `create_agent` from `langchain.agents` with custom tool error handling. Deprecated in LangGraph V1.0 to be removed in V2.0."
+        ]
+      ],
+      "message_graph": [
+        [
+          "LangGraphDeprecatedSinceV10",
+          "MessageGraph is deprecated in LangGraph v1.0.0, to be removed in v2.0.0. Please use StateGraph with a `messages` key instead. Deprecated in LangGraph V1.0 to be removed in V2.0."
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 1422823.0,
+        "ops_per_sec": 702.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1612151.0,
+        "ops_per_sec": 620.3
+      }
+    }
+  },
+  {
+    "scenario": "no_checkpointer",
+    "rs": {
+      "command_attrs": [
+        "PARENT",
+        "goto",
+        "graph",
+        "resume",
+        "update"
+      ],
+      "command_values": [
+        1,
+        {
+          "a": 2
+        },
+        "x",
+        null
+      ],
+      "invoke": {
+        "value": 1
+      },
+      "get_state": [
+        "ValueError",
+        "No checkpointer set"
+      ]
+    },
+    "lg": {
+      "command_attrs": [
+        "PARENT",
+        "goto",
+        "graph",
+        "resume",
+        "update"
+      ],
+      "command_values": [
+        1,
+        {
+          "a": 2
+        },
+        "x",
+        null
+      ],
+      "invoke": {
+        "value": 1
+      },
+      "get_state": [
+        "ValueError",
+        "No checkpointer set"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 65154.0,
+        "ops_per_sec": 15348.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 881127.0,
+        "ops_per_sec": 1134.9
+      }
+    }
+  },
+  {
+    "scenario": "drawing",
+    "rs": {
+      "edges": [
+        [
+          "__start__",
+          "a",
+          false
+        ],
+        [
+          "a",
+          "b",
+          true
+        ],
+        [
+          "b",
+          "__end__",
+          false
+        ]
+      ],
+      "mermaid": "---\nconfig:\n  flowchart:\n    curve: linear\n---\ngraph TD;\n\t__start__([<p>__start__</p>]):::first\n\ta(a)\n\tb(b)\n\t__end__([<p>__end__</p>]):::last\n\t__start__ --> a;\n\ta -.-> b;\n\tb --> __end__;\n\tclassDef default fill:#f2f0ff,line-height:1.2\n\tclassDef first fill-opacity:0\n\tclassDef last fill:#bfb6fc\n"
+    },
+    "lg": {
+      "edges": [
+        [
+          "__start__",
+          "a",
+          false
+        ],
+        [
+          "a",
+          "b",
+          true
+        ],
+        [
+          "b",
+          "__end__",
+          false
+        ]
+      ],
+      "mermaid": "---\nconfig:\n  flowchart:\n    curve: linear\n---\ngraph TD;\n\t__start__([<p>__start__</p>]):::first\n\ta(a)\n\tb(b)\n\t__end__([<p>__end__</p>]):::last\n\t__start__ --> a;\n\ta -.-> b;\n\tb --> __end__;\n\tclassDef default fill:#f2f0ff,line-height:1.2\n\tclassDef first fill-opacity:0\n\tclassDef last fill:#bfb6fc\n"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 250251.0,
+        "ops_per_sec": 3996.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 854662.0,
+        "ops_per_sec": 1170.1
+      }
+    }
+  },
+  {
+    "scenario": "context_schema",
+    "rs": {
+      "result": {
+        "value": 1
+      },
+      "context": "run_context_schema_scenario.<locals>.collect.<locals>.Ctx(user='ann')",
+      "context_schema": {
+        "properties": {
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "Ctx",
+        "type": "object"
+      }
+    },
+    "lg": {
+      "result": {
+        "value": 1
+      },
+      "context": "run_context_schema_scenario.<locals>.collect.<locals>.Ctx(user='ann')",
+      "context_schema": {
+        "properties": {
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "Ctx",
+        "type": "object"
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 835533.0,
+        "ops_per_sec": 1196.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2053751.0,
+        "ops_per_sec": 486.9
+      }
+    }
+  },
+  {
+    "scenario": "python_state",
+    "rs": {
+      "point": [
+        "Point",
+        "run_python_state_scenario.<locals>.collect.<locals>.Point(x=3)"
+      ],
+      "tag": [
+        "frozenset",
+        [
+          "a"
+        ]
+      ]
+    },
+    "lg": {
+      "point": [
+        "Point",
+        "run_python_state_scenario.<locals>.collect.<locals>.Point(x=3)"
+      ],
+      "tag": [
+        "frozenset",
+        [
+          "a"
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 383280.0,
+        "ops_per_sec": 2609.1
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1199909.0,
+        "ops_per_sec": 833.4
+      }
+    }
+  },
+  {
+    "scenario": "unknown_channels",
+    "rs": {
+      "with_unknown_input": {
+        "value": 2
+      }
+    },
+    "lg": {
+      "with_unknown_input": {
+        "value": 2
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 76403.0,
+        "ops_per_sec": 13088.5
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1122672.0,
+        "ops_per_sec": 890.7
+      }
+    }
+  },
+  {
+    "scenario": "store_item",
+    "rs": {
+      "type": "Item",
+      "namespace": [
+        "n",
+        "sub"
+      ],
+      "namespace_is_tuple": true,
+      "created_tz": "UTC",
+      "utc": true,
+      "dict": {
+        "namespace": [
+          "n",
+          "sub"
+        ],
+        "key": "k",
+        "value": {
+          "v": 1
+        }
+      },
+      "search_type": "SearchItem"
+    },
+    "lg": {
+      "type": "Item",
+      "namespace": [
+        "n",
+        "sub"
+      ],
+      "namespace_is_tuple": true,
+      "created_tz": "UTC",
+      "utc": true,
+      "dict": {
+        "namespace": [
+          "n",
+          "sub"
+        ],
+        "key": "k",
+        "value": {
+          "v": 1
+        }
+      },
+      "search_type": "SearchItem"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 22816.0,
+        "ops_per_sec": 43828.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 12691.0,
+        "ops_per_sec": 78796.0
+      }
+    }
+  },
+  {
+    "scenario": "delta_history",
+    "rs": {
+      "channels": [
+        "log",
+        "value"
+      ],
+      "keys": [
+        "seed",
+        "writes"
+      ],
+      "value": 1,
+      "log": [
+        "b"
+      ],
+      "empty": {}
+    },
+    "lg": {
+      "channels": [
+        "log",
+        "value"
+      ],
+      "keys": [
+        "seed",
+        "writes"
+      ],
+      "value": 1,
+      "log": [
+        "b"
+      ],
+      "empty": {}
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 111272.0,
+        "ops_per_sec": 8987.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 2657202.0,
+        "ops_per_sec": 376.3
+      }
+    }
+  },
+  {
+    "scenario": "checkpoint_shape",
+    "rs": {
+      "rows": [
+        [
+          4,
+          "loop",
+          {
+            "value": 11
+          },
+          []
+        ],
+        [
+          3,
+          "loop",
+          {
+            "value": 10
+          },
+          [
+            "a"
+          ]
+        ],
+        [
+          2,
+          "input",
+          {
+            "value": 1
+          },
+          [
+            "__start__"
+          ]
+        ],
+        [
+          1,
+          "loop",
+          {
+            "value": 1
+          },
+          []
+        ],
+        [
+          0,
+          "loop",
+          {
+            "value": 0
+          },
+          [
+            "a"
+          ]
+        ],
+        [
+          -1,
+          "input",
+          {},
+          [
+            "__start__"
+          ]
+        ]
+      ]
+    },
+    "lg": {
+      "rows": [
+        [
+          4,
+          "loop",
+          {
+            "value": 11
+          },
+          []
+        ],
+        [
+          3,
+          "loop",
+          {
+            "value": 10
+          },
+          [
+            "a"
+          ]
+        ],
+        [
+          2,
+          "input",
+          {
+            "value": 1
+          },
+          [
+            "__start__"
+          ]
+        ],
+        [
+          1,
+          "loop",
+          {
+            "value": 1
+          },
+          []
+        ],
+        [
+          0,
+          "loop",
+          {
+            "value": 0
+          },
+          [
+            "a"
+          ]
+        ],
+        [
+          -1,
+          "input",
+          {},
+          [
+            "__start__"
+          ]
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 201991.0,
+        "ops_per_sec": 4950.7
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4708518.0,
+        "ops_per_sec": 212.4
+      }
+    }
+  },
+  {
+    "scenario": "stream_events",
+    "rs": {
+      "sequence": [
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "a"
+        ],
+        [
+          "on_chain_stream",
+          "a"
+        ],
+        [
+          "on_chain_end",
+          "a"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "b"
+        ],
+        [
+          "on_chain_stream",
+          "b"
+        ],
+        [
+          "on_chain_end",
+          "b"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ]
+      ],
+      "graph_chunks": 2,
+      "metadata": [
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ]
+      ]
+    },
+    "lg": {
+      "sequence": [
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "a"
+        ],
+        [
+          "on_chain_stream",
+          "a"
+        ],
+        [
+          "on_chain_end",
+          "a"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "b"
+        ],
+        [
+          "on_chain_stream",
+          "b"
+        ],
+        [
+          "on_chain_end",
+          "b"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ]
+      ],
+      "graph_chunks": 2,
+      "metadata": [
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          "a",
+          1
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          "b",
+          2
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ],
+        [
+          "langgraph",
+          null,
+          null
+        ]
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 1129858.0,
+        "ops_per_sec": 885.1
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4657823.0,
+        "ops_per_sec": 214.7
+      }
+    }
+  },
+  {
+    "scenario": "subgraph_events",
+    "rs": {
+      "sequence": [
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "sub"
+        ],
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "c"
+        ],
+        [
+          "on_chain_stream",
+          "c"
+        ],
+        [
+          "on_chain_end",
+          "c"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ],
+        [
+          "on_chain_stream",
+          "sub"
+        ],
+        [
+          "on_chain_end",
+          "sub"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ]
+      ],
+      "depths": [
+        [
+          "LangGraph",
+          0
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "LangGraph",
+          2
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "LangGraph",
+          2
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "LangGraph",
+          0
+        ],
+        [
+          "LangGraph",
+          0
+        ]
+      ],
+      "chunks": [
+        {
+          "sub": {
+            "value": 1
+          }
+        }
+      ]
+    },
+    "lg": {
+      "sequence": [
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "sub"
+        ],
+        [
+          "on_chain_start",
+          "LangGraph"
+        ],
+        [
+          "on_chain_start",
+          "c"
+        ],
+        [
+          "on_chain_stream",
+          "c"
+        ],
+        [
+          "on_chain_end",
+          "c"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ],
+        [
+          "on_chain_stream",
+          "sub"
+        ],
+        [
+          "on_chain_end",
+          "sub"
+        ],
+        [
+          "on_chain_stream",
+          "LangGraph"
+        ],
+        [
+          "on_chain_end",
+          "LangGraph"
+        ]
+      ],
+      "depths": [
+        [
+          "LangGraph",
+          0
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "LangGraph",
+          2
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "c",
+          3
+        ],
+        [
+          "LangGraph",
+          2
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "sub",
+          1
+        ],
+        [
+          "LangGraph",
+          0
+        ],
+        [
+          "LangGraph",
+          0
+        ]
+      ],
+      "chunks": [
+        {
+          "sub": {
+            "value": 1
+          }
+        }
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 1170151.0,
+        "ops_per_sec": 854.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4988067.0,
+        "ops_per_sec": 200.5
+      }
+    }
+  },
+  {
+    "scenario": "error_types",
+    "rs": {
+      "error": "InvalidUpdateError",
+      "fresh": {
+        "seen": {},
+        "value": 1
+      }
+    },
+    "lg": {
+      "error": "InvalidUpdateError",
+      "fresh": {
+        "value": 1,
+        "seen": {}
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 299578.0,
+        "ops_per_sec": 3338.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 4370647.0,
+        "ops_per_sec": 228.8
+      }
+    }
+  },
+  {
+    "scenario": "checkpoint_history",
+    "rs": [
+      {
+        "step": 2,
+        "source": "loop",
+        "values": {
+          "value": 2
+        },
+        "next": []
+      },
+      {
+        "step": 1,
+        "source": "loop",
+        "values": {
+          "value": 1
+        },
+        "next": [
+          "b"
+        ]
+      },
+      {
+        "step": 0,
+        "source": "loop",
+        "values": {
+          "value": 0
+        },
+        "next": [
+          "a"
+        ]
+      },
+      {
+        "step": -1,
+        "source": "input",
+        "values": {},
+        "next": [
+          "__start__"
+        ]
+      }
+    ],
+    "lg": [
+      {
+        "step": 2,
+        "source": "loop",
+        "values": {
+          "value": 2
+        },
+        "next": []
+      },
+      {
+        "step": 1,
+        "source": "loop",
+        "values": {
+          "value": 1
+        },
+        "next": [
+          "b"
+        ]
+      },
+      {
+        "step": 0,
+        "source": "loop",
+        "values": {
+          "value": 0
+        },
+        "next": [
+          "a"
+        ]
+      },
+      {
+        "step": -1,
+        "source": "input",
+        "values": {},
+        "next": [
+          "__start__"
+        ]
+      }
+    ],
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 151681.0,
+        "ops_per_sec": 6592.8
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 3031378.0,
+        "ops_per_sec": 329.9
+      }
+    }
+  },
+  {
+    "scenario": "defer",
+    "rs": {
+      "log": [
+        "e"
+      ],
+      "value": 1
+    },
+    "lg": {
+      "log": [
+        "e"
+      ],
+      "value": 1
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 175583.0,
+        "ops_per_sec": 5695.3
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1355725.0,
+        "ops_per_sec": 737.6
+      }
+    }
+  },
+  {
+    "scenario": "tool_interrupt",
+    "rs": {
+      "interrupts": [
+        {
+          "question": "why?"
+        }
+      ],
+      "tail": [
+        "answer=yes",
+        "done"
+      ]
+    },
+    "lg": {
+      "interrupts": [
+        {
+          "question": "why?"
+        }
+      ],
+      "tail": [
+        "answer=yes",
+        "done"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 3371612.0,
+        "ops_per_sec": 296.6
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 8952495.0,
+        "ops_per_sec": 111.7
+      }
+    }
+  },
+  {
+    "scenario": "node_exception",
+    "rs": {
+      "type": "ValueError",
+      "message": "kaboom"
+    },
+    "lg": {
+      "type": "ValueError",
+      "message": "kaboom"
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 49039.0,
+        "ops_per_sec": 20391.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1032939.0,
+        "ops_per_sec": 968.1
+      }
+    }
+  },
+  {
+    "scenario": "failed_task",
+    "rs": {
+      "values": {
+        "value": 1
+      },
+      "next": [
+        "b"
+      ],
+      "tasks": [
+        [
+          "b",
+          "ValueError('kaboom')"
+        ]
+      ],
+      "steps": [
+        1,
+        0,
+        -1
+      ]
+    },
+    "lg": {
+      "values": {
+        "value": 1
+      },
+      "next": [
+        "b"
+      ],
+      "tasks": [
+        [
+          "b",
+          "ValueError('kaboom')"
+        ]
+      ],
+      "steps": [
+        1,
+        0,
+        -1
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 340726.0,
+        "ops_per_sec": 2934.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 3018807.0,
+        "ops_per_sec": 331.3
+      }
+    }
+  },
+  {
+    "scenario": "get_config",
+    "rs": {
+      "keys": [
+        "callbacks",
+        "configurable",
+        "metadata",
+        "tags"
+      ],
+      "thread": "cfg",
+      "tags": [
+        "t1"
+      ],
+      "metadata": {
+        "langgraph_checkpoint_ns": "n",
+        "langgraph_node": "n",
+        "langgraph_path": [
+          "__pregel_pull",
+          "n"
+        ],
+        "langgraph_step": 1,
+        "langgraph_triggers": [
+          "branch:to:n"
+        ],
+        "m": 1,
+        "thread_id": "cfg"
+      }
+    },
+    "lg": {
+      "keys": [
+        "callbacks",
+        "configurable",
+        "metadata",
+        "tags"
+      ],
+      "thread": "cfg",
+      "tags": [
+        "t1"
+      ],
+      "metadata": {
+        "m": 1,
+        "thread_id": "cfg",
+        "langgraph_step": 1,
+        "langgraph_node": "n",
+        "langgraph_triggers": [
+          "branch:to:n"
+        ],
+        "langgraph_path": [
+          "__pregel_pull",
+          "n"
+        ],
+        "langgraph_checkpoint_ns": "n"
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 81308.0,
+        "ops_per_sec": 12298.9
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1935312.0,
+        "ops_per_sec": 516.7
+      }
+    }
+  },
+  {
+    "scenario": "react_helper",
+    "rs": {
+      "nodes": [
+        "__end__",
+        "__start__",
+        "agent",
+        "tools"
+      ],
+      "length": 4,
+      "tool_contents": [
+        "3"
+      ]
+    },
+    "lg": {
+      "nodes": [
+        "__end__",
+        "__start__",
+        "agent",
+        "tools"
+      ],
+      "length": 4,
+      "tool_contents": [
+        "3"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 5582389.0,
+        "ops_per_sec": 179.1
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 10272030.0,
+        "ops_per_sec": 97.4
+      }
+    }
+  },
+  {
+    "scenario": "message_objects",
+    "rs": {
+      "types": [
+        "HumanMessage",
+        "AIMessage"
+      ],
+      "contents": [
+        "hi",
+        "hello"
+      ],
+      "roles": [
+        "human",
+        "ai"
+      ]
+    },
+    "lg": {
+      "types": [
+        "HumanMessage",
+        "AIMessage"
+      ],
+      "contents": [
+        "hi",
+        "hello"
+      ],
+      "roles": [
+        "human",
+        "ai"
+      ]
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 106758.0,
+        "ops_per_sec": 9367.0
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1079015.0,
+        "ops_per_sec": 926.8
+      }
+    }
+  },
+  {
+    "scenario": "saver_surface",
+    "rs": {
+      "get_tuple": true,
+      "list": true,
+      "delete_thread": true,
+      "get_next_version": true,
+      "copy_thread": true,
+      "aget_tuple": true,
+      "alist": true,
+      "adelete_thread": true,
+      "aput": true,
+      "aput_writes": true,
+      "acopy_thread": true
+    },
+    "lg": {
+      "get_tuple": true,
+      "list": true,
+      "delete_thread": true,
+      "get_next_version": true,
+      "copy_thread": true,
+      "aget_tuple": true,
+      "alist": true,
+      "adelete_thread": true,
+      "aput": true,
+      "aput_writes": true,
+      "acopy_thread": true
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 204.0,
+        "ops_per_sec": 4901965.4
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 1056.0,
+        "ops_per_sec": 946969.5
+      }
+    }
+  },
+  {
+    "scenario": "subgraph_interrupt",
+    "rs": {
+      "error": null,
+      "value": {
+        "value": 5
+      }
+    },
+    "lg": {
+      "error": null,
+      "value": {
+        "value": 5
+      }
+    },
+    "equivalent": true,
+    "bench": {
+      "rs": {
+        "iterations": 100,
+        "ns_per_op": 119697.0,
+        "ops_per_sec": 8354.4
+      },
+      "lg": {
+        "iterations": 100,
+        "ns_per_op": 5352428.0,
+        "ops_per_sec": 186.8
       }
     }
   },
@@ -930,13 +4358,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 128717.0,
-        "ops_per_sec": 7769.0
+        "ns_per_op": 64100.0,
+        "ops_per_sec": 15600.6
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2724449.0,
-        "ops_per_sec": 367.0
+        "ns_per_op": 1485389.0,
+        "ops_per_sec": 673.2
       }
     }
   },
@@ -956,13 +4384,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 1270195.0,
-        "ops_per_sec": 787.3
+        "ns_per_op": 864048.0,
+        "ops_per_sec": 1157.3
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 7137769.0,
-        "ops_per_sec": 140.1
+        "ns_per_op": 4042558.0,
+        "ops_per_sec": 247.4
       }
     }
   },
@@ -984,36 +4412,45 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 145195.0,
-        "ops_per_sec": 6887.3
+        "ns_per_op": 73161.0,
+        "ops_per_sec": 13668.5
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 4235207.0,
-        "ops_per_sec": 236.1
+        "ns_per_op": 2734657.0,
+        "ops_per_sec": 365.7
       }
     }
   },
   {
     "scenario": "update_state",
     "rs": {
-      "value": 42
+      "values": {
+        "value": 42
+      },
+      "config": [
+        "configurable"
+      ]
     },
     "lg": {
-      "value": 42
+      "values": {
+        "value": 42
+      },
+      "config": [
+        "configurable"
+      ]
     },
     "equivalent": true,
-    "note": "language API shape differs (snapshot vs config); state matches",
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 83961.0,
-        "ops_per_sec": 11910.3
+        "ns_per_op": 41701.0,
+        "ops_per_sec": 23980.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 3096396.0,
-        "ops_per_sec": 323.0
+        "ns_per_op": 2431417.0,
+        "ops_per_sec": 411.3
       }
     }
   },
@@ -1026,13 +4463,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 53782.0,
-        "ops_per_sec": 18593.6
+        "ns_per_op": 2104558.0,
+        "ops_per_sec": 475.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 18205015.0,
-        "ops_per_sec": 54.9
+        "ns_per_op": 10435388.0,
+        "ops_per_sec": 95.8
       }
     }
   },
@@ -1048,13 +4485,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 67545.0,
-        "ops_per_sec": 14804.9
+        "ns_per_op": 27489.0,
+        "ops_per_sec": 36378.2
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2207883.0,
-        "ops_per_sec": 452.9
+        "ns_per_op": 1295568.0,
+        "ops_per_sec": 771.9
       }
     }
   },
@@ -1076,13 +4513,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 213791.0,
-        "ops_per_sec": 4677.5
+        "ns_per_op": 128083.0,
+        "ops_per_sec": 7807.4
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 8520554.0,
-        "ops_per_sec": 117.4
+        "ns_per_op": 5973340.0,
+        "ops_per_sec": 167.4
       }
     }
   },
@@ -1098,13 +4535,13 @@
     "bench": {
       "rs": {
         "iterations": 100,
-        "ns_per_op": 50181.0,
-        "ops_per_sec": 19927.9
+        "ns_per_op": 30336.0,
+        "ops_per_sec": 32964.1
       },
       "lg": {
         "iterations": 100,
-        "ns_per_op": 2459566.0,
-        "ops_per_sec": 406.6
+        "ns_per_op": 1313085.0,
+        "ops_per_sec": 761.6
       }
     }
   }
