@@ -99,6 +99,70 @@ impl<S: State> AsyncStateGraph<S> {
         }
     }
 
+    /// Convert a synchronous builder into an async one.
+    ///
+    /// LangGraph's compiled graph exposes both APIs, so the Python bindings build the async twin
+    /// from the same builder definition. Each synchronous node runs inside an async block.
+    pub fn from_sync(graph: crate::graph::StateGraph<S>) -> Self {
+        let crate::graph::StateGraph {
+            schema,
+            nodes,
+            duplicate_nodes,
+            edges,
+            conditional,
+            retries,
+            error_edges,
+            cache,
+            cache_policies,
+            store,
+            node_metadata: _,
+            timeouts,
+            deferred,
+            destinations,
+            entry,
+            conditional_entry,
+            subgraph_hooks,
+            subgraphs: _,
+            subgraph_names: _,
+        } = graph;
+        let nodes = nodes
+            .into_iter()
+            .map(|(name, node)| {
+                let node: AsyncNodeFn<S> = std::sync::Arc::new(move |state, _context| {
+                    let result = node(&state);
+                    Box::pin(async move { result }) as BoxNodeFuture
+                });
+                (name, node)
+            })
+            .collect();
+        Self {
+            schema,
+            nodes,
+            duplicate_nodes,
+            edges,
+            conditional,
+            retries,
+            error_edges,
+            entry,
+            conditional_entry,
+            checkpointer: None,
+            async_checkpointer: None,
+            store,
+            timeouts,
+            cache,
+            cache_policies,
+            deferred,
+            destinations,
+            interrupt_before: std::collections::HashSet::new(),
+            interrupt_after: std::collections::HashSet::new(),
+            kernel: crate::_internal::plugin::Kernel::builtin(),
+            recursion_limit: None,
+            context_schema: None,
+            name: None,
+            subgraph_hooks,
+        }
+    }
+
     /// Register an async node.
     ///
     /// The node receives a clone of the current state and an [`AsyncContext`]; it must

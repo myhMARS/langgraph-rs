@@ -168,6 +168,8 @@ impl Drop for PyLiveStream {
 #[pyclass(name = "CompiledGraph")]
 pub struct PyCompiledGraph {
     pub(crate) graph: Arc<CompiledGraph<JsonState>>,
+    /// The same graph compiled for the async runtime, so `ainvoke`/`astream` are native.
+    pub(crate) async_twin: Option<std::sync::Arc<crate::tokio_runtime::AsyncCompiledGraph<JsonState>>>,
     pub(crate) saver: Option<Arc<dyn Checkpointer>>,
     /// Transformers registered at compile time for `stream_events(version="v3")`.
     pub(crate) stream_transformers: Vec<Py<PyAny>>,
@@ -203,6 +205,7 @@ impl PyCompiledGraph {
     ) -> Self {
         Self {
             graph: Arc::new(graph),
+            async_twin: None,
             saver,
             stream_transformers: Vec::new(),
             checkpointer_py: None,
@@ -215,6 +218,32 @@ impl PyCompiledGraph {
 
 #[pymethods]
 impl PyCompiledGraph {
+    /// The async twin compiled from the same builder, so `ainvoke`/`astream` are native.
+    ///
+    /// `None` when the extension was built without `python-async`.
+    #[getter]
+    fn _async_inner(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        #[cfg(feature = "python-async")]
+        {
+            let Some(twin) = self.async_twin.clone() else {
+                return Ok(None);
+            };
+            let wrapper = crate::adapters::python::async_graph::PyAsyncCompiledGraph::from_parts(
+                twin,
+                self.saver.clone(),
+                self.checkpointer_py.as_ref().map(|value| value.clone_ref(py)),
+                self.builder_py.as_ref().map(|value| value.clone_ref(py)),
+            );
+            Ok(Some(Py::new(py, wrapper)?.into_any()))
+        }
+        #[cfg(not(feature = "python-async"))]
+        {
+            let _ = py;
+            Ok(None)
+        }
+    }
+
+
     /// Run the graph and return the final state dict.
     #[pyo3(signature = (input=None, thread_id=None, context=None, control=None, checkpoint_ns=None, config=None))]
     #[allow(clippy::too_many_arguments)]
@@ -912,6 +941,7 @@ impl PyCompiledGraph {
                 py,
                 PyCompiledGraph {
                     graph: child.clone(),
+                    async_twin: None,
                     saver: self.saver.clone(),
                     stream_transformers: Vec::new(),
                     checkpointer_py: None,
@@ -927,6 +957,7 @@ impl PyCompiledGraph {
                         py,
                         PyCompiledGraph {
                             graph: inner.clone(),
+                            async_twin: None,
                             saver: self.saver.clone(),
                             stream_transformers: Vec::new(),
                             checkpointer_py: None,
@@ -955,6 +986,7 @@ impl PyCompiledGraph {
             py,
             PyCompiledGraph {
                 graph: std::sync::Arc::new(graph),
+                async_twin: None,
                 saver: self.saver.clone(),
                 checkpointer_py: self.checkpointer_py.as_ref().map(|value| value.clone_ref(py)),
                 cache_py: self.cache_py.as_ref().map(|value| value.clone_ref(py)),

@@ -4261,3 +4261,25 @@ unify `StateGraph.compile()` on the async implementation so one compiled graph s
 way LangGraph does.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 204: an async twin for the sync builder (not yet wired)
+
+LangGraph compiles one graph that serves both APIs; ours compiles a sync graph (and the facade fakes async
+with `to_thread`). This round added `AsyncStateGraph::from_sync(builder)` — it wraps each sync node in an
+async block and copies the whole builder definition — and `PyCompiledGraph` now carries the resulting
+`_async_inner`.
+
+Wiring the facade's `ainvoke`/`astream` to that twin **regressed two timeout tests**: the async executor's
+run/idle timeout semantics differ from the sync executor's. So the twin stays connected but unused, and the
+behaviour is unchanged from the previous round.
+
+The attempt did pin down exactly what must be fixed before the switch is safe:
+
+1. **Incremental delivery** — both async paths collect chunks and release them at the end (two 0.3 s nodes:
+   `[0.63, 0.63]` versus LangGraph's `[0.32, 0.63]`); `astream` needs an mpsc channel plus an async
+   iterator instead of a `Vec`.
+2. **Cancellation propagation** — after `task.cancel()` the node still finishes and commits its checkpoint;
+   LangGraph keeps the previous values and leaves `next` pointing at the node.
+3. **Timeout semantics** — the async executor must match the sync one for run and idle timeouts.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.

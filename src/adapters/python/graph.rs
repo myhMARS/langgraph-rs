@@ -244,6 +244,39 @@ impl PyStateGraph {
         if let Some(nodes) = interrupt_after {
             options = options.interrupt_after(nodes);
         }
+        // LangGraph's compiled graph exposes both APIs; build the async twin from the same
+        // builder definition so `ainvoke` / `astream` are native rather than thread-backed.
+        #[cfg(feature = "python-async")]
+        let async_twin = {
+            let mut async_builder = crate::tokio_runtime::AsyncStateGraph::from_sync(builder.clone());
+            if let Some(checkpointer) = options.checkpointer.clone() {
+                async_builder = async_builder.with_checkpointer(checkpointer);
+            }
+            if let Some(store) = options.store.clone() {
+                async_builder = async_builder.with_store(store);
+            }
+            if let Some(limit) = options.recursion_limit {
+                async_builder = async_builder.with_recursion_limit(limit);
+            }
+            if let Some(name) = options.name.clone() {
+                async_builder = async_builder.with_name(name);
+            }
+            if let Some(schema) = options.context_schema.clone() {
+                async_builder = async_builder.with_context_schema(schema);
+            }
+            if !options.interrupt_before.is_empty() {
+                async_builder = async_builder.interrupt_before(options.interrupt_before.clone());
+            }
+            if !options.interrupt_after.is_empty() {
+                async_builder = async_builder.interrupt_after(options.interrupt_after.clone());
+            }
+            async_builder
+                .compile()
+                .ok()
+                .map(std::sync::Arc::new)
+        };
+        #[cfg(not(feature = "python-async"))]
+        let async_twin: Option<std::sync::Arc<crate::tokio_runtime::AsyncCompiledGraph<JsonState>>> = None;
         let compiled = builder
             .compile_with(options)
             .map_err(|error| to_pyerr(py, error))?;
@@ -265,6 +298,7 @@ impl PyStateGraph {
             py,
             PyCompiledGraph {
                 graph: Arc::new(compiled),
+                async_twin,
                 saver,
                 stream_transformers,
                 checkpointer_py,

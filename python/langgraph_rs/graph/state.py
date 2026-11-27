@@ -574,6 +574,8 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         self._edge_order = list(edge_order or [])
         # Channels that hold chat messages; inputs are coerced like LangGraph's.
         self._messages_keys = list(messages_keys or [])
+        # The same graph compiled for the async runtime (LangGraph has one object with both APIs).
+        self._async_graph = getattr(inner, "_async_inner", None)
 
     # -- LangGraph introspection surface -----------------------------------------------------
     @property

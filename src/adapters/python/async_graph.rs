@@ -32,6 +32,25 @@ pub struct PyAsyncCompiledGraph {
         std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::lifecycle::LifecycleEvent>>>,
 }
 
+impl PyAsyncCompiledGraph {
+    /// Build the wrapper for an existing async graph (used by the sync builder's twin).
+    pub(crate) fn from_parts(
+        graph: std::sync::Arc<AsyncCompiledGraph<JsonState>>,
+        saver: Option<Arc<dyn Checkpointer>>,
+        checkpointer_py: Option<Py<PyAny>>,
+        builder_py: Option<Py<PyAny>>,
+    ) -> Self {
+        Self {
+            graph,
+            saver,
+            stream_transformers: Vec::new(),
+            checkpointer_py,
+            builder_py,
+            last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+}
+
 #[path = "async_support.rs"]
 pub(crate) mod async_support;
 use async_support::*;
