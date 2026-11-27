@@ -4584,3 +4584,23 @@ history all match, so this is a streaming-observability gap that needs namespace
 engine — recorded for a dedicated pass.
 
 Suite is 669 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 222: why `PregelTask.result` is always None
+
+Tracing the audit's finding showed the engine's `checkpoint.task_results` only records *functional-API*
+task results and a few pause-time entries; an ordinary node's writes go straight into the channels and are
+never attributed to its task id. A snapshot therefore has nothing to show:
+
+```
+LangGraph history step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+engine    history step 0: [('a', None), ('b', None)]
+```
+
+The paused snapshot also lists tasks in a different order (`[b, a]` versus LangGraph's declaration order
+`[a, b]`).
+
+Recording per-task writes after each superstep would fix both, but it feeds the same memo the resume path
+uses to skip already-completed tasks (`load_task_results`), so it needs a careful pass rather than a quick
+change. Recorded with the root cause and the plan.
+
+Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.

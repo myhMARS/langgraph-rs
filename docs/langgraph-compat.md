@@ -177,6 +177,26 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result` 为何恒为 `None`（2026-11-27，第 125 轮实测）
+
+审计里"`PregelTask.result` 恒为 `None`"这条，本轮查清了根因：
+
+- 引擎的 `checkpoint.task_results` 只记录**函数式 API 任务**和**暂停时**的零星结果；
+  普通节点的写入是直接进 channel 的，不会按 task 记录。
+- 因此快照里的 `tasks[].result` 只能拿到空。
+
+对照实测（两个并行节点，各自写 `seen`）：
+
+```
+LG 历史 step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+扩展开    step 0: [('a', None), ('b', None)]
+```
+
+顺带确认另一处：暂停快照里任务顺序是 `[b, a]` 而 LG 是 `[a, b]`（声明顺序）。
+
+修法需要在 superstep 执行后把每个任务的写入按 `task_id` 记进运行上下文，再随检查点持久化。这条会牵动
+"恢复时不重跑已完成任务"的去重逻辑（`load_task_results`），风险不小，因此本轮只做定位、不擅自改。
+
 ### 暂停的 `values` 块形状修正（2026-11-27，第 124 轮）
 
 第 120 轮审计的 F17（暂停时 `values` 模式多出一个重复块）已修：live 路径把 `__interrupt__` 单独作为一块上报，
