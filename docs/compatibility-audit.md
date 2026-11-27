@@ -4502,3 +4502,25 @@ Both engines now agree on the two cases that used to differ:
 immediately.)
 
 Suite is 663 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 217: seventh audit — streaming/timeout/cancellation gaps
+
+An audit aimed at the most recently changed code (streaming delivery, timeouts, cancellation,
+`RunControl`) ran 71 checks: 40 pass, 22 functional differences, 6 cosmetic. The synchronous,
+non-subgraph, single/multi-mode streaming path holds up (chunk sequences, incremental delivery,
+interrupts, post-stream state and history all match LangGraph). The gaps cluster in four places:
+
+1. **`astream` iterates the live stream on the caller's event loop** — it blocks the process (a 20 Hz
+   companion coroutine ticked once during a 0.4 s run) and cannot be cancelled.
+2. **`subgraphs=True` and `AsyncStateGraph.astream` are still collected**, so streaming degrades to
+   batch delivery.
+3. **Abandoning or closing a stream does not stop the run**, and the sync iterator has no `close()`.
+4. **Multi-mode `debug` + `tasks` silently drops every `tasks` chunk**, and a one-element mode list
+   loses its `(mode, payload)` wrapper.
+
+Two safe fixes are kept this round: a user-supplied `control=` no longer collides with the facade's own
+keyword (it raised `TypeError`), and `debug`/`tasks`/`checkpoints` streams stay on the eager path so no
+chunks are lost. The rest — chiefly `astream`'s blocking iteration and its cancellation — needs the async
+facade's iteration restructured; an attempt touched several event-stream tests and was reverted.
+
+Suite is 663 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.

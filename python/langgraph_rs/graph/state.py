@@ -1006,7 +1006,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         # Python drives Rust: the synchronous call runs on a worker thread so the loop stays free.
         # A cancelled await aborts the run at the next superstep boundary instead of letting it
         # finish unattended (LangGraph stops immediately; a worker thread cannot be interrupted).
-        control = _new_run_control()
+        control = kwargs.pop("control", None) or _new_run_control()
         future = asyncio.ensure_future(
             asyncio.to_thread(
                 self.invoke, input, config, durability=durability, control=control, **kwargs
@@ -1028,12 +1028,18 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         live_factory = getattr(self._inner, "stream_live", None)
         from ..types import Command as _Command
 
+        modes = call.get("stream_mode")
+        mode_list = modes if isinstance(modes, (list, tuple)) else ([modes] if modes else [])
         live_eligible = (
             live_factory is not None
             # Namespaced (`subgraphs=True`) chunks are wrapped by the eager conversion.
             and not call.get("subgraphs")
             # A `Command` resume needs the resume plumbing, which only the eager path has.
             and not isinstance(input, _Command)
+            # A one-element mode list must keep the `(mode, payload)` wrapper, and `debug`/`tasks`
+            # need the fuller event bookkeeping the eager conversion provides.
+            and not (isinstance(modes, (list, tuple)) and len(modes) == 1)
+            and not any(mode in ("debug", "tasks", "checkpoints") for mode in mode_list)
         )
         if live_eligible:
             thread = _stream_thread(config, call.get("thread_id"))
