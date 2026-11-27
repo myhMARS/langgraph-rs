@@ -151,7 +151,8 @@ class InjectionTest(unittest.TestCase):
         lg_graph.add_edge("tools", _LG_END)
         expected = lg_graph.compile().invoke(lg_payload)
 
-        rs_graph = lg.StateGraph({"messages": "add_messages"})
+        # The state declares `user` too: LangGraph drops keys the state does not declare.
+        rs_graph = lg.StateGraph({"messages": "add_messages", "user": "last_value"})
         rs_graph.add_node("tools", ToolNode([lookup]))
         rs_graph.set_entry_point("tools")
         rs_graph.set_finish_point("tools")

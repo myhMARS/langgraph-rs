@@ -107,8 +107,10 @@ impl StateSchema {
                     return allowed.contains(name.as_str());
                 }
                 // A declared (strict) schema declares its input keys; LangGraph drops the rest
-                // instead of carrying unknown keys through the run.
-                self.allow_implicit_channels || self.channels.contains_key(name)
+                // instead of carrying unknown keys through the run. A dynamic schema without
+                // declared channels stays permissive.
+                self.channels.is_empty() && self.allow_implicit_channels
+                    || self.channels.contains_key(name)
             })
             .collect()
     }
@@ -495,6 +497,10 @@ pub(crate) fn apply_updates(
     if updates.len() == 1 {
         let update = updates.into_iter().next().expect("length checked");
         let Some(definition) = schema.resolve(&update.channel)? else {
+            if !schema.channels.is_empty() {
+                // LangGraph ignores writes to keys the state does not declare.
+                return Ok(());
+            }
             // Dynamic schemas accept implicit channels; the write becomes a `last_value`.
             values.insert(update.channel, update.value);
             return Ok(());
@@ -526,6 +532,7 @@ pub(crate) fn apply_updates(
 
     for (channel, (incoming, nodes)) in grouped {
         match schema.resolve(&channel)? {
+            None if !schema.channels.is_empty() => continue,
             Some(definition) => {
                 // Accumulating topics append in place instead of cloning the whole
                 // accumulated array on every merge.

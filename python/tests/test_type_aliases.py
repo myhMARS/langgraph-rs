@@ -3036,3 +3036,48 @@ class PythonStateValuesTest(unittest.TestCase):
         graph.add_edge("n", langgraph_rs.END)
         with self.assertRaises(TypeError):
             graph.compile().invoke({"fn": lambda: None})
+
+
+class UnknownChannelTest(unittest.TestCase):
+    """Keys the state does not declare are ignored, like LangGraph."""
+
+    @staticmethod
+    def _app(node):
+        from typing import TypedDict
+
+        class State(TypedDict, total=False):
+            value: int
+
+        graph = langgraph_rs.StateGraph(State)
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile()
+
+    def test_unknown_input_keys_are_dropped(self):
+        app = self._app(lambda state: {"value": 1})
+        self.assertEqual(app.invoke({"value": 0, "typo": 5}), {"value": 1})
+
+    def test_unknown_update_keys_are_dropped(self):
+        app = self._app(lambda state: {"value": 1, "typo": 5})
+        self.assertEqual(app.invoke({"value": 0}), {"value": 1})
+
+    def test_python_objects_in_state_still_work(self):
+        from dataclasses import dataclass
+        from typing import TypedDict
+
+        @dataclass
+        class Point:
+            x: int
+
+        class State(TypedDict, total=False):
+            point: object
+            value: int
+
+        graph = langgraph_rs.StateGraph(State)
+        graph.add_node("n", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        out = graph.compile().invoke({"point": Point(4), "value": 0})
+        self.assertEqual(out["point"], Point(4))
+        self.assertEqual(out["value"], 1)

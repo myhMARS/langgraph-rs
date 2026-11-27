@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 未声明的 key 会被丢弃（2026-11-27）
+
+LG 只保留 state schema 里声明过的通道：输入里多给的 key、节点返回里多写的 key 都**静默丢弃**。扩展此前会
+把它们当成隐式通道带进状态：
+
+```
+输入 {"value": 0, "typo": 5}   LG: {'value': 1}   扩展改前: {'typo': 5, 'value': 1}
+节点返回 {"typo": 5}            LG: 丢弃          扩展改前: 保留
+```
+
+现在：只要 schema **声明了通道**，未声明的读写都被忽略（与 LG 相同）；完全动态的 schema（无任何声明通道，
+`JsonState` 那类用法）仍保持宽松。
+
+顺带记录：LG **不接受** dict 形式的 schema（`StateGraph({"value": "last_value"})` 直接
+`TypeError: unhashable type: 'dict'`），这是扩展的便利超集。
+
 ### state 里可以放任意 Python 对象（2026-11-27）
 
 LG 的 state 不限于 JSON：`invoke({"point": Point(1)})`、节点返回 `set`/自定义类都能跑（有无 checkpointer 都一样）。

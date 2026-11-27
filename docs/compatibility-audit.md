@@ -3711,3 +3711,20 @@ resumed in another process only carries placeholders — LangGraph serialises th
 
 Suite is 572 tests (four new), parity 84/84 (new `python_state` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 174: undeclared state keys are dropped
+
+LangGraph keeps only the channels the state declares: extra input keys and extra keys in a node's
+update are silently ignored. The extension turned them into implicit channels, so they showed up in
+`values` (`{"value": 0, "typo": 5}` came back as `{'typo': 5, 'value': 1}`).
+
+Both the input filter and the write path now ignore undeclared channels whenever the schema declares
+any; a fully dynamic schema (no declared channels, the `JsonState` style) stays permissive. One test
+relied on the looser behaviour (it passed `user` to a state that only declared `messages`) and now
+declares that channel, as LangGraph requires.
+
+Also noted: LangGraph rejects dict schemas outright (`StateGraph({"value": "last_value"})` raises
+`TypeError: unhashable type: 'dict'`), so that convenience remains an extension-only superset.
+
+Suite is 575 tests (three new), parity 85/85 (new `unknown_channels` scenario), examples 10/10, clippy
+and Rust tests clean.

@@ -501,6 +501,47 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_unknown_channel_scenario() -> list[dict]:
+    """Keys the state does not declare are ignored, like LangGraph."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("clean", lambda state: {"value": 1})
+            graph.add_node("noisy", lambda state: {"value": 2, "typo": 5})
+            graph.add_edge(START, "clean")
+            graph.add_edge("clean", "noisy")
+            graph.add_edge("noisy", END)
+        else:
+            graph = rs.StateGraph(LgState)
+            graph.add_node("clean", lambda state: {"value": 1})
+            graph.add_node("noisy", lambda state: {"value": 2, "typo": 5})
+            graph.add_edge(rs.START, "clean")
+            graph.add_edge("clean", "noisy")
+            graph.add_edge("noisy", rs.END)
+        app = graph.compile()
+        return {
+            "with_unknown_input": dict(app.invoke({"value": 0, "typo": 9})),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "unknown_channels",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_python_state_scenario() -> list[dict]:
     """State may hold arbitrary Python objects (LangGraph keeps them by reference)."""
 
@@ -5213,6 +5254,7 @@ def main() -> None:
         run_drawing_scenario,
         run_context_schema_scenario,
         run_python_state_scenario,
+        run_unknown_channel_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
