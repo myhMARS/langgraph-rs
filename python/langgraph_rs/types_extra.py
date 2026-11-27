@@ -192,6 +192,13 @@ class DebugPayload(TypedDict):
     payload: dict[str, Any]
 
 
+class DeltaChannelHistory(TypedDict):
+    """Per-channel write history (`get_delta_channel_history` results)."""
+
+    writes: list[tuple[str, str, Any]]
+    seed: int
+
+
 class CheckpointMetadata(TypedDict, total=False):
     """Metadata stored alongside a checkpoint."""
 
@@ -200,23 +207,12 @@ class CheckpointMetadata(TypedDict, total=False):
     parents: dict[str, str]
 
 
-class StateUpdate:
-    """A state update produced by a task."""
+class StateUpdate(NamedTuple):
+    """A state update produced by a task (LangGraph's `StateUpdate`)."""
 
-    __slots__ = ("values", "as_node", "task_id")
-
-    def __init__(
-        self, values: Any = None, as_node: str | None = None, task_id: str | None = None
-    ) -> None:
-        self.values = values
-        self.as_node = as_node
-        self.task_id = task_id
-
-    def __repr__(self) -> str:
-        return (
-            f"StateUpdate(values={self.values!r}, as_node={self.as_node!r}, "
-            f"task_id={self.task_id!r})"
-        )
+    values: dict[str, Any] | None
+    as_node: str | None = None
+    task_id: str | None = None
 
 
 class Overwrite:
@@ -259,19 +255,12 @@ class TracePolicy:
         self.process_outputs = process_outputs
 
 
-class CacheKey:
+class CacheKey(NamedTuple):
     """Cache entry key (namespace + key + optional TTL)."""
 
-    __slots__ = ("ns", "key", "ttl")
-
-    def __init__(self, ns: tuple[str, ...] = (), key: str = "", ttl: float | None = None) -> None:
-        self.ns = tuple(ns)
-        self.key = key
-        self.ttl = ttl
-
-    def __repr__(self) -> str:
-        return f"CacheKey(ns={self.ns!r}, key={self.key!r}, ttl={self.ttl!r})"
-
+    ns: tuple[str, ...]
+    key: str
+    ttl: int | None
 
 class PregelExecutableTask:
     """Internal executable task (shape kept for annotations)."""
@@ -292,7 +281,9 @@ class ToolOutputMixin:
 
 
 Checkpointer = Any
-BaseCheckpointSaver = Any
+
+# LangGraph exports the checkpointer base class from `types` too; reuse the real one.
+from .checkpoint.base import BaseCheckpointSaver  # noqa: E402  (circular-safe tail import)
 
 
 def _freeze(value: Any) -> Any:

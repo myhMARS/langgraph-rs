@@ -3649,3 +3649,38 @@ class ToolNodeRunnableTest(unittest.TestCase):
             node = langgraph_rs.prebuilt.ValidationNode([search])
         self.assertIsInstance(node, Runnable)
         self.assertEqual(node.get_name(), "validation")
+
+
+class RuntimeSurfaceTest(unittest.TestCase):
+    """`Runtime`, `RunControl` and the small type exports match LangGraph."""
+
+    def test_runtime_helpers(self):
+        from langgraph_rs.runtime import ExecutionInfo, RunControl, Runtime
+
+        info = ExecutionInfo(task_id="t1")
+        self.assertEqual(info.patch(task_id="t2").task_id, "t2")
+        runtime = Runtime(context={"a": 1})
+        self.assertEqual(runtime.override(context={"b": 2}).context, {"b": 2})
+        self.assertEqual(runtime.merge(Runtime(store="s")).store, "s")
+        with self.assertRaises(RuntimeError):
+            Runtime().patch_execution_info(task_id="x")
+
+    def test_run_control_drain(self):
+        control = langgraph_rs.RunControl()
+        self.assertFalse(control.drain_requested)
+        self.assertIsNone(control.drain_reason)
+        control.request_drain("shutdown")
+        self.assertTrue(control.drain_requested)
+        self.assertEqual(control.drain_reason, "shutdown")
+
+    def test_type_exports(self):
+        from langgraph_rs.channels.base import EmptyChannelError
+        from langgraph_rs.types import BaseCheckpointSaver, CacheKey, DeltaChannelHistory, StateUpdate
+
+        self.assertEqual(StateUpdate._fields, ("values", "as_node", "task_id"))
+        self.assertEqual(CacheKey._fields, ("ns", "key", "ttl"))
+        self.assertEqual(list(DeltaChannelHistory.__annotations__), ["writes", "seed"])
+        self.assertEqual(EmptyChannelError.__name__, "EmptyChannelError")
+        self.assertEqual(
+            len([name for name in dir(BaseCheckpointSaver) if not name.startswith("_")]), 24
+        )

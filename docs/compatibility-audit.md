@@ -3930,3 +3930,21 @@ signature and `ValidationNode` gaining the `invoke` / `ainvoke` its abstract bas
 behaviour matches as-is.
 
 Suite is 602 tests (two new), parity 89/89, examples 10/10, clippy and Rust tests clean.
+
+### Round 188: small types and runtime helpers
+
+Continuing the class sweep (29 gaps down to 13):
+
+* `StateUpdate` / `CacheKey` became the NamedTuples LangGraph uses, `DeltaChannelHistory` was added,
+  `langgraph_rs.types.BaseCheckpointSaver` now points at the real class instead of `Any`, and
+  `channels.base` re-exports `EmptyChannelError`.
+* `Runtime` gained `merge` / `override` / `patch_execution_info` / `drain_requested` / `drain_reason`;
+  `ExecutionInfo` gained `patch`; `BaseUser` became the property protocol LangGraph ships.
+* `RunControl` gained `request_drain` / `drain_requested` / `drain_reason` — the reason had to be
+  stored in the Rust core (`runtime::control::RunControl`), which now records it alongside the abort
+  flag.
+
+Remaining gaps are protocol internals (`BaseChannel`, `ChannelProtocol`, `Pregel`, `NodeBuilder`) and
+a few small members, tracked in the doc.
+
+Suite is 605 tests (three new), parity 89/89, examples 10/10, clippy and Rust tests clean.

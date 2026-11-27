@@ -490,6 +490,22 @@ impl PyRunControl {
         self.inner.is_aborted()
     }
 
+    /// Ask the run to stop taking new work (LangGraph's `RunControl.request_drain`).
+    #[pyo3(signature = (reason="shutdown"))]
+    fn request_drain(&self, reason: &str) {
+        self.inner.request_drain(reason);
+    }
+
+    #[getter]
+    fn drain_requested(&self) -> bool {
+        self.inner.drain_reason().is_some()
+    }
+
+    #[getter]
+    fn drain_reason(&self) -> Option<String> {
+        self.inner.drain_reason()
+    }
+
     fn __repr__(&self) -> String {
         format!("RunControl(aborted={})", self.inner.is_aborted())
     }

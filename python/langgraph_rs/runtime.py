@@ -10,7 +10,7 @@ extension's current-run context. Outside a run it returns `DEFAULT_RUNTIME`, lik
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Generic, Protocol, TypeVar
 
 from ._compat import NATIVE, module_getattr, re_export
@@ -42,8 +42,25 @@ ContextT = TypeVar("ContextT")
 class BaseUser(Protocol):
     """Protocol for the authenticated user LangGraph exposes on `ServerInfo`."""
 
-    identity: str
-    display_name: str | None
+    @property
+    def identity(self) -> str:
+        """Stable identifier of the user."""
+        ...
+
+    @property
+    def display_name(self) -> str | None:
+        """Human-readable name."""
+        ...
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Whether the request carried a valid identity."""
+        ...
+
+    @property
+    def permissions(self) -> Any:
+        """Permissions granted to this user."""
+        ...
 
 
 @dataclass
@@ -57,6 +74,10 @@ class ExecutionInfo:
     run_id: str | None = None
     node_attempt: int = 1
     node_first_attempt_time: float | None = None
+
+    def patch(self, **changes: Any) -> "ExecutionInfo":
+        """Return a copy with the given fields replaced."""
+        return replace(self, **changes)
 
 
 @dataclass
@@ -94,8 +115,66 @@ class Runtime(Generic[ContextT]):
     def __post_init__(self) -> None:
         _ = field
 
+    def merge(self, other: "Runtime[Any]") -> "Runtime[Any]":
+        """Combine two runtimes, preferring the fields `other` set."""
+        return Runtime(
+            context=other.context or self.context,
+            store=other.store or self.store,
+            stream_writer=other.stream_writer or self.stream_writer,
+            heartbeat=other.heartbeat or self.heartbeat,
+            previous=other.previous or self.previous,
+            execution_info=other.execution_info or self.execution_info,
+            server_info=other.server_info or self.server_info,
+            control=other.control or self.control,
+            namespace=other.namespace or self.namespace,
+        )
+
+    def override(self, **overrides: Any) -> "Runtime[Any]":
+        """Return a copy with the given fields replaced."""
+        return replace(self, **overrides)
+
+    def patch_execution_info(self, **changes: Any) -> "Runtime[Any]":
+        """Return a copy whose execution info carries the changes."""
+        if self.execution_info is None:
+            raise RuntimeError("Cannot patch execution_info before it has been set")
+        return replace(self, execution_info=self.execution_info.patch(**changes))
+
+    @property
+    def drain_requested(self) -> bool:
+        """Whether the run was asked to stop taking new work."""
+        control = self.control
+        return bool(getattr(control, "drain_requested", False))
+
+    @property
+    def drain_reason(self) -> str | None:
+        """Why the run is draining, when it is."""
+        return getattr(self.control, "drain_reason", None)
+
 
 DEFAULT_RUNTIME = Runtime()
+
+class RunControl:
+    """Lets a supervisor ask a run to stop taking new work."""
+
+    __slots__ = ("_drain_reason",)
+
+    def __init__(self) -> None:
+        self._drain_reason: str | None = None
+
+    def request_drain(self, reason: str = "shutdown") -> None:
+        self._drain_reason = reason
+
+    @property
+    def drain_requested(self) -> bool:
+        return self._drain_reason is not None
+
+    @property
+    def drain_reason(self) -> str | None:
+        return self._drain_reason
+
+    def __repr__(self) -> str:
+        return f"RunControl(drain_reason={self._drain_reason!r})"
+
 
 
 def _native_stream_writer() -> Callable[..., None]:

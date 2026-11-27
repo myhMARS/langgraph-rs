@@ -177,6 +177,22 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 小类型与运行时辅助（2026-11-27）
+
+按类扫描继续补齐：
+
+| 项 | 变化 |
+|---|---|
+| `StateUpdate` / `CacheKey` | dataclass → **NamedTuple**（可解包、`_fields`） |
+| `DeltaChannelHistory` | 补上（TypedDict：`writes` / `seed`） |
+| `langgraph_rs.types.BaseCheckpointSaver` | 之前是 `Any`，现在是真类（24 个成员） |
+| `channels.base.EmptyChannelError` | 补上 re-export |
+| `Runtime.merge` / `override` / `patch_execution_info` | 补上（语义与 LG 一致，未设 `execution_info` 时 `patch` 抛 `RuntimeError`） |
+| `Runtime.drain_requested` / `drain_reason` | 补上（读 `control`） |
+| `RunControl.request_drain` / `drain_requested` / `drain_reason` | 原生类补上（Rust 侧加了 `drain_reason` 存储） |
+| `ExecutionInfo.patch` | 补上 |
+| `BaseUser` | 从普通 Protocol 属性改为 `@property` 协议（`identity` / `display_name` / `is_authenticated` / `permissions`） |
+
 ### `ToolNode` / `ValidationNode` 是 `Runnable`（2026-11-27）
 
 LG 的 `ToolNode` 是 LangChain `Runnable`，因此可以放进 LCEL 链、能用 `batch` / `stream` / `as_tool` 等。扩展此前是

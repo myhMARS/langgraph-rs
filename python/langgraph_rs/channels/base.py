@@ -15,3 +15,8 @@ Update = TypeVar("Update")
 Checkpoint = TypeVar("Checkpoint")
 
 __all__ = ["BaseChannel", "Checkpoint", "Update", "Value"]
+
+# LangGraph re-exports the error here for custom channels.
+from ..errors import EmptyChannelError  # noqa: E402,F401
+if "EmptyChannelError" not in __all__:
+    __all__.append("EmptyChannelError")
