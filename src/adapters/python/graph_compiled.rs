@@ -495,7 +495,14 @@ impl PyCompiledGraph {
             }
         }
         self.store_lifecycle(&lifecycle);
-        let converted = convert_stream_chunks(py, &chunks, v2, &requested)?;
+        let converted =
+            crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+                py,
+                &chunks,
+                v2,
+                &requested,
+                subgraphs,
+            )?;
         Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
     }
 

@@ -2900,4 +2900,21 @@ Also checked, and already matching: `values` (input echo plus one chunk per supe
 (one chunk per node) and `debug` (`task` / `task_result` pairs).
 
 Suite is 475 tests (one new), parity 57/57 (new `tasks_stream` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 133: `subgraphs=True` namespaces every chunk
+
+With `subgraphs=True`, LangGraph wraps **every** chunk as `(namespace, payload)` and uses the empty
+tuple for the top level:
+
+```
+[(('sub:<uuid>',), {'inner': {'value': 7}}), ((), {'sub': {'value': 7}}), ((), {'tail': {'value': 9}})]
+```
+
+The extension only wrapped chunks that came from a subgraph, so a caller doing
+`for namespace, chunk in stream` hit `ValueError` on the top-level chunks. They are now wrapped with
+`()`, consistently for `updates`, `values` and `astream` (the wrapping happens in one place, so v2
+mode gets the `ns` key too).
+
+Also verified as already matching: `stream_mode="checkpoints"` (four chunks with the same key set).
+
+Suite is 477 tests (two new), parity 58/58 (new `subgraph_stream` scenario), examples 10/10, clippy
+and Rust tests clean.

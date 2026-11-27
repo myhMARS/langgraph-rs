@@ -741,7 +741,13 @@ impl PyAsyncCompiledGraph {
             collected
                 .retain(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested));
             Python::attach(|py| {
-                let converted = convert_stream_chunks(py, &collected, v2, &requested)?;
+                let converted = crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+            py,
+            &collected,
+            v2,
+            &requested,
+            subgraphs,
+        )?;
                 let list = PyList::empty(py);
                 for item in converted {
                     list.append(item)?;

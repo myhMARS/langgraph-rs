@@ -332,6 +332,19 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `subgraphs=True` 的命名空间包装（2026-11-27）
+
+LG 在 `subgraphs=True` 时把**每个** chunk 都包成 `(namespace, payload)`，顶层用空元组 `()`：
+
+```
+[(('sub:<uuid>',), {'inner': {'value': 7}}), ((), {'sub': {'value': 7}}), ((), {'tail': {'value': 9}})]
+```
+
+扩展只包装了来自子图的 chunk，顶层 chunk 是裸的 —— 调用方按 `for ns, chunk in stream` 解包会
+`ValueError`。现在顶层也用 `()` 包装，`updates` / `values` / `astream` 三条路径一致。
+
+顺带确认 `stream_mode="checkpoints"`（4 条 chunk、键集合）与 LG 相同，无需改动。
+
 ### `stream_mode="tasks"` 的载荷（2026-11-27）
 
 LG 的 task 载荷字段是 `PregelTask` 的形状：`{id, name, input, triggers}`。扩展此前：

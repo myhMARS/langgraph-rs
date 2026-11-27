@@ -1476,3 +1476,35 @@ class TasksStreamShapeTest(unittest.TestCase):
         self.assertEqual(starts[1]["input"], {"value": 1})
         self.assertIsInstance(starts[0]["triggers"], tuple)
         self.assertEqual(starts[0]["triggers"], ("branch:to:a",))
+
+
+class SubgraphStreamShapeTest(unittest.TestCase):
+    """`subgraphs=True` pairs every chunk with a namespace; the top level uses `()`."""
+
+    @staticmethod
+    def _app():
+        child = langgraph_rs.StateGraph({"value": "last_value"})
+        child.add_node("inner", lambda state: {"value": 7})
+        child.add_edge(langgraph_rs.START, "inner")
+        child.add_edge("inner", langgraph_rs.END)
+        parent = langgraph_rs.StateGraph({"value": "last_value"})
+        parent.add_node("sub", child.compile())
+        parent.add_node("tail", lambda state: {"value": 9})
+        parent.add_edge(langgraph_rs.START, "sub")
+        parent.add_edge("sub", "tail")
+        parent.add_edge("tail", langgraph_rs.END)
+        return parent.compile()
+
+    def test_updates_chunks_are_namespaced(self):
+        chunks = list(self._app().stream({"value": 0}, stream_mode="updates", subgraphs=True))
+        self.assertEqual(len(chunks), 3)
+        self.assertTrue(all(isinstance(chunk, tuple) and len(chunk) == 2 for chunk in chunks))
+        namespace, payload = chunks[0]
+        self.assertEqual(namespace[0].split(":")[0], "sub")
+        self.assertEqual(payload, {"inner": {"value": 7}})
+        self.assertEqual(chunks[1], ((), {"sub": {"value": 7}}))
+        self.assertEqual(chunks[2], ((), {"tail": {"value": 9}}))
+
+    def test_without_subgraphs_chunks_are_bare(self):
+        chunks = list(self._app().stream({"value": 0}, stream_mode="updates"))
+        self.assertIn({"sub": {"value": 7}}, chunks)

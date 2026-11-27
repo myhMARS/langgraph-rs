@@ -149,6 +149,42 @@ pub(crate) fn convert_stream_chunks(
     v2: bool,
     requested: &[crate::StreamMode],
 ) -> PyResult<Vec<Py<PyAny>>> {
+    convert_stream_chunks_with(py, chunks, v2, requested, false)
+}
+
+/// Convert chunks, optionally wrapping **every** chunk as `(namespace, payload)`.
+///
+/// LangGraph's `subgraphs=True` reports top-level chunks with an empty namespace too; the engine
+/// only tags chunks that come from a subgraph, so the top level is wrapped here.
+pub(crate) fn convert_stream_chunks_with(
+    py: Python<'_>,
+    chunks: &[StreamChunk],
+    v2: bool,
+    requested: &[crate::StreamMode],
+    subgraphs: bool,
+) -> PyResult<Vec<Py<PyAny>>> {
+    if subgraphs {
+        let wrapped: Vec<StreamChunk> = chunks
+            .iter()
+            .map(|chunk| match chunk {
+                StreamChunk::Subgraph { .. } => chunk.clone(),
+                other => StreamChunk::Subgraph {
+                    namespace: String::new(),
+                    chunk: Box::new(other.clone()),
+                },
+            })
+            .collect();
+        return convert_stream_chunks_inner(py, &wrapped, v2, requested);
+    }
+    convert_stream_chunks_inner(py, chunks, v2, requested)
+}
+
+fn convert_stream_chunks_inner(
+    py: Python<'_>,
+    chunks: &[StreamChunk],
+    v2: bool,
+    requested: &[crate::StreamMode],
+) -> PyResult<Vec<Py<PyAny>>> {
     let multi_mode = requested.len() > 1;
     let debug_mode = requested.contains(&crate::StreamMode::Debug);
     let tasks_enabled = requested.contains(&crate::StreamMode::Tasks);

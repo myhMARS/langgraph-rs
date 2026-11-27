@@ -916,7 +916,7 @@ pub(super) fn run_config(thread_id: Option<String>) -> RunConfig {
 }
 
 #[path = "stream_convert.rs"]
-mod stream_convert;
+pub(crate) mod stream_convert;
 pub(crate) use stream_convert::*;
 
 

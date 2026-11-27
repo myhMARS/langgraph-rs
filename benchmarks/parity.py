@@ -477,6 +477,66 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_subgraph_stream_scenario() -> list[dict]:
+    """`subgraphs=True` reports every chunk as `(namespace, payload)`, `()` at the top level."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def normalise(chunks):
+        # Namespaces carry task ids, so compare the node part of each namespace.
+        return [
+            ([ns.split(":")[0] for ns in namespace], payload)
+            for namespace, payload in chunks
+        ]
+
+    def lg_run(mode):
+        child = LgStateGraph(LgState)
+        child.add_node("inner", lambda state: {"value": 7})
+        child.add_edge(START, "inner")
+        child.add_edge("inner", END)
+        parent = LgStateGraph(LgState)
+        parent.add_node("sub", child.compile())
+        parent.add_node("tail", lambda state: {"value": 9})
+        parent.add_edge(START, "sub")
+        parent.add_edge("sub", "tail")
+        parent.add_edge("tail", END)
+        return normalise(
+            list(parent.compile().stream({"value": 0}, stream_mode=mode, subgraphs=True))
+        )
+
+    def rs_run(mode):
+        child = rs.StateGraph({"value": "last_value"})
+        child.add_node("inner", lambda state: {"value": 7})
+        child.add_edge(rs.START, "inner")
+        child.add_edge("inner", rs.END)
+        parent = rs.StateGraph({"value": "last_value"})
+        parent.add_node("sub", child.compile())
+        parent.add_node("tail", lambda state: {"value": 9})
+        parent.add_edge(rs.START, "sub")
+        parent.add_edge("sub", "tail")
+        parent.add_edge("tail", rs.END)
+        return normalise(
+            list(parent.compile().stream({"value": 0}, stream_mode=mode, subgraphs=True))
+        )
+
+    cases = {}
+    for mode in ("updates", "values"):
+        cases[mode] = {"rs": rs_run(mode), "lg": lg_run(mode)}
+    return [
+        {
+            "scenario": "subgraph_stream",
+            "rs": {name: item["rs"] for name, item in cases.items()},
+            "lg": {name: item["lg"] for name, item in cases.items()},
+            "equivalent": all(item["rs"] == item["lg"] for item in cases.values()),
+            "bench": {
+                "rs": measure(lambda: rs_run("updates")),
+                "lg": measure(lambda: lg_run("updates")),
+            },
+        }
+    ]
+
+
 def run_tasks_stream_scenario() -> list[dict]:
     """`stream_mode="tasks"` payloads carry id/name/input/triggers (no extra keys)."""
 
@@ -3530,6 +3590,7 @@ def main() -> None:
         run_validation_node_scenario,
         run_wrap_tool_call_scenario,
         run_tasks_stream_scenario,
+        run_subgraph_stream_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
