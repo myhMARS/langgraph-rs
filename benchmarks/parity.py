@@ -488,6 +488,64 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_checkpoint_history_scenario() -> list[dict]:
+    """`get_state_history` entries: step, source, values and next for a plain run."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        app = graph.compile(checkpointer=LgInMemorySaver())
+        config = {"configurable": {"thread_id": "history-lg"}}
+        app.invoke({"value": 0}, config)
+        return [
+            {
+                "step": item.metadata.get("step"),
+                "source": item.metadata.get("source"),
+                "values": dict(item.values),
+                "next": list(item.next),
+            }
+            for item in app.get_state_history(config)
+        ]
+
+    def rs_run():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", rs.END)
+        app = graph.compile(checkpointer=rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "history-rs"}}
+        app.invoke({"value": 0}, config)
+        return [
+            {
+                "step": item.metadata.get("step"),
+                "source": item.metadata.get("source"),
+                "values": dict(item.values),
+                "next": list(item.next),
+            }
+            for item in app.get_state_history(config)
+        ]
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "checkpoint_history",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_error_types_scenario() -> list[dict]:
     """Conflicting writes raise `InvalidUpdateError`, and a `Command` on a fresh thread starts."""
 
@@ -4068,6 +4126,7 @@ def main() -> None:
         run_store_surface_scenario,
         run_saver_surface_scenario,
         run_error_types_scenario,
+        run_checkpoint_history_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

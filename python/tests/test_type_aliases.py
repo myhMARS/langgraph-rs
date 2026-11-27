@@ -1800,3 +1800,23 @@ class ErrorTypeParityTest(unittest.TestCase):
             ),
             {"value": 1, "seen": {"value": 9}},
         )
+
+
+class InputCheckpointTest(unittest.TestCase):
+    """The `source="input"` checkpoint holds no values, as in LangGraph."""
+
+    def test_input_checkpoint_is_empty(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "input-checkpoint"}}
+        app.invoke({"value": 0}, config)
+        history = list(app.get_state_history(config))
+        sources = [item.metadata["source"] for item in history]
+        self.assertEqual(sources, ["loop", "loop", "loop", "input"])
+        self.assertEqual(history[-1].values, {})
+        self.assertEqual(history[0].values, {"value": 2})

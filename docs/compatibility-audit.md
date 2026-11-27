@@ -3102,4 +3102,24 @@ Also checked and already matching: the recursion limit (`GraphRecursionError` wi
 message), unknown channel writes (silently ignored in both), and `get_state` for an unknown thread.
 
 Suite is 497 tests (two new), parity 66/66 (new `error_types` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 142: the `source="input"` checkpoint holds no values
+
+`get_state_history` yielded four entries, but the oldest one (`metadata.source == "input"`, `step ==
+-1`) carried the raw input where LangGraph leaves it empty:
+
+```
+step: 2 | source: loop  | values: {'value': 2} | next: ()
+step: 1 | source: loop  | values: {'value': 1} | next: ('b',)
+step: 0 | source: loop  | values: {'value': 0} | next: ('a',)
+step: -1| source: input | values: {}            | next: ('__start__',)   # was {'value': 0}
+```
+
+The input lands in the post-input checkpoint that immediately follows; the `input` checkpoint only
+carries the `__start__` task.
+
+Also verified as matching: `durability` (`sync` / `async` / `exit`) produces 4 / 4 / 1 checkpoints with
+the same values, and multi-mode streaming (`["updates", "values", "custom"]`, v1 and v2) yields the
+same sequence of parts.
+
+Suite is 498 tests (one new), parity 67/67 (new `checkpoint_history` scenario), examples 10/10, clippy
+and Rust tests clean.

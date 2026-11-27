@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 检查点历史里的 `source="input"` 条目（2026-11-27）
+
+LG 的 `get_state_history` 会给出四条记录，其中 `metadata.source == "input"`、`step == -1` 的那条
+**通道值是空的**：
+
+```
+step: 2 | source: loop  | values: {'value': 2} | next: ()
+step: 1 | source: loop  | values: {'value': 1} | next: ('b',)
+step: 0 | source: loop  | values: {'value': 0} | next: ('a',)
+step: -1| source: input | values: {}            | next: ('__start__',)
+```
+
+扩展把原始输入写进了这条记录（`values: {'value': 0}`）。现在与 LG 一致 —— 输入落在紧随其后的
+post-input 检查点里，`input` 检查点只有 `__start__` 这个待执行任务。
+
+`durability` 三种取值（`sync` / `async` / `exit`）的检查点数量也与 LG 相同（4 / 4 / 1）。
+
 ### 错误类型与"新线程上的 Command"（2026-11-27）
 
 **并发写冲突**：LG 抛 `InvalidUpdateError`，消息是
