@@ -332,6 +332,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 策略对象的参数与 `repr`（2026-11-27）
+
+LG 的三个策略都是 dataclass，构造参数与 `repr` 是用户可见的接口。扩展此前：
+
+- `RetryPolicy` 没有 `__repr__`（打印成 `<builtins.RetryPolicy object at 0x...>`），`jitter` 只收
+  float（LG 是 **bool**，默认 `True`），`retry_on` 只收字符串名（LG 收 **异常类/元组**）
+- `CachePolicy` 缺 `key_func`（LG 的核心字段之一）
+- `TimeoutPolicy` 缺 `refresh_on`（`"auto"` / `"heartbeat"`）
+
+现在全部对齐，`repr` 也按 LG 的字段顺序输出：
+
+```
+RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=())
+CachePolicy(key_func=None, ttl=60)
+TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on="auto")
+```
+
+`retry_on=(ValueError, KeyError)` 会按名字参与匹配（已端到端验证 `max_attempts=2` 重试成功）。
+
 ### `snapshot.tasks` / `snapshot.interrupts` 的元素类型（2026-11-27）
 
 LG 的 `snapshot.tasks[i]` 是 **`PregelTask` named tuple**（字段 `id, name, path, error,

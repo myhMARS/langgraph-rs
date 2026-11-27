@@ -1644,3 +1644,32 @@ class SnapshotTaskObjectsTest(unittest.TestCase):
         interrupt = self._snapshot().interrupts[0]
         self.assertTrue(interrupt.id)
         self.assertEqual(interrupt.value, "q?")
+
+
+class PolicySurfaceTest(unittest.TestCase):
+    """`RetryPolicy` / `CachePolicy` / `TimeoutPolicy` match LangGraph's fields and reprs."""
+
+    def test_retry_policy_takes_bool_jitter_and_exception_types(self):
+        policy = langgraph_rs.RetryPolicy(jitter=False, retry_on=(ValueError, KeyError))
+        text = repr(policy)
+        self.assertIn("jitter=False", text)
+        self.assertIn("'ValueError'", text)
+        self.assertTrue(text.startswith("RetryPolicy(initial_interval="))
+
+    def test_retry_policy_default_jitter_is_true(self):
+        self.assertIn("jitter=True", repr(langgraph_rs.RetryPolicy()))
+
+    def test_cache_policy_exposes_key_func(self):
+        def key(state):
+            return "k"
+
+        policy = langgraph_rs.CachePolicy(ttl=30, key_func=key)
+        self.assertIs(policy.key_func, key)
+        self.assertIn("ttl=30", repr(policy))
+
+    def test_timeout_policy_exposes_refresh_on(self):
+        self.assertEqual(langgraph_rs.TimeoutPolicy().refresh_on, "auto")
+        self.assertEqual(
+            langgraph_rs.TimeoutPolicy(run_timeout=0.5, refresh_on="heartbeat").refresh_on,
+            "heartbeat",
+        )

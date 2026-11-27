@@ -51,6 +51,31 @@ impl PySend {
     }
 }
 
+/// Exception names accepted by `RetryPolicy(retry_on=...)`.
+///
+/// LangGraph takes exception types (or a tuple of them) or a callable; the engine matches by name.
+fn retry_on_names(value: &Bound<'_, PyAny>) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut push = |item: &Bound<'_, PyAny>| {
+        let name = item
+            .getattr("__name__")
+            .ok()
+            .and_then(|name| name.extract::<String>().ok())
+            .unwrap_or_else(|| item.to_string());
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    };
+    if let Ok(items) = value.try_iter() {
+        for item in items.flatten() {
+            push(&item);
+        }
+    } else {
+        push(value);
+    }
+    names
+}
+
 /// Seconds described by a `Send(timeout=...)` value: a number, a `timedelta` or a
 /// `TimeoutPolicy(run_timeout=...)`.
 fn send_timeout_seconds(_py: Python<'_>, value: &Bound<'_, PyAny>) -> Option<f64> {
@@ -445,23 +470,52 @@ pub struct PyRetryPolicy {
 #[pymethods]
 impl PyRetryPolicy {
     #[new]
-    #[pyo3(signature = (max_attempts=3, initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, jitter=0.0, retry_on=None))]
+    #[pyo3(signature = (max_attempts=3, initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, jitter=None, retry_on=None))]
     fn new(
         max_attempts: usize,
         initial_interval: f64,
         backoff_factor: f64,
         max_interval: f64,
-        jitter: f64,
-        retry_on: Option<Vec<String>>,
+        jitter: Option<&Bound<'_, PyAny>>,
+        retry_on: Option<&Bound<'_, PyAny>>,
     ) -> Self {
         Self {
             max_attempts,
             initial_interval,
             backoff_factor,
             max_interval,
-            jitter,
-            retry_on: retry_on.unwrap_or_default(),
+            // LangGraph's `jitter` is a bool (default True); the engine wants a factor.
+            jitter: match jitter {
+                None => 1.0,
+                Some(value) => match value.extract::<bool>() {
+                    Ok(true) => 1.0,
+                    Ok(false) => 0.0,
+                    Err(_) => value.extract::<f64>().unwrap_or(0.0),
+                },
+            },
+            retry_on: retry_on.map(retry_on_names).unwrap_or_default(),
         }
+    }
+
+    fn __repr__(&self) -> String {
+        let jitter = if self.jitter > 0.0 { "True" } else { "False" };
+        let retry_on = if self.retry_on.is_empty() {
+            "()".to_string()
+        } else {
+            format!(
+                "({})",
+                self.retry_on
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        format!(
+            "RetryPolicy(initial_interval={}, backoff_factor={:?}, max_interval={:?}, \
+             max_attempts={}, jitter={jitter}, retry_on={retry_on})",
+            self.initial_interval, self.backoff_factor, self.max_interval, self.max_attempts
+        )
     }
 }
 
@@ -478,18 +532,47 @@ impl PyRetryPolicy {
 
 /// Cache policy usable as `StateGraph.add_node(..., cache_policy=CachePolicy(...))`.
 #[pyclass(name = "CachePolicy", from_py_object)]
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct PyCachePolicy {
     #[pyo3(get)]
     pub ttl: Option<u64>,
+    /// Custom cache-key function (LangGraph's `CachePolicy.key_func`).
+    #[pyo3(get)]
+    pub key_func: Option<Py<PyAny>>,
 }
 
 #[pymethods]
 impl PyCachePolicy {
     #[new]
-    #[pyo3(signature = (ttl=None))]
-    fn new(ttl: Option<u64>) -> Self {
-        Self { ttl }
+    #[pyo3(signature = (ttl=None, key_func=None))]
+    fn new(ttl: Option<u64>, key_func: Option<Py<PyAny>>) -> Self {
+        Self { ttl, key_func }
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        let key_func = match &self.key_func {
+            Some(value) => value
+                .bind(py)
+                .repr()
+                .map(|text| text.to_string())
+                .unwrap_or_else(|_| "None".to_string()),
+            None => "None".to_string(),
+        };
+        let ttl = match self.ttl {
+            Some(ttl) => ttl.to_string(),
+            None => "None".to_string(),
+        };
+        format!("CachePolicy(key_func={key_func}, ttl={ttl})")
+    }
+}
+
+impl Clone for PyCachePolicy {
+    fn clone(&self) -> Self {
+        // `Py<PyAny>` needs the GIL to clone a reference, so the callable is rebound lazily.
+        Self {
+            ttl: self.ttl,
+            key_func: Python::attach(|py| self.key_func.as_ref().map(|value| value.clone_ref(py))),
+        }
     }
 }
 
@@ -511,16 +594,20 @@ pub struct PyTimeoutPolicy {
     pub run_timeout: Option<f64>,
     #[pyo3(get)]
     pub idle_timeout: Option<f64>,
+    /// What refreshes the idle timer (`"auto"` or `"heartbeat"`), as in LangGraph.
+    #[pyo3(get)]
+    pub refresh_on: String,
 }
 
 #[pymethods]
 impl PyTimeoutPolicy {
     #[new]
-    #[pyo3(signature = (run_timeout=None, idle_timeout=None))]
+    #[pyo3(signature = (run_timeout=None, idle_timeout=None, refresh_on="auto"))]
     fn new(
         py: Python<'_>,
         run_timeout: Option<&Bound<'_, PyAny>>,
         idle_timeout: Option<&Bound<'_, PyAny>>,
+        refresh_on: &str,
     ) -> Self {
         let seconds = |value: Option<&Bound<'_, PyAny>>| {
             value.and_then(|value| send_timeout_seconds(py, value))
@@ -528,7 +615,21 @@ impl PyTimeoutPolicy {
         Self {
             run_timeout: seconds(run_timeout),
             idle_timeout: seconds(idle_timeout),
+            refresh_on: refresh_on.to_string(),
         }
+    }
+
+    fn __repr__(&self) -> String {
+        let show = |value: Option<f64>| match value {
+            Some(seconds) => seconds.to_string(),
+            None => "None".to_string(),
+        };
+        format!(
+            "TimeoutPolicy(run_timeout={}, idle_timeout={}, refresh_on={:?})",
+            show(self.run_timeout),
+            show(self.idle_timeout),
+            self.refresh_on
+        )
     }
 }
 

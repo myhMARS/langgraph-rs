@@ -3018,4 +3018,28 @@ are immutable. That split also fixed the child-state embedding, which had silent
 once tasks stopped being dicts.
 
 Suite is 483 tests (two new), parity 62/62 (new `snapshot_objects` scenario), examples 10/10, clippy
+and Rust tests clean.### Round 138: policy objects take LangGraph's argument types
+
+LangGraph's `RetryPolicy`, `CachePolicy` and `TimeoutPolicy` are dataclasses, so their constructor
+arguments and reprs are user-visible. The extension was missing pieces of both:
+
+* `RetryPolicy` had no `__repr__` (`<builtins.RetryPolicy object at 0x...>`), took `jitter` only as a
+  float where LangGraph uses a **bool** defaulting to `True`, and accepted `retry_on` only as strings
+  where LangGraph takes **exception types or tuples of them**;
+* `CachePolicy` had no `key_func`, one of its main fields;
+* `TimeoutPolicy` had no `refresh_on` (`"auto"` / `"heartbeat"`).
+
+All three now match, with reprs in LangGraph's field order:
+
+```
+RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, max_attempts=3, jitter=True, retry_on=())
+CachePolicy(key_func=None, ttl=60)
+TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on="auto")
+```
+
+`retry_on=(ValueError, KeyError)` participates by name and was verified end to end (a flaky node
+succeeds on the second attempt). `TimeoutPolicy.refresh_on` is stored and exposed; the engine's idle
+watchdog already refreshes on progress, which is what `"auto"` means.
+
+Suite is 487 tests (four new), parity 63/63 (new `policy_surface` scenario), examples 10/10, clippy
 and Rust tests clean.

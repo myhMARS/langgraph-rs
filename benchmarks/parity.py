@@ -482,6 +482,53 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_policy_surface_scenario() -> list[dict]:
+    """Policy objects accept LangGraph's argument types and expose the same fields."""
+
+    def collect(build_retry, build_cache, build_timeout, timeout_cls):
+        retry = build_retry()
+        cache = build_cache()
+        timeout = build_timeout()
+        return {
+            "retry_jitter": "jitter=True" in repr(retry),
+            "retry_on": "ValueError" in repr(retry),
+            "cache_key_func": getattr(cache, "key_func", None) is not None,
+            "cache_ttl": cache.ttl,
+            "timeout_refresh_on": getattr(timeout, "refresh_on", None),
+            "timeout_cls": timeout_cls,
+        }
+
+    def key(state):
+        return "k"
+
+    lg_value = collect(
+        lambda: LgRetryPolicy(jitter=False, retry_on=(ValueError,)),
+        lambda: LgCachePolicy(ttl=30, key_func=key),
+        lambda: LgTimeoutPolicy(run_timeout=0.5),
+        "lg",
+    )
+    rs_value = collect(
+        lambda: rs.RetryPolicy(jitter=False, retry_on=(ValueError,)),
+        lambda: rs.CachePolicy(ttl=30, key_func=key),
+        lambda: rs.TimeoutPolicy(run_timeout=0.5),
+        "rs",
+    )
+    lg_value["timeout_cls"] = "policy"
+    rs_value["timeout_cls"] = "policy"
+    return [
+        {
+            "scenario": "policy_surface",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs.RetryPolicy(jitter=False, retry_on=(ValueError,))),
+                "lg": measure(lambda: LgRetryPolicy(jitter=False, retry_on=(ValueError,))),
+            },
+        }
+    ]
+
+
 def run_snapshot_objects_scenario() -> list[dict]:
     """`snapshot.tasks` are `PregelTask` objects and `snapshot.interrupts` are `Interrupt`s."""
 
@@ -3836,6 +3883,7 @@ def main() -> None:
         run_react_agent_loop_scenario,
         run_snapshot_shape_scenario,
         run_snapshot_objects_scenario,
+        run_policy_surface_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,
