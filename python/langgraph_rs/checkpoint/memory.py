@@ -131,6 +131,66 @@ class InMemorySaver(_NATIVE_SAVER):
     async def adelete_thread(self, thread_id: str) -> None:
         self.delete_thread(thread_id)
 
+    async def aget(self, config: Any) -> Checkpoint | None:
+        return self.get(config)
+
+    async def aput(self, *args: Any, **kwargs: Any) -> None:
+        return self.put(*args, **kwargs)
+
+    async def aput_writes(self, *args: Any, **kwargs: Any) -> None:
+        return self.put_writes(*args, **kwargs)
+
+    # LangGraph's `InMemorySaver` does not support these; the surface exists so callers get the
+    # same error instead of `AttributeError`.
+    def prune(self, thread_ids: Any, *, strategy: str = "keep_latest") -> None:
+        raise NotImplementedError
+
+    async def aprune(self, thread_ids: Any, *, strategy: str = "keep_latest") -> None:
+        raise NotImplementedError
+
+    def delete_for_runs(self, run_ids: Any) -> None:
+        raise NotImplementedError
+
+    async def adelete_for_runs(self, run_ids: Any) -> None:
+        raise NotImplementedError
+
+    def get_delta_channel_history(
+        self, *, config: Any, channels: Any
+    ) -> dict[str, Any]:
+        """Per-channel write log, shaped like LangGraph's delta history."""
+        found = self.get_tuple(config)
+        writes = list(getattr(found, "pending_writes", None) or [])
+        history: dict[str, Any] = {}
+        for channel in channels:
+            entries = [
+                (task_id, name, value)
+                for task_id, name, value in writes
+                if name == channel
+            ]
+            history[channel] = {"writes": entries, "seed": 0}
+        return history
+
+    async def aget_delta_channel_history(
+        self, *, config: Any, channels: Any
+    ) -> dict[str, Any]:
+        return self.get_delta_channel_history(config=config, channels=channels)
+
+    @property
+    def config_specs(self) -> list[Any]:
+        return []
+
+    @property
+    def serde(self) -> Any:
+        from .serde.jsonplus import JsonPlusSerializer
+
+        if getattr(self, "_serde_instance", None) is None:
+            self._serde_instance = JsonPlusSerializer()
+        return self._serde_instance
+
+    def with_allowlist(self, extra_allowlist: Any) -> Any:
+        """Return this saver; the engine's serializer already accepts every type."""
+        return self
+
 
 class AsyncInMemorySaver(_NATIVE_ASYNC_SAVER):
     """Async flavour: the engine's async saver with the same read API."""

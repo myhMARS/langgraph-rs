@@ -2241,3 +2241,46 @@ class MessageObjectsTest(unittest.TestCase):
             self.assertIsInstance(out["messages"][0], dict)
         finally:
             langgraph_rs._set_messages_objects(True)
+
+
+class SaverSurfaceTest2(unittest.TestCase):
+    """The rest of LangGraph's `BaseCheckpointSaver` surface."""
+
+    @staticmethod
+    def _saver():
+        saver = langgraph_rs.InMemorySaver()
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "surface"}}
+        app.invoke({"value": 0}, config)
+        return saver, config
+
+    def test_get_returns_the_raw_checkpoint(self):
+        saver, config = self._saver()
+        checkpoint = saver.get(config)
+        self.assertIsInstance(checkpoint, dict)
+        for key in ("id", "channel_values", "channel_versions", "v", "ts"):
+            self.assertIn(key, checkpoint)
+
+    def test_delta_channel_history_shape(self):
+        saver, config = self._saver()
+        history = saver.get_delta_channel_history(config=config, channels=["value"])
+        self.assertEqual(sorted(history), ["value"])
+        self.assertEqual(sorted(history["value"]), ["seed", "writes"])
+        self.assertEqual(history["value"]["seed"], 0)
+
+    def test_config_specs_and_serde(self):
+        saver, _ = self._saver()
+        self.assertEqual(saver.config_specs, [])
+        self.assertEqual(type(saver.serde).__name__, "JsonPlusSerializer")
+        self.assertIs(saver.with_allowlist([("x",)]), saver)
+
+    def test_unsupported_operations_raise(self):
+        saver, _ = self._saver()
+        with self.assertRaises(NotImplementedError):
+            saver.prune(["surface"])
+        with self.assertRaises(NotImplementedError):
+            saver.delete_for_runs(["run"])

@@ -501,6 +501,63 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_saver_surface_scenario() -> list[dict]:
+    """`BaseCheckpointSaver` surface: `get`, delta history, config specs, unsupported calls."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        if engine == "lg":
+            saver = LgInMemorySaver()
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+            graph.add_edge(START, "a")
+            graph.add_edge("a", END)
+        else:
+            saver = rs.InMemorySaver()
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("a", lambda state: {"value": (state.get("value") or 0) + 1})
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", rs.END)
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "surface"}}
+        app.invoke({"value": 0}, config)
+        checkpoint = saver.get(config)
+        history = saver.get_delta_channel_history(config=config, channels=["value"])
+        unsupported = {}
+        for name, argument in (("prune", ["surface"]), ("delete_for_runs", ["run"])):
+            try:
+                getattr(saver, name)(argument)
+                unsupported[name] = "ok"
+            except NotImplementedError:
+                unsupported[name] = "NotImplementedError"
+        return {
+            "get_is_dict": isinstance(checkpoint, dict),
+            "get_keys": sorted(checkpoint) if isinstance(checkpoint, dict) else None,
+            "history_channels": sorted(history),
+            "history_keys": sorted(history["value"]),
+            "history_seed": history["value"]["seed"],
+            "config_specs": list(saver.config_specs),
+            "serde": type(saver.serde).__name__,
+            "unsupported": unsupported,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "saver_surface_2",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_message_objects_scenario() -> list[dict]:
     """`add_messages` channels hold LangChain message objects, not dictionaries."""
 
@@ -4653,6 +4710,7 @@ def main() -> None:
         run_get_config_scenario,
         run_react_helper_scenario,
         run_message_objects_scenario,
+        run_saver_surface_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

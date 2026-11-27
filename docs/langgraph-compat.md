@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### saver 的其余 API 面（2026-11-27）
+
+`InMemorySaver` 补齐到 LG 的 `BaseCheckpointSaver` 形状：
+
+| 方法 / 属性 | 行为（与 LG 一致） |
+|---|---|
+| `get(config)` / `aget` | 返回**原始 checkpoint dict**（`id`/`channel_values`/`channel_versions`/`v`/`ts`/`versions_seen`） |
+| `get_delta_channel_history(config=..., channels=[...])` | `{channel: {'writes': [...], 'seed': 0}}` |
+| `config_specs` | `[]` |
+| `serde` | `JsonPlusSerializer` 实例 |
+| `with_allowlist(extra)` | 返回自身 |
+| `prune` / `aprune` / `delete_for_runs` / `adelete_for_runs` | `NotImplementedError`（LG 的 `InMemorySaver` 就是这样） |
+
+**一处已知差异**：`get_delta_channel_history` 的 `writes` 在扩展里通常为空 —— 引擎按步
+**快照完整值**（不使用 delta 日志），只有真正的 pending writes（例如中断时）才会出现在这里。
+
 ### 消息对象：`add_messages` 通道返回 LangChain 消息对象（2026-11-27）
 
 LG 的 `add_messages` 通道里装的是 **LangChain 消息对象**；扩展此前返回 dict

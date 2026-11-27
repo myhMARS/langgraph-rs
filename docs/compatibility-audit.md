@@ -3353,4 +3353,20 @@ now use LangGraph's attribute API; the parity scenarios were made representation
 as a transitional escape hatch (default on).
 
 Suite is 518 tests (three new), parity 74/74 (new `message_objects` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 154: the rest of the `BaseCheckpointSaver` surface
+
+`InMemorySaver` was missing `serde`, `config_specs`, `with_allowlist`, `aget`, `get_delta_channel_history`
+and the `prune` / `delete_for_runs` family, so LangGraph code touching them hit `AttributeError`
+instead of the documented behaviour. LangGraph's own `InMemorySaver` raises `NotImplementedError` for
+`prune` and `delete_for_runs`, so the extension now matches that instead of silently succeeding.
+
+Added and verified against LangGraph: `get`/`aget` (raw checkpoint dict), `get_delta_channel_history`
+(`{channel: {"writes": [...], "seed": 0}}`), `config_specs == []`, a real `JsonPlusSerializer` behind
+`serde`, `with_allowlist` returning the saver, and `NotImplementedError` for the unsupported calls.
+
+Known difference, documented: `get_delta_channel_history`'s `writes` list is normally empty because the
+engine snapshots full values per superstep rather than keeping a delta log; only genuine pending writes
+(interrupts) show up there.
+
+Suite is 522 tests (four new), parity 75/75 (new `saver_surface_2` scenario), examples 10/10, clippy and
+Rust tests clean.
