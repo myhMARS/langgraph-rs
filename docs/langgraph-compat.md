@@ -177,6 +177,22 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 超时诊断信息修正 + `AsyncStateGraph.astream` 缓冲确认（2026-11-27，第 123 轮）
+
+**诊断修正**：idle 超时的错误消息此前在同步构建器路径上报 `0.000s`（数值丢失，因为 Python 侧看门狗抛的
+`TimeoutError` 没带时长）。现在标记串带上秒数（`langgraph-rs idle timeout 0.12`），映射层解析后：
+
+```
+改前: Node 's' exceeded its idle timeout of 0.000s without making progress (elapsed: 0.000s).
+现在: Node 's' exceeded its idle timeout of 0.120s without making progress (elapsed: 0.120s).
+```
+
+两个引擎现在一致。
+
+**`AsyncStateGraph.astream` 仍是收集式**（两个 0.2s 节点在 0.41s 一起到）。已确认不是包装层问题：直接调用原生
+`_AsyncStreamChunks` 也是缓冲的，说明异步执行器里"spawn 运行 + 通道"的组合在当前 tokio 运行时下不会交错推进
+（同步路径用独立工作线程，因此正常）。修它需要给异步运行单独的运行时/线程模型，风险大于收益，因此记录在案。
+
 ### `subgraphs=True` 的流也逐 superstep（2026-11-27，第 122 轮）
 
 第 120 轮审计的 F1 已修：`subgraphs=True` 的流现在走 live 路径。关键是命名空间包装放在**转换层**而不是

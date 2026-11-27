@@ -4878,3 +4878,25 @@ class SubgraphIncrementalStreamTest(unittest.TestCase):
         self.assertEqual(chunks[1], ((), {"sub": {"value": 7}}))
         # The namespaced chunk arrives when the inner node finishes, well before the tail does.
         self.assertLess(stamps[0], stamps[-1] - 0.1)
+
+
+class IdleTimeoutDiagnosticsTest(unittest.TestCase):
+    """`NodeTimeoutError` reports the real idle interval on both engines."""
+
+    def test_message_reports_the_interval(self):
+        import asyncio
+
+        async def quiet(state):
+            await asyncio.sleep(0.3)
+            return {"value": 1}
+
+        for builder in (langgraph_rs.StateGraph, langgraph_rs.AsyncStateGraph):
+            graph = builder({"value": "last_value"})
+            graph.add_node("s", quiet, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.12))
+            graph.add_edge(langgraph_rs.START, "s")
+            graph.add_edge("s", langgraph_rs.END)
+            with self.assertRaises(Exception) as raised:
+                asyncio.run(graph.compile().ainvoke({"value": 0}))
+            message = str(raised.exception)
+            self.assertIn("0.120s", message)
+            self.assertNotIn("0.000s", message)

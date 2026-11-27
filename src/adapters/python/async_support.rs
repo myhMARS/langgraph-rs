@@ -50,7 +50,7 @@ pub(crate) fn wrap_awaitable_idle(
                 await task
             except BaseException:
                 pass
-            raise TimeoutError('langgraph-rs idle timeout')
+            raise TimeoutError(f'langgraph-rs idle timeout {seconds}')
         last = current
 wrapper = _idle_wait",
         None,
@@ -94,7 +94,7 @@ pub(crate) fn wrap_async_idle(
                 await task
             except BaseException:
                 pass
-            raise TimeoutError('langgraph-rs idle timeout')
+            raise TimeoutError(f'langgraph-rs idle timeout {seconds}')
         last = current
 wrapper = _idle_wrapper",
         None,

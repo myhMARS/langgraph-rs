@@ -4554,3 +4554,18 @@ One item from the audit remains: `AsyncStateGraph.astream` still collects (two 0
 0.41 s), which points at the async executor's sink timing rather than the Python wrapper.
 
 Suite is 667 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 220: idle-timeout diagnostics, and why `AsyncStateGraph.astream` buffers
+
+The idle watchdog's `TimeoutError` carried no duration, so `NodeTimeoutError` reported
+`idle timeout of 0.000s … (elapsed: 0.000s)` on the sync-builder path. The marker now includes the
+seconds (`langgraph-rs idle timeout 0.12`), the mapper parses it, and both engines report
+`0.120s / 0.120s`.
+
+`AsyncStateGraph.astream` buffering was confirmed to be engine-side, not wrapper-side: calling the native
+`_AsyncStreamChunks` directly also delivers both chunks at 0.42 s for two 0.2 s nodes. The async executor's
+"spawn the run + mpsc channel" combination does not interleave with the receiver under the current tokio
+runtime, whereas the sync path's dedicated worker thread does. Fixing it needs a different runtime/thread
+model for the async path; recorded rather than attempted.
+
+Suite is 668 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.
