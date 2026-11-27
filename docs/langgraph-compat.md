@@ -332,6 +332,19 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 错误文案与空线程快照（2026-11-27）
+
+三处小差异，均已对齐：
+
+| 场景 | LG | 改前 | 现在 |
+|---|---|---|---|
+| 节点返回非 dict | `Expected dict, got not a dict` + `INVALID_GRAPH_NODE_RETURN_VALUE` | 带引号 `'not a dict'`，且错误码是 `INVALID_CONCURRENT_GRAPH_UPDATE` | 逐字一致 |
+| `get_state()` 查不存在的线程 | `config={'configurable': {'thread_id': ...}}`（回显请求） | `config={}` | 回显请求 |
+| 裸调 `interrupt()` | `RuntimeError: Called get_config outside of a runnable context` | `RuntimeError: interrupt() can only be called from inside a running graph node` | **保留我们的文案**（LG 那句暴露内部实现，信息量更低；异常类型一致） |
+
+顺带确认已一致：并行 `interrupt` + `Command(resume={id: value})` 按 id 恢复、`Command(graph=Command.PARENT)`
+子图交回父图、`update_state` 的历史行（step/source/values/next）。
+
 ### `source="input"` 检查点带上一轮的值（2026-11-27）
 
 LG 的历史里，每一轮开头的 `source="input"` 检查点存的是**本轮开始前**线程的值（首轮为空）。扩展此前一律存空，

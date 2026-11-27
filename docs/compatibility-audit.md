@@ -3742,3 +3742,22 @@ Verified as already equal in the same pass: `durability` history lengths (`sync`
 
 Suite is 577 tests (two new), parity 86/86 (new `checkpoint_shape` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 176: error text, troubleshooting codes and the empty-thread snapshot
+
+Three small differences found by comparing error paths:
+
+* A node returning a non-dict now reports `Expected dict, got not a dict` (the value's text, not its
+  repr, as LangGraph does) and its troubleshooting URL points at `INVALID_GRAPH_NODE_RETURN_VALUE`
+  instead of `INVALID_CONCURRENT_GRAPH_UPDATE`, which stays for real concurrent-write conflicts.
+* `get_state()` on a thread with no checkpoints now echoes the requested config
+  (`{'configurable': {'thread_id': ...}}`) like LangGraph; it used to be empty.
+* A bare `interrupt()` outside a node keeps the extension's clearer message
+  (`interrupt() can only be called from inside a running graph node`) rather than LangGraph's
+  `Called get_config outside of a runnable context`, which leaks an internal detail. Same type.
+
+Confirmed equal in the same pass: parallel interrupts resumed by id map
+(`Command(resume={id: value})`), `Command(graph=Command.PARENT)` handoff from a subgraph, and the
+`update_state` history rows.
+
+Suite is 580 tests, parity 86/86, examples 10/10, clippy and Rust tests clean.

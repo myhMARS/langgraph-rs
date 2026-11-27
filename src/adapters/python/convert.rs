@@ -449,9 +449,11 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
         // A node that returns something other than an update mapping is an invalid update.
         Error::Node { message, .. } if invalid_node_output(&message).is_some() => {
             let detail = invalid_node_output(&message).unwrap_or_default();
+            // A node returning something other than a dict/Command is LangGraph's
+            // INVALID_GRAPH_NODE_RETURN_VALUE, not a concurrent-update conflict.
             let text = format!(
                 "{detail}\nFor troubleshooting, visit: \
-                 https://docs.langchain.com/oss/python/langgraph/errors/INVALID_CONCURRENT_GRAPH_UPDATE"
+                 https://docs.langchain.com/oss/python/langgraph/errors/INVALID_GRAPH_NODE_RETURN_VALUE"
             );
             match py
                 .import("langgraph_rs.errors")
@@ -766,12 +768,13 @@ pub(super) fn node_output_from_py(obj: &Bound<'_, PyAny>) -> PyResult<NodeOutput
         return Ok(output);
     }
     let dict = obj.cast::<PyDict>().map_err(|_| {
-        // LangGraph reports this as `InvalidUpdateError: Expected dict, got <repr>`.
-        let repr = obj
-            .repr()
+        // LangGraph reports this as `InvalidUpdateError: Expected dict, got <value>`, using the
+        // value's own text rather than its repr (a string shows unquoted).
+        let shown = obj
+            .str()
             .map(|text| text.to_string())
             .unwrap_or_else(|_| "?".to_string());
-        PyTypeError::new_err(format!("Expected dict, got {repr}"))
+        PyTypeError::new_err(format!("Expected dict, got {shown}"))
     })?;
 
     let mut output = NodeOutput::new();

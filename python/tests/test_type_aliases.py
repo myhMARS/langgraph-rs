@@ -3126,3 +3126,43 @@ class InputCheckpointValuesTest(unittest.TestCase):
                 (-1, "input", {}, ("__start__",)),
             ],
         )
+
+
+class ErrorShapeTest(unittest.TestCase):
+    """Error texts and the empty-thread snapshot match LangGraph."""
+
+    def test_invalid_node_output_message(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("bad", lambda state: "not a dict")
+        graph.add_edge(langgraph_rs.START, "bad")
+        graph.add_edge("bad", langgraph_rs.END)
+        with self.assertRaises(Exception) as raised:
+            graph.compile().invoke({"value": 0})
+        lines = str(raised.exception).splitlines()
+        self.assertEqual(lines[0], "Expected dict, got not a dict")
+        # LangGraph appends its troubleshooting link with the node-return code.
+        self.assertIn("INVALID_GRAPH_NODE_RETURN_VALUE", lines[1])
+
+    def test_concurrent_update_code(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("a", langgraph_rs.END)
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(Exception) as raised:
+            graph.compile().invoke({"value": 0})
+        self.assertIn("INVALID_CONCURRENT_GRAPH_UPDATE", str(raised.exception))
+
+    def test_unknown_thread_echoes_the_requested_config(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        snapshot = app.get_state({"configurable": {"thread_id": "nope"}})
+        self.assertEqual(snapshot.values, {})
+        self.assertEqual(snapshot.config, {"configurable": {"thread_id": "nope"}})
+        self.assertIsNone(snapshot.metadata)
+        self.assertEqual(snapshot.next, ())

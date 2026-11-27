@@ -455,7 +455,7 @@ def _with_runtime(action: Any) -> Any:
     return wrapper
 
 
-def _state_snapshot(raw: Any) -> Any:
+def _state_snapshot(raw: Any, requested: Any = None) -> Any:
     """Turn the engine's snapshot dict into LangGraph's `StateSnapshot` named tuple."""
     if raw is None:
         return None
@@ -464,6 +464,14 @@ def _state_snapshot(raw: Any) -> Any:
     snapshot = StateSnapshot.from_native(raw)
     if snapshot is None:
         return None
+    if not snapshot.config and requested is not None:
+        # LangGraph echoes the requested config for a thread with no checkpoints.
+        configurable = {}
+        if isinstance(requested, dict):
+            configurable = dict(requested.get("configurable") or {})
+        elif isinstance(requested, str):
+            configurable = {"thread_id": requested}
+        snapshot = snapshot._replace(config={"configurable": configurable})
     if snapshot.tasks:
         tasks = []
         for task in snapshot.tasks:
@@ -598,7 +606,8 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return _state_snapshot(
             self._inner.get_state(
                 thread_id, checkpoint_ns=checkpoint_ns, subgraphs=subgraphs
-            )
+            ),
+            thread_id if config is None else config,
         )
 
     def get_state_history(self, thread_id: Any, before: Any = None, limit: Any = None, checkpoint_ns: Any = None, filter: Any = None) -> Any:
