@@ -2523,3 +2523,29 @@ class GraphValidationErrorTest(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             graph.compile()
         self.assertEqual(str(raised.exception), "Node `a` already present.")
+
+
+class DeprecationWarningTest(unittest.TestCase):
+    """Deprecated helpers warn with LangGraph's category and wording."""
+
+    def test_validation_node_warns(self):
+        from langchain_core.tools import tool
+
+        from langgraph_rs.warnings import LangGraphDeprecatedSinceV10
+
+        @tool
+        def t(a: int) -> int:
+            """T."""
+            return a
+
+        with self.assertWarns(LangGraphDeprecatedSinceV10) as caught:
+            langgraph_rs.prebuilt.ValidationNode([t])
+        self.assertIn("ValidationNode is deprecated", str(caught.warning))
+
+    def test_message_graph_warns(self):
+        from langgraph_rs.warnings import LangGraphDeprecatedSinceV10
+
+        with self.assertWarns(LangGraphDeprecatedSinceV10) as caught:
+            langgraph_rs.MessageGraph()
+        self.assertIn("MessageGraph is deprecated", str(caught.warning))
+        self.assertIn("StateGraph with a `messages` key", str(caught.warning))

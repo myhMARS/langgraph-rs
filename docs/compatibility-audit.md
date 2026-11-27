@@ -3532,4 +3532,17 @@ One test that asserted the old `RuntimeError` was updated, and a new parity scen
 exception type and message for all four cases.
 
 Suite is 539 tests (four new), parity 79/79 (new `validation_errors` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 163: deprecation warnings match LangGraph
+
+LangGraph warns with `LangGraphDeprecatedSinceV10` for `ValidationNode` and `MessageGraph` — the
+category users filter on. The extension stayed silent, so
+`warnings.filterwarnings("ignore", category=LangGraphDeprecatedSinceV10)` had no effect on it.
+
+Both now warn with LangGraph's exact wording and category, verified by a parity scenario that
+captures the warnings from both engines and compares `(category, message)` pairs.
+
+Also noted: LangGraph 1.2 removed `create_tool_calling_executor` (it raises `ImportError`); the
+extension still ships the alias, which is a harmless superset.
+
+Suite is 541 tests (two new), parity 80/80 (new `deprecations` scenario), examples 10/10, clippy and
+Rust tests clean.

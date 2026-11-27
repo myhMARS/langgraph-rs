@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 弃用警告（2026-11-27）
+
+LG 对 `ValidationNode`、`MessageGraph` 发出 `LangGraphDeprecatedSinceV10` 警告（这正是让
+`warnings.filterwarnings("ignore", category=LangGraphDeprecatedSinceV10)` 生效的关键）。扩展此前不警告。
+
+现在两者逐字一致：
+
+```
+ValidationNode  → ValidationNode is deprecated. Please use `create_agent` from `langchain.agents`
+                  with custom tool error handling. Deprecated in LangGraph V1.0 to be removed in V2.0.
+MessageGraph    → MessageGraph is deprecated in LangGraph v1.0.0, to be removed in v2.0.0.
+                  Please use StateGraph with a `messages` key instead. ...
+```
+
+另外记录：LG 1.2 已移除 `create_tool_calling_executor`（`ImportError`），扩展仍保留该别名（超集）。
+
 ### 图构建错误：`ValueError` + LG 文案（2026-11-27）
 
 LG 把所有图构建期的问题都报成 `ValueError`；扩展此前一律 `RuntimeError: graph validation failed: ...`，

@@ -17,6 +17,17 @@ import inspect
 from typing import Any
 
 from .._compat import NATIVE, module_getattr, re_export
+
+try:  # LangGraph ships its own deprecation category; reuse it so `filterwarnings` matches.
+    from ..warnings import LangGraphDeprecatedSinceV10 as _DeprecatedV1
+except Exception:  # pragma: no cover - warnings module always exists
+    _DeprecatedV1 = DeprecationWarning
+
+
+def _warn_deprecated_v1(message: str) -> None:
+    import warnings
+
+    warnings.warn(message, _DeprecatedV1, stacklevel=3)
 from ..constants import CONF, TASKS
 
 CONFIG_KEY_SEND = "__pregel_send"
@@ -159,10 +170,18 @@ def _unwrap_output(value: Any) -> Any:
     return value
 
 
+_MESSAGE_GRAPH_DEPRECATION = (
+    "MessageGraph is deprecated in LangGraph v1.0.0, to be removed in v2.0.0. "
+    "Please use StateGraph with a `messages` key instead. "
+    "Deprecated in LangGraph V1.0 to be removed in V2.0."
+)
+
+
 class MessageGraph(StateGraph):
     """A ``StateGraph`` whose entire state is a single, append-only message list."""
 
     def __new__(cls) -> "MessageGraph":
+        _warn_deprecated_v1(_MESSAGE_GRAPH_DEPRECATION)
         # The Rust builder exposes `#[new]`, so a Python subclass has to forward the schema here.
         return super().__new__(cls, dict(_MESSAGES_SCHEMA))
 

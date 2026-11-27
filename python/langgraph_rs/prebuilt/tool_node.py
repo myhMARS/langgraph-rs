@@ -164,6 +164,21 @@ class ValidationNode:
         name: str = "validation",
         tags: list[str] | None = None,
     ) -> None:
+        # LangGraph deprecated this class in v1.0; warn with the same category and wording.
+        try:
+            from ..warnings import LangGraphDeprecatedSinceV10 as _Deprecated
+
+            import warnings
+
+            warnings.warn(
+                "ValidationNode is deprecated. Please use `create_agent` from `langchain.agents` "
+                "with custom tool error handling. Deprecated in LangGraph V1.0 to be removed in "
+                "V2.0.",
+                _Deprecated,
+                stacklevel=2,
+            )
+        except Exception:  # pragma: no cover - warnings module always exists
+            pass
         self.schemas = list(schemas)
         self.format_error = format_error
         self.name = name

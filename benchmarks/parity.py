@@ -501,6 +501,53 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_deprecation_scenario() -> list[dict]:
+    """Deprecated helpers warn with LangGraph's category and wording."""
+
+    def collect(engine):
+        import warnings
+        from langchain_core.tools import tool
+
+        @tool
+        def t(a: int) -> int:
+            """T."""
+            return a
+
+        if engine == "lg":
+            from langgraph.graph import MessageGraph as Builder
+            from langgraph.prebuilt import ValidationNode as Validator
+        else:
+            from langgraph_rs.graph.message import MessageGraph as Builder
+            from langgraph_rs.prebuilt import ValidationNode as Validator
+
+        results = {}
+        for label, build in (
+            ("validation_node", lambda: Validator([t])),
+            ("message_graph", lambda: Builder()),
+        ):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                build()
+            results[label] = [
+                (type(item.message).__name__, str(item.message)) for item in caught
+            ]
+        return results
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "deprecations",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_validation_error_scenario() -> list[dict]:
     """Graph-construction problems raise `ValueError` with the same wording."""
 
@@ -4949,6 +4996,7 @@ def main() -> None:
         run_subgraph_debug_scenario,
         run_tool_runtime_scenario,
         run_validation_error_scenario,
+        run_deprecation_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
