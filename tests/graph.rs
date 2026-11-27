@@ -444,11 +444,18 @@ fn a_checkpointer_is_required_for_thread_bound_runs() {
         .compile()
         .unwrap();
 
-    let error = graph
+    // LangGraph ignores `configurable.thread_id` when the graph cannot checkpoint, so a plain run
+    // still succeeds; only a resume needs the stored state.
+    let output = graph
         .invoke(
             &WorkState::default(),
             &RunConfig::new().with_thread("thread"),
         )
+        .expect("a thread id without a checkpointer must not fail the run");
+    assert_eq!(output.value, 0);
+
+    let error = graph
+        .resume("thread", serde_json::json!(1))
         .unwrap_err();
     assert!(matches!(error, Error::MissingCheckpointer(_)));
 }

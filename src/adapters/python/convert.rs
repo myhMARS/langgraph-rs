@@ -460,6 +460,15 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
                 None => PyRuntimeError::new_err(strip_python_error_marker(&message)),
             }
         }
+        // LangGraph's message here is exactly "No checkpointer set"; `Command(resume=...)` has its
+        // own wording and stays a `RuntimeError`.
+        Error::MissingCheckpointer(message) => {
+            if message.contains("Command(resume") {
+                PyRuntimeError::new_err(format!("{message} without checkpointer"))
+            } else {
+                PyValueError::new_err("No checkpointer set")
+            }
+        }
         // LangGraph reports every graph-construction problem as a `ValueError`.
         Error::Validation(message) => PyValueError::new_err(message),
         other => PyRuntimeError::new_err(strip_python_error_marker(&other.to_string())),

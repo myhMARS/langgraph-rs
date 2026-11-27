@@ -579,7 +579,18 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return graph
 
     # -- run methods ------------------------------------------------------------------------
+    def _reject_resume_without_checkpointer(self, input: Any) -> None:
+        """LangGraph refuses `Command(resume=...)` when the graph has no checkpointer."""
+        try:
+            from ..types import Command as _Command
+        except Exception:  # pragma: no cover - types module always exists
+            return
+        if isinstance(input, _Command) and getattr(input, "resume", None) is not None:
+            if not self._inner.has_checkpointer():
+                raise RuntimeError("Cannot use Command(resume=...) without checkpointer")
+
     def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
+        self._reject_resume_without_checkpointer(input)
         call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
         result = self._inner.invoke(input, **call)
         _dispatch_lifecycle(self._inner, config)
@@ -597,6 +608,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         )
 
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
+        self._reject_resume_without_checkpointer(input)
         call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
         try:
             chunks = self._inner.stream(input, **call)

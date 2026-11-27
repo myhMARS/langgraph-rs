@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 无检查点器时的行为、`Command` 字段、缓存 TTL（2026-11-27）
+
+三处一起修：
+
+**1. 有 `thread_id` 但没编译 checkpointer**：LG 直接**忽略**这个配置照常运行；扩展此前报
+`RuntimeError: a run bound to a thread_id requires a checkpointer`。现在与 LG 一致 —— 只有
+`Command(resume=...)` 这种真正需要历史状态的情况才报错：
+`RuntimeError: Cannot use Command(resume=...) without checkpointer`。
+`get_state()` 这种情况下两边都报 `ValueError: No checkpointer set`。
+
+**2. `Command` 的字段**：LG 是 dataclass，`update` / `resume` / `goto` / `graph` 都可读；扩展此前
+只能读 `PARENT`，`cmd.resume` 直接 `AttributeError`。现在四个字段都是可读属性。
+
+**3. `CachePolicy(ttl=0.2)`**：LG 的 `ttl` 是**秒（可为小数）**；扩展只接受整数，
+`TypeError: 'float' object cannot be interpreted as an integer`。现在按秒接受浮点，TTL 过期语义与 LG
+一致（`calls == [1, 1]`）。
+
 ### 弃用警告（2026-11-27）
 
 LG 对 `ValidationNode`、`MessageGraph` 发出 `LangGraphDeprecatedSinceV10` 警告（这正是让

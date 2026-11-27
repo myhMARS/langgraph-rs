@@ -3545,4 +3545,22 @@ Also noted: LangGraph 1.2 removed `create_tool_calling_executor` (it raises `Imp
 extension still ships the alias, which is a harmless superset.
 
 Suite is 541 tests (two new), parity 80/80 (new `deprecations` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 164: no-checkpointer runs, `Command` fields, fractional cache TTL
+
+Three divergences found by probing LangGraph directly:
+
+1. **`thread_id` without a checkpointer** — LangGraph ignores the setting and runs normally; the
+   extension raised `RuntimeError: a run bound to a thread_id requires a checkpointer`. Only
+   `Command(resume=...)` genuinely needs stored state, so that case now raises LangGraph's
+   `RuntimeError: Cannot use Command(resume=...) without checkpointer`, and `get_state` reports
+   `ValueError: No checkpointer set` (also matched). A Rust test that asserted the old behaviour was
+   updated.
+2. **`Command` fields** — LangGraph's dataclass exposes `update` / `resume` / `goto` / `graph`; the
+   native class only had `PARENT`, so `cmd.resume` raised `AttributeError`. All four are readable now
+   (`dir()` matches LangGraph exactly).
+3. **`CachePolicy(ttl=...)`** — LangGraph's TTL is in seconds and accepts fractions; the extension
+   required an integer and raised `TypeError: 'float' object cannot be interpreted as an integer` on
+   `ttl=0.2`. It is now an `f64` of seconds, and expiry behaves like LangGraph (`calls == [1, 1]`).
+
+Suite is 545 tests (four new), parity 81/81 (new `no_checkpointer` scenario), examples 10/10, clippy
+and Rust tests clean.

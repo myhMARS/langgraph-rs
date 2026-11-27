@@ -64,8 +64,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     // Message channels are returned to Python as LangChain message objects.
     crate::runtime::context::set_messages_channels(backend.schema().messages_channel_names());
 
-    if thread_id.is_some() && !backend.has_checkpointer() {
-        return Err(Error::MissingCheckpointer("a run bound to a thread_id"));
+    // LangGraph only complains when the run genuinely needs stored state: a plain run ignores
+    // `configurable.thread_id` when the graph has no checkpointer, while `Command(resume=...)`
+    // cannot work without one.
+    if !backend.has_checkpointer()
+        && matches!(&start, StartInput::Resume { resume: Some(_), .. })
+    {
+        return Err(Error::MissingCheckpointer("Cannot use Command(resume=...)"));
     }
 
     let fresh = matches!(

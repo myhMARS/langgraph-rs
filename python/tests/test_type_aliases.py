@@ -2549,3 +2549,60 @@ class DeprecationWarningTest(unittest.TestCase):
             langgraph_rs.MessageGraph()
         self.assertIn("MessageGraph is deprecated", str(caught.warning))
         self.assertIn("StateGraph with a `messages` key", str(caught.warning))
+
+
+class CommandSurfaceTest(unittest.TestCase):
+    """`Command` and the no-checkpointer paths behave like LangGraph."""
+
+    def test_command_attributes(self):
+        command = langgraph_rs.Command(resume=1, update={"a": 2}, goto="x")
+        self.assertEqual(
+            sorted(name for name in dir(command) if not name.startswith("_")),
+            ["PARENT", "goto", "graph", "resume", "update"],
+        )
+        self.assertEqual(command.resume, 1)
+        self.assertEqual(command.update, {"a": 2})
+        self.assertEqual(command.goto, "x")
+        self.assertIsNone(command.graph)
+        self.assertEqual(langgraph_rs.Command.PARENT, "__parent__")
+
+    def test_thread_id_without_checkpointer_is_ignored(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+        # LangGraph ignores the thread id when the graph cannot checkpoint.
+        self.assertEqual(app.invoke({"value": 0}, {"configurable": {"thread_id": "t1"}}), {"value": 1})
+        with self.assertRaises(ValueError) as raised:
+            app.get_state({"configurable": {"thread_id": "t1"}})
+        self.assertEqual(str(raised.exception), "No checkpointer set")
+
+    def test_resume_without_checkpointer_is_rejected(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", lambda state: {"value": langgraph_rs.interrupt("q")})
+        graph.add_edge(langgraph_rs.START, "ask")
+        graph.add_edge("ask", langgraph_rs.END)
+        with self.assertRaises(RuntimeError) as raised:
+            graph.compile().invoke(
+                langgraph_rs.Command(resume=1), {"configurable": {"thread_id": "t2"}}
+            )
+        self.assertEqual(
+            str(raised.exception), "Cannot use Command(resume=...) without checkpointer"
+        )
+
+    def test_cache_ttl_accepts_fractions(self):
+        calls = []
+
+        def node(state):
+            calls.append(state["value"])
+            return {"value": state["value"] + 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", node, cache_policy=langgraph_rs.CachePolicy(ttl=0.2))
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(cache=langgraph_rs.InMemoryCache())
+        app.invoke({"value": 1})
+        app.invoke({"value": 1})
+        self.assertEqual(calls, [1])

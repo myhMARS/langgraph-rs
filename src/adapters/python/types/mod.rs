@@ -225,9 +225,17 @@ pub(crate) const PARENT_GRAPH: &str = "__parent__";
 #[pyclass(name = "Command")]
 #[derive(Default)]
 pub struct PyCommand {
+    /// Target graph (`Command.PARENT` for a parent graph).
+    #[pyo3(get)]
     pub graph: Option<String>,
+    /// Values to merge into the state.
+    #[pyo3(get)]
     pub update: Option<Py<PyAny>>,
+    /// Value returned by the pending `interrupt()`.
+    #[pyo3(get)]
     pub resume: Option<Py<PyAny>>,
+    /// Where to go next (a node name, `Send`, or a list of them).
+    #[pyo3(get)]
     pub goto: Option<Py<PyAny>>,
 }
 
@@ -587,8 +595,9 @@ impl PyRetryPolicy {
 #[pyclass(name = "CachePolicy", from_py_object)]
 #[derive(Default)]
 pub struct PyCachePolicy {
+    /// Time-to-live in seconds (LangGraph accepts a float here).
     #[pyo3(get)]
-    pub ttl: Option<u64>,
+    pub ttl: Option<f64>,
     /// Custom cache-key function (LangGraph's `CachePolicy.key_func`).
     #[pyo3(get)]
     pub key_func: Option<Py<PyAny>>,
@@ -598,7 +607,7 @@ pub struct PyCachePolicy {
 impl PyCachePolicy {
     #[new]
     #[pyo3(signature = (ttl=None, key_func=None))]
-    fn new(ttl: Option<u64>, key_func: Option<Py<PyAny>>) -> Self {
+    fn new(ttl: Option<f64>, key_func: Option<Py<PyAny>>) -> Self {
         Self { ttl, key_func }
     }
 
@@ -633,7 +642,8 @@ impl PyCachePolicy {
     pub(super) fn to_policy(&self) -> crate::_internal::cache::CachePolicy {
         let policy = crate::_internal::cache::CachePolicy::new();
         let policy = match self.ttl {
-            Some(ttl) => policy.with_ttl(Duration::from_secs(ttl)),
+            // LangGraph states the TTL in seconds and accepts fractions.
+            Some(ttl) => policy.with_ttl(Duration::from_secs_f64(ttl.max(0.0))),
             None => policy,
         };
         match &self.key_func {

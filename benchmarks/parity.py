@@ -501,6 +501,62 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_no_checkpointer_scenario() -> list[dict]:
+    """A thread id without a checkpointer is ignored; `Command` fields are readable."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        command_cls = LgCommand if engine == "lg" else rs.Command
+        command = command_cls(resume=1, update={"a": 2}, goto="x")
+        result = {
+            "command_attrs": sorted(
+                name for name in dir(command) if not name.startswith("_")
+            ),
+            "command_values": [
+                command.resume,
+                dict(command.update),
+                command.goto,
+                command.graph,
+            ],
+        }
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_edge(START, "a")
+            graph.add_edge("a", END)
+            app = graph.compile()
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", rs.END)
+            app = graph.compile()
+        config = {"configurable": {"thread_id": "no-saver"}}
+        result["invoke"] = dict(app.invoke({"value": 0}, config))
+        try:
+            app.get_state(config)
+            result["get_state"] = None
+        except BaseException as exc:
+            result["get_state"] = [type(exc).__name__, str(exc)]
+        return result
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "no_checkpointer",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_deprecation_scenario() -> list[dict]:
     """Deprecated helpers warn with LangGraph's category and wording."""
 
@@ -4997,6 +5053,7 @@ def main() -> None:
         run_tool_runtime_scenario,
         run_validation_error_scenario,
         run_deprecation_scenario,
+        run_no_checkpointer_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
