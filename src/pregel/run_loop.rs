@@ -287,6 +287,13 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     }
     let mut iteration = 0usize;
     loop {
+        // `RunControl::abort()` stops the run at a superstep boundary, so the state stays
+        // consistent instead of being torn down mid-superstep.
+        if config.control.as_ref().is_some_and(|control| control.is_aborted()) {
+            return Err(crate::_internal::error::Error::other(
+                "the run was aborted; no further supersteps were executed",
+            ));
+        }
         // Barriers already open before this superstep are consumed by it (LangGraph
         // consumes a named barrier when the value is read).
         let armed_barriers = step::open_named_barriers(backend.schema(), &values);
@@ -365,6 +372,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             }
         };
         drain_collector(backend, &setup, sink);
+
+        // A run aborted while this superstep was executing discards its result, so the thread
+        // keeps the previous checkpoint (LangGraph's cancelled runs behave the same way).
+        if config.control.as_ref().is_some_and(|control| control.is_aborted()) {
+            return Err(crate::_internal::error::Error::other(
+                "the run was aborted; the current superstep was discarded",
+            ));
+        }
 
         let interrupts = interrupts_from(&outcomes);
         if !interrupts.is_empty() {

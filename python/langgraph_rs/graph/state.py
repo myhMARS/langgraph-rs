@@ -548,6 +548,16 @@ def _coerce_messages_input(input: Any, keys: list[str]) -> Any:
     return out
 
 
+def _new_run_control() -> Any:
+    """A native `RunControl`, so a cancelled await can abort the run."""
+    try:
+        from .._compat import NATIVE
+
+        return NATIVE.RunControl()
+    except Exception:  # pragma: no cover - older builds
+        return None
+
+
 def _stream_thread(config: Any, thread_id: Any) -> Any:
     """The thread a stream call targets, from either keyword or config dict."""
     if isinstance(thread_id, str):
@@ -994,9 +1004,20 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             _dispatch_lifecycle(self._inner, config)
             return result
         # Python drives Rust: the synchronous call runs on a worker thread so the loop stays free.
-        return await asyncio.to_thread(
-            self.invoke, input, config, durability=durability, **kwargs
+        # A cancelled await aborts the run at the next superstep boundary instead of letting it
+        # finish unattended (LangGraph stops immediately; a worker thread cannot be interrupted).
+        control = _new_run_control()
+        future = asyncio.ensure_future(
+            asyncio.to_thread(
+                self.invoke, input, config, durability=durability, control=control, **kwargs
+            )
         )
+        try:
+            return await future
+        except asyncio.CancelledError:
+            if control is not None:
+                control.abort()
+            raise
 
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
         self._reject_resume_without_checkpointer(input)

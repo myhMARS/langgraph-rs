@@ -4446,3 +4446,20 @@ Remaining from the async audit: cancellation does not propagate into the running
 executor's timeout semantics differ from the sync executor's.
 
 Suite is 659 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 214: `RunControl.abort()` was a no-op
+
+The async audit reported that cancelling an `ainvoke` left the run completing and committing. The
+underlying defect was bigger: `RunControl.abort()` was never checked by the engine at all, despite its
+docstring promising to abort at the next superstep boundary.
+
+The loop now checks `is_aborted()` before starting a superstep and again after `run_superstep` returns
+but before the checkpoint is written, discarding an aborted superstep's result. The facade creates a
+control for `ainvoke` and aborts it when the await is cancelled.
+
+Measured on a two-node graph cancelled during the second node: the node still completes (a worker thread
+cannot be interrupted), but its result is discarded — the thread stays at the previous checkpoint with
+`next=("b",)` instead of committing `{"value": 2}`. LangGraph stops the in-flight coroutine outright; for a
+thread-backed executor our guarantee is "completed supersteps are kept, the in-flight one is dropped".
+
+Suite is 661 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.

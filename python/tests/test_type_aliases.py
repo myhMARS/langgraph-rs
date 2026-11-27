@@ -4662,3 +4662,61 @@ class AsyncEventsWithAsyncNodesTest(unittest.TestCase):
                 "on_chain_end",
             ],
         )
+
+
+class RunControlAbortTest(unittest.TestCase):
+    """`RunControl.abort()` stops the run and discards the in-flight superstep."""
+
+    def test_abort_before_a_superstep(self):
+        ran = []
+
+        def first(state):
+            ran.append("first")
+            return {"value": 1}
+
+        def second(state):
+            ran.append("second")
+            return {"value": 2}
+
+        control = langgraph_rs.RunControl()
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: (control.abort(), {"value": 1})[1])
+        graph.add_node("b", second)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(Exception):
+            graph.compile().invoke({"value": 0}, control=control)
+        self.assertEqual(ran, [])
+
+    def test_cancelled_await_keeps_the_last_completed_superstep(self):
+        import asyncio
+
+        async def slow(state):
+            await asyncio.sleep(0.4)
+            return {"value": 2}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", slow)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "cancel-discard"}}
+
+        async def run():
+            task = asyncio.create_task(app.ainvoke({"value": 0}, config))
+            await asyncio.sleep(0.1)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            await asyncio.sleep(0.6)
+            return app.get_state(config)
+
+        state = asyncio.run(run())
+        # The aborted superstep is discarded: the thread sits at the previous checkpoint.
+        self.assertEqual(state.values, {"value": 1})
+        self.assertEqual(state.next, ("b",))

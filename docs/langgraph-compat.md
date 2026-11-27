@@ -177,6 +177,28 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 取消传播：`RunControl.abort()` 真正生效（2026-11-27，第 117 轮）
+
+第 106 轮审计指出"`task.cancel()` 后节点仍跑完并写检查点"。本轮发现**更基础的缺陷**：
+`RunControl.abort()` 一直是**空操作** —— 引擎从不检查 `is_aborted()`（文档却写着"在下一个 superstep 边界中止"）。
+
+修法两步：
+
+1. 循环开头检查 `is_aborted()`：已中止则不再开始新的 superstep。
+2. `run_superstep` 返回后、写检查点前再检查一次：**丢弃本次 superstep 的结果**，线程停留在上一个检查点。
+
+门面在 `ainvoke` 的 await 被取消时调用 `abort()`，实测：
+
+```
+两个节点（a 立即完成、b 耗时 0.5s），0.15s 时 cancel
+改前: 节点全跑完，state={'value': 2}, next=()
+现在: 节点 b 仍在飞行（线程无法被杀），但结果被丢弃
+      state={'value': 1}, next=('b',)   ← 停留在上一个检查点，可从 b 继续
+```
+
+与 LG 的差异：LG 能真正中断在飞的节点（协程取消），我们的同步执行器在**工作线程**里跑，无法中断；但我们保证
+"已完成的 superstep 一致保留、未完成的丢弃"，比"跑完并提交"正确得多。
+
 ### `astream_events(v2)` 支持异步节点（2026-11-27，第 116 轮）
 
 第 106 轮异步审计列出的 `astream_events(version="v2")` + `async def` 节点直接报
