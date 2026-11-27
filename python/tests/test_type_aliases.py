@@ -3785,3 +3785,56 @@ class ToolOutputDeltaTest(unittest.TestCase):
             ["tool-started", "tool-output-delta", "tool-finished"],
         )
         self.assertEqual(events[1]["delta"], {"partial": "q"})
+
+
+class IdleTimeoutKindTest(unittest.TestCase):
+    """An idle-only policy is a progress bound, not a wall-clock run timeout."""
+
+    def test_progress_keeps_the_node_alive(self):
+        import asyncio
+
+        async def chatty(state):
+            for index in range(15):
+                langgraph_rs.custom({"tick": index})
+                await asyncio.sleep(0.02)
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "chatty", chatty, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.05)
+        )
+        graph.add_edge(langgraph_rs.START, "chatty")
+        graph.add_edge("chatty", langgraph_rs.END)
+        self.assertEqual(asyncio.run(graph.compile().ainvoke({"value": 0})), {"value": 1})
+
+    def test_idle_without_progress_reports_idle(self):
+        import asyncio
+
+        async def silent(state):
+            await asyncio.sleep(5)
+            return {"value": 1}
+
+        graph = langgraph_rs.AsyncStateGraph({"value": "last_value"})
+        graph.add_node(
+            "silent", silent, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.05)
+        )
+        graph.add_edge(langgraph_rs.START, "silent")
+        graph.add_edge("silent", langgraph_rs.END)
+        with self.assertRaises(Exception) as raised:
+            asyncio.run(graph.compile().ainvoke({"value": 0}))
+        self.assertIn("idle timeout", str(raised.exception))
+
+    def test_run_timeout_is_still_enforced(self):
+        import asyncio
+
+        async def slow(state):
+            await asyncio.sleep(5)
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("slow", slow, timeout=langgraph_rs.TimeoutPolicy(run_timeout=0.05))
+        graph.add_edge(langgraph_rs.START, "slow")
+        graph.add_edge("slow", langgraph_rs.END)
+        with self.assertRaises(Exception) as raised:
+            asyncio.run(graph.compile().ainvoke({"value": 0}))
+        self.assertIn("run timeout", str(raised.exception))

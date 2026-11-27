@@ -678,13 +678,29 @@ async fn run_with_idle_timeout(
     progress: Arc<std::sync::atomic::AtomicU64>,
     node: String,
 ) -> Result<crate::_internal::node::NodeOutput> {
+    // Progress can come from either side of the bridge: the async context counts its own helpers
+    // while `custom()` / `message()` bump the sync task's counter. Both must reset the timer, so
+    // the combined value is what the watchdog watches.
+    let current = || {
+        let _ = &progress;
+        // The Python bridge only exists with the `python` feature; without it the async context's
+        // own counter is the only source of progress.
+        #[cfg(feature = "python")]
+        {
+            crate::adapters::python::async_graph::async_builder::current_progress()
+        }
+        #[cfg(not(feature = "python"))]
+        {
+            progress.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    };
     loop {
-        let seen = progress.load(std::sync::atomic::Ordering::Relaxed);
+        let seen = current();
         tokio::select! {
             result = &mut future => return result,
             _ = tokio::time::sleep(idle) => {
-                if progress.load(std::sync::atomic::Ordering::Relaxed) == seen {
-                    return Err(Error::Timeout {
+                if current() == seen {
+                    return Err(Error::IdleTimeout {
                         node,
                         millis: idle.as_millis() as u64,
                     });

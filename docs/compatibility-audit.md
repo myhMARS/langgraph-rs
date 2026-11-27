@@ -4015,3 +4015,27 @@ Applying `writes` over `seed` reconstructs the same state in both, which is what
 
 Suite is 612 tests, parity 90/90 (new `delta_history` scenario), examples 10/10, clippy and Rust tests
 clean.
+
+### Round 193: the last reverse import, and an idle-timeout defect
+
+An **independent audit** of the reverse-call rule found a violation the earlier `grep` pattern missed:
+`src/adapters/python/async_support.rs` embedded Python source containing
+`from langgraph_rs import _progress_counter` (a `from` import, not `import("...")`, so the guard could
+not see it). The counter is now captured from the module object at `#[pymodule]` init and passed into
+the generated wrapper as a default argument, so the generated code imports nothing.
+
+Fixing that surfaced a real defect behind the same code path: an `idle_timeout`-only policy was
+enforced as a *wall-clock run timeout* on the blocking path, so a node that kept reporting progress
+was killed anyway (`exceeded its run timeout of 0.050s`). Two changes:
+
+* `TimeoutPolicy::effective_timeout()` now returns only `run_timeout`; a progress bound cannot be
+  enforced while a blocking call is in flight.
+* The async idle watchdog reads the **combined** progress counter (`custom()` / `message()` bump the
+  sync side, which the watchdog previously ignored) and reports `IdleTimeout`, giving LangGraph's
+  `exceeded its idle timeout of 0.050s without making progress` wording.
+
+Verified: a node ticking `custom()` every 20 ms with `idle_timeout=0.05` now completes; a silent node
+reports the idle wording; `run_timeout` still fires. A Rust test that asserted the old wording was
+updated.
+
+Suite is 615 tests (three new), parity 90/90, examples 10/10, clippy and Rust tests clean.

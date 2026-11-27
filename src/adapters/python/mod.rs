@@ -17,7 +17,7 @@
 //! ```
 
 #[cfg(feature = "python-async")]
-mod async_graph;
+pub(crate) mod async_graph;
 mod convert;
 mod custom_saver;
 mod custom_store;
@@ -440,6 +440,10 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_triggers, module)?)?;
     module.add_function(wrap_pyfunction!(current_step, module)?)?;
     module.add_function(wrap_pyfunction!(_progress_counter, module)?)?;
+    // Keep a reference so the async wrappers can call it without importing the shim package.
+    async_graph::async_support::remember_progress_counter(
+        module.getattr("_progress_counter")?.unbind(),
+    );
     module.add_function(wrap_pyfunction!(current_checkpoint_ns, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;

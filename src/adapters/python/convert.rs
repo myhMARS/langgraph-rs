@@ -688,7 +688,36 @@ pub(crate) fn strip_python_error_marker(message: &str) -> String {
     }
 }
 
+/// Marker the async idle watchdog puts in its `TimeoutError` message.
+const IDLE_TIMEOUT_MARKER: &str = "langgraph-rs idle timeout";
+
 pub(super) fn pyerr_to_error(py: Python<'_>, error: PyErr) -> Error {
+    // The idle watchdog raises a marker `TimeoutError`; keep it distinct from a run timeout even on
+    // the path that drives an awaitable directly (async nodes of a sync builder).
+    if error.is_instance_of::<pyo3::exceptions::PyTimeoutError>(py)
+        && error
+            .value(py)
+            .str()
+            .map(|text| text.to_string().contains(IDLE_TIMEOUT_MARKER))
+            .unwrap_or(false)
+    {
+        let millis = error
+            .value(py)
+            .str()
+            .ok()
+            .and_then(|text| {
+                text.to_string()
+                    .split_whitespace()
+                    .last()
+                    .and_then(|last| last.trim_end_matches(')').parse::<f64>().ok())
+            })
+            .map(|seconds| (seconds * 1000.0) as u64)
+            .unwrap_or_default();
+        return Error::IdleTimeout {
+            node: crate::runtime::context::current_node().unwrap_or_default(),
+            millis,
+        };
+    }
     if error.is_instance_of::<GraphInterrupt>(py) {
         let args = error.value(py).getattr("args").ok();
         let value = args

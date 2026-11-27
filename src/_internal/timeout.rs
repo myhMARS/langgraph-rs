@@ -37,9 +37,14 @@ impl TimeoutPolicy {
         self.run_timeout
     }
 
-    /// Timeout applied to one attempt: `run_timeout`, falling back to `idle_timeout`.
+    /// Timeout applied to one attempt by the blocking execution path.
+    ///
+    /// Only a real `run_timeout` counts: an `idle_timeout` is a *progress* bound, and the blocking
+    /// path cannot observe progress while the node call is in flight, so enforcing it as a wall
+    /// clock would kill nodes that are working. Idle policies are enforced by the progress-aware
+    /// executors instead.
     pub fn effective_timeout(&self) -> Option<Duration> {
-        self.run_timeout.or(self.idle_timeout)
+        self.run_timeout
     }
 
     /// Configured idle timeout.

@@ -177,6 +177,24 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 空闲超时（idle_timeout）语义修正（2026-11-27）
+
+独立审计发现的真实缺陷：`TimeoutPolicy(idle_timeout=...)` 在**阻塞执行路径**上被当成**整体运行时限**，
+于是"一直在报进度"的节点也会被杀掉：
+
+```
+节点每 20ms custom() 一次，总耗时 0.3s，idle_timeout=0.05
+改前: NodeTimeoutError: exceeded its run timeout of 0.050s
+改后: 正常完成（空闲看门狗只在真的没进度时触发）
+```
+
+两处修正：
+
+1. `effective_timeout()` 只认 `run_timeout` —— 阻塞路径看不到进度，拿空闲值当整体时限会误杀正常节点
+2. 异步看门狗 `run_with_idle_timeout` 改用**合并后**的进度计数（`custom()` / `message()` 在同步侧
+   自增，此前看门狗只读异步侧），并且失败时返回 `IdleTimeout`（文案为 LG 的
+   `exceeded its idle timeout of 0.050s without making progress`）
+
 ### `get_delta_channel_history` 的语义（2026-11-27）
 
 引擎按检查点快照**完整值**，没有 LG 的增量 blob 存储，所以：`writes` 为空、`seed` = 该通道在检查点里的值。

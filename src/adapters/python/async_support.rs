@@ -4,6 +4,23 @@ use pyo3::types::PyAny;
 
 use super::*;
 
+/// The native `_progress_counter` function, captured when the module is created.
+///
+/// The idle wrapper needs a callable, and generated Python code must not import the shim package to
+/// find one, so the module stores it here at init time.
+static PROGRESS_COUNTER: std::sync::OnceLock<Py<PyAny>> = std::sync::OnceLock::new();
+
+/// Remember the `_progress_counter` callable (called from `#[pymodule]` init).
+pub(crate) fn remember_progress_counter(value: Py<PyAny>) {
+    let _ = PROGRESS_COUNTER.set(value);
+}
+
+fn progress_counter(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    PROGRESS_COUNTER.get().map(|value| value.clone_ref(py)).ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("progress counter is not initialised")
+    })
+}
+
 /// Wrap a coroutine so it fails when it stops reporting progress for `seconds`.
 ///
 /// Python coroutines run on a private loop, so the executor's idle watchdog cannot poll them;
@@ -17,10 +34,11 @@ pub(crate) fn wrap_async_idle(
     let locals = pyo3::types::PyDict::new(py);
     locals.set_item("fn", function.bind(py))?;
     locals.set_item("seconds", seconds.max(0.001))?;
+    // The counter is handed in as a default argument: generated code must not import the shim.
+    locals.set_item("_progress_counter", progress_counter(py)?)?;
     py.run(
-        c"async def _idle_wrapper(state, fn=fn, seconds=seconds):
+        c"async def _idle_wrapper(state, fn=fn, seconds=seconds, _progress_counter=_progress_counter):
     import asyncio
-    from langgraph_rs import _progress_counter
     task = asyncio.ensure_future(fn(state))
     last = _progress_counter()
     while True:

@@ -247,6 +247,9 @@ async fn async_idle_timeout_fires_without_progress() {
         .run(&JsonState::new(), &RunConfig::new())
         .await
         .unwrap_err();
+    // The retry bookkeeping wraps task failures, so the kind shows up in the message; it must be
+    // the idle wording, not a plain run timeout.
     let message = error.to_string().to_lowercase();
-    assert!(message.contains("timed out") || message.contains("timeout"));
+    assert!(message.contains("idle"), "unexpected message: {message}");
+    assert!(!message.contains("timed out after"), "unexpected message: {message}");
 }
