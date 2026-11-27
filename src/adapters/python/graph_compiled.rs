@@ -142,8 +142,16 @@ impl PyLiveStream {
                     if !chunk.is_interrupt() && !chunk.matches_modes_strict(&self.requested) {
                         continue;
                     }
+                    // Match the eager `stream()` conversion exactly (no subgraph re-wrapping;
+                    // the event pipeline already handles namespaces).
                     let converted =
-                        convert_stream_chunks(py, &[*chunk], self.v2, &self.requested)?;
+                        crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+                            py,
+                            &[*chunk],
+                            self.v2,
+                            &self.requested,
+                            false,
+                        )?;
                     if let Some(item) = converted.into_iter().next() {
                         return Ok(Some(item));
                     }
@@ -154,6 +162,49 @@ impl PyLiveStream {
     }
 }
 
+
+/// Record LangGraph's "pending" interrupt lifecycle event for a paused live run.
+///
+/// The eager `stream()`/`invoke()` paths do this after the run; without it a streamed pause never
+/// reaches `GraphCallbackHandler`.
+fn record_paused_run(
+    graph: &crate::CompiledGraph<JsonState>,
+    config: &crate::graph::RunConfig,
+    target: &std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::lifecycle::LifecycleEvent>>>,
+    sink: Option<&crate::_internal::lifecycle::LifecycleSink>,
+) {
+    let Some(thread_id) = config.thread_id.as_deref() else {
+        return;
+    };
+    // The eager path installs a sink on the run config; the live worker has to make its own.
+    let owned;
+    let sink = match sink {
+        Some(sink) => sink,
+        None => {
+            owned = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            &owned
+        }
+    };
+    let Ok(Some(snapshot)) = graph.get_state(thread_id) else {
+        return;
+    };
+    if snapshot.interrupted && !snapshot.interrupts.is_empty() {
+        crate::adapters::python::graph_pause::record_interrupt(
+            Some(sink),
+            "pending",
+            &snapshot.checkpoint_id,
+            "",
+            &snapshot.interrupts,
+        );
+    }
+    let Ok(mut recorded) = sink.lock() else {
+        return;
+    };
+    if let Ok(mut events) = target.lock() {
+        events.clear();
+        events.append(&mut recorded);
+    }
+}
 
 impl Drop for PyLiveStream {
     fn drop(&mut self) {
@@ -367,6 +418,10 @@ impl PyCompiledGraph {
         let graph = self.graph.clone();
         let modes_for_worker = requested.clone();
         let config_for_worker = config.clone();
+        // The paused-run lifecycle event is recorded after the run, exactly like the eager path.
+        let lifecycle_target = self.last_lifecycle.clone();
+        let lifecycle_sink = config.lifecycle.clone();
+        let graph_for_state = self.graph.clone();
         let (sender, receiver) = std::sync::mpsc::channel::<LiveItem>();
         let sink_sender = sender.clone();
         let handle = std::thread::Builder::new()
@@ -394,6 +449,12 @@ impl PyCompiledGraph {
                         let _ = sender.send(LiveItem::Error(error.to_string()));
                     }
                 }
+                record_paused_run(
+                    &graph_for_state,
+                    &config_for_worker,
+                    &lifecycle_target,
+                    lifecycle_sink.as_ref(),
+                );
             })
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
         Py::new(py, PyLiveStream::new(receiver, handle, v2, requested))

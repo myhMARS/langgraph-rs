@@ -4359,3 +4359,19 @@ Measured state of the native live path: two 0.2 s nodes deliver chunks at `[0.25
 checkpointer records four history rows — incremental delivery and persistence both correct.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 209: the live stream reports pauses
+
+The eager `stream()`/`invoke()` paths record a `pending` interrupt lifecycle event after a paused run and
+move it onto the compiled graph; the live (worker-thread) path did neither, so a streamed pause never
+reached `GraphCallbackHandler`. The worker now does both, creating a lifecycle sink when the run config
+has none. Verified: `take_lifecycle_events()` returns one event after a live run on an interrupt graph.
+
+The live conversion was also switched to the exact function the eager path uses, so it no longer re-wraps
+subgraph namespaces (that broke `stream_events(version="v3")` in the previous round).
+
+One difference remains before the facade can use the live stream (still reverted, tree green): on an
+interrupt graph the live path emits one extra empty chunk and `__interrupt__` as a tuple rather than a
+list.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.

@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### live 流的中断/lifecycle 已补齐（2026-11-27，第 112 轮）
+
+第 111 轮剩余两项，本轮都修了：
+
+1. **暂停时的 lifecycle 事件**：eager 路径在运行结束后会记录 `pending` 中断事件（`record_interrupt` +
+   `store_lifecycle`），live 路径完全没有 —— 所以 `stream` 上的 `GraphCallbackHandler` 收不到中断通知。现在工作线程
+   在运行结束后做同样的事（并且因为 live 的 `RunConfig` 上没有 sink，会自建一个）。实测：live 运行后
+   `take_lifecycle_events()` 从 0 变成 1。
+2. **中断块形状**：`PyLiveStream.poll` 改用与 eager 完全相同的转换函数（不再自行包装命名空间），避免把
+   `stream_events(v3)` 的原始事件口径改坏。
+
+**门面接线仍未保留**：live 路径在一个中断图上会比 eager 多一个中间 `{}` 块，`__interrupt__` 也还是 tuple 而非 list；
+这两处是转换/去重细节，需要下一次专注处理。`stream_live` 现在的实测能力已经是完整的：逐 superstep、正确落盘、
+config 完整转发、暂停事件可上报。
+
 ### `stream_live` 现在能接收完整 config（2026-11-27，第 111 轮）
 
 第 110 轮列的 4 项前置条件，本轮修掉两项：
