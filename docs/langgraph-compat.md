@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `astream_events(v2)` 支持异步节点（2026-11-27，第 116 轮）
+
+第 106 轮异步审计列出的 `astream_events(version="v2")` + `async def` 节点直接报
+`Cannot run the event loop while another loop is running` —— 因为 v2 的收集器在**调用方事件循环线程**上驱动
+同步 `stream()`。现在收集器放在工作线程，通过线程安全队列桥接到异步迭代器，事件循环不再被占用。
+
+实测（`async def` 节点 + `version="v2"`）：
+
+```
+扩展: on_chain_start, on_chain_start, on_chain_stream, on_chain_end, on_chain_stream, on_chain_end
+LG:   on_chain_start, on_chain_start, on_chain_stream, on_chain_end, on_chain_stream, on_chain_end
+```
+
+**`subgraphs=True` 的流式仍是 eager**：本轮尝试接入 live 时又出现一批形状/事件解析问题
+（`EventTaskRunsTest`、`SubgraphUpdateChunkTest` 等 6 个测试），说明命名空间包装的语义还没吃透，因此保持
+eager（形状正确、只是非增量）。
+
 ### 多模式流也逐 superstep 交付（2026-11-27，第 115 轮）
 
 第 114 轮的"有界接入"本只覆盖单模式，本轮把范围扩到**多模式**（`["updates","values"]` 等）：

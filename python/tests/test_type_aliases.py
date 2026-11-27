@@ -4629,3 +4629,36 @@ class IncrementalStreamTest(unittest.TestCase):
         # A streamed run records three checkpoints, exactly like LangGraph.
         self.assertEqual(len(list(app.get_state_history(config))), 3)
         self.assertEqual(app.get_state(config).values["value"], 1)
+
+
+class AsyncEventsWithAsyncNodesTest(unittest.TestCase):
+    """`astream_events(version="v2")` works when the graph has `async def` nodes."""
+
+    def test_v2_events_from_an_async_node(self):
+        import asyncio
+
+        async def node(state):
+            await asyncio.sleep(0.01)
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", node)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect():
+            return [event["event"] async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = asyncio.run(collect())
+        self.assertEqual(
+            events,
+            [
+                "on_chain_start",
+                "on_chain_start",
+                "on_chain_stream",
+                "on_chain_end",
+                "on_chain_stream",
+                "on_chain_end",
+            ],
+        )

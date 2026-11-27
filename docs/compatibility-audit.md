@@ -4430,3 +4430,19 @@ Remaining boundary: `subgraphs=True` streams stay eager, because the live path d
 as `((), payload)`.
 
 Suite is 658 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 213: v2 event streams work with async nodes
+
+`astream_events(version="v2")` drove the synchronous `stream()` on the caller's event loop, which raised
+`Cannot run the event loop while another loop is running` as soon as the graph had an `async def` node.
+The collector now runs on a worker thread and bridges to the async iterator through a thread-safe queue;
+event sequences match LangGraph exactly for an async-node graph.
+
+An attempt to put `subgraphs=True` streams on the live path was reverted: six tests (event task runs,
+subgraph update chunks, nested namespaces, event metadata) show the namespace-wrapping semantics are not
+fully understood yet, so those streams stay eager — correct shape, just not incremental.
+
+Remaining from the async audit: cancellation does not propagate into the running node, and the async
+executor's timeout semantics differ from the sync executor's.
+
+Suite is 659 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.

@@ -573,6 +573,15 @@ def _require_thread(thread: Any, config: Any) -> None:
     )
 
 
+def _is_namespaced(part: Any) -> bool:
+    """Whether a stream part already carries its namespace (`((ns, ...), payload)`)."""
+    return (
+        isinstance(part, tuple)
+        and len(part) == 2
+        and isinstance(part[0], tuple)
+    )
+
+
 class _LiveIterator:
     """Iterator over the native live stream (LangGraph's `stream()` shape).
 
@@ -580,9 +589,12 @@ class _LiveIterator:
     single-pass generator) and indexing/length keep working.
     """
 
-    def __init__(self, live: Any, on_finish: Any = None) -> None:
+    def __init__(self, live: Any, on_finish: Any = None, wrap_namespaces: bool = False) -> None:
         self._live = live
         self._on_finish = on_finish
+        # `subgraphs=True` reports every chunk as `(namespace, payload)`; the engine already wraps
+        # subgraph chunks, so parent ones get the empty namespace here.
+        self._wrap_namespaces = wrap_namespaces
         self._chunks: list[Any] = []
         self._cursor = 0
         self._done = False
@@ -597,6 +609,8 @@ class _LiveIterator:
                 self._finish()
                 return False
             if part is not None:
+                if self._wrap_namespaces and not _is_namespaced(part):
+                    part = ((), part)
                 self._chunks.append(part)
                 return True
             time.sleep(0.0005)
@@ -995,7 +1009,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
 
         live_eligible = (
             live_factory is not None
-            # Namespaced (`subgraphs=True`) chunks are not wrapped the same way on the live path.
+            # Namespaced (`subgraphs=True`) chunks are wrapped by the eager conversion.
             and not call.get("subgraphs")
             # A `Command` resume needs the resume plumbing, which only the eager path has.
             and not isinstance(input, _Command)

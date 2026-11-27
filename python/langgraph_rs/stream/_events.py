@@ -313,6 +313,34 @@ async def _aiter_collected(chunks: Any) -> AsyncIterator[Any]:
         yield chunk
 
 
+async def _aiter_collected_thread(source: Any) -> AsyncIterator[Any]:
+    """Iterate a synchronous generator without blocking the caller's event loop."""
+    import asyncio
+    import queue
+    import threading
+
+    engine: "queue.Queue[Any]" = queue.Queue()
+    sentinel = object()
+
+    def worker() -> None:
+        try:
+            for item in source:
+                engine.put(item)
+        except BaseException as error:  # pragma: no cover - forwarded to the caller
+            engine.put(error)
+        finally:
+            engine.put(sentinel)
+
+    threading.Thread(target=worker, name="langgraph_rs-events", daemon=True).start()
+    while True:
+        item = await asyncio.to_thread(engine.get)
+        if item is sentinel:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        yield item
+
+
 async def _live_aparts(
     graph: Any,
     input: Any,
@@ -581,7 +609,9 @@ async def astream_events_v2(
                 list(state["parents"]),
             )
 
-    async for part in _aiter_collected(parts()):
+    # The collector drives the synchronous stream, so run it on a worker thread: blocking the
+    # caller's loop breaks async nodes ("Cannot run the event loop while another loop is running").
+    async for part in _aiter_collected_thread(parts()):
         step = None
         task_id: Any = None
         if isinstance(part, dict) and "type" in part:
