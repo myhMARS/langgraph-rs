@@ -482,6 +482,56 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_snapshot_shape_scenario() -> list[dict]:
+    """`StateSnapshot` containers are tuples and metadata carries `parents`."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", END)
+        app = graph.compile(checkpointer=LgInMemorySaver())
+        config = {"configurable": {"thread_id": "snapshot-lg"}}
+        app.invoke({"value": 0}, config)
+        snapshot = app.get_state(config)
+        return {
+            "next": type(snapshot.next).__name__,
+            "interrupts": type(snapshot.interrupts).__name__,
+            "tasks": type(snapshot.tasks).__name__,
+            "parents": snapshot.metadata.get("parents"),
+        }
+
+    def rs_run():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(rs.START, "a")
+        graph.add_edge("a", rs.END)
+        app = graph.compile(checkpointer=rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "snapshot-rs"}}
+        app.invoke({"value": 0}, config)
+        snapshot = app.get_state(config)
+        return {
+            "next": type(snapshot.next).__name__,
+            "interrupts": type(snapshot.interrupts).__name__,
+            "tasks": type(snapshot.tasks).__name__,
+            "parents": snapshot.metadata.get("parents"),
+        }
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "snapshot_shape",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_react_agent_loop_scenario() -> list[dict]:
     """`create_react_agent` runs the model, the tools, then the model again."""
 
@@ -3722,6 +3772,7 @@ def main() -> None:
         run_subgraph_stream_scenario,
         run_message_token_scenario,
         run_react_agent_loop_scenario,
+        run_snapshot_shape_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

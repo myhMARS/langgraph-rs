@@ -20,9 +20,13 @@ pub(crate) fn embed_subgraph_states(
         .bind(py)
         .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
         && let Ok(Some(tasks)) = root_snapshot.dict(py).get_item("tasks")
-        && let Ok(tasks) = tasks.cast::<pyo3::types::PyList>()
+        // LangGraph exposes `tasks` as a tuple; older code assumed a list.
+        && let Ok(iter) = tasks.try_iter()
     {
-        for task in tasks {
+        for task in iter {
+            let Ok(task) = task else {
+                continue;
+            };
             let Ok(task_dict) = task.cast::<pyo3::types::PyDict>() else {
                 continue;
             };

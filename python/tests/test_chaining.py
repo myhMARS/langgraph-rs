@@ -197,7 +197,7 @@ class ReactAgentModelTests(unittest.TestCase):
         )
         compiled.invoke({"value": 0, "log": []}, thread_id="stream-resume")
         self.assertEqual(
-            compiled.get_state("stream-resume")["next"], ["b"]
+            compiled.get_state("stream-resume")["next"], ("b",)
         )
         chunks = compiled.stream(None, thread_id="stream-resume")
         self.assertTrue(chunks)

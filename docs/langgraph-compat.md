@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `StateSnapshot` 的字段类型（2026-11-27）
+
+LG 的 `StateSnapshot` 里 `next` / `interrupts` / `tasks` 都是**元组**，`metadata` 一定带
+`parents`（顶层是空字典）。扩展此前三个字段是 list，`metadata` 也缺 `parents`：
+
+```
+LG: tuple tuple tuple | metadata keys: parents, source, step
+我们: list  list  list  | metadata keys: source, step
+```
+
+现在一致。改动还牵出一个隐藏问题：`get_state(..., subgraphs=True)` 里
+`embed_subgraph_states` 用 `cast::<PyList>()` 取 `tasks`，字段变成元组后子图快照就**静默不再嵌入**
+（`child_task["state"]` 变成 `None`）—— 已改为迭代器，两种容器都能处理。
+
+顺带核对了这几项与 LG 一致：`response_format`（`structured_response`）、`prompt=`（system 消息
+前置）、`store=`（工具里 `runtime.store` 读写）、`context_schema` + `context=`（工具里
+`runtime.context`）。
+
 ### `create_react_agent` 的完整回环（2026-11-27）
 
 用 `GenericFakeChatModel`（先返回工具调用、再返回答案）对拍，发现**工具调用被吞掉**：

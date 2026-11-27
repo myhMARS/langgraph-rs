@@ -2977,4 +2977,25 @@ extension keeps dict messages with `role` = `user` / `ai` / `tool`; the parity s
 spellings.
 
 Suite is 479 tests (one new), parity 60/60 (new `react_agent_loop` scenario), examples 10/10,
-streaming liveness PASS, clippy and Rust tests clean.
+streaming liveness PASS, clippy and Rust tests clean.### Round 136: `StateSnapshot` field types
+
+LangGraph's `StateSnapshot` exposes `next`, `interrupts` and `tasks` as **tuples** and always puts
+`parents` in `metadata` (an empty dict at the top level). The extension returned lists and had no
+`parents`:
+
+```
+LG: tuple tuple tuple | metadata keys: parents, source, step
+rs: list  list  list  | metadata keys: source, step
+```
+
+Both now match. The change surfaced a latent bug: `embed_subgraph_states` (the
+`get_state(..., subgraphs=True)` path) grabbed `tasks` with `cast::<PyList>()`, so once the field
+became a tuple the child snapshots were silently not embedded and `child_task["state"]` turned into
+`None`. It iterates instead, accepting either container.
+
+Also verified as already matching: `response_format` (`structured_response`), `prompt=` (system
+message prepended), `store=` (`runtime.store` inside tools) and `context_schema` + `context=`
+(`runtime.context` inside tools).
+
+Suite is 481 tests (two new), parity 61/61 (new `snapshot_shape` scenario), examples 10/10, clippy
+and Rust tests clean.

@@ -13,7 +13,8 @@ pub(crate) fn snapshot_to_py(
 ) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("values", json_state_to_py(py, &snapshot.values)?)?;
-    dict.set_item("next", snapshot.next.clone())?;
+    // LangGraph exposes `next`, `interrupts` and `tasks` as tuples.
+    dict.set_item("next", PyTuple::new(py, snapshot.next.clone())?)?;
     dict.set_item("checkpoint_id", snapshot.checkpoint_id.clone())?;
     dict.set_item("thread_id", snapshot.thread_id.clone())?;
     dict.set_item("step", snapshot.step)?;
@@ -31,6 +32,8 @@ pub(crate) fn snapshot_to_py(
         metadata.set_item(key, value_to_py(py, value)?)?;
     }
     metadata.set_item("step", snapshot.step)?;
+    // LangGraph always reports the parent checkpoint map (empty at the top level).
+    metadata.set_item("parents", PyDict::new(py))?;
     dict.set_item("metadata", metadata)?;
     let interrupts = snapshot
         .interrupts
@@ -46,7 +49,7 @@ pub(crate) fn snapshot_to_py(
             Ok(item.into_any().unbind())
         })
         .collect::<PyResult<Vec<_>>>()?;
-    dict.set_item("interrupts", interrupts)?;
+    dict.set_item("interrupts", PyTuple::new(py, interrupts)?)?;
     dict.set_item("config", value_to_py(py, &snapshot.config)?)?;
     let parent_config: Py<PyAny> = match &snapshot.parent_config {
         Some(config) => value_to_py(py, config)?,
@@ -105,7 +108,7 @@ pub(crate) fn snapshot_to_py(
             Ok(item.into_any().unbind())
         })
         .collect::<PyResult<Vec<_>>>()?;
-    dict.set_item("tasks", tasks)?;
+    dict.set_item("tasks", PyTuple::new(py, tasks)?)?;
     Ok(Py::new(
         py,
         crate::adapters::python::types::PyStateSnapshot {
@@ -119,7 +122,7 @@ pub(crate) fn snapshot_to_py(
 pub(crate) fn empty_snapshot_to_py(py: Python<'_>, thread_id: Option<&str>) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("values", PyDict::new(py))?;
-    dict.set_item("next", Vec::<String>::new())?;
+    dict.set_item("next", PyTuple::new(py, Vec::<String>::new())?)?;
     dict.set_item("checkpoint_id", py.None())?;
     dict.set_item("thread_id", thread_id)?;
     dict.set_item("step", 0)?;
@@ -129,10 +132,10 @@ pub(crate) fn empty_snapshot_to_py(py: Python<'_>, thread_id: Option<&str>) -> P
     dict.set_item("parent_checkpoint_id", py.None())?;
     dict.set_item("checkpoint_ns", "")?;
     dict.set_item("metadata", py.None())?;
-    dict.set_item("interrupts", Vec::<Py<PyAny>>::new())?;
+    dict.set_item("interrupts", PyTuple::new(py, Vec::<Py<PyAny>>::new())?)?;
     dict.set_item("config", PyDict::new(py))?;
     dict.set_item("parent_config", py.None())?;
-    dict.set_item("tasks", Vec::<Py<PyAny>>::new())?;
+    dict.set_item("tasks", PyTuple::new(py, Vec::<Py<PyAny>>::new())?)?;
     Ok(Py::new(
         py,
         crate::adapters::python::types::PyStateSnapshot {

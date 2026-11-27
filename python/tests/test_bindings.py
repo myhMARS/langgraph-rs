@@ -131,7 +131,7 @@ class HumanInTheLoopTests(unittest.TestCase):
 
         snapshot = compiled.get_state("approval")
         self.assertTrue(snapshot["interrupted"])
-        self.assertEqual(snapshot["next"], ["ask"])
+        self.assertEqual(snapshot["next"], ("ask",))
 
         result = compiled.resume("approval", {"amount": 41})
         self.assertEqual(result["value"], 41)
@@ -164,7 +164,7 @@ class HumanInTheLoopTests(unittest.TestCase):
 
         snapshot = compiled.update_state("patch", {"value": 10}, as_node="a")
         self.assertEqual(snapshot["values"]["value"], 10)
-        self.assertEqual(snapshot["next"], ["b"])
+        self.assertEqual(snapshot["next"], ("b",))
         self.assertIsNotNone(snapshot["parent_checkpoint_id"])
         self.assertEqual(snapshot["metadata"]["source"], "update")
 
@@ -214,7 +214,7 @@ class HumanInTheLoopTests(unittest.TestCase):
         compiled.delete_thread("copy-source")
         missing = compiled.get_state("copy-source")
         self.assertEqual(missing["values"], {})
-        self.assertEqual(missing["next"], [])
+        self.assertEqual(missing["next"], ())
         self.assertIsNotNone(compiled.get_state("copy-target"))
 
     def test_checkpoint_history(self):
@@ -1290,7 +1290,7 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIsNotNone(copied)
         self.assertTrue(history)
         self.assertEqual(deleted["values"], {})
-        self.assertEqual(deleted["next"], [])
+        self.assertEqual(deleted["next"], ())
 
     def test_v2_messages_metadata(self):
         import asyncio

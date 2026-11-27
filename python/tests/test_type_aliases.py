@@ -1587,3 +1587,28 @@ class ReactAgentLoopTest(unittest.TestCase):
         self.assertEqual(types[2], "tool")
         self.assertEqual(output["messages"][2]["content"], "42")
         self.assertEqual(output["messages"][3]["content"], "the answer is 42")
+
+
+class StateSnapshotShapeTest(unittest.TestCase):
+    """`StateSnapshot` fields use LangGraph's types (tuples for next/interrupts/tasks)."""
+
+    @staticmethod
+    def _snapshot():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "snapshot-shape"}}
+        app.invoke({"value": 0}, config)
+        return app.get_state(config)
+
+    def test_container_types(self):
+        snapshot = self._snapshot()
+        self.assertIsInstance(snapshot.next, tuple)
+        self.assertIsInstance(snapshot.interrupts, tuple)
+        self.assertIsInstance(snapshot.tasks, tuple)
+        self.assertIsInstance(snapshot.metadata, dict)
+
+    def test_metadata_carries_parents(self):
+        self.assertEqual(self._snapshot().metadata["parents"], {})
