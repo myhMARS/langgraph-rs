@@ -4758,3 +4758,81 @@ class IdleTimeoutCoroutineNodeTest(unittest.TestCase):
         for builder in (langgraph_rs.StateGraph, langgraph_rs.AsyncStateGraph):
             app = self._build(builder, chatty)
             self.assertEqual(asyncio.run(app.ainvoke({"value": 0})), {"value": 2})
+
+
+class AsyncStreamCooperativeTest(unittest.TestCase):
+    """`astream` keeps the event loop free and honours cancellation."""
+
+    @staticmethod
+    def _app():
+        import time as _time
+
+        def slow(state):
+            _time.sleep(0.2)
+            return {"value": state["value"] + 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", slow)
+        graph.add_node("b", slow)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile()
+
+    def test_event_loop_stays_free(self):
+        import asyncio
+
+        async def scenario():
+            app = self._app()
+            ticks = []
+
+            async def ticker():
+                while True:
+                    ticks.append(1)
+                    await asyncio.sleep(0.05)
+
+            task = asyncio.create_task(ticker())
+            chunks = [chunk async for chunk in app.astream({"value": 0}, stream_mode="updates")]
+            task.cancel()
+            return chunks, len(ticks)
+
+        chunks, ticks = asyncio.run(scenario())
+        self.assertEqual(len(chunks), 2)
+        # A blocked loop could only tick once during a ~0.4 s run.
+        self.assertGreater(ticks, 3)
+
+    def test_cancellation_is_honoured(self):
+        import asyncio
+
+        async def scenario():
+            app = self._app()
+
+            async def consume():
+                async for _chunk in app.astream({"value": 0}, stream_mode="updates"):
+                    pass
+
+            task = asyncio.create_task(consume())
+            await asyncio.sleep(0.1)
+            task.cancel()
+            try:
+                await task
+                return False
+            except asyncio.CancelledError:
+                return True
+
+        self.assertTrue(asyncio.run(scenario()))
+
+    def test_iterators_can_be_closed(self):
+        import asyncio
+
+        app = self._app()
+        stream = app.stream({"value": 0}, stream_mode="updates")
+        self.assertTrue(hasattr(stream, "close"))
+        stream.close()
+
+        async def scenario():
+            generator = app.astream({"value": 0}, stream_mode="updates")
+            await generator.__anext__()
+            await generator.aclose()
+
+        asyncio.run(scenario())

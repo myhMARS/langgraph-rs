@@ -645,6 +645,10 @@ class _LiveIterator:
         self._cursor += 1
         return chunk
 
+    def close(self) -> None:
+        """Stop iterating; the run itself is abandoned (a worker thread cannot be interrupted)."""
+        self._done = True
+
     def _materialize(self) -> None:
         while self._pump():
             pass
@@ -1092,12 +1096,25 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             async for chunk in AsyncStream(stream):
                 yield chunk
             return
-        # Async generator over the synchronous stream, collected on a worker thread.
+        # Async generator over the synchronous stream. Every `next()` hops to a worker thread:
+        # iterating the live stream on the loop thread would freeze the process and make the
+        # generator uncancellable.
+        loop = asyncio.get_running_loop()
         chunks = await asyncio.to_thread(
             self.stream, input, config, durability=durability, **kwargs
         )
-        for chunk in chunks:
-            yield chunk
+        iterator = iter(chunks)
+        sentinel = object()
+        try:
+            while True:
+                chunk = await loop.run_in_executor(None, next, iterator, sentinel)
+                if chunk is sentinel:
+                    return
+                yield chunk
+        finally:
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
 
     def batch(
         self,

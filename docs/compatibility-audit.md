@@ -4524,3 +4524,18 @@ chunks are lost. The rest — chiefly `astream`'s blocking iteration and its can
 facade's iteration restructured; an attempt touched several event-stream tests and was reverted.
 
 Suite is 663 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 218: `astream` no longer blocks the loop and is cancellable
+
+The most damaging finding from the seventh audit is fixed: every `next()` in `astream` now hops to a
+worker thread (`loop.run_in_executor`) instead of busy-waiting inside the event loop.
+
+Measured with a 20 Hz companion coroutine during a 0.4 s run: it ticked 7 times (it managed 1 before),
+chunks arrived at `[0.20, 0.40]`, and cancelling at 0.1 s raised `CancelledError` immediately with no
+chunks delivered. `close()` / `aclose()` are supported too: the iterator can be closed and `astream`
+closes the underlying iterator in a `finally`.
+
+Caveat kept in the docs: closing a stream stops the consumer, not the run — a worker thread cannot be
+interrupted; stopping a run needs `RunControl.abort()` on the `invoke` path.
+
+Suite is 666 tests (three new), parity 99/99, examples 10/10, clippy and Rust tests clean.
