@@ -185,3 +185,35 @@ class RemoteGraphStateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RemoteGraphSurfaceTest(unittest.TestCase):
+    """`RemoteGraph` exposes the same public surface as LangGraph's."""
+
+    def test_surface_matches_langgraph(self):
+        from langgraph.pregel.remote import RemoteGraph as LgRemoteGraph
+        from langgraph_rs.pregel.remote import RemoteGraph
+
+        lg_names = {name for name in dir(LgRemoteGraph) if not name.startswith("_")}
+        rs_names = {name for name in dir(RemoteGraph) if not name.startswith("_")}
+        self.assertEqual(sorted(lg_names - rs_names), [])
+        self.assertEqual(sorted(rs_names - lg_names), [])
+
+    def test_bulk_update_state_uses_the_client(self):
+        from langgraph_rs.pregel.remote import RemoteGraph
+
+        calls = []
+
+        class Threads:
+            def bulk_update_state(self, thread_id, supersteps, headers=None):
+                calls.append((thread_id, supersteps))
+                return {"configurable": {"thread_id": thread_id}}
+
+        class Client:
+            threads = Threads()
+
+        graph = RemoteGraph("agent", client=Client(), sync_client=Client())
+        result = graph.bulk_update_state(
+            {"configurable": {"thread_id": "t1"}}, [[({"value": 1}, "a", None)]]
+        )
+        self.assertEqual(result, {"configurable": {"thread_id": "t1"}})
+        self.assertEqual(calls, [("t1", [[({"value": 1}, "a", None)]])])

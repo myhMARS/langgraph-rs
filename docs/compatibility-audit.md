@@ -3436,4 +3436,24 @@ Also verified while here: `StateSnapshot` exposes `values` / `next` / `config` /
 supports mapping-style subscripts).
 
 Suite is 526 tests (two new), parity 75/75 (the `bulk_update_state` scenario now also compares the
-returned config keys), examples 10/10, clippy and Rust tests clean.
+returned config keys), examples 10/10, clippy and Rust tests clean.### Round 158: `RemoteGraph` public surface matches LangGraph exactly
+
+The remote-graph client implemented `invoke` / `stream` / `get_state` / `update_state` and a few
+helpers, but lacked the `Runnable` protocol (`batch`, `bind`, `as_tool`, `with_retry`,
+`astream_events`, …) and `bulk_update_state`. LangGraph gets those by subclassing `Runnable`, so the
+extension does the same now and adds `bulk_update_state` / `abulk_update_state` on top.
+
+A set comparison against LangGraph's class is now empty in both directions:
+
+```
+missing vs LG: []
+extra:         []
+```
+
+`get_name()`, `input_schema`, `output_schema` and `config_specs` all resolve as they do upstream; the
+input schema is actually more robust here (LangGraph raises `SchemaError` for a client-less
+`RemoteGraph`, the extension generates the model).
+
+Two tests cover the surface equality and that `bulk_update_state` forwards to the SDK client.
+
+Suite is 528 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.

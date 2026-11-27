@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `RemoteGraph` 的公共面与 LG 完全一致（2026-11-27）
+
+`RemoteGraph`（连 LangGraph Server 的客户端）此前只有 `invoke`/`stream`/`get_state`/`update_state` 等
+14 个方法，缺 `batch`/`bind`/`as_tool`/`with_retry` 这些 `Runnable` 协议方法，也缺
+`bulk_update_state`。
+
+现在直接继承 `langchain_core.runnables.Runnable`（LG 就是这么做的），Runnable 的方法全部继承过来，
+另补 `bulk_update_state` / `abulk_update_state`。与 LG 做集合对比：
+
+```
+missing vs LG: []
+extra:         []
+```
+
+`get_name()` / `input_schema` / `output_schema` / `config_specs` 也都能取到（`input_schema` 比 LG
+更稳：LG 在无真实客户端时会 `SchemaError`，扩展正常生成模型）。
+
 ### `bulk_update_state` 的入参与返回值（2026-11-27）
 
 LG 的 `bulk_update_state(config, supersteps)` 里每个 superstep 是

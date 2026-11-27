@@ -37,7 +37,15 @@ class RemoteException(Exception):
     """An error reported by the remote graph."""
 
 
-class RemoteGraph:
+try:  # LangGraph's RemoteGraph is a `Runnable`, which is where `batch` and friends come from.
+    from langchain_core.runnables import Runnable as _Runnable
+
+    _RUNNABLE_BASE: Any = _Runnable
+except Exception:  # pragma: no cover - langchain_core is optional
+    _RUNNABLE_BASE = object
+
+
+class RemoteGraph(_RUNNABLE_BASE):
     """Call a graph deployed behind the LangGraph Server API.
 
     Either pass `url` (plus optional `api_key` / `headers`) so the SDK clients are created, or inject
@@ -255,6 +263,38 @@ class RemoteGraph:
             values,
             as_node=as_node,
             checkpoint_id=self._checkpoint_id(merged),
+            headers=headers,
+        )
+
+    def bulk_update_state(
+        self,
+        config: Mapping[str, Any] | None,
+        supersteps: Sequence[Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Apply several supersteps of updates on the remote thread."""
+        sync_client = self._validate_sync_client()
+        merged = self._merged_config(config)
+        return sync_client.threads.bulk_update_state(
+            self._thread_id(merged),
+            supersteps,
+            headers=headers,
+        )
+
+    async def abulk_update_state(
+        self,
+        config: Mapping[str, Any] | None,
+        supersteps: Sequence[Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        """Async variant of `bulk_update_state`."""
+        client = self._validate_client()
+        merged = self._merged_config(config)
+        return await client.threads.bulk_update_state(
+            self._thread_id(merged),
+            supersteps,
             headers=headers,
         )
 
