@@ -45,6 +45,23 @@ pub fn interrupt(value: Value) -> Result<Value> {
 /// The schema is stored on the interrupt (visible in snapshots) and the resume value is
 /// validated when the node re-runs; a mismatch fails the node with a descriptive error.
 pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Result<Value> {
+    interrupt_inner(value, response_schema, true)
+}
+
+/// Like [`interrupt_with_schema`] but without validating the resume value.
+///
+/// Python callers use this: LangGraph lets pydantic own validation (so values are coerced and a
+/// raw JSON-schema dict is not validated at all), which the hand-rolled JSON-schema subset cannot
+/// reproduce.
+pub fn interrupt_unvalidated(value: Value, response_schema: Option<Value>) -> Result<Value> {
+    interrupt_inner(value, response_schema, false)
+}
+
+fn interrupt_inner(
+    value: Value,
+    response_schema: Option<Value>,
+    validate: bool,
+) -> Result<Value> {
     #[cfg(feature = "async")]
     if !has_sync_task()
         && let Ok(result) =
@@ -64,7 +81,9 @@ pub fn interrupt_with_schema(value: Value, response_schema: Option<Value>) -> Re
             let value = context.resume_values[context.resume_index].clone();
             context.resume_index += 1;
             context.resume_consumed = true;
-            validate_response(&value, response_schema.as_ref())?;
+            if validate {
+                validate_response(&value, response_schema.as_ref())?;
+            }
             return Ok(value);
         }
         Err(Error::Interrupt(Interrupt::with_schema_and_id(

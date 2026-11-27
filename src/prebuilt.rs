@@ -199,6 +199,12 @@ impl ToolNode {
                             return Err(error);
                         }
                         let detail = error.to_string();
+                        // A rejected `interrupt(response_schema=...)` resume is not a tool failure:
+                        // LangGraph re-raises it so the graph stays paused.
+                        #[cfg(feature = "python")]
+                        if crate::adapters::python::convert::is_invalid_resume_error(&detail) {
+                            return Err(error);
+                        }
                         match &self.error_policy {
                             Some(policy) => match policy(&detail) {
                                 Some(content) => (content, Some(detail)),

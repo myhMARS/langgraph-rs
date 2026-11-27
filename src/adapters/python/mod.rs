@@ -18,7 +18,7 @@
 
 #[cfg(feature = "python-async")]
 pub(crate) mod async_graph;
-mod convert;
+pub(crate) mod convert;
 mod custom_saver;
 mod custom_store;
 mod graph_pause;
@@ -251,35 +251,45 @@ fn interrupt(
         Some(schema) => Some(convert::context_schema_value(py, schema.bind(py))?),
         None => None,
     };
-    match crate::runtime::context::interrupt_with_schema(value, response_schema) {
+    // Pydantic owns validation for Python callers, exactly as in LangGraph.
+    match crate::runtime::context::interrupt_unvalidated(value, response_schema) {
         Ok(resume) => {
-            // A resumed value is validated against the declared schema, as LangGraph does.
-            if let Some(schema) = schema_object.as_ref() {
-                let py_value = value_to_py(py, &resume)?;
-                validate_response_schema(py, schema.bind(py), py_value.bind(py))?;
+            let py_value = value_to_py(py, &resume)?;
+            match schema_object.as_ref() {
+                // A raw JSON-schema dict is used as-is and never validated (LangGraph's rule).
+                Some(schema) if schema.bind(py).is_instance_of::<pyo3::types::PyDict>() => {
+                    Ok(py_value)
+                }
+                // A class is validated (and coerced) by pydantic, which also decides the error.
+                Some(schema) => coerce_response_schema(py, schema.bind(py), py_value),
+                None => Ok(py_value),
             }
-            value_to_py(py, &resume)
         }
         Err(error) => Err(to_pyerr(py, error)),
     }
 }
 
-/// Validate a resume value against `interrupt(response_schema=...)`, raising pydantic's error.
-fn validate_response_schema(
+/// Validate a resume value against `interrupt(response_schema=...)`, returning the model instance
+/// (LangGraph's behaviour) and raising pydantic's error when it does not fit.
+fn coerce_response_schema(
     py: Python<'_>,
     schema: &Bound<'_, PyAny>,
-    value: &Bound<'_, PyAny>,
-) -> PyResult<()> {
-    if schema.is_instance_of::<pyo3::types::PyDict>() {
-        // A raw JSON schema has no validator to run.
-        return Ok(());
-    }
+    value: Py<PyAny>,
+) -> PyResult<Py<PyAny>> {
     let adapter = py
         .import("pydantic")
         .and_then(|module| module.getattr("TypeAdapter"))
         .and_then(|class| class.call1((schema,)))?;
-    adapter.call_method1("validate_python", (value,))?;
-    Ok(())
+    match adapter.call_method1("validate_python", (value.bind(py),)) {
+        Ok(value) => Ok(value.unbind()),
+        Err(error) => {
+            // LangGraph marks the failure so `is_invalid_resume()` and `ToolNode` can tell it
+            // apart from an ordinary tool error.
+            let _ = error.value(py).setattr("_langgraph_invalid_resume", true);
+            let _ = error.value(py).setattr("_invalid_resume", true);
+            Err(error)
+        }
+    }
 }
 
 /// Toggle LangChain message-object conversion for `add_messages` channels.

@@ -1228,6 +1228,25 @@ pub(super) fn context_schema_value(
     Ok(serde_json::json!({}))
 }
 
+/// Whether an engine error message wraps a Python exception marked `_invalid_resume`.
+///
+/// LangGraph re-raises a rejected `interrupt(response_schema=...)` resume instead of reporting it as
+/// a tool failure, so the graph stays paused and the human can answer again.
+pub(crate) fn is_invalid_resume_error(message: &str) -> bool {
+    Python::attach(|py| {
+        python_error_id(message)
+            .and_then(|id| peek_python_error(py, id))
+            .and_then(|error| {
+                error
+                    .bind(py)
+                    .getattr("_invalid_resume")
+                    .ok()
+                    .and_then(|flag| flag.is_truthy().ok())
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Apply the writes a node performed itself to its output, preserving multiple writes per channel.
 ///
 /// Several `send()` calls to the same channel arrive as one list, which reducers treat exactly like

@@ -35,7 +35,8 @@ from langgraph.store.base import (
     SearchOp as LgSearchOp,
 )
 from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
-from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
+from langgraph.types import Command as LgCommand
+from langgraph.types import interrupt as LG_INTERRUPT, RetryPolicy as LgRetryPolicy, Send as LgSend
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode as LgToolNode
 from langgraph.prebuilt import create_react_agent as LgCreateReactAgent
@@ -665,6 +666,186 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     return [
         {
             "scenario": "checkpoint_shape",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
+def _is_invalid_resume(error: BaseException) -> bool:
+    """Each side's own `is_invalid_resume` helper."""
+    try:
+        return bool(rs.errors.is_invalid_resume(error))
+    except Exception:  # pragma: no cover - the LG side has its own module
+        from langgraph.errors import is_invalid_resume
+
+        return bool(is_invalid_resume(error))
+
+
+def run_interrupt_validation_scenario() -> list[dict]:
+    """Pydantic owns resume validation; a raw JSON-schema dict is never validated."""
+
+    def collect(engine):
+        from pydantic import BaseModel
+
+        class Decision(BaseModel):
+            approved: bool
+            note: str = ""
+
+        if engine == "lg":
+            from langgraph.types import Command as Cmd
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            interrupt_fn = LG_INTERRUPT
+            graph_cls = LgStateGraph
+            state = TypedDict("S", {"ok": bool, "note": str, "got": object}, total=False)
+        else:
+            Cmd = rs.Command
+            InMemorySaver = rs.InMemorySaver
+            interrupt_fn = rs.interrupt
+            graph_cls = rs.StateGraph
+            state = {"ok": "last_value", "note": "last_value", "got": "last_value"}
+
+        def model_node(s):
+            decision = interrupt_fn({"q": "approve?"}, response_schema=Decision)
+            return {"ok": decision.approved}
+
+        def dict_node(s):
+            return {"got": interrupt_fn("number?", response_schema={"type": "integer"})}
+
+        def build(node):
+            graph = graph_cls(state)
+            graph.add_node("n", node)
+            if engine == "lg":
+                graph.add_edge(START, "n")
+                graph.add_edge("n", END)
+            else:
+                graph.add_edge(rs.START, "n")
+                graph.add_edge("n", rs.END)
+            return graph.compile(checkpointer=InMemorySaver())
+
+        model_app = build(model_node)
+        config = {"configurable": {"thread_id": "pyd"}}
+        model_app.invoke({"ok": False}, config)
+        try:
+            model_app.invoke(Cmd(resume={"approved": "not-a-bool"}), config)
+            rejected = None
+        except BaseException as exc:
+            rejected = [
+                type(exc).__name__,
+                _is_invalid_resume(exc),
+                list(model_app.get_state(config).next),
+            ]
+        coerced = model_app.invoke(Cmd(resume={"approved": 1}), config)
+
+        dict_app = build(dict_node)
+        dict_config = {"configurable": {"thread_id": "raw"}}
+        dict_app.invoke({}, dict_config)
+        accepted = dict_app.invoke(Cmd(resume={"n": "not-an-int"}), dict_config)
+        return {"rejected": rejected, "coerced": coerced, "raw_schema": accepted.get("got")}
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "interrupt_validation",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
+def run_interrupt_schema_scenario() -> list[dict]:
+    """Sequential interrupts and `response_schema` coercion on resume."""
+
+    class LgState(TypedDict, total=False):
+        value: list
+
+    def collect(engine):
+        from dataclasses import dataclass
+
+        @dataclass
+        class Answer:
+            text: str
+
+        if engine == "lg":
+            from langgraph.types import Command as Cmd
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            def ask(state):
+                first = LG_INTERRUPT("first?")
+                second = LG_INTERRUPT("second?")
+                return {"value": [first, second]}
+
+            def schema_node(state):
+                reply = LG_INTERRUPT("q?", response_schema=Answer)
+                return {"value": [type(reply).__name__, reply.text]}
+
+            graph = LgStateGraph(LgState)
+        else:
+            Cmd = rs.Command
+            InMemorySaver = rs.InMemorySaver
+
+            def ask(state):
+                first = rs.interrupt("first?")
+                second = rs.interrupt("second?")
+                return {"value": [first, second]}
+
+            def schema_node(state):
+                reply = rs.interrupt("q?", response_schema=Answer)
+                return {"value": [type(reply).__name__, reply.text]}
+
+            graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        if engine == "lg":
+            graph.add_edge(START, "ask")
+            graph.add_edge("ask", END)
+        else:
+            graph.add_edge(rs.START, "ask")
+            graph.add_edge("ask", rs.END)
+        app = graph.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "seq"}}
+        first = app.invoke({"value": []}, config)
+        second = app.invoke(Cmd(resume="A"), config)
+        third = app.invoke(Cmd(resume="B"), config)
+
+        if engine == "lg":
+            schema_graph = LgStateGraph(LgState)
+        else:
+            schema_graph = rs.StateGraph({"value": "last_value"})
+        schema_graph.add_node("ask", schema_node)
+        if engine == "lg":
+            schema_graph.add_edge(START, "ask")
+            schema_graph.add_edge("ask", END)
+        else:
+            schema_graph.add_edge(rs.START, "ask")
+            schema_graph.add_edge("ask", rs.END)
+        schema_app = schema_graph.compile(checkpointer=InMemorySaver())
+        schema_config = {"configurable": {"thread_id": "schema"}}
+        schema_app.invoke({"value": []}, schema_config)
+        coerced = schema_app.invoke(Cmd(resume={"text": "hi"}), schema_config)
+        return {
+            "pauses": [
+                [interrupt.value for interrupt in first.get("__interrupt__", [])],
+                [interrupt.value for interrupt in second.get("__interrupt__", [])],
+            ],
+            "final": third.get("value"),
+            "coerced": coerced.get("value"),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "interrupt_schema",
             "rs": rs_value,
             "lg": lg_value,
             "equivalent": rs_value == lg_value,
@@ -5878,6 +6059,8 @@ def main() -> None:
         run_remove_message_scenario,
         run_message_mutation_scenario,
         run_add_messages_function_scenario,
+        run_interrupt_schema_scenario,
+        run_interrupt_validation_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

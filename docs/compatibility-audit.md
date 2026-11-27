@@ -4150,3 +4150,29 @@ The last three findings from the message-semantics audit:
 
 Suite is 639 tests (three new), parity 95/95 (new `add_messages_function` scenario), examples 10/10,
 clippy and Rust tests clean.
+
+### Round 199: `response_schema` validation ownership
+
+A fourth independent audit covered human-in-the-loop. The interrupt/resume core matched (single,
+sequential, parallel keyed resume, tool interrupts, compile-time pauses, `update_state` while paused,
+history rows, error paths), but `response_schema` validation was wrong in four ways:
+
+1. Invalid resume raised `RuntimeError` (our hand-rolled JSON-schema check) instead of pydantic's
+   `ValidationError`, and `is_invalid_resume()` reported False.
+2. Values pydantic would coerce (`{"approved": 1}`) were rejected before pydantic ran.
+3. A raw JSON-schema `dict` was validated, while LangGraph explicitly does not validate dict schemas.
+4. Worse: inside `ToolNode`, a rejected resume was formatted as a tool error, so the graph **completed**
+   and the human was never asked again.
+
+Python callers now use `interrupt_unvalidated`, so pydantic owns validation (coercion, error type) and
+marks failures with LangGraph's `_langgraph_invalid_resume`; `ToolNode` re-raises marked errors so the
+pause survives.
+
+Still open from this audit (all recorded in `docs/langgraph-compat.md`): unkeyed resume with multiple
+pending raises `ValueError` where LangGraph raises `RuntimeError`; `Interrupt` is not a dataclass
+(equality/hash/repr); `PregelTask.result` is always `None`; task order after a partial keyed resume;
+replaying a past interrupt checkpoint applies the new resume value; `interrupt()` inside a manually
+invoked subgraph is not propagated; `interrupt()` in a conditional router.
+
+Suite is 645 tests (four new), parity 97/97 (two new scenarios), examples 10/10, clippy and Rust tests
+clean.

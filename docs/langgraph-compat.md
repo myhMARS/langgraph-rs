@@ -177,6 +177,22 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `interrupt(response_schema=...)` 校验归属重做（2026-11-27，第四轮审计）
+
+第四次独立审计专攻 **human-in-the-loop（interrupt/resume）**。核心流程（单次/连续/并行中断、工具内中断、编译期
+`interrupt_before/after`、`update_state`、历史行、各种错误路径）全部一致，但 `response_schema` 的校验归属错了：
+
+| 场景 | LG | 改前 | 现在 |
+|---|---|---|---|
+| 非法 resume（pydantic 模型） | `pydantic.ValidationError`，`is_invalid_resume(e)` 为真，**保持暂停** | `RuntimeError`，标记为假 | 与 LG 一致 |
+| pydantic 可强转的值（`{"approved": 1}`） | 强制转换后通过 | 被 JSON Schema 类型检查拒绝 | 通过 |
+| 原始 JSON-Schema `dict` | **完全不校验**（原样接受） | 按 schema 校验并拒绝 | 原样接受 |
+| 工具内 `interrupt` + 非法 resume | 抛出、暂停保留、可再答 | **被当成工具错误**，图直接跑完 | 抛出、暂停保留、可再答 |
+
+根因：引擎先用自研的 JSON-Schema 子集校验 resume（`Error::other` → `RuntimeError`），pydantic 永远轮不到。现在
+Python 侧改走 `interrupt_unvalidated`，由 pydantic 独占校验（非法时打上 LG 同名的
+`_langgraph_invalid_resume` 标记），`ToolNode` 见到该标记直接上抛而不是转成 `ToolMessage`。
+
 ### `add_messages` 可调用、输入归一化、序列化往返（2026-11-27，第三轮审计）
 
 第三轮审计剩余三项，均已修复：

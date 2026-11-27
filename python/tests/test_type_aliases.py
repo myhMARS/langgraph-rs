@@ -4284,3 +4284,133 @@ class SerializerRoundTripTest(unittest.TestCase):
         kind, payload = serializer.dumps_typed([HumanMessage("hi", id="x-1")])
         restored = serializer.loads_typed((kind, payload))
         self.assertEqual([(type(m).__name__, m.id) for m in restored], [("HumanMessage", "x-1")])
+
+
+class ResumeSchemaCoercionTest(unittest.TestCase):
+    """`interrupt(response_schema=Model)` validates the resume value into the model."""
+
+    @staticmethod
+    def _app():
+        from dataclasses import dataclass
+
+        @dataclass
+        class Answer:
+            text: str
+
+        def ask(state):
+            reply = langgraph_rs.interrupt("q?", response_schema=Answer)
+            return {"value": [type(reply).__name__, reply.text]}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.add_edge(langgraph_rs.START, "ask")
+        graph.add_edge("ask", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_valid_resume_returns_the_model(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "coerce"}}
+        app.invoke({"value": []}, config)
+        output = app.invoke(langgraph_rs.Command(resume={"text": "hi"}), config)
+        self.assertEqual(output["value"], ["Answer", "hi"])
+
+    def test_invalid_resume_fails(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "coerce-bad"}}
+        app.invoke({"value": []}, config)
+        with self.assertRaises(Exception):
+            app.invoke(langgraph_rs.Command(resume={"nope": 1}), config)
+
+
+class ResponseSchemaValidationTest(unittest.TestCase):
+    """Pydantic owns resume validation; a raw JSON-schema dict is never validated."""
+
+    @staticmethod
+    def _model_app():
+        from pydantic import BaseModel
+
+        class Decision(BaseModel):
+            approved: bool
+            note: str = ""
+
+        def node(state):
+            decision = langgraph_rs.interrupt({"q": "approve?"}, response_schema=Decision)
+            return {"approved": decision.approved, "note": decision.note}
+
+        graph = langgraph_rs.StateGraph(
+            {"approved": "last_value", "note": "last_value"}
+        )
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_invalid_resume_raises_pydantic_error_and_keeps_the_pause(self):
+        from pydantic import ValidationError
+
+        app = self._model_app()
+        config = {"configurable": {"thread_id": "pyd-invalid"}}
+        app.invoke({"approved": False, "note": ""}, config)
+        with self.assertRaises(ValidationError) as raised:
+            app.invoke(langgraph_rs.Command(resume={"approved": "bogus"}), config)
+        self.assertTrue(langgraph_rs.errors.is_invalid_resume(raised.exception))
+        self.assertEqual(app.get_state(config).next, ("n",))
+
+    def test_pydantic_coerces_the_resume_value(self):
+        app = self._model_app()
+        config = {"configurable": {"thread_id": "pyd-coerce"}}
+        app.invoke({"approved": False, "note": ""}, config)
+        output = app.invoke(langgraph_rs.Command(resume={"approved": 1}), config)
+        self.assertEqual(output["approved"], True)
+
+    def test_raw_schema_is_not_validated(self):
+        graph = langgraph_rs.StateGraph({"got": "last_value"})
+        graph.add_node(
+            "n",
+            lambda state: {
+                "got": langgraph_rs.interrupt("number?", response_schema={"type": "integer"})
+            },
+        )
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "raw-schema"}}
+        app.invoke({}, config)
+        output = app.invoke(langgraph_rs.Command(resume={"n": "not-an-int"}), config)
+        self.assertEqual(output["got"], {"n": "not-an-int"})
+
+    def test_tool_interrupt_keeps_the_pause_on_bad_resume(self):
+        from pydantic import BaseModel, ValidationError
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        class Decision(BaseModel):
+            approved: bool
+
+        @tool
+        def approve(question: str) -> str:
+            """Ask a human."""
+            decision = langgraph_rs.interrupt({"q": question}, response_schema=Decision)
+            return f"approved={decision.approved}"
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", langgraph_rs.prebuilt.ToolNode([approve]))
+        graph.add_edge(langgraph_rs.START, "tools")
+        graph.add_edge("tools", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "tool-hitl"}}
+        app.invoke(
+            {
+                "messages": [
+                    AIMessage("", tool_calls=[{"name": "approve", "args": {"question": "ok?"}, "id": "c1"}])
+                ]
+            },
+            config,
+        )
+        with self.assertRaises(ValidationError):
+            app.invoke(langgraph_rs.Command(resume={"approved": "bogus"}), config)
+        state = app.get_state(config)
+        self.assertEqual(state.next, ("tools",))
+        self.assertEqual([interrupt.value for interrupt in state.interrupts], [{"q": "ok?"}])
+        output = app.invoke(langgraph_rs.Command(resume={"approved": True}), config)
+        self.assertEqual(output["messages"][-1].content, "approved=True")

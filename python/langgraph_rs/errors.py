@@ -62,12 +62,15 @@ def create_error_message(*, message: str, error_code: "ErrorCode") -> str:
     )
 
 
-_INVALID_RESUME = "_invalid_resume"
+_INVALID_RESUME = "_langgraph_invalid_resume"
 
 
 def is_invalid_resume(error: BaseException) -> bool:
     """Tell an interrupt-related validation failure apart from invalid tool arguments."""
-    return getattr(error, _INVALID_RESUME, False) is True
+    return (
+        getattr(error, _INVALID_RESUME, False) is True
+        or getattr(error, "_invalid_resume", False) is True
+    )
 
 
 class EmptyChannelError(Exception):

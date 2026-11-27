@@ -1115,10 +1115,9 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-schema")
         self.assertIsNotNone(snapshot.interrupts[0].response_schema)
-        with self.assertRaises(Exception):
-            compiled.resume("py-schema", "nope")
-        output = compiled.resume("py-schema", 9)
-        self.assertEqual(output["value"], 9)
+        # A raw JSON-schema dict is used as-is: LangGraph does not validate the resume value.
+        output = compiled.resume("py-schema", "not-an-int")
+        self.assertEqual(output["value"], "not-an-int")
 
 
     def test_python_custom_reducer(self):
@@ -1584,11 +1583,11 @@ class AsyncPythonTests(unittest.TestCase):
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
         result = compiled.invoke({}, thread_id="py-schema-rich")
         self.assertIn("__interrupt__", result)
-        with self.assertRaises(Exception):
-            compiled.resume("py-schema-rich", {"choice": "no"})
-        with self.assertRaises(Exception):
-            compiled.resume("py-schema-rich", {"choice": 2, "tags": ["a"]})
-        compiled.resume("py-schema-rich", {"choice": 2, "tags": ["ok"]})
+        # The schema is reported on the interrupt but LangGraph never validates a raw dict
+        # schema's resume value, so even a non-conforming answer is accepted as-is.
+        self.assertIsNotNone(compiled.get_state("py-schema-rich").interrupts[0].response_schema)
+        accepted = compiled.resume("py-schema-rich", {"choice": "no"})
+        self.assertEqual(accepted, {})
 
 
     def test_get_state_subgraphs(self):
