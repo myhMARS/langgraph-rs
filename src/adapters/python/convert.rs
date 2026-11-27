@@ -718,25 +718,30 @@ pub(super) fn path_map_from_py(path_map: &Bound<'_, PyAny>) -> PyResult<Option<P
     Ok(Some(map))
 }
 
+/// `(var_child_runnable_config, {"callbacks": [handler]})`: the LangChain callback bridge.
+type CallbackConfig = (Py<PyAny>, Py<PyAny>);
+
 std::thread_local! {
-    /// `(var_child_runnable_config, {"callbacks": [handler]})` per OS thread.
+    /// The callback bridge per OS thread (plain and token-streaming variants).
     ///
     /// Building the handler and importing `langchain_core.runnables.config` for every node
     /// call cost ~13 us per node; the contextvar itself is process-wide, so the pair can be
     /// reused. Nodes still set/reset it per call, which is what LangChain expects.
-    static CALLBACK_CONFIG: std::cell::RefCell<Option<(Py<PyAny>, Py<PyAny>)>> =
-        const { std::cell::RefCell::new(None) };
+    static CALLBACK_CONFIG: std::cell::RefCell<[Option<CallbackConfig>; 2]> =
+        const { std::cell::RefCell::new([None, None]) };
 }
 
 fn cached_callback_config(py: Python<'_>) -> Option<(Py<PyAny>, Py<PyAny>)> {
+    let streaming = STREAM_TOKENS.with(std::cell::Cell::get);
+    let slot = usize::from(streaming);
     if let Some((variable, config)) = CALLBACK_CONFIG.with(|cell| {
-        cell.borrow()
+        cell.borrow()[slot]
             .as_ref()
             .map(|(variable, config)| (variable.clone_ref(py), config.clone_ref(py)))
     }) {
         return Some((variable, config));
     }
-    let handler = super::langchain_callback_handler(py, None, None).ok()?;
+    let handler = super::langchain_callback_handler(py, None, None, streaming).ok()?;
     let callbacks = PyList::empty(py);
     callbacks.append(handler.bind(py)).ok()?;
     let config = PyDict::new(py);
@@ -745,7 +750,7 @@ fn cached_callback_config(py: Python<'_>) -> Option<(Py<PyAny>, Py<PyAny>)> {
     let variable = module.getattr("var_child_runnable_config").ok()?;
     let pair = (variable.unbind(), config.into_any().unbind());
     CALLBACK_CONFIG.with(|cell| {
-        *cell.borrow_mut() = Some((pair.0.clone_ref(py), pair.1.clone_ref(py)));
+        cell.borrow_mut()[slot] = Some((pair.0.clone_ref(py), pair.1.clone_ref(py)));
     });
     Some(pair)
 }
@@ -754,6 +759,10 @@ thread_local! {
     /// `true` while the binding has installed the LangChain callback context for a whole run,
     /// so per-node installation can be skipped on this thread.
     static CALLBACK_SCOPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the current run wants model tokens on the stream. LangGraph only makes `invoke`
+    /// stream (its callback handler is a `_StreamingCallbackHandler`) when a streaming mode is
+    /// requested; otherwise the model is called normally.
+    static STREAM_TOKENS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Installs the LangChain callback context once for a whole graph run.
@@ -776,6 +785,11 @@ impl Drop for CallbackScope {
             CALLBACK_SCOPE.with(|cell| cell.set(false));
         }
     }
+}
+
+/// Ask the callback handler for model tokens (`stream_mode="messages"` / `stream_events`).
+pub(super) fn set_stream_tokens(enabled: bool) {
+    STREAM_TOKENS.with(|cell| cell.set(enabled));
 }
 
 pub(super) fn begin_callback_scope(py: Python<'_>) -> CallbackScope {

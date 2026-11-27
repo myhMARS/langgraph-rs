@@ -527,43 +527,11 @@ fn streamed_model_result(
     model: &Bound<'_, PyAny>,
     messages: &Bound<'_, PyAny>,
 ) -> Result<(Py<PyAny>, bool)> {
-    let can_stream = model
-        .hasattr("stream")
-        .unwrap_or(false);
-    if can_stream {
-        if let Ok(iterator) = model.call_method1("stream", (messages.clone(),)) {
-            if let Ok(chunks) = iterator.try_iter() {
-                let mut accumulated: Option<Py<PyAny>> = None;
-                let mut first_error: Option<pyo3::PyErr> = None;
-                for chunk in chunks {
-                    let Ok(chunk) = chunk else {
-                        break;
-                    };
-                    // Tokens reach the `messages` stream through the LangChain callback handler
-                    // (`on_llm_new_token`); pushing here too would duplicate every chunk.
-                    accumulated = Some(match accumulated {
-                        None => chunk.unbind(),
-                        Some(previous) => match previous
-                            .bind(py)
-                            .call_method1("__add__", (chunk.clone(),))
-                        {
-                            Ok(combined) => combined.unbind(),
-                            Err(error) => {
-                                first_error = Some(error);
-                                previous
-                            }
-                        },
-                    });
-                    if first_error.is_some() {
-                        break;
-                    }
-                }
-                if let Some(accumulated) = accumulated {
-                    return Ok((accumulated, true));
-                }
-            }
-        }
-    }
+    // LangGraph calls the model once; when a streaming callback handler is installed, LangChain
+    // itself switches `invoke` to the streaming path, so the tokens reach the `messages` stream and
+    // the call still returns the aggregated message. Streaming here explicitly would consume an
+    // extra message from models that produce a fixed sequence.
+    let _ = py;
     let result = model
         .call_method1("invoke", (messages.clone(),))
         .map_err(|error| pyerr_to_error(py, error))?;

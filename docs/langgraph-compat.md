@@ -332,6 +332,34 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `create_react_agent` 的完整回环（2026-11-27）
+
+用 `GenericFakeChatModel`（先返回工具调用、再返回答案）对拍，发现**工具调用被吞掉**：
+
+```
+LG: [human, ai(tool_calls), tool('42'), ai('the answer is 42')]
+我们: [user, ai('the answer is 42')]        # 少了 ai(tool_calls) 和 tool
+```
+
+根因：`runnable_model_node` 里**显式调用 `model.stream()`**（上一轮之前为了让 token 进流而加的
+workaround），它把假模型的第一条消息吃掉了；累积失败后回退到 `model.invoke()`，于是消费了第二条
+消息 —— 节点只看到最终答案。
+
+LG 的做法是**只调用一次 `invoke`**：它安装的 `_StreamingCallbackHandler` 会让 LangChain 自己把
+`invoke` 切到流式路径。现在我们把「是否流式」做成运行期开关：
+
+- `stream_mode="messages"`、`stream_live`（events API）→ 用 `StreamingLangChainCallbackHandler`
+- 普通 `invoke` → 用不带流式标记的处理器（与 LG 一致）
+
+修完后：
+
+```
+rs: [user, ai(tool_calls), tool('42'), ai('the answer is 42')]   # 与 LG 相同
+```
+
+**一处已记录的差异**：LG 的消息对象 `type` 是 `human` / `ai` / `tool`，扩展的状态里消息是字典、
+用 `role: user / ai / tool`。parity 场景里做了别名折叠，文档记录该差异。
+
 ### `stream_mode="messages"` 的 token 流（2026-11-27）
 
 LG 在 `messages` 模式下按 **token** 上报模型输出，元数据是一整套 `langgraph_*` / `ls_*` 键。扩展

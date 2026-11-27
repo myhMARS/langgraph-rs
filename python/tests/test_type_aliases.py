@@ -1538,3 +1538,52 @@ class MessagesStreamTokensTest(unittest.TestCase):
         self.assertEqual(metadata["langgraph_step"], 1)
         self.assertTrue(metadata["checkpoint_ns"].startswith("model:"))
         self.assertNotIn("tags", metadata)
+
+
+class ReactAgentLoopTest(unittest.TestCase):
+    """`create_react_agent` runs model -> tools -> model, as LangGraph does."""
+
+    @staticmethod
+    def _app():
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        class _Fake(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        model = _Fake(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "double",
+                                "args": {"x": 21},
+                                "id": "c1",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="the answer is 42"),
+                ]
+            )
+        )
+
+        def double(x: int) -> int:
+            """Double a number."""
+            return x * 2
+
+        return langgraph_rs.prebuilt.create_react_agent(model, [double])
+
+    def test_full_loop(self):
+        output = self._app().invoke({"messages": [{"role": "user", "content": "double 21"}]})
+        types = [message.get("type") or message.get("role") for message in output["messages"]]
+        # LangGraph: human -> ai(tool call) -> tool -> ai(answer).
+        self.assertEqual(len(types), 4)
+        self.assertEqual(types[1], "ai")
+        self.assertEqual(output["messages"][1]["tool_calls"][0]["name"], "double")
+        self.assertEqual(types[2], "tool")
+        self.assertEqual(output["messages"][2]["content"], "42")
+        self.assertEqual(output["messages"][3]["content"], "the answer is 42")

@@ -312,6 +312,8 @@ impl PyCompiledGraph {
         });
         let requested = stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        // Live consumers (the events API) need model tokens, as LangGraph's tracer does.
+        crate::adapters::python::convert::set_stream_tokens(true);
         let mut config = RunConfig::new().with_stream_modes(requested.clone());
         if let Some(thread) = thread.as_deref() {
             config = config.with_thread(thread.to_string());
@@ -338,6 +340,8 @@ impl PyCompiledGraph {
                 // here for model tokens to reach `messages` (the token is intentionally leaked:
                 // the thread ends with the run).
                 Python::attach(|py| {
+                    // The flag is thread-local, so the worker has to set it too.
+                    crate::adapters::python::convert::set_stream_tokens(true);
                     let _ = crate::adapters::python::convert::install_langchain_callbacks(py);
                 });
                 crate::runtime::context::set_pending_live_sink(std::sync::Arc::new(
@@ -382,6 +386,12 @@ impl PyCompiledGraph {
             }
         };
         let (thread, mut config) = config_from_py(py, config.or(thread_id))?;
+        // Only a streaming mode makes the model stream (LangGraph's behaviour).
+        crate::adapters::python::convert::set_stream_tokens(
+            stream_modes_from_py(stream_mode)?
+                .unwrap_or_default()
+                .contains(&crate::StreamMode::Messages),
+        );
         let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
         if let Some(control) = control {
             config = config.with_control(control.inner.clone());

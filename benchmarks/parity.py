@@ -33,6 +33,7 @@ from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, 
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode as LgToolNode
 from langgraph.prebuilt import ValidationNode as LgValidationNode
+from langgraph.prebuilt import create_react_agent as LgCreateReactAgent
 from langgraph.types import interrupt as lg_interrupt
 
 HERE = Path(__file__).resolve().parent
@@ -479,6 +480,79 @@ def task_triggers_pair():
 
 class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
+
+
+def run_react_agent_loop_scenario() -> list[dict]:
+    """`create_react_agent` runs the model, the tools, then the model again."""
+
+    def build(engine):
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        class _Fake(GenericFakeChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+        model = _Fake(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"name": "double", "args": {"x": 21}, "id": "c1", "type": "tool_call"}
+                        ],
+                    ),
+                    AIMessage(content="the answer is 42"),
+                ]
+            )
+        )
+
+        def double(x: int) -> int:
+            """Double a number."""
+            return x * 2
+
+        if engine == "lg":
+            return LgCreateReactAgent(model, [double])
+        return rs.prebuilt.create_react_agent(model, [double])
+
+    prompt = {"messages": [{"role": "user", "content": "double 21"}]}
+
+    def collect(engine):
+        app = build(engine)
+        output = app.invoke(prompt)
+        messages = output["messages"]
+        def field(message, name, default=None):
+            if isinstance(message, dict):
+                return message.get(name, default)
+            return getattr(message, name, default)
+
+        # LangGraph's `HumanMessage.type` is "human"; the extension stores dict messages with
+        # `role: "user"`, so the two spellings are folded together here.
+        role_aliases = {"human": "user", "assistant": "ai", "ai": "ai", "tool": "tool", "user": "user"}
+        return [
+            {
+                "type": role_aliases.get(
+                    field(message, "type") or field(message, "role"), field(message, "type")
+                ),
+                "content": str(field(message, "content") or ""),
+                "tool_calls": [call["name"] for call in (field(message, "tool_calls") or [])],
+            }
+            for message in messages
+        ]
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "react_agent_loop",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
 
 
 def run_message_token_scenario() -> list[dict]:
@@ -3647,6 +3721,7 @@ def main() -> None:
         run_tasks_stream_scenario,
         run_subgraph_stream_scenario,
         run_message_token_scenario,
+        run_react_agent_loop_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

@@ -261,14 +261,16 @@ fn message(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
 }
 
 /// Create a LangChain callback handler that forwards LLM tokens and usage into the graph stream.
-static CALLBACK_HANDLER_CLASS: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
+static CALLBACK_HANDLER_CLASSES: pyo3::sync::PyOnceLock<(Py<PyAny>, Py<PyAny>)> =
+    pyo3::sync::PyOnceLock::new();
 
 #[pyfunction]
-#[pyo3(signature = (model=None, tags=None))]
+#[pyo3(signature = (model=None, tags=None, streaming=false))]
 pub(super) fn langchain_callback_handler(
     py: Python<'_>,
     model: Option<String>,
     tags: Option<Vec<String>>,
+    streaming: bool,
 ) -> PyResult<Py<PyAny>> {
     let source = r#"
 try:  # LangChain's base classes: `_StreamingCallbackHandler` makes `invoke` stream tokens.
@@ -282,7 +284,9 @@ except Exception:  # pragma: no cover - langchain_core is optional
         pass
 
 
-class LangChainCallbackHandler(_LcBase, _LcStreaming):
+class _CallbackHandlerBody(_LcBase):
+    """Bridge LangChain callbacks into the engine's stream."""
+
     raise_error = False
     ignore_llm = False
     ignore_chat_model = False
@@ -477,18 +481,32 @@ class LangChainCallbackHandler(_LcBase, _LcStreaming):
 
     def on_text(self, text, **kwargs):
         pass
+
+
+class LangChainCallbackHandler(_CallbackHandlerBody):
+    """Plain variant: reports completion only, like LangGraph without a streaming mode."""
+
+
+class StreamingLangChainCallbackHandler(_CallbackHandlerBody, _LcStreaming):
+    """LangGraph's streaming variant: makes `model.invoke` take the streaming path."""
 "#;
     let source = std::ffi::CString::new(source)
         .map_err(|error| pyo3::exceptions::PyRuntimeError::new_err(error.to_string()))?;
-    let class = CALLBACK_HANDLER_CLASS.get_or_try_init(py, || {
+    let classes = CALLBACK_HANDLER_CLASSES.get_or_try_init(py, || {
         let module = pyo3::types::PyModule::from_code(
             py,
             &source,
             c"langgraph_rs_callbacks.py",
             c"langgraph_rs_callbacks",
         )?;
-        Ok::<_, pyo3::PyErr>(module.getattr("LangChainCallbackHandler")?.unbind())
+        let plain = module.getattr("LangChainCallbackHandler")?;
+        let streaming = module.getattr("StreamingLangChainCallbackHandler")?;
+        Ok::<_, pyo3::PyErr>((
+            plain.unbind(),
+            streaming.unbind(),
+        ))
     })?;
+    let class = if streaming { &classes.1 } else { &classes.0 };
     let handler = class.bind(py).call1((model, tags))?;
     Ok(handler.unbind())
 }

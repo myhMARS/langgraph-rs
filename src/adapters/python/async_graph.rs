@@ -514,6 +514,8 @@ impl PyAsyncCompiledGraph {
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+        // Only a streaming mode makes the model stream (LangGraph's behaviour).
+        super::convert::set_stream_tokens(requested.contains(&crate::StreamMode::Messages));
         let config = config.with_stream_modes(requested.clone());
         let state = state_from_py(input)?;
         let graph = self.graph.clone();

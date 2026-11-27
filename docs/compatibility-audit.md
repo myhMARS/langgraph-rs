@@ -2946,4 +2946,35 @@ meta:   checkpoint_ns, langgraph_checkpoint_ns, langgraph_node, langgraph_path,
 `tags` was also dropped from the message metadata, where LangGraph does not have it.
 
 Suite is 478 tests (one new), parity 59/59 (new `message_tokens` scenario), examples 10/10, streaming
-liveness check PASS, clippy and Rust tests clean.
+liveness check PASS, clippy and Rust tests clean.### Round 135: `create_react_agent` runs tools again
+
+Comparing against LangGraph with a fake model that returns a tool call and then an answer exposed a
+real bug: the tool call was swallowed.
+
+```
+LG: [human, ai(tool_calls), tool('42'), ai('the answer is 42')]
+rs: [user, ai('the answer is 42')]        # ai(tool_calls) and tool missing
+```
+
+`runnable_model_node` called `model.stream()` explicitly — a workaround from before the callback
+handler could stream. It consumed the first message of the fake model, the chunk accumulation fell
+back to `model.invoke()`, and that consumed the second one, so the node only saw the final answer.
+
+LangGraph calls `invoke` **once**: its `_StreamingCallbackHandler` makes LangChain switch `invoke` to
+the streaming path by itself. Streaming is now a run-time switch:
+
+* `stream_mode="messages"` and `stream_live` (the events API) use
+  `StreamingLangChainCallbackHandler`;
+* a plain `invoke` uses the handler without the streaming marker, as LangGraph does.
+
+`stream_live` runs the graph on a worker thread, so the flag is set there as well (it is
+thread-local).
+
+After the fix the output matches LangGraph message for message.
+
+Documented difference: LangGraph message objects have `type` = `human` / `ai` / `tool`, while the
+extension keeps dict messages with `role` = `user` / `ai` / `tool`; the parity scenario folds the two
+spellings.
+
+Suite is 479 tests (one new), parity 60/60 (new `react_agent_loop` scenario), examples 10/10,
+streaming liveness PASS, clippy and Rust tests clean.
