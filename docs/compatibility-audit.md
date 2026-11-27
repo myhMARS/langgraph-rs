@@ -4218,3 +4218,19 @@ list channel missing from the initial checkpoint, and `KeyError: 'thread_id'` vs
 `get_state`/`update_state` without a thread.
 
 Suite is 652 tests (three new), parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 202: channel defaults in the opening checkpoints
+
+LangGraph's aggregating channels hold a default (`[]` for a list reducer) before anything writes, so its
+snapshots show `{'trail': []}`. Ours only stored written channels, so `values["trail"]` raised `KeyError`.
+
+Channels now carry a default (`append`/`messages`/`topic` → `[]`, `add` → `0`, settable through
+`Reducer::with_default`), and both opening checkpoints (`source="input"` and the `source="loop"` one
+before the entry tasks) seed it.
+
+Documented residual: the final `invoke` result and the last (highest-step) checkpoint still omit defaults,
+because they serialize the end-of-run state and an unwritten channel has no key there. Closing that gap
+means making empty channels report their default everywhere, which would also change `update_state` and
+node-input semantics — disproportionate risk for the difference.
+
+Suite is 653 tests (one new), parity 98/98, examples 10/10, clippy and Rust tests clean.

@@ -4517,3 +4517,21 @@ class AgentMessageKwargsTest(unittest.TestCase):
         )
         output = app.invoke({"messages": [HumanMessage("hi")]})
         self.assertEqual(output["messages"][-1].additional_kwargs, {})
+
+
+class ChannelDefaultValueTest(unittest.TestCase):
+    """Aggregating channels show their default (`[]`) in the opening checkpoints."""
+
+    def test_input_checkpoint_has_list_default(self):
+        graph = langgraph_rs.StateGraph({"trail": "append", "value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "defaults"}}
+        app.invoke({"value": 0}, config)
+        rows = list(app.get_state_history(config))
+        oldest = rows[-1]
+        self.assertEqual(oldest.values, {"trail": []})
+        # The post-input checkpoint already carries the default plus the input.
+        self.assertEqual(rows[-2].values, {"trail": [], "value": 0})

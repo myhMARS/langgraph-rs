@@ -49,10 +49,15 @@ where
         if persist {
             // LangGraph's `source="input"` checkpoint holds the thread's values *before* this turn
             // (empty on the first run); the new input lands in the post-input checkpoint.
-            let carried = previous
+            let mut carried = previous
                 .as_ref()
                 .map(|checkpoint| checkpoint.values.clone())
                 .unwrap_or_default();
+            // LangGraph's input checkpoint already shows the channels' defaults (`[]` for a list
+            // reducer), not just the channels the caller wrote.
+            for (name, value) in backend.schema().default_values() {
+                carried.entry(name).or_insert(value);
+            }
             save_checkpoint_via(
                 backend,
                 thread_id,
@@ -90,6 +95,13 @@ where
         }
         base_step += 1;
     }
+    // LangGraph's snapshots show aggregating channels' defaults (`[]` for a list reducer) even
+    // before anything writes to them.
+    let mut seeded = values.clone();
+    for (name, value) in backend.schema().default_values() {
+        seeded.entry(name).or_insert(value);
+    }
+    let values = &seeded;
     let post_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
     if let Some(id) = post_id.as_deref() {
         crate::pregel::scheduling::assign_v4_ids(tasks, Some(id), namespace, base_step);

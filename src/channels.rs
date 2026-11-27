@@ -114,6 +114,20 @@ impl Channel {
         }
     }
 
+    /// The value a channel holds before anything writes to it, when it has one.
+    ///
+    /// LangGraph's aggregating channels start from a default (`[]` for `operator.add` on a list),
+    /// which shows up in snapshots and in what nodes read.
+    pub fn default_value(&self) -> Option<Value> {
+        match self {
+            Channel::Reducer(reducer) | Channel::Delta { reducer, .. } => {
+                reducer.default_value().cloned()
+            }
+            Channel::Topic { .. } => Some(Value::Array(Vec::new())),
+            _ => None,
+        }
+    }
+
     /// Whether the channel value is dropped before the next superstep.
     pub(crate) fn is_ephemeral(&self) -> bool {
         matches!(self, Channel::EphemeralValue)
@@ -282,7 +296,20 @@ pub(crate) type ReducerFn = Arc<dyn Fn(&Value, &Value) -> Result<Value> + Send +
 
 /// A user supplied binary reducer.
 #[derive(Clone)]
-pub struct Reducer(pub(crate) ReducerFn);
+pub struct Reducer(pub(crate) ReducerFn, pub(crate) Option<Value>);
+
+impl Reducer {
+    /// The channel's starting value, when the reducer has one (`[]` for append, `0` for add).
+    pub(crate) fn default_value(&self) -> Option<&Value> {
+        self.1.as_ref()
+    }
+
+    /// Attach the channel's starting value (LangGraph's `BinaryOperatorAggregate` default).
+    pub fn with_default(mut self, value: Value) -> Self {
+        self.1 = Some(value);
+        self
+    }
+}
 
 impl fmt::Debug for Reducer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -296,7 +323,7 @@ impl Reducer {
     where
         F: Fn(&Value, &Value) -> Result<Value> + Send + Sync + 'static,
     {
-        Reducer(Arc::new(reducer))
+        Reducer(Arc::new(reducer), None)
     }
 }
 
@@ -387,6 +414,7 @@ pub mod reducers {
             }
             Ok(Value::Array(accumulated))
         })
+        .with_default(Value::Array(Vec::new()))
     }
 
     /// Numerically add values.

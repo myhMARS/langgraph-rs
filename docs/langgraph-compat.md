@@ -185,6 +185,18 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 
 另外：`interrupt()` 写在条件边路由器里，LG 允许（暂停 + 恢复），扩展会在运行时拒绝 —— 这是未文档化的边缘用法。
 
+### 聚合通道的默认值出现在开局检查点（2026-11-27）
+
+LG 的聚合通道（`Annotated[list, operator.add]`）在**任何写入之前**就持有默认值 `[]`，所以快照里能看到
+`{'trail': []}`。扩展此前只存被写过的通道，`values['trail']` 会 `KeyError`。
+
+现在通道带上了默认值（`append`/`messages`/`topic` → `[]`，`add` → `0`，可通过 `Reducer::with_default`
+指定），`source="input"` 与 `source="loop"`（进入节点前）两个检查点都会带上它。
+
+**仍有一处差异**：最后一次 `invoke` 的返回值与随后那个（step 最大的）检查点仍不含默认值 —— 因为它们由运行结束时
+的状态直接序列化，而通道"从未被写入"时状态里没有该键。要完全对齐需要让通道在"空"时也返回默认值，会影响
+`update_state`、节点输入等更多语义，风险不成比例，因此记录在案。
+
 ### drop-in 压测发现的两处真实缺陷（2026-11-27，第五轮审计）
 
 第五次审计换了视角：写四个"真实用户会写"的程序（ReAct 智能体多轮记忆、supervisor + 子图 handoff + `Send` 扇出 +

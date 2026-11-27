@@ -306,6 +306,16 @@ impl StateSchema {
         self.channels.contains_key(name)
     }
 
+    /// Values declared channels start from, when they have a default.
+    ///
+    /// LangGraph's aggregating channels hold a default (`[]` for a list reducer) before the first
+    /// write, so snapshots and node state show it.
+    pub fn default_values(&self) -> impl Iterator<Item = (String, Value)> + '_ {
+        self.channels
+            .iter()
+            .filter_map(|(name, channel)| channel.default_value().map(|value| (name.clone(), value)))
+    }
+
     /// Iterate over declared channel names.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.channels.keys().map(String::as_str)
