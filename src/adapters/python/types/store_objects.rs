@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyTypeError};
-use pyo3::types::{PyAny, PyDict};
+use pyo3::types::{PyAny, PyDict, PyTuple};
 
 use super::*;
 use crate::_internal::cache::NodeCache;
@@ -297,7 +297,7 @@ fn store_item_by_key(
 /// LangGraph's `Item`: attribute access plus tuple-style unpacking.
 #[pyclass(name = "StoreItem")]
 pub struct PyStoreItem {
-    #[pyo3(get)]
+    /// LangGraph exposes the namespace as a tuple.
     pub namespace: Vec<String>,
     #[pyo3(get)]
     pub key: String,
@@ -314,13 +314,18 @@ pub struct PyStoreItem {
 #[pymethods]
 impl PyStoreItem {
     #[getter]
-    fn created_at(&self) -> String {
-        crate::checkpoint::iso_timestamp(self.created_at_millis)
+    fn namespace(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(PyTuple::new(py, self.namespace.clone())?.into_any().unbind())
     }
 
     #[getter]
-    fn updated_at(&self) -> String {
-        crate::checkpoint::iso_timestamp(self.updated_at_millis)
+    fn created_at(&self, py: Python<'_>) -> Py<PyAny> {
+        datetime_from_millis(py, self.created_at_millis)
+    }
+
+    #[getter]
+    fn updated_at(&self, py: Python<'_>) -> Py<PyAny> {
+        datetime_from_millis(py, self.updated_at_millis)
     }
 
     fn __len__(&self) -> usize {
@@ -330,11 +335,11 @@ impl PyStoreItem {
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         if let Ok(name) = key.extract::<String>() {
             return match name.as_str() {
-                "namespace" => Ok(pyo3::types::PyList::new(py, self.namespace.clone())?.into_any().unbind()),
+                "namespace" => Ok(PyTuple::new(py, self.namespace.clone())?.into_any().unbind()),
                 "key" => Ok(self.key.clone().into_py_any(py)?),
                 "value" => Ok(self.value.clone_ref(py)),
-                "created_at" => Ok(self.created_at().into_py_any(py)?),
-                "updated_at" => Ok(self.updated_at().into_py_any(py)?),
+                "created_at" => Ok(self.created_at(py)),
+                "updated_at" => Ok(self.updated_at(py)),
                 "created_at_millis" => Ok(self.created_at_millis.into_py_any(py)?),
                 "updated_at_millis" => Ok(self.updated_at_millis.into_py_any(py)?),
                 "score" => Ok(self.score.into_py_any(py)?),
@@ -351,11 +356,11 @@ impl PyStoreItem {
         }
         let index = key.extract::<isize>()?;
         let field = match index.rem_euclid(5) {
-            0 => pyo3::types::PyList::new(py, self.namespace.clone())?.into_any().unbind(),
+            0 => PyTuple::new(py, self.namespace.clone())?.into_any().unbind(),
             1 => self.key.clone().into_py_any(py)?,
             2 => self.value.clone_ref(py),
-            3 => self.created_at().into_py_any(py)?,
-            4 => self.updated_at().into_py_any(py)?,
+            3 => self.created_at(py),
+            4 => self.updated_at(py),
             _ => unreachable!(),
         };
         Ok(field)
@@ -367,15 +372,34 @@ impl PyStoreItem {
         Ok(format!(
             "Item(namespace={namespace:?}, key={:?}, value={value}, created_at={:?}, updated_at={:?}, score={:?})",
             self.key,
-            self.created_at(),
-            self.updated_at(),
+            self.created_at(py).bind(py).str().map(|text| text.to_string()).unwrap_or_default(),
+            self.updated_at(py).bind(py).str().map(|text| text.to_string()).unwrap_or_default(),
             self.score
         ))
     }
 }
 
+/// `datetime` for a millisecond timestamp (LangGraph reports datetimes on `Item`).
+fn datetime_from_millis(py: Python<'_>, millis: u64) -> Py<PyAny> {
+    let build = || -> pyo3::PyResult<Py<PyAny>> {
+        let module = py.import("datetime")?;
+        let class = module.getattr("datetime")?;
+        let seconds = millis / 1000;
+        let micros = (millis % 1000) * 1000;
+        let value = class.call_method1("fromtimestamp", (seconds,))?;
+        let value = if micros > 0 {
+            let delta = module.getattr("timedelta")?.call1((0, 0, micros))?;
+            value.call_method1("__add__", (delta,))?
+        } else {
+            value
+        };
+        Ok(value.unbind())
+    };
+    build().unwrap_or_else(|_| py.None())
+}
+
 /// In-memory long-term memory store, mirroring `langgraph.store.memory.InMemoryStore`.
-#[pyclass(name = "InMemoryStore")]
+#[pyclass(name = "InMemoryStore", subclass)]
 pub struct PyInMemoryStore {
     pub(crate) store: Arc<InMemoryStore>,
 }

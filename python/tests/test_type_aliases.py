@@ -1673,3 +1673,57 @@ class PolicySurfaceTest(unittest.TestCase):
             langgraph_rs.TimeoutPolicy(run_timeout=0.5, refresh_on="heartbeat").refresh_on,
             "heartbeat",
         )
+
+
+class StoreSurfaceTest(unittest.TestCase):
+    """`InMemoryStore` matches LangGraph's batch/async surface and item shape."""
+
+    def test_async_twins(self):
+        import asyncio
+
+        store = langgraph_rs.store.memory.InMemoryStore()
+
+        async def scenario():
+            await store.aput(("m",), "k", {"v": 1})
+            item = await store.aget(("m",), "k")
+            self.assertEqual(item.value, {"v": 1})
+            self.assertEqual([entry.key for entry in await store.asearch(("m",))], ["k"])
+            self.assertIn(("m",), await store.alist_namespaces())
+            await store.adelete(("m",), "k")
+            self.assertIsNone(await store.aget(("m",), "k"))
+
+        asyncio.run(scenario())
+
+    def test_batch_dispatch(self):
+        from langgraph_rs.store.base import GetOp, ListNamespacesOp, PutOp, SearchOp
+
+        store = langgraph_rs.store.memory.InMemoryStore()
+        store.put(("a",), "k", {"v": 1})
+        results = store.batch(
+            [
+                GetOp(namespace=("a",), key="k"),
+                PutOp(namespace=("b",), key="k2", value={"v": 2}),
+                SearchOp(namespace_prefix=("a",)),
+                ListNamespacesOp(),
+            ]
+        )
+        self.assertEqual(results[0].value, {"v": 1})
+        self.assertIsNone(results[1])
+        self.assertEqual([item.key for item in results[2]], ["k"])
+        # Reads see the state the batch started from, so the `PutOp` above is not listed yet.
+        self.assertEqual(results[3], [("a",)])
+
+    def test_item_types(self):
+        from datetime import datetime
+
+        store = langgraph_rs.store.memory.InMemoryStore()
+        store.put(("n",), "k", {"v": 1})
+        item = store.get(("n",), "k")
+        self.assertEqual(item.namespace, ("n",))
+        self.assertIsInstance(item.created_at, datetime)
+        self.assertIsInstance(item.updated_at, datetime)
+
+    def test_ttl_flags(self):
+        store = langgraph_rs.store.memory.InMemoryStore()
+        self.assertFalse(store.supports_ttl)
+        self.assertIsNone(store.ttl_config)

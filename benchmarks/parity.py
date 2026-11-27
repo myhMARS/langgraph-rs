@@ -28,6 +28,12 @@ from langgraph.config import get_store as lg_get_store
 from langgraph.func import entrypoint as lg_entrypoint, task as lg_task
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.store.memory import InMemoryStore as LgInMemoryStore
+from langgraph.store.base import (
+    GetOp as LgGetOp,
+    ListNamespacesOp as LgListNamespacesOp,
+    PutOp as LgPutOp,
+    SearchOp as LgSearchOp,
+)
 from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTimeoutPolicy
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
 from langgraph.graph.message import add_messages
@@ -480,6 +486,84 @@ def task_triggers_pair():
 
 class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
+
+
+def run_store_surface_scenario() -> list[dict]:
+    """`InMemoryStore` batch/async surface and item types match LangGraph."""
+
+    def lg_run():
+        import asyncio
+
+        store = LgInMemoryStore()
+        store.put(("a",), "k", {"v": 1})
+        results = store.batch(
+            [
+                LgGetOp(namespace=("a",), key="k"),
+                LgPutOp(namespace=("b",), key="k2", value={"v": 2}),
+                LgSearchOp(namespace_prefix=("a",)),
+                LgListNamespacesOp(),
+            ]
+        )
+        item = store.get(("a",), "k")
+        return {
+            "batch": [
+                results[0].value if results[0] is not None else None,
+                results[1],
+                [entry.key for entry in results[2]],
+                [tuple(namespace) for namespace in results[3]],
+            ],
+            "namespace": list(item.namespace),
+            "namespace_type": type(item.namespace).__name__,
+            "created_at_type": type(item.created_at).__name__,
+            "supports_ttl": store.supports_ttl,
+            "async_get": asyncio.run(store.aget(("a",), "k")).value,
+        }
+
+    def rs_run():
+        import asyncio
+
+        from langgraph_rs.store.base import (
+            GetOp as RsGetOp,
+            ListNamespacesOp as RsListNamespacesOp,
+            PutOp as RsPutOp,
+            SearchOp as RsSearchOp,
+        )
+
+        store = rs.store.memory.InMemoryStore()
+        store.put(("a",), "k", {"v": 1})
+        results = store.batch(
+            [
+                RsGetOp(namespace=("a",), key="k"),
+                RsPutOp(namespace=("b",), key="k2", value={"v": 2}),
+                RsSearchOp(namespace_prefix=("a",)),
+                RsListNamespacesOp(),
+            ]
+        )
+        item = store.get(("a",), "k")
+        return {
+            "batch": [
+                results[0].value if results[0] is not None else None,
+                results[1],
+                [entry.key for entry in results[2]],
+                [tuple(namespace) for namespace in results[3]],
+            ],
+            "namespace": list(item.namespace),
+            "namespace_type": type(item.namespace).__name__,
+            "created_at_type": type(item.created_at).__name__,
+            "supports_ttl": store.supports_ttl,
+            "async_get": asyncio.run(store.aget(("a",), "k")).value,
+        }
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "store_surface",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
 
 
 def run_policy_surface_scenario() -> list[dict]:
@@ -3884,6 +3968,7 @@ def main() -> None:
         run_snapshot_shape_scenario,
         run_snapshot_objects_scenario,
         run_policy_surface_scenario,
+        run_store_surface_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

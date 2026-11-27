@@ -579,8 +579,25 @@ impl Clone for PyCachePolicy {
 impl PyCachePolicy {
     pub(super) fn to_policy(&self) -> crate::_internal::cache::CachePolicy {
         let policy = crate::_internal::cache::CachePolicy::new();
-        match self.ttl {
+        let policy = match self.ttl {
             Some(ttl) => policy.with_ttl(Duration::from_secs(ttl)),
+            None => policy,
+        };
+        match &self.key_func {
+            // LangGraph calls `key_func(val)` with the node's input state.
+            Some(key_func) => {
+                let key_func = Python::attach(|py| key_func.clone_ref(py));
+                policy.with_key(move |input: &serde_json::Value| {
+                    Python::attach(|py| {
+                        let argument =
+                            crate::adapters::python::convert::value_to_py(py, input)?;
+                        let key = key_func.bind(py).call1((argument,))?;
+                        key.extract::<String>()
+                            .or_else(|_| key.str().and_then(|text| text.extract::<String>()))
+                    })
+                    .unwrap_or_else(|_| input.to_string())
+                })
+            }
             None => policy,
         }
     }

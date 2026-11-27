@@ -3042,4 +3042,24 @@ succeeds on the second attempt). `TimeoutPolicy.refresh_on` is stored and expose
 watchdog already refreshes on progress, which is what `"auto"` means.
 
 Suite is 487 tests (four new), parity 63/63 (new `policy_surface` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 139: `CachePolicy.key_func` works, `InMemoryStore` gains batch/async
+
+`CachePolicy.key_func` was stored but never called; LangGraph calls `key_func(val)` (one argument, the
+node input state) to compute a node's cache key. It is now wired into the engine's cache-key
+computation: two identical runs call the function twice and hit the cache on the second (verified
+against LangGraph).
+
+`InMemoryStore` was missing most of its surface:
+
+* async twins `aget` / `aput` / `adelete` / `asearch` / `alist_namespaces` / `abatch`;
+* `batch(ops)` dispatching `GetOp` / `PutOp` / `SearchOp` / `ListNamespacesOp`;
+* `supports_ttl` / `ttl_config`;
+* `Item.namespace` is now a **tuple** and `created_at` / `updated_at` are **datetimes** (they were a
+  list and ISO strings).
+
+`batch` also follows a subtle LangGraph rule: reads see the state the batch started from, so a
+`PutOp` in the same batch is invisible to a later `GetOp` / `ListNamespacesOp`. The implementation
+runs reads first and applies writes afterwards.
+
+Suite is 491 tests (four new), parity 64/64 (new `store_surface` scenario), examples 10/10, clippy and
+Rust tests clean.

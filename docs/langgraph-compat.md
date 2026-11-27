@@ -332,6 +332,26 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `CachePolicy.key_func` 与 `InMemoryStore` 的批量/异步面（2026-11-27）
+
+**`CachePolicy.key_func`**：LG 用 `key_func(val)` 计算节点缓存键（一个参数，节点输入状态），扩展此前
+只是把字段存下来、**从不调用**。现在真正接入引擎的缓存键计算：
+
+```
+run1 → node 调用一次
+run2 → 缓存命中（key_func 两次都以 {'value': 1} 调用，与 LG 相同）
+```
+
+**`InMemoryStore`**：
+
+- 补齐异步孪生方法 `aget` / `aput` / `adelete` / `asearch` / `alist_namespaces` / `abatch`
+- 补齐 `batch(ops)`（按 `GetOp` / `PutOp` / `SearchOp` / `ListNamespacesOp` 分派）
+- 补齐 `supports_ttl` / `ttl_config`
+- `Item.namespace` 改为**元组**，`created_at` / `updated_at` 改为 **datetime**（此前是 list / 字符串）
+
+`batch` 还有一个语义细节：LG 的读操作看到的是**批处理开始前**的状态（同一批里的 `PutOp` 对后续
+`GetOp` / `ListNamespacesOp` 不可见），已按此实现。
+
 ### 策略对象的参数与 `repr`（2026-11-27）
 
 LG 的三个策略都是 dataclass，构造参数与 `repr` 是用户可见的接口。扩展此前：
