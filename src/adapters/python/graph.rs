@@ -64,7 +64,7 @@ impl PyStateGraph {
     /// Optional LangGraph-style keywords: ``retry_policy``, ``cache_policy`` and
     /// ``error_handler`` (node name).
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, defer=None, deferred=None, destinations=None, input_schema=None, timeout=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, defer=None, deferred=None, destinations=None, input_schema=None, timeout=None, metadata=None, trace_policy=None))]
     fn add_node(
         mut slf: PyRefMut<'_, Self>,
         name: String,
@@ -77,6 +77,8 @@ impl PyStateGraph {
         destinations: Option<Vec<String>>,
         input_schema: Option<&Bound<'_, PyAny>>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
+        metadata: Option<&Bound<'_, PyAny>>,
+        trace_policy: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<Self>> {
         let mut graph = std::mem::take(&mut slf.inner);
         // LangGraph spells this `defer`; `deferred` is kept as an alias.
@@ -90,6 +92,14 @@ impl PyStateGraph {
         if let Some(schema) = input_schema {
             graph = graph.set_node_input_schema(name.clone(), py_to_value(schema)?);
         }
+        if let Some(metadata) = metadata
+            && !metadata.is_none()
+            && let Value::Object(map) = py_to_value(metadata)?
+        {
+            graph = graph.set_node_metadata(name.clone(), map);
+        }
+        // `trace_policy` only shapes tracing payloads; the extension records plain node metadata.
+        let _ = trace_policy;
         // LangGraph lets a compiled subgraph be registered with `add_node(name, subgraph)`; route
         // it to the subgraph path so both spellings behave the same.
         let subgraph = compiled_graph_of(slf.py(), function.bind(slf.py()));

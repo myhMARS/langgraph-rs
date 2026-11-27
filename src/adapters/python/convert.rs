@@ -1179,7 +1179,12 @@ pub(super) fn install_langchain_callbacks<'py>(
     Some((variable.into_bound(py), token))
 }
 
-/// Convert a `context_schema` argument: a JSON-schema dict or a pydantic/TypedDict class.
+/// Convert a `context_schema` argument: a JSON-schema dict, a pydantic/TypedDict class, or any
+/// other class.
+///
+/// LangGraph accepts a plain class too — it never validates the context against a schema it cannot
+/// derive, it simply hands the object to `Runtime.context` — so an underivable class yields the
+/// permissive empty schema instead of an error.
 pub(super) fn context_schema_value(
     py: Python<'_>,
     schema: &Bound<'_, PyAny>,
@@ -1194,9 +1199,9 @@ pub(super) fn context_schema_value(
     {
         return Ok(value);
     }
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "context_schema must be a JSON schema dict or a pydantic/TypedDict class",
-    ))
+    // No derivable schema: accept anything, matching LangGraph's plain-class behaviour.
+    let _ = py;
+    Ok(serde_json::json!({}))
 }
 
 /// Apply the writes a node performed itself to its output, preserving multiple writes per channel.

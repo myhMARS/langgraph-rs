@@ -4067,3 +4067,23 @@ Still open from the audit: `context_schema` rejects plain classes (LangGraph acc
 
 Suite is 620 tests (five new), parity 91/91 (new `audit_regressions` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 195: the remaining audit findings
+
+* **`context_schema` accepts a plain class.** LangGraph takes any class (it never validates a context
+  it cannot derive a schema for). An underivable class now yields the permissive empty schema instead
+  of `TypeError`, and `runtime.context` still arrives as the original object.
+* **Duplicate `add_node` fails immediately.** LangGraph raises `ValueError: Node `a` already present.`
+  when the node is registered; the facade now checks there instead of deferring to `compile`.
+* **`add_node(metadata=..., trace_policy=...)`** are accepted (they used to raise `TypeError`);
+  `metadata` is stored on the node, `trace_policy` is tolerated.
+* **`get_config()` only reports `tags`** when the run carries some, matching LangGraph's key set.
+* **`create_react_agent` signature** now lists LangGraph 1.2's parameters (`pre_model_hook`,
+  `post_model_hook`, `context_schema`, `deprecated_kwargs` included).
+
+Known difference documented: both hooks run as graph nodes, but when a hook echoes the existing
+messages plus new ones, our `add_messages` appends the echo again (LangGraph's result does not), because
+the two engines dedupe messages without `id` differently. Hooks that return only the new messages behave
+identically.
+
+Suite is 625 tests (five new), parity 91/91, examples 10/10, clippy and Rust tests clean.

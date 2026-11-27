@@ -98,7 +98,10 @@ def create_react_agent(
     *,
     prompt: Any = None,
     response_format: Any = None,
+    pre_model_hook: Any = None,
+    post_model_hook: Any = None,
     state_schema: Any = None,
+    context_schema: Any = None,
     config_schema: Any = None,
     checkpointer: Any = None,
     store: Any = None,
@@ -107,6 +110,7 @@ def create_react_agent(
     debug: bool = False,
     version: str = "v2",
     name: str | None = None,
+    deprecated_kwargs: Any = None,
     **kwargs: Any,
 ) -> Any:
     """LangGraph's deprecated agent helper, built by the native engine."""
@@ -125,7 +129,11 @@ def create_react_agent(
             state_schema=state_schema,
             # LangGraph's deprecated helper calls this `config_schema`; the native engine models it
             # as the run's context schema. An explicit `context_schema` wins.
-            context_schema=kwargs.pop("context_schema", config_schema),
+            context_schema=context_schema
+            if context_schema is not None
+            else kwargs.pop("context_schema", config_schema),
+            pre_model_hook=pre_model_hook,
+            post_model_hook=post_model_hook,
             checkpointer=checkpointer,
             store=store,
             interrupt_before=interrupt_before,

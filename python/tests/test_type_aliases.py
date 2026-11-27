@@ -2528,9 +2528,9 @@ class GraphValidationErrorTest(unittest.TestCase):
     def test_duplicate_node(self):
         graph = langgraph_rs.StateGraph({"value": "last_value"})
         graph.add_node("a", lambda state: {})
-        graph.add_node("a", lambda state: {})
+        # LangGraph rejects the duplicate when it is registered, not at compile time.
         with self.assertRaises(ValueError) as raised:
-            graph.compile()
+            graph.add_node("a", lambda state: {})
         self.assertEqual(str(raised.exception), "Node `a` already present.")
 
 
@@ -3925,3 +3925,99 @@ class AuditRegressionTest(unittest.TestCase):
         self.assertEqual(type(message).__name__, "ToolMessage")
         self.assertEqual(message.status, "success")
         self.assertEqual(message.content, '{"a":1,"b":2}')
+
+
+class PlainClassContextTest(unittest.TestCase):
+    """`context_schema` accepts a plain class and the object reaches the node unchanged."""
+
+    def test_plain_class_context(self):
+        from langgraph_rs.runtime import Runtime
+
+        class Ctx:
+            def __init__(self, user="ann"):
+                self.user = user
+
+        seen = {}
+
+        def node(state, runtime: Runtime):
+            seen["ctx"] = runtime.context
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"}, context_schema=Ctx)
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+        self.assertEqual(app.invoke({"value": 0}, context=Ctx("bob")), {"value": 1})
+        self.assertIs(type(seen["ctx"]), Ctx)
+        self.assertEqual(seen["ctx"].user, "bob")
+        # A plain class has no derivable JSON schema; LangGraph reports an empty one.
+        self.assertEqual(app.get_context_jsonschema()["type"], "object")
+
+
+class NodeMetadataKwargTest(unittest.TestCase):
+    """`add_node` accepts LangGraph's `metadata` / `trace_policy` keywords."""
+
+    def test_metadata_is_accepted(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node(
+            "n", lambda state: {"value": 1}, metadata={"owner": "me"}, trace_policy=None
+        )
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 1})
+
+
+class ConfigKeysTest(unittest.TestCase):
+    """`get_config()` only reports `tags` when the run carries some."""
+
+    @staticmethod
+    def _config(**run_config):
+        from langgraph_rs.config import get_config
+
+        seen = {}
+
+        def inside(state):
+            seen.update(get_config())
+            return {}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("m", inside)
+        graph.add_edge(langgraph_rs.START, "m")
+        graph.add_edge("m", langgraph_rs.END)
+        graph.compile().invoke({"value": 0}, run_config or None)
+        return seen
+
+    def test_untagged_run_has_no_tags_key(self):
+        self.assertEqual(sorted(self._config()), ["callbacks", "configurable", "metadata"])
+
+    def test_tagged_run_reports_them(self):
+        self.assertEqual(self._config(**{"tags": ["run"]}).get("tags"), ["run"])
+
+
+class ReactAgentSignatureTest(unittest.TestCase):
+    """`create_react_agent` exposes LangGraph 1.2's parameter list."""
+
+    def test_parameter_names(self):
+        import inspect
+
+        names = list(inspect.signature(langgraph_rs.prebuilt.create_react_agent).parameters)
+        for expected in (
+            "model",
+            "tools",
+            "prompt",
+            "response_format",
+            "pre_model_hook",
+            "post_model_hook",
+            "state_schema",
+            "context_schema",
+            "checkpointer",
+            "store",
+            "interrupt_before",
+            "interrupt_after",
+            "debug",
+            "version",
+            "name",
+            "deprecated_kwargs",
+        ):
+            self.assertIn(expected, names)

@@ -398,16 +398,22 @@ pub fn get_config() -> Value {
             Value::String(checkpoint_ns),
         );
     }
-    serde_json::json!({
+    let mut config = serde_json::json!({
         "callbacks": [],
         "configurable": {
             "thread_id": current_thread_id(),
             "checkpoint_ns": current_namespace(),
             "__pregel_task_id": crate::runtime::context::current_task_id(),
         },
-        "tags": tags,
         "metadata": metadata,
-    })
+    });
+    // LangGraph only reports `tags` when the run actually carries some.
+    if !tags.is_empty()
+        && let Some(object) = config.as_object_mut()
+    {
+        object.insert("tags".to_string(), serde_json::json!(tags));
+    }
+    config
 }
 
 /// Return a writer that emits custom stream values from helpers.

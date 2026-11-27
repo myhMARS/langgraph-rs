@@ -226,6 +226,12 @@ class StateGraph(_native.StateGraph):
         LangGraph synthesises `__error_handler__<node>` and routes the failure there, so the
         handler sees the state and its update replaces the node's result; the branch then ends.
         """
+        # LangGraph rejects a duplicate name as soon as it is registered.
+        names = self.__dict__.setdefault("_node_names", set())
+        key = str(name)
+        if key in names:
+            raise ValueError(f"Node `{key}` already present.")
+        names.add(key)
         action = _with_runtime(action)
         # `set_node_defaults` applies to nodes registered afterwards.
         defaults = getattr(self, "_node_defaults", None)

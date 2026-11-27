@@ -177,6 +177,18 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 审计后续三项（2026-11-27）
+
+1. **`context_schema` 接受裸类**：LG 允许 `context_schema=Ctx` 传任意类；扩展此前抛
+   `TypeError: context_schema must be a JSON schema dict or a pydantic/TypedDict class`。现在无 schema 可推导时
+   按"空 schema"接受（LG 对裸类也不做校验），`runtime.context` 仍是原对象。
+2. **重复 `add_node` 立即报错**：LG 在**注册时**抛 `ValueError: Node \`a\` already present.`，扩展此前要等到
+   `compile()`。现在与 LG 同时机。
+3. **`add_node(metadata=..., trace_policy=...)`**：LG 支持这两个关键字；扩展此前直接
+   `TypeError`。`metadata` 会存进节点元数据，`trace_policy` 接受但不参与（引擎不区分 trace 策略）。
+
+另外修掉 `get_config()` 的差异：LG 只在运行**带 tags** 时才返回 `tags` 键，扩展此前总是带上。
+
 ### 对抗性审计发现的四处行为差异（2026-11-27）
 
 让独立审计逐条验证文档里的"已对齐"声明，查出四处**真实行为差异**（非文案）：
@@ -912,9 +924,14 @@ LG 的 `create_react_agent` 有一份明确的参数表（`model, tools, prompt,
 state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version,
 name`）；扩展此前是 `(*args, **kwargs)`，`inspect.signature` 看不到任何参数，传错名字也不会报错。
 
-现在参数表与 LG 一致：`model / tools / prompt / response_format / state_schema / config_schema /
-checkpointer / store / interrupt_before / interrupt_after / debug / version / name`。
-`config_schema` 映射到引擎的 `context_schema`（显式传 `context_schema` 时以它为准）。
+现在参数表与 LG 1.2.22 一致：`model / tools / prompt / response_format / pre_model_hook /
+post_model_hook / state_schema / context_schema / checkpointer / store / interrupt_before /
+interrupt_after / debug / version / name / deprecated_kwargs`（`config_schema` 作为旧拼写保留，映射到
+`context_schema`）。
+
+**`pre_model_hook` / `post_model_hook` 的已知差异**：两个钩子都作为图中节点执行（LG 也是这样接的），但当钩子
+返回"原消息 + 新消息"时，扩展的 `add_messages` 会把原消息再追加一次（LG 的结果里不会重复）—— 因为两边对无 `id`
+消息的去重规则不同。钩子返回**只含新消息**的列表时行为一致。
 
 行为也逐条核对过：假模型 + 一个工具时，两边都是
 `[human, ai(tool_call), tool('3'), ai('3')]`，图节点都是 `__start__ / agent / tools / __end__`。
