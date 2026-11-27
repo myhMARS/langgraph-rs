@@ -223,6 +223,7 @@ class StateGraph(_native.StateGraph):
         LangGraph synthesises `__error_handler__<node>` and routes the failure there, so the
         handler sees the state and its update replaces the node's result; the branch then ends.
         """
+        action = _with_runtime(action)
         # `set_node_defaults` applies to nodes registered afterwards.
         defaults = getattr(self, "_node_defaults", None)
         if defaults:
@@ -385,6 +386,66 @@ def _normalize_supersteps(supersteps: Any) -> Any:
         normalized.append(entries)
     return normalized
 
+
+
+def _accepts_runtime(action: Any) -> bool:
+    """Does this node declare a `runtime` parameter (LangGraph `Runtime` injection)?"""
+    if not callable(action) or inspect.isclass(action):
+        return False
+    if getattr(action, "_langgraph_runtime_wrapped", False):
+        return False
+    try:
+        parameters = inspect.signature(action).parameters
+    except (TypeError, ValueError):
+        return False
+    if "runtime" not in parameters:
+        return False
+    return parameters["runtime"].kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+def _current_runtime() -> Any:
+    """Build the `Runtime` handed to a node, from the running task's context."""
+    from ..runtime import Runtime
+
+    try:
+        context = _native.current_context()
+    except Exception:  # pragma: no cover - no active run
+        context = None
+    try:
+        store = _native.get_store()
+    except Exception:  # pragma: no cover - no store configured
+        store = None
+
+    try:
+        writer = _native.get_stream_writer()
+    except Exception:  # pragma: no cover - no stream writer
+        writer = None
+    return Runtime(context=context, store=store, stream_writer=writer)
+
+
+def _with_runtime(action: Any) -> Any:
+    """Wrap a node that asked for a `Runtime` so the engine can keep calling it with the state."""
+    if not _accepts_runtime(action):
+        return action
+    if inspect.iscoroutinefunction(action):
+
+        async def wrapper(state: Any, *args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("runtime", _current_runtime())
+            return await action(state, *args, **kwargs)
+
+    else:
+
+        def wrapper(state: Any, *args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("runtime", _current_runtime())
+            return action(state, *args, **kwargs)
+
+    wrapper._langgraph_runtime_wrapped = True  # type: ignore[attr-defined]
+    wrapper.__name__ = getattr(action, "__name__", "node")
+    wrapper.__doc__ = getattr(action, "__doc__", None)
+    return wrapper
 
 
 def _state_snapshot(raw: Any) -> Any:

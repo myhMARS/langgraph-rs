@@ -1076,7 +1076,19 @@ pub(super) fn node_from_python(
             let callback_guard = install_langchain_callbacks(py);
             // The engine already installed this node's task context; only the channel writes it
             // performed itself are collected here.
-            let result = callable.call1(py, (state_obj,));
+            let mut result = callable.call1(py, (state_obj,));
+            // LangGraph accepts async nodes in a sync builder: the call returns a coroutine and
+            // `ainvoke` drives it. Resolve it here so both run styles work.
+            if let Ok(value) = &result {
+                let bound = value.bind(py);
+                if bound.hasattr("__await__").unwrap_or(false) {
+                    result =
+                        crate::adapters::python::async_graph::async_support::run_timed_awaitable(
+                            py, bound,
+                        )
+                        .map(|value| value.unbind());
+                }
+            }
             let writes = crate::runtime::context::take_writes();
             if let Some((variable, token)) = callback_guard {
                 let _ = variable.call_method1("reset", (token,));

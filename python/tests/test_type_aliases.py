@@ -2844,3 +2844,91 @@ class GraphDrawingOrderTest(unittest.TestCase):
     def test_mermaid_keeps_the_order(self):
         mermaid = self._graph().get_graph().draw_mermaid()
         self.assertIn("\t__start__ --> a;\n\ta -.-> b;\n\tb --> __end__;", mermaid)
+
+
+class RuntimeInjectionTest(unittest.TestCase):
+    """Nodes declaring `runtime: Runtime` receive one, like LangGraph."""
+
+    def test_node_receives_runtime(self):
+        from langgraph_rs.runtime import Runtime
+
+        seen = {}
+
+        def node(state, runtime: Runtime):
+            seen["type"] = type(runtime).__name__
+            seen["writer"] = callable(runtime.stream_writer)
+            runtime.store.put(("ns",), "k", {"v": 2})
+            seen["stored"] = runtime.store.get(("ns",), "k").value
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(store=langgraph_rs.InMemoryStore())
+        self.assertEqual(app.invoke({"value": 0}), {"value": 1})
+        self.assertEqual(seen["type"], "Runtime")
+        self.assertTrue(seen["writer"])
+        self.assertEqual(seen["stored"], {"v": 2})
+
+    def test_plain_node_is_untouched(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 1})
+
+    def test_async_node_receives_runtime(self):
+        from langgraph_rs.runtime import Runtime
+
+        seen = {}
+
+        async def node(state, runtime: Runtime):
+            seen["async"] = type(runtime).__name__
+            return {"value": 2}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+        import asyncio
+
+        self.assertEqual(asyncio.run(app.ainvoke({"value": 0})), {"value": 2})
+        self.assertEqual(seen["async"], "Runtime")
+
+
+class AsyncNodeInSyncGraphTest(unittest.TestCase):
+    """LangGraph accepts async nodes in a sync builder and runs them under `ainvoke`."""
+
+    @staticmethod
+    def _app(node):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile()
+
+    def test_async_node_runs_under_ainvoke(self):
+        import asyncio
+
+        async def node(state):
+            return {"value": 1}
+
+        self.assertEqual(
+            asyncio.run(self._app(node).ainvoke({"value": 0})), {"value": 1}
+        )
+
+    def test_async_node_can_stream(self):
+        import asyncio
+
+        async def node(state):
+            return {"value": 3}
+
+        app = self._app(node)
+
+        async def collect():
+            return [chunk async for chunk in app.astream({"value": 0})]
+
+        chunks = asyncio.run(collect())
+        self.assertEqual(chunks[-1], {"value": 3})

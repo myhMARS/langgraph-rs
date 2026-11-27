@@ -3659,3 +3659,21 @@ Remaining cosmetic difference: `Graph.nodes[...].data` is `None` where LangGraph
 
 Suite is 561 tests (two new), parity 82/82 (new `drawing` scenario), examples 10/10, clippy and Rust
 tests clean.
+
+### Round 171: `Runtime` injection and async nodes in a sync builder
+
+Two real gaps found by probing LangGraph directly:
+
+1. **`Runtime` injection** — LangGraph injects a `Runtime` into any node that declares one
+   (`def node(state, runtime: Runtime)`); the extension called the node with the state only, so such a
+   node died with `TypeError: node() missing 1 required positional argument: 'runtime'`. The facade now
+   wraps such nodes (sync and async) and builds the `Runtime` from the running task's context, store and
+   stream writer. Documented difference: `runtime.store` is a working handle but not the very object the
+   graph was compiled with, so `isinstance(runtime.store, InMemoryStore)` is `False`.
+2. **Async nodes in a sync builder** — LangGraph accepts `async def` nodes in `StateGraph` and runs them
+   under `ainvoke`; the extension raised `InvalidUpdateError: Expected dict, got <coroutine object ...>`.
+   The sync node path now drives an awaitable to completion on the same private loop the async builder
+   uses. Deliberate superset: LangGraph's synchronous `invoke` rejects an async node with
+   `TypeError: No synchronous function provided`, while the extension also runs it.
+
+Suite is 566 tests (five new), parity 82/82, examples 10/10, clippy and Rust tests clean.

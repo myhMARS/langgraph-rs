@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `Runtime` 注入与同步构建器里的异步节点（2026-11-27）
+
+**1. `Runtime` 注入**：LG 允许节点声明 `runtime: Runtime` 参数，运行期注入上下文对象。扩展此前只传
+state，节点会直接 `TypeError: node() missing 1 required positional argument: 'runtime'`。现在同步/异步节点都能拿到
+`Runtime`（`context` / `store` / `stream_writer` 均可用）。
+
+已知差异：`runtime.store` 是**可用的**存储句柄，但不是编译时那个对象本身（`isinstance(runtime.store,
+InMemoryStore)` 为 `False`），因为引擎回传的是自己的包装。
+
+**2. 同步构建器 + 异步节点**：LG 里 `StateGraph` 可以注册 `async def` 节点，用 `ainvoke` 跑。扩展此前
+`ainvoke` 会报 `InvalidUpdateError: Expected dict, got <coroutine object ...>`。现在同步节点路径遇到可等待对象会
+驱动它到完成（复用异步构建器的私有事件循环）。
+
+超集：LG 的同步 `invoke` 对异步节点会抛 `TypeError: No synchronous function provided to "n"`，扩展在 `invoke` 里
+也能跑（更宽容，不会让从 LG 迁来的代码失败）。
+
 ### `messages` 流：完整消息不再被包成 chunk（2026-11-27）
 
 LG 的 `stream_mode="messages"` 里，模型**没有逐 token 流式**时会给出**消息本体**（`AIMessage`），

@@ -33,7 +33,7 @@ pub struct PyAsyncCompiledGraph {
 }
 
 #[path = "async_support.rs"]
-mod async_support;
+pub(crate) mod async_support;
 use async_support::*;
 #[pymethods]
 impl PyAsyncCompiledGraph {
