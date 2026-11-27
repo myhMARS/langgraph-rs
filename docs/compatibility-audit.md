@@ -4375,3 +4375,21 @@ interrupt graph the live path emits one extra empty chunk and `__interrupt__` as
 list.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 210: live chunk shapes match the eager path
+
+Two conversion details in `PyLiveStream::poll` made a streamed interrupt differ from the eager result: the
+interrupt chunk was converted on its own (yielding a tuple instead of a one-element list) and a repeated
+`values` payload produced an extra empty chunk (the eager path converts the whole list at once and merges
+it).
+
+Interrupt chunks are now held until the stream ends and converted together, and a repeated `values`
+payload is dropped by comparing against the last one. Measured on an interrupt graph and on a two-node
+graph: eager and live sequences are now identical.
+
+The facade wiring is still reverted (653 tests green). Five issues surface on connecting it — subgraph
+debug chunk shape, `astream` interacting with a sync iterator, lifecycle dispatch, namespace prefixes —
+so the next attempt will be bounded: use the live stream only for the single-mode, non-subgraph case
+whose shapes are now verified identical, and keep the eager path everywhere else.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.

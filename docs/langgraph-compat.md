@@ -177,6 +177,27 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### live 流的块形状已与 eager 一致（2026-11-27，第 113 轮）
+
+第 112 轮剩的"多一个中间块 + `__interrupt__` 是 tuple"本轮修掉了，两处都在 `PyLiveStream.poll`：
+
+1. **中断块聚合成一个条目**：interrupt 块先攒着，等流结束时一次性转换，得到与 eager 相同的单个
+   `{"__interrupt__": [...]}`（此前每块单独转换）。
+2. **重复的 `values` 块丢弃**：eager 是"整段列表一起转换"，天然会把连续相同的 values 载荷合并；live 逐块转发，
+   于是多出一个空 `{}`。现在用"上一个 values 载荷"做去重。
+
+实测（中断图，`stream_mode="values"`）：
+
+```
+eager: [{'__empty__'}, {'__interrupt__': [...]}]
+live : [{'__empty__'}, {'__interrupt__': [...]}]   ← 完全一致
+非中断图（两节点）也逐块一致
+```
+
+**门面接线仍未保留**：接上后仍有一批问题（`subgraphs=True` 的 debug 块形状、`astream` 与 live 迭代器的交互、
+lifecycle、命名空间前缀）。下一轮改用**有界接入**：只在"单 stream_mode 且无 subgraphs"这个最常见、形状已验证一致的
+场景走 live，其余继续走 eager —— 把影响面限制在可验证的范围内。
+
 ### live 流的中断/lifecycle 已补齐（2026-11-27，第 112 轮）
 
 第 111 轮剩余两项，本轮都修了：

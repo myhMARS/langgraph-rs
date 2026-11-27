@@ -84,6 +84,10 @@ pub struct PyLiveStream {
     handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     v2: bool,
     requested: Vec<crate::StreamMode>,
+    /// Interrupt chunks are reported together when the run ends, like the eager conversion does.
+    pending_interrupts: std::sync::Mutex<Vec<StreamChunk>>,
+    /// Payload of the last `values` chunk, so a duplicated one is not reported twice.
+    last_values: std::sync::Mutex<Option<String>>,
 }
 
 impl PyLiveStream {
@@ -98,6 +102,8 @@ impl PyLiveStream {
             handle: std::sync::Mutex::new(Some(handle)),
             v2,
             requested,
+            pending_interrupts: std::sync::Mutex::new(Vec::new()),
+            last_values: std::sync::Mutex::new(None),
         }
     }
 }
@@ -133,17 +139,59 @@ impl PyLiveStream {
             match item {
                 Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // Report the run's interrupts together, then stop (LangGraph aggregates them).
+                    let pending = {
+                        let mut guard = self
+                            .pending_interrupts
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        std::mem::take(&mut *guard)
+                    };
+                    if !pending.is_empty() {
+                        let converted =
+                            crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+                                py,
+                                &pending,
+                                self.v2,
+                                &self.requested,
+                                false,
+                            )?;
+                        if let Some(item) = converted.into_iter().next() {
+                            return Ok(Some(item));
+                        }
+                    }
                     return Err(pyo3::exceptions::PyStopIteration::new_err(()));
                 }
                 Ok(LiveItem::Error(message)) => {
-                    return Err(pyo3::exceptions::PyRuntimeError::new_err(message));
+                    return Err(PyRuntimeError::new_err(message));
                 }
                 Ok(LiveItem::Chunk(chunk)) => {
-                    if !chunk.is_interrupt() && !chunk.matches_modes_strict(&self.requested) {
+                    if chunk.is_interrupt() {
+                        // Held until the run ends so the payload is one `__interrupt__` entry.
+                        self.pending_interrupts
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .push(*chunk);
                         continue;
                     }
-                    // Match the eager `stream()` conversion exactly (no subgraph re-wrapping;
-                    // the event pipeline already handles namespaces).
+                    if !chunk.matches_modes_strict(&self.requested) {
+                        continue;
+                    }
+                    // The eager conversion runs over the whole list and collapses a repeated
+                    // `values` payload; do the same so chunk sequences match.
+                    if let crate::StreamChunk::Values { values, .. } = chunk.as_ref() {
+                        let key = serde_json::to_string(values).unwrap_or_default();
+                        let mut last = self
+                            .last_values
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if last.as_deref() == Some(key.as_str()) {
+                            continue;
+                        }
+                        *last = Some(key);
+                    }
+                    // Match the eager `stream()` conversion exactly (no subgraph re-wrapping; the event
+                    // pipeline already handles namespaces).
                     let converted =
                         crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
                             py,
