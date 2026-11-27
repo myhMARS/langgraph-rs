@@ -5025,3 +5025,16 @@ class SubgraphInterruptStreamTest(unittest.TestCase):
         self.assertEqual(namespaces[0][0].split(":")[0], "sub")
         self.assertEqual(namespaces[1], ())
         self.assertIn("__interrupt__", chunks[1][1])
+
+    def test_resume_reports_both_namespaces(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "subgraph-interrupt-resume"}}
+        app.invoke({"answer": None}, config)
+        chunks = list(
+            app.stream(langgraph_rs.Command(resume="yes"), config, stream_mode="updates", subgraphs=True)
+        )
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(chunks[0][0][0].split(":")[0], "sub")
+        self.assertIn("ask", chunks[0][1])
+        self.assertEqual(chunks[1][0], ())
+        self.assertIn("sub", chunks[1][1])

@@ -4765,3 +4765,18 @@ Still open from this pair: on resume LangGraph re-emits the inner `('sub:…', {
 the parent chunk is produced — the subgraph resume forwarding is not connected yet.
 
 Suite is 674 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 232: subgraph resume chunks
+
+The other half of round 124's finding is fixed. On resume LangGraph emits the inner `('sub:…', {'ask': …})`
+chunk before the parent one; only the parent chunk was produced because the subgraph's resume path went
+through `resume_in_streaming`, which called `execute_quiet` (`emit=false`) and therefore produced no stream
+chunks at all. Switching it to the emitting `pregel::execute` yields the pair.
+
+Both documented differences from round 124 — the pause reporting two chunks and the resume re-emitting the
+inner one — are now closed, verified against LangGraph.
+
+(An attempt to add this as a parity scenario hit a harness issue with the schema type and was dropped; the
+behaviour is covered by two unit tests instead.)
+
+Suite is 675 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.

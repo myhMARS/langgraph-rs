@@ -421,7 +421,8 @@ impl<S: State> CompiledGraph<S> {
             config.context = overrides.context.clone();
             config.stream_subgraphs = true;
         }
-        pregel::execute_quiet(
+        // A streaming resume must emit chunks, so use the emitting executor.
+        pregel::execute(
             self,
             StartInput::Resume {
                 thread_id: thread_id.to_string(),
