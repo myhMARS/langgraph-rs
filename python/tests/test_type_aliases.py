@@ -1310,14 +1310,14 @@ class ToolNodeErrorHandlingTest(unittest.TestCase):
 
     def test_default_message(self):
         last = self._run(True)["messages"][-1]
-        self.assertEqual(last["status"], "error")
-        self.assertIn("Error: ValueError('kaboom')", last["content"])
-        self.assertIn("Please fix your mistakes.", last["content"])
+        self.assertEqual(last.status, "error")
+        self.assertIn("Error: ValueError('kaboom')", last.content)
+        self.assertIn("Please fix your mistakes.", last.content)
 
     def test_string_replaces_the_message(self):
         last = self._run("nope")["messages"][-1]
-        self.assertEqual(last["content"], "nope")
-        self.assertEqual(last["status"], "error")
+        self.assertEqual(last.content, "nope")
+        self.assertEqual(last.status, "error")
 
     def test_callable_receives_the_error(self):
         seen = []
@@ -1328,7 +1328,7 @@ class ToolNodeErrorHandlingTest(unittest.TestCase):
 
         last = self._run(handler)["messages"][-1]
         # LangGraph hands the handler the original exception object.
-        self.assertEqual(last["content"], "handled kaboom")
+        self.assertEqual(last.content, "handled kaboom")
         self.assertEqual(seen, ["ValueError"])
 
     def test_false_propagates(self):
@@ -2069,11 +2069,11 @@ class ToolErrorTypeFilterTest(unittest.TestCase):
 
     def test_matching_type_is_handled(self):
         last = self._run(ValueError)
-        self.assertEqual(last["status"], "error")
-        self.assertIn("Error: ValueError('kaboom')", last["content"])
+        self.assertEqual(last.status, "error")
+        self.assertIn("Error: ValueError('kaboom')", last.content)
 
     def test_tuple_of_types_is_handled(self):
-        self.assertIn("Error: ValueError('kaboom')", self._run((ValueError, KeyError))["content"])
+        self.assertIn("Error: ValueError('kaboom')", self._run((ValueError, KeyError)).content)
 
     def test_non_matching_type_propagates(self):
         with self.assertRaises(ValueError):
@@ -2193,3 +2193,51 @@ class ReactAgentHelperTest(unittest.TestCase):
         ]
         self.assertEqual(contents[-2:], ["3", "3"])
         self.assertEqual(sorted(agent.get_graph().nodes), ["__end__", "__start__", "agent", "tools"])
+
+
+class MessageObjectsTest(unittest.TestCase):
+    """`add_messages` channels hand node code and callers LangChain message objects."""
+
+    def test_messages_are_objects(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        seen = {}
+
+        def node(state):
+            seen["type"] = type(state["messages"][-1]).__name__
+            # Attribute access is how LangGraph code reads messages.
+            seen["content"] = state["messages"][-1].content
+            return {"messages": [AIMessage(content="hello", id="m2")]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        out = graph.compile().invoke({"messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(seen, {"type": "HumanMessage", "content": "hi"})
+        self.assertIsInstance(out["messages"][0], HumanMessage)
+        self.assertIsInstance(out["messages"][1], AIMessage)
+        self.assertEqual([message.type for message in out["messages"]], ["human", "ai"])
+        self.assertEqual([message.content for message in out["messages"]], ["hi", "hello"])
+
+    def test_plain_channels_stay_plain(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 1})
+
+    def test_switch_can_be_turned_off(self):
+        def node(state):
+            return {"messages": [{"role": "ai", "content": "hello", "id": "m2"}]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        langgraph_rs._set_messages_objects(False)
+        try:
+            out = graph.compile().invoke({"messages": [{"role": "user", "content": "hi"}]})
+            self.assertIsInstance(out["messages"][0], dict)
+        finally:
+            langgraph_rs._set_messages_objects(True)

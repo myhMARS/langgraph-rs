@@ -27,7 +27,7 @@ class MessageGraphTest(unittest.TestCase):
         compiled = self._graph().compile()
         out = compiled.invoke([{"role": "user", "content": "ping"}])
         self.assertIsInstance(out, list)
-        self.assertEqual([m["content"] for m in out], ["ping", "pong", "single"])
+        self.assertEqual([m.content for m in out], ["ping", "pong", "single"])
 
     def test_nodes_receive_the_message_list(self):
         seen: list[object] = []
@@ -42,12 +42,12 @@ class MessageGraphTest(unittest.TestCase):
         graph.add_edge("node", END)
         graph.compile().invoke([{"role": "user", "content": "hi"}])
         self.assertTrue(seen and isinstance(seen[0], list))
-        self.assertEqual(seen[0][0]["content"], "hi")
+        self.assertEqual(seen[0][0].content, "hi")
 
     def test_state_mapping_input_is_accepted(self):
         compiled = self._graph().compile()
         out = compiled.invoke({"messages": [{"role": "user", "content": "ping"}]})
-        self.assertEqual([m["content"] for m in out], ["ping", "pong", "single"])
+        self.assertEqual([m.content for m in out], ["ping", "pong", "single"])
 
     def test_updates_stream_is_node_keyed(self):
         graph = MessageGraph()
@@ -76,7 +76,7 @@ class MessageGraphTest(unittest.TestCase):
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
         paused = compiled.invoke([{"role": "user", "content": "hi"}], thread_id="mg")
         self.assertIn("__interrupt__", paused)
-        self.assertEqual(paused["messages"][0]["content"], "hi")
+        self.assertEqual(paused["messages"][0].content, "hi")
 
 
 if __name__ == "__main__":

@@ -102,7 +102,7 @@ class ToolsStreamTest(unittest.TestCase):
     def test_messages_mode_is_unaffected(self):
         app = _agent_graph(self._tool_node())
         result = app.invoke({"messages": []})
-        self.assertEqual(result["messages"][-1]["content"], "3")
+        self.assertEqual(result["messages"][-1].content, "3")
 
     def test_async_graph_emits_tool_events(self):
         tools = self._tool_node()

@@ -103,7 +103,7 @@ class InjectionTest(unittest.TestCase):
         graph.set_finish_point("tools")
         result = graph.compile(store=store).invoke(_state("", "remember", {"value": "hi"}))
         self.assertEqual(
-            [message["content"] for message in result["messages"] if message.get("role") == "tool"],
+            [message.content for message in result["messages"] if getattr(message, "type", None) == "tool"],
             ["stored"],
         )
         self.assertEqual(store.data[(("mem",), "k")], "hi")

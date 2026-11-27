@@ -78,7 +78,7 @@ impl Drop for RunGuard {
 /// LangGraph always returns message objects; the extension is migrating to that representation, and
 /// the switch keeps the old dictionary shape available until the whole surface is ready.
 static MESSAGES_AS_OBJECTS: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(true);
 
 /// Enable or disable message-object conversion.
 pub(crate) fn set_messages_as_objects(enabled: bool) {

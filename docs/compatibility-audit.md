@@ -3328,4 +3328,29 @@ Why it is off: turning it on breaks roughly 14 places in the extension's own Pyt
 dicts. Those need migrating to LangGraph's attribute API first; the next round does that and then
 flips the default.
 
-Suite is 515 tests, parity 73/73, examples 10/10, clippy and Rust tests clean (switch off).
+Suite is 515 tests, parity 73/73, examples 10/10, clippy and Rust tests clean (switch off).### Round 153: `add_messages` channels return LangChain message objects
+
+The last big structural gap. LangGraph stores LangChain message objects in `add_messages` channels;
+the extension returned plain dicts (`{'role': 'user', 'content': ...}`), so the idiomatic
+`state["messages"][-1].content` raised `AttributeError`.
+
+Now identical to LangGraph:
+
+```
+input  {'messages': [{'role': 'user', 'content': 'hi'}]}
+node   HumanMessage, .content == 'hi'
+result [HumanMessage('hi'), AIMessage('hello')], .type == 'human' / 'ai'
+```
+
+The conversion is schema driven: `StateSchema` marks `add_messages` channels, the run registers the
+names in a process-wide registry (async graphs convert on another thread), and
+`json_state_to_py` uses `langchain_core.messages.convert_to_messages`. Plain channels are untouched.
+
+Migration work that came with it: the extension's own facade and ~15 tests read messages as dicts
+(`ValidationNode`, `MessageGraph`, prompt injection, tool injection, `ToolNode` error assertions) and
+now use LangGraph's attribute API; the parity scenarios were made representation-agnostic through a
+`message_field` helper. `langgraph_rs._set_messages_objects(False)` keeps the old dict shape available
+as a transitional escape hatch (default on).
+
+Suite is 518 tests (three new), parity 74/74 (new `message_objects` scenario), examples 10/10, clippy
+and Rust tests clean.

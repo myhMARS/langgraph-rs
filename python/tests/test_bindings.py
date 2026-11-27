@@ -2327,7 +2327,7 @@ class PlainToolCallTest(unittest.TestCase):
         graph.add_node("tools", lg.ToolNode([tool]))
         graph.set_entry_point("model")
         graph.add_conditional_edges(
-            "model", lambda state: "tools" if state["messages"][-1].get("tool_calls") else "__end__"
+            "model", lambda state: "tools" if getattr(state["messages"][-1], "tool_calls", None) else "__end__"
         )
         graph.add_edge("tools", "__end__")
         app = graph.compile()
@@ -2337,25 +2337,25 @@ class PlainToolCallTest(unittest.TestCase):
         def get_weather(city: str, unit: str = "c") -> str:
             return f"{city}:{unit}"
 
-        self.assertEqual(self._run(get_weather, {"city": "Paris", "unit": "f"})["content"], "Paris:f")
+        self.assertEqual(self._run(get_weather, {"city": "Paris", "unit": "f"}).content, "Paris:f")
 
     def test_keyword_only_parameters_work(self):
         def only_kw(*, city: str) -> str:
             return f"kw:{city}"
 
-        self.assertEqual(self._run(only_kw, {"city": "Oslo"})["content"], "kw:Oslo")
+        self.assertEqual(self._run(only_kw, {"city": "Oslo"}).content, "kw:Oslo")
 
     def test_var_keyword_parameters_work(self):
         def accept_any(**kwargs) -> str:
             return "star:" + ",".join(sorted(kwargs))
 
-        self.assertEqual(self._run(accept_any, {"a": 1, "b": 2})["content"], "star:a,b")
+        self.assertEqual(self._run(accept_any, {"a": 1, "b": 2}).content, "star:a,b")
 
     def test_single_dict_parameter_still_receives_the_mapping(self):
         def echo(args: dict) -> str:
             return f"echo:{args['city']}"
 
-        self.assertEqual(self._run(echo, {"city": "Rome"})["content"], "echo:Rome")
+        self.assertEqual(self._run(echo, {"city": "Rome"}).content, "echo:Rome")
 
 
 class UiMessageStateTest(unittest.TestCase):

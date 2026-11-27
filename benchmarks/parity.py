@@ -68,6 +68,13 @@ class LgManagedState(TypedDict, total=False):
     value: str
     remaining_steps: RemainingSteps
     is_last_step: IsLastStep
+def message_field(message, key, default=None):
+    """Read a message field regardless of dict/object representation."""
+    if isinstance(message, dict):
+        return message.get(key, default)
+    return getattr(message, key, default)
+
+
 def run_big_state_scenario() -> list[dict]:
     """A large (256 KB) channel value must survive every superstep and every checkpoint.
 
@@ -492,6 +499,63 @@ class _MessagesState(TypedDict):
 class _DeferState(TypedDict, total=False):
     log: Annotated[list, operator.add]
     value: int
+
+
+def run_message_objects_scenario() -> list[dict]:
+    """`add_messages` channels hold LangChain message objects, not dictionaries."""
+
+    class LgState(TypedDict):
+        messages: Annotated[list, add_messages]
+
+    def lg_run():
+        from langchain_core.messages import AIMessage
+
+        def node(state):
+            last = state["messages"][-1]
+            # Attribute access is how LangGraph node code reads messages.
+            assert last.content == "hi"
+            return {"messages": [AIMessage(content="hello", id="m2")]}
+
+        graph = LgStateGraph(LgState)
+        graph.add_node("n", node)
+        graph.add_edge(START, "n")
+        graph.add_edge("n", END)
+        out = graph.compile().invoke({"messages": [{"role": "user", "content": "hi"}]})
+        return {
+            "types": [type(message).__name__ for message in out["messages"]],
+            "contents": [message.content for message in out["messages"]],
+            "roles": [message.type for message in out["messages"]],
+        }
+
+    def rs_run():
+        from langchain_core.messages import AIMessage
+
+        def node(state):
+            last = state["messages"][-1]
+            assert last.content == "hi"
+            return {"messages": [AIMessage(content="hello", id="m2")]}
+
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", node)
+        graph.add_edge(rs.START, "n")
+        graph.add_edge("n", rs.END)
+        out = graph.compile().invoke({"messages": [{"role": "user", "content": "hi"}]})
+        return {
+            "types": [type(message).__name__ for message in out["messages"]],
+            "contents": [message.content for message in out["messages"]],
+            "roles": [message.type for message in out["messages"]],
+        }
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "message_objects",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
 
 
 def run_react_helper_scenario() -> list[dict]:
@@ -1578,7 +1642,11 @@ def run_wrap_tool_call_scenario() -> list[dict]:
         graph.set_finish_point("tools")
         out = graph.compile().invoke({"messages": [call]})
         last = out["messages"][-1]
-        return {"seen": seen, "status": last.get("status"), "content": str(last.get("content"))}
+        return {
+            "seen": seen,
+            "status": message_field(last, "status"),
+            "content": str(message_field(last, "content")),
+        }
 
     lg_value, rs_value = lg_run(), rs_run()
     return [
@@ -1633,7 +1701,11 @@ def run_validation_node_scenario() -> list[dict]:
             {"messages": [{"role": "ai", "content": "", "tool_calls": calls}]}
         )
         return [
-            {"status": m.get("status"), "name": m.get("name"), "content": str(m.get("content"))[:40]}
+            {
+                "status": message_field(m, "status"),
+                "name": message_field(m, "name"),
+                "content": str(message_field(m, "content"))[:40],
+            }
             for m in out["messages"]
         ]
 
@@ -1685,7 +1757,10 @@ def run_tool_error_scenario() -> list[dict]:
         try:
             out = graph.compile().invoke({"messages": [{"role": "user", "content": "go"}, call]})
             last = out["messages"][-1]
-            return {"status": last.get("status"), "content": str(last.get("content"))}
+            return {
+            "status": message_field(last, "status"),
+            "content": str(message_field(last, "content")),
+        }
         except Exception as exc:  # noqa: BLE001
             return {"failed": type(exc).__name__}
 
@@ -4577,6 +4652,7 @@ def main() -> None:
         run_failed_task_scenario,
         run_get_config_scenario,
         run_react_helper_scenario,
+        run_message_objects_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

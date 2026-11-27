@@ -58,13 +58,13 @@ def _compile(node, schema=None):
 class ValidationNodeTest(unittest.TestCase):
     def test_valid_arguments_are_echoed_as_compact_json(self):
         result = _compile(ValidationNode([search])).compile().invoke(_call("search", {"query": "x"}))
-        tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
-        self.assertEqual([m["content"] for m in tool_messages], ['{"query":"x"}'])
-        self.assertEqual(tool_messages[0]["tool_call_id"], "c1")
+        tool_messages = [m for m in result["messages"] if getattr(m, "type", None) == "tool"]
+        self.assertEqual([m.content for m in tool_messages], ['{"query":"x"}'])
+        self.assertEqual(tool_messages[0].tool_call_id, "c1")
 
     def test_invalid_arguments_report_the_validation_error(self):
         result = _compile(ValidationNode([search])).compile().invoke(_call("search", {}))
-        content = [m for m in result["messages"] if m.get("role") == "tool"][0]["content"]
+        content = [m for m in result["messages"] if getattr(m, "type", None) == "tool"][0].content
         self.assertIn("validation error", content)
         self.assertIn("query", content)
 
@@ -90,7 +90,7 @@ class ValidationNodeTest(unittest.TestCase):
             for m in lg_result["messages"]
             if (getattr(m, "type", None) or m.get("role")) == "tool"
         ]
-        rs_content = [m["content"] for m in rs_result["messages"] if m.get("role") == "tool"]
+        rs_content = [m.content for m in rs_result["messages"] if getattr(m, "type", None) == "tool"]
         self.assertEqual(rs_content, lg_content)
 
 
@@ -100,8 +100,8 @@ class ToolRuntimeTest(unittest.TestCase):
             store=lg.InMemoryStore()
         )
         result = compiled.invoke(_call("inspect_state", {}, {"user": "ada"}))
-        tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
-        self.assertEqual([m["content"] for m in tool_messages], ["ada|True"])
+        tool_messages = [m for m in result["messages"] if getattr(m, "type", None) == "tool"]
+        self.assertEqual([m.content for m in tool_messages], ["ada|True"])
 
 
 class EncryptedSerializerTest(unittest.TestCase):

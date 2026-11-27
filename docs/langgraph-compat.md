@@ -332,29 +332,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
-### 消息对象改造：地基已就位（开关默认关闭，2026-11-27）
+### 消息对象：`add_messages` 通道返回 LangChain 消息对象（2026-11-27）
 
-LG 的 `add_messages` 通道返回的是 **LangChain 消息对象**（`HumanMessage` / `AIMessage` /
-`ToolMessage`），扩展一直返回 dict（`{'role': 'user', 'content': ...}`），这是剩余最大的结构性差异。
+LG 的 `add_messages` 通道里装的是 **LangChain 消息对象**；扩展此前返回 dict
+（`{'role': 'user', 'content': ...}`），`state["messages"][-1].content` 这类写法直接崩。
 
-这一轮把地基做完：
-
-- `StateSchema` 记录哪些通道是 `add_messages` 通道（`with_messages_channel` /
-  `messages_channel_names`）
-- 运行时把这些通道名登记到全局注册表（异步运行时在别的线程，不能用线程局部）
-- `json_state_to_py` 对消息通道调用 `langchain_core.messages.convert_to_messages` 转成对象
-- 开关 `_set_messages_objects(bool)`（默认 **关**），关闭时保持旧 dict 行为
-
-打开开关后已验证：
+现在与 LG 一致：
 
 ```
-_set_messages_objects(True)  → ['HumanMessage', 'AIMessage']，m.content 可用
-_set_messages_objects(False) → ['dict', 'dict']
+输入 {'messages': [{'role': 'user', 'content': 'hi'}]}
+节点内：HumanMessage，.content == 'hi'
+返回：  [HumanMessage('hi'), AIMessage('hello')]
+         .type == 'human' / 'ai'
 ```
 
-**为什么默认关闭**：打开后扩展自身的 Python 门面与测试（`ValidationNode`、prompt 处理、
-`MessageGraph` 等约 14 处）仍按 dict 取字段，需要一并改成 LG 的写法。这条迁移留给下一轮，
-完成后再把默认值翻成开。
+实现：`StateSchema` 标记 `add_messages` 通道 → 运行时登记通道名（全局注册表，异步图在别的线程
+转换）→ `json_state_to_py` 用 `langchain_core.messages.convert_to_messages` 转成对象。
+
+过渡开关：`langgraph_rs._set_messages_objects(False)` 可退回 dict 表示（默认开）。
+普通通道不受影响，仍是原样 JSON 值。
 
 ### `create_react_agent` 的参数面（2026-11-27）
 
