@@ -3712,3 +3712,32 @@ class SmallSurfaceTest(unittest.TestCase):
         from langgraph_rs.checkpoint.base import DeltaChannelHistory
 
         self.assertEqual(list(DeltaChannelHistory.__annotations__), ["writes", "seed"])
+
+
+class PregelAndChannelSurfaceTest(unittest.TestCase):
+    """`Pregel` is the compiled graph's base class; `BaseChannel` carries its protocol."""
+
+    def test_compiled_graph_is_a_pregel(self):
+        from langgraph_rs.pregel import Pregel
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+        self.assertIsInstance(app, Pregel)
+        self.assertEqual(app.invoke({"value": 0}), {"value": 1})
+        self.assertEqual(len([n for n in dir(Pregel) if not n.startswith("_")]), 69)
+
+    def test_base_channel_protocol(self):
+        from langgraph_rs.channels import BaseChannel, LastValue
+
+        channel = LastValue(int)
+        self.assertFalse(channel.is_available())
+        with self.assertRaises(Exception):
+            channel.get()
+        self.assertFalse(channel.update([1]))
+        self.assertFalse(channel.consume())
+        self.assertIs(type(channel.copy()), LastValue)
+        for name in ("checkpoint", "from_checkpoint", "consume", "finish"):
+            self.assertTrue(hasattr(BaseChannel, name), name)

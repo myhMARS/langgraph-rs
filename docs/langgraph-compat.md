@@ -177,6 +177,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 编译图就是 `Pregel`、通道协议补全（2026-11-27）
+
+**1. `isinstance(compiled, Pregel)` 现在是 `True`。** LG 的编译图是 `Pregel` 的子类；扩展此前没有这个关系。
+`Pregel` 补成拥有 LG 的 69 个公开成员的类型标记，并把 `CompiledStateGraph` **虚拟注册**为它的子类
+（`ABCMeta.register`）—— 不进入 MRO，所以原生方法的转发不受影响（第一版直接继承，把
+`clear_cache` / `get_subgraphs` 等遮蔽成了 `NotImplementedError`，被测试逮到）。
+
+**2. `BaseChannel` 协议补全**：`get` / `update` / `is_available` / `consume` / `finish` / `checkpoint` /
+`from_checkpoint` / `copy`。空通道的 `checkpoint()` 返回 `MISSING`（与 LG 一致），`copy()` 因此可用。
+
+**类扫描剩余 5 处**：`ToolRuntime.emit_output_delta`、`RetryPolicy.count/index`、
+`PregelExecutableTask`（7 个成员）、`ChannelProtocol`（7 个）、`NodeBuilder`（10 个）—— 都是内部协议细节。
+
 ### 最后一批小成员（2026-11-27）
 
 | 项 | 变化 |

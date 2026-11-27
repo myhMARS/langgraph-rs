@@ -488,6 +488,9 @@ def _state_snapshot(raw: Any, requested: Any = None) -> Any:
     return snapshot
 
 
+from ..pregel import Pregel as _Pregel
+
+
 class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     """The compiled graph, exposing LangGraph's ``Runnable`` API.
 
@@ -959,3 +962,8 @@ except Exception:  # pragma: no cover
     pass
 
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+
+# LangGraph's compiled graph *is* a `Pregel`; registering keeps `isinstance` true without
+# shadowing the native methods the facade forwards.
+_Pregel.register(CompiledStateGraph)

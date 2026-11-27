@@ -3963,3 +3963,19 @@ The sweep is down to 8 entries, all protocol internals (`Pregel` with its 69 `Ru
 behaviour, verified against `ConnectionError`), and `ToolRuntime.emit_output_delta`.
 
 Suite is 609 tests (four new), parity 89/89, examples 10/10, clippy and Rust tests clean.
+
+### Round 190: the compiled graph is a `Pregel`; channel protocol completed
+
+`isinstance(compiled_graph, Pregel)` is true in LangGraph and was false here. `Pregel` now carries
+LangGraph's 69 public members and `CompiledStateGraph` is registered as a **virtual** subclass, so the
+relationship holds without entering the MRO — the first attempt (plain inheritance) shadowed
+`clear_cache` / `get_subgraphs` / `validate` with placeholders, which the suite caught immediately.
+
+`BaseChannel` also gained LangGraph's protocol (`get` / `update` / `is_available` / `consume` /
+`finish` / `checkpoint` / `from_checkpoint` / `copy`), with an empty channel checkpointing as
+`MISSING` so `copy()` works.
+
+The class sweep is down to 5 internal entries: `ToolRuntime.emit_output_delta`, `RetryPolicy.count`/
+`index`, `PregelExecutableTask`, `ChannelProtocol`, `NodeBuilder`.
+
+Suite is 611 tests (two new), parity 89/89, examples 10/10, clippy and Rust tests clean.

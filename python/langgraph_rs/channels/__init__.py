@@ -11,7 +11,7 @@ exactly the part that must not be approximated.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, Sequence, TypeVar
 
 __all__ = [
     "AnyValue",
@@ -29,6 +29,9 @@ __all__ = [
 
 Value = TypeVar("Value")
 
+#: Sentinel for "no checkpoint yet" (LangGraph's `MISSING`).
+_MISSING: Any = object()
+
 
 class BaseChannel(Generic[Value]):
     """Base class of every channel (LangGraph's `BaseChannel`)."""
@@ -42,8 +45,58 @@ class BaseChannel(Generic[Value]):
         self.typ = typ
         self.key = key
 
+    #: Type variables LangGraph exposes on the class for annotations.
+    ValueType: Any = None
+    UpdateType: Any = None
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}({getattr(self.typ, '__name__', self.typ)!r})"
+
+    # -- serialization protocol (LangGraph's `BaseChannel`) ---------------------------------
+    def copy(self) -> "BaseChannel[Value]":
+        """A copy of the channel, via `checkpoint()` / `from_checkpoint()`."""
+        return type(self).from_checkpoint(self.checkpoint())
+
+    def checkpoint(self) -> Any:
+        """Serializable form of the channel's current state (`MISSING` when empty)."""
+        try:
+            return self.get()
+        except Exception:  # an empty channel checkpoints as MISSING, like LangGraph
+            return _MISSING
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: Any) -> "BaseChannel[Value]":
+        """Rebuild a channel from `checkpoint()`."""
+        channel = cls()
+        if hasattr(channel, "update") and checkpoint is not None:
+            channel.update([checkpoint])
+        return channel
+
+    def get(self) -> Value:
+        """The channel's current value; raises `EmptyChannelError` when it has none."""
+        from ..errors import EmptyChannelError
+
+        raise EmptyChannelError()
+
+    def is_available(self) -> bool:
+        """Whether the channel holds a value."""
+        try:
+            self.get()
+            return True
+        except Exception:
+            return False
+
+    def update(self, values: Sequence[Any]) -> bool:
+        """Apply writes; returns whether the value changed."""
+        return False
+
+    def consume(self) -> bool:
+        """Whether the channel was updated in this step (and reset that flag)."""
+        return False
+
+    def finish(self) -> None:
+        """Called after a step; channels may reset themselves here."""
+        return None
 
 
 class LastValue(BaseChannel[Value]):
