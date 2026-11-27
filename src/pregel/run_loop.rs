@@ -334,7 +334,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             );
         }
         if emit {
-            for chunk in crate::pregel::outcome::task_start_chunks(step, &tasks) {
+            let task_values = values_to_state::<S>(&values)
+                .map(|state| serde_json::json!(state))
+                .unwrap_or(Value::Null);
+            for chunk in crate::pregel::outcome::task_start_chunks(step, &tasks, &task_values) {
                 sink(chunk);
             }
         }

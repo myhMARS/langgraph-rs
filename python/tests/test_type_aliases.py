@@ -1451,3 +1451,28 @@ class ToolNodeSurfaceTest(unittest.TestCase):
     def test_invoke_delegates(self):
         node = langgraph_rs.prebuilt.ToolNode([self._tool()])
         self.assertEqual(node.invoke({"messages": [self._ai()]})["messages"][0]["content"], "3")
+
+
+class TasksStreamShapeTest(unittest.TestCase):
+    """`stream_mode="tasks"` payloads match LangGraph's `PregelTask` fields."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile()
+
+    def test_payload_keys_and_types(self):
+        chunks = list(self._app().stream({"value": 0}, stream_mode="tasks"))
+        # Each task yields a start record (with `input`) and a finish record.
+        starts = [chunk for chunk in chunks if "input" in chunk]
+        self.assertEqual(len(starts), 2)
+        self.assertEqual(sorted(starts[0]), ["id", "input", "name", "triggers"])
+        self.assertEqual(starts[0]["input"], {"value": 0})
+        self.assertEqual(starts[1]["input"], {"value": 1})
+        self.assertIsInstance(starts[0]["triggers"], tuple)
+        self.assertEqual(starts[0]["triggers"], ("branch:to:a",))

@@ -507,7 +507,6 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             Ok(result.into_any().unbind())
         }
         StreamChunk::Task {
-            step,
             id,
             node,
             input,
@@ -516,11 +515,11 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             started,
             interrupts,
             triggers,
+            ..
         } => {
             let dict = PyDict::new(py);
             dict.set_item("id", id)?;
             dict.set_item("name", node)?;
-            dict.set_item("step", *step)?;
             if *started {
                 dict.set_item(
                     "input",
@@ -529,7 +528,8 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                         None => py.None(),
                     },
                 )?;
-                dict.set_item("triggers", triggers)?;
+                // LangGraph's `PregelTask.triggers` is a tuple.
+                dict.set_item("triggers", PyTuple::new(py, triggers)?)?;
             } else {
                 dict.set_item(
                     "error",

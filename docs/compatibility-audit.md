@@ -2880,4 +2880,24 @@ parallel `Send` tasks have no defined order, so LangGraph sometimes resumed the 
 scenario now locates the interrupt by its own `ask` value; three consecutive runs are a stable 56/56.
 
 Suite is 474 tests (four new), parity 56/56 (new `wrap_tool_call` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 132: `stream_mode="tasks"` payloads
+
+LangGraph's task payload is the `PregelTask` shape `{id, name, input, triggers}`. The extension
+added a `step` key, usually reported `input` as `None` (only `Send` tasks carried one), and emitted
+`triggers` as a list instead of a tuple.
+
+Now identical, and the `debug` mode `task` records (same data) are fixed with it:
+
+```
+{"id": "...", "name": "a", "input": {"value": 0}, "triggers": ("branch:to:a",)}
+{"id": "...", "name": "b", "input": {"value": 1}, "triggers": ("branch:to:b",)}
+```
+
+`input` follows LangGraph: the state a task receives, which for an ordinary scheduled task is the
+current channel values.
+
+Also checked, and already matching: `values` (input echo plus one chunk per superstep), `updates`
+(one chunk per node) and `debug` (`task` / `task_result` pairs).
+
+Suite is 475 tests (one new), parity 57/57 (new `tasks_stream` scenario), examples 10/10, clippy and
+Rust tests clean.

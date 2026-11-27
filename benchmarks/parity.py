@@ -477,6 +477,52 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_tasks_stream_scenario() -> list[dict]:
+    """`stream_mode="tasks"` payloads carry id/name/input/triggers (no extra keys)."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        chunks = list(graph.compile().stream({"value": 0}, stream_mode="tasks"))
+        return [
+            {"keys": sorted(chunk), "name": chunk["name"], "input": chunk.get("input"),
+             "triggers": list(chunk.get("triggers") or ())}
+            for chunk in chunks
+        ]
+
+    def rs_run():
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", rs.END)
+        chunks = list(graph.compile().stream({"value": 0}, stream_mode="tasks"))
+        return [
+            {"keys": sorted(chunk), "name": chunk["name"], "input": chunk.get("input"),
+             "triggers": list(chunk.get("triggers") or ())}
+            for chunk in chunks
+        ]
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "tasks_stream",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_wrap_tool_call_scenario() -> list[dict]:
     """`ToolNode(wrap_tool_call=...)` middleware sees the request and can replace the result."""
 
@@ -3483,6 +3529,7 @@ def main() -> None:
         run_tool_error_scenario,
         run_validation_node_scenario,
         run_wrap_tool_call_scenario,
+        run_tasks_stream_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

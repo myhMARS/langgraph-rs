@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `stream_mode="tasks"` 的载荷（2026-11-27）
+
+LG 的 task 载荷字段是 `PregelTask` 的形状：`{id, name, input, triggers}`。扩展此前：
+
+- 多一个 `step` 键
+- `input` 常为 `None`（只有 `Send` 任务才带输入）
+- `triggers` 是 list 而非 **tuple**
+
+现在完全一致（`debug` 模式里的 `task` 记录本就用同一份数据，一并修正）：
+
+```
+{"id": "...", "name": "a", "input": {"value": 0}, "triggers": ("branch:to:a",)}
+{"id": "...", "name": "b", "input": {"value": 1}, "triggers": ("branch:to:b",)}
+```
+
+`input` 的语义按 LG：任务收到的状态 —— 没有显式输入（普通调度）时就是当前通道值。
+
 ### `ToolNode` 的构造面与工具调用中间件（2026-11-27）
 
 LG 的 `ToolNode` 构造签名是

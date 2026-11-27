@@ -600,6 +600,7 @@ pub(crate) fn interrupted_task_chunk(
 pub(crate) fn task_start_chunks(
     step: usize,
     tasks: &[crate::_internal::node::Task],
+    values: &Value,
 ) -> Vec<StreamChunk> {
     tasks
         .iter()
@@ -607,7 +608,9 @@ pub(crate) fn task_start_chunks(
             step,
             id: task.id.clone(),
             node: task.node.clone(),
-            input: task.input.clone().map(Value::Object),
+            // LangGraph reports the state a task receives; a scheduled task without an explicit
+            // input (the common case) sees the current channel values.
+            input: Some(task.input.clone().map(Value::Object).unwrap_or_else(|| values.clone())),
             result: None,
             error: None,
             started: true,
