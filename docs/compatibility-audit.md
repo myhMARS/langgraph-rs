@@ -3794,3 +3794,17 @@ Still different (documented): subgraph event `metadata` is thinner than LangGrap
 
 Suite is 584 tests (three new), parity 88/88 (new `subgraph_events` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 179: node event metadata carries the superstep
+
+Node events lacked LangGraph's metadata. The engine's `updates` stream chunk already knows its
+superstep, so it is now exposed on the stream part and the event builder fills `ls_integration`,
+`langgraph_step` and `langgraph_node` (plus `langgraph_checkpoint_ns` for subgraphs) with the same
+values LangGraph uses — step 1 for the first node, 2 for the next.
+
+Still missing, documented: `langgraph_triggers`, `langgraph_path`, and the task-scoped
+`langgraph_checkpoint_ns` (`a:<task-id>`); those need engine task ids in the stream, and the child
+`LangGraph` `on_chain_end` lacks LangGraph's `input` field.
+
+Suite is 585 tests, parity 88/88 (the `stream_events` scenario now also compares a metadata subsequence),
+examples 10/10, clippy and Rust tests clean.

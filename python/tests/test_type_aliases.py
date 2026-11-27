@@ -3274,3 +3274,30 @@ class SubgraphEventNestingTest(unittest.TestCase):
             if item["event"] == "on_chain_stream" and item["name"] == "LangGraph"
         ]
         self.assertEqual(chunks, [{"a": {"value": 1}}])
+
+
+class EventMetadataTest(unittest.TestCase):
+    """Node events carry LangGraph's `ls_integration` / `langgraph_step` / node name."""
+
+    def test_step_and_node_metadata(self):
+        import asyncio
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": state["value"] + 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = asyncio.run(collect())
+        node_events = [item for item in events if item["metadata"].get("langgraph_node")]
+        self.assertEqual(
+            [(item["metadata"]["langgraph_node"], item["metadata"]["langgraph_step"]) for item in node_events],
+            [("a", 1), ("a", 1), ("a", 1), ("b", 2), ("b", 2), ("b", 2)],
+        )
+        for item in node_events:
+            self.assertEqual(item["metadata"]["ls_integration"], "langgraph")

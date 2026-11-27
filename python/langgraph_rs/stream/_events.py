@@ -540,8 +540,12 @@ async def astream_events_v2(
     # Subgraph runs, keyed by their namespace path, so nested events nest like LangGraph's.
     child_runs: dict[tuple, dict[str, Any]] = {}
 
-    def node_metadata(namespace: tuple, node: str) -> dict:
-        metadata = {"langgraph_node": node}
+    def node_metadata(namespace: tuple, node: str, step: Any = None) -> dict:
+        # LangGraph tags every node event with the integration, superstep and node name.
+        metadata: dict[str, Any] = {"ls_integration": "langgraph"}
+        if step is not None:
+            metadata["langgraph_step"] = step
+        metadata["langgraph_node"] = node
         if namespace:
             metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
         return metadata
@@ -570,9 +574,11 @@ async def astream_events_v2(
             )
 
     async for part in _aiter_collected(parts()):
+        step = None
         if isinstance(part, dict) and "type" in part:
-            # v2 parts are `{"type", "ns", "data"}`.
+            # v2 parts are `{"type", "ns", "data"}` (updates also carry their superstep).
             namespace, mode, payload = part.get("ns") or (), part["type"], part.get("data")
+            step = part.get("step")
         elif isinstance(part, tuple) and len(part) == 3:
             namespace, mode, payload = part
         else:
@@ -598,7 +604,7 @@ async def astream_events_v2(
                     node,
                     parent_node_run,
                     {"input": input},
-                    node_metadata(namespace[:-1], node),
+                    node_metadata(namespace[:-1], node, step),
                     [graph_run],
                 )
             child_run = str(uuid4())
@@ -625,7 +631,7 @@ async def astream_events_v2(
         for node, update in (payload or {}).items():
             key = (namespace, node)
             run_id = node_runs.get(key)
-            metadata = node_metadata(namespace, node)
+            metadata = node_metadata(namespace, node, step)
             if run_id is None:
                 run_id = str(uuid4())
                 node_runs[key] = run_id

@@ -26,11 +26,15 @@ pub(crate) fn chunk_to_py_v2(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py
             dict.set_item("data", value_to_py(py, values)?)?;
             dict.set_item("interrupts", PyTuple::new(py, Vec::<Py<PyAny>>::new())?)?;
         }
-        StreamChunk::Updates { node, update, .. } => {
+        StreamChunk::Updates {
+            node, update, step, ..
+        } => {
             dict.set_item("type", "updates")?;
             let data = PyDict::new(py);
             data.set_item(node, value_to_py(py, update)?)?;
             dict.set_item("data", data)?;
+            // LangGraph's events carry the superstep; expose it so `astream_events` can too.
+            dict.set_item("step", *step)?;
         }
         StreamChunk::Custom { value, .. } => {
             dict.set_item("type", "custom")?;

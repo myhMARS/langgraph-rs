@@ -343,8 +343,12 @@ schema introspection 全套由基类提供。扩展现在也这样：
 **2. 图级 chunk 的内容**：LG 的 `on_chain_stream`（图级）装的是**该超步的 updates**（`{'a': {'value': 1}}`），
 不是完整 state；扩展此前装完整 values。现在一致。
 
-**仍未对齐（记录）**：子图事件的 metadata 比 LG 少几个字段（LG 还带 `ls_integration` / `langgraph_step` /
-`langgraph_triggers` 等），以及子图 `LangGraph` 的 `on_chain_end` 里 LG 多一个 `input` 字段。
+**metadata 已补**：节点事件现在带 `ls_integration`、`langgraph_step`（超步序号，从 1 开始）、`langgraph_node`
+（以及子图的 `langgraph_checkpoint_ns`），与 LG 相同的键值。
+
+**仍未对齐（记录）**：LG 的节点 metadata 还带 `langgraph_triggers`、`langgraph_path`，以及含 **task id** 的
+`langgraph_checkpoint_ns`（形如 `a:<task-id>`）；这些需要引擎把任务级信息接进流事件，属内部细节，暂不提供。
+另外子图 `LangGraph` 的 `on_chain_end` 里 LG 多一个 `input` 字段。
 
 ### `astream_events` 的图级事件按超步发出（2026-11-27）
 

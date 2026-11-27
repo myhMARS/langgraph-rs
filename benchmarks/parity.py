@@ -601,6 +601,15 @@ def run_stream_events_scenario() -> list[dict]:
                 for item in events
                 if item["event"] == "on_chain_stream" and item["name"] == "LangGraph"
             ),
+            # The shared metadata subset (LangGraph adds task-level keys this engine omits).
+            "metadata": [
+                [
+                    item["metadata"].get("ls_integration"),
+                    item["metadata"].get("langgraph_node"),
+                    item["metadata"].get("langgraph_step"),
+                ]
+                for item in events
+            ],
         }
 
     lg_value, rs_value = collect("lg"), collect("rs")
