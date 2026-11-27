@@ -67,24 +67,60 @@ def _validate_namespace_labels(namespace: Sequence[Any]) -> None:
             )
 
 
+def _validate_namespace(namespace: Any) -> None:
+    """Validate a namespace path, like LangGraph's `_validate_namespace`."""
+    if not isinstance(namespace, tuple):
+        raise TypeError(f"namespace must be a tuple of strings, got {type(namespace)}")
+    _validate_namespace_labels(namespace)
+
+
 class BaseStore(ABC):
-    """Abstract long-term store."""
+    """LangGraph's store protocol.
 
-    @abstractmethod
-    def get(self, namespace: tuple[str, ...], key: str) -> Any:
+    A store implements `batch` (and optionally `abatch`); `get` / `put` / `delete` / `search` /
+    `list_namespaces` are derived from it, exactly like LangGraph's base class.
+    """
+
+    supports_ttl: bool = False
+    ttl_config: Any = None
+
+    def batch(self, ops: Sequence[Any]) -> list[Any]:
+        """Run a list of ops in one round trip."""
+        raise NotImplementedError
+
+    async def abatch(self, ops: Sequence[Any]) -> list[Any]:
+        """Async twin of `batch`; the default runs the sync version."""
+        return self.batch(ops)
+
+    def get(self, namespace: tuple[str, ...], key: str, *, refresh_ttl: Any = None) -> Any:
         """Return the item stored under `namespace`/`key`, or ``None``."""
+        _validate_namespace_labels(namespace)
+        return self.batch([GetOp(tuple(namespace), str(key))])[0]
 
-    @abstractmethod
     def put(
-        self, namespace: tuple[str, ...], key: str, value: dict[str, Any], index: Any = None
+        self,
+        namespace: tuple[str, ...],
+        key: str,
+        value: dict[str, Any],
+        index: Any = None,
+        *,
+        ttl: Any = None,
     ) -> None:
         """Insert or replace a value."""
+        _validate_namespace(tuple(namespace))
+        if ttl is not None and not self.supports_ttl:
+            raise NotImplementedError(
+                f"TTL is not supported by {type(self).__name__}. "
+                f"Use a store implementation that supports TTL or set ttl=None."
+            )
+        self.batch([PutOp(tuple(namespace), str(key), value, index=index, ttl=ttl)])
 
-    @abstractmethod
     def delete(self, namespace: tuple[str, ...], key: str) -> None:
         """Delete a value."""
+        _validate_namespace_labels(namespace)
+        # LangGraph encodes a delete as a `PutOp` with `value=None`.
+        self.batch([PutOp(tuple(namespace), str(key), None, ttl=None)])
 
-    @abstractmethod
     def search(
         self,
         namespace_prefix: tuple[str, ...],
@@ -94,12 +130,113 @@ class BaseStore(ABC):
         filter: dict[str, Any] | None = None,
         limit: int = 10,
         offset: int = 0,
+        refresh_ttl: Any = None,
     ) -> Sequence[Any]:
         """Search items under a namespace prefix."""
+        _validate_namespace_labels(namespace_prefix)
+        return self.batch(
+            [SearchOp(tuple(namespace_prefix), filter, limit, offset, query=query)]
+        )[0]
 
-    def list_namespaces(self, **kwargs: Any) -> Sequence[tuple[str, ...]]:
+    def list_namespaces(
+        self,
+        *,
+        prefix: tuple[str, ...] | None = None,
+        suffix: tuple[str, ...] | None = None,
+        max_depth: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[tuple[str, ...]]:
         """List namespaces that contain at least one item."""
-        return ()
+        _validate_namespace_labels(prefix or ())
+        _validate_namespace_labels(suffix or ())
+        match_conditions = []
+        if prefix:
+            match_conditions.append(MatchCondition("prefix", tuple(prefix)))
+        if suffix:
+            match_conditions.append(MatchCondition("suffix", tuple(suffix)))
+        return self.batch(
+            [
+                ListNamespacesOp(
+                    match_conditions=tuple(match_conditions),
+                    max_depth=max_depth,
+                    limit=limit,
+                    offset=offset,
+                )
+            ]
+        )[0]
+
+    async def aget(self, namespace: Any, key: str, *, refresh_ttl: Any = None) -> Any:
+        _validate_namespace_labels(namespace)
+        return (await self.abatch([GetOp(tuple(namespace), str(key))]))[0]
+
+    async def aput(
+        self,
+        namespace: Any,
+        key: str,
+        value: dict[str, Any],
+        index: Any = None,
+        *,
+        ttl: Any = None,
+    ) -> None:
+        _validate_namespace(tuple(namespace))
+        if ttl is not None and not self.supports_ttl:
+            raise NotImplementedError(
+                f"TTL is not supported by {type(self).__name__}. "
+                f"Use a store implementation that supports TTL or set ttl=None."
+            )
+        await self.abatch([PutOp(tuple(namespace), str(key), value, index=index, ttl=ttl)])
+
+    async def adelete(self, namespace: Any, key: str) -> None:
+        _validate_namespace_labels(namespace)
+        await self.abatch([PutOp(tuple(namespace), str(key), None, ttl=None)])
+
+    async def asearch(
+        self,
+        namespace_prefix: Any,
+        /,
+        *,
+        query: str | None = None,
+        filter: dict[str, Any] | None = None,
+        limit: int = 10,
+        offset: int = 0,
+        refresh_ttl: Any = None,
+    ) -> Sequence[Any]:
+        _validate_namespace_labels(namespace_prefix)
+        return (
+            await self.abatch(
+                [SearchOp(tuple(namespace_prefix), filter, limit, offset, query=query)]
+            )
+        )[0]
+
+    async def alist_namespaces(
+        self,
+        *,
+        prefix: tuple[str, ...] | None = None,
+        suffix: tuple[str, ...] | None = None,
+        max_depth: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[tuple[str, ...]]:
+        _validate_namespace_labels(prefix or ())
+        _validate_namespace_labels(suffix or ())
+        match_conditions = []
+        if prefix:
+            match_conditions.append(MatchCondition("prefix", tuple(prefix)))
+        if suffix:
+            match_conditions.append(MatchCondition("suffix", tuple(suffix)))
+        return (
+            await self.abatch(
+                [
+                    ListNamespacesOp(
+                        match_conditions=tuple(match_conditions),
+                        max_depth=max_depth,
+                        limit=limit,
+                        offset=offset,
+                    )
+                ]
+            )
+        )[0]
 
 
 class Item:

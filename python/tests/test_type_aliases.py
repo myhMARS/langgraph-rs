@@ -3472,3 +3472,91 @@ class BaseCheckpointSaverTest(unittest.TestCase):
         self.assertEqual(saver.get_next_version(4), 5)
         with self.assertRaises(NotImplementedError):
             saver.get_next_version("v1")
+
+
+class BaseStoreProtocolTest(unittest.TestCase):
+    """`BaseStore` derives everything from `batch`, like LangGraph."""
+
+    @staticmethod
+    def _store():
+        from langgraph_rs.store.base import BaseStore
+
+        class Memory(BaseStore):
+            def __init__(self):
+                self.data = {}
+
+            def batch(self, ops):
+                out = []
+                for op in ops:
+                    name = type(op).__name__
+                    if name == "PutOp":
+                        key = (tuple(op.namespace), op.key)
+                        if op.value is None:
+                            self.data.pop(key, None)
+                        else:
+                            self.data[key] = op.value
+                        out.append(None)
+                    elif name == "GetOp":
+                        value = self.data.get((tuple(op.namespace), op.key))
+                        out.append(None if value is None else {"value": value, "key": op.key})
+                    elif name == "SearchOp":
+                        prefix = tuple(op.namespace_prefix)
+                        out.append(
+                            [
+                                {"value": value, "key": key}
+                                for (namespace, key), value in self.data.items()
+                                if namespace[: len(prefix)] == prefix
+                            ]
+                        )
+                    else:
+                        out.append([namespace for namespace, _ in self.data])
+                return out
+
+        return Memory()
+
+    def test_members_match_langgraph(self):
+        from langgraph_rs.store.base import BaseStore
+
+        self.assertEqual(
+            sorted(name for name in dir(BaseStore) if not name.startswith("_")),
+            [
+                "abatch",
+                "adelete",
+                "aget",
+                "alist_namespaces",
+                "aput",
+                "asearch",
+                "batch",
+                "delete",
+                "get",
+                "list_namespaces",
+                "put",
+                "search",
+                "supports_ttl",
+                "ttl_config",
+            ],
+        )
+
+    def test_sync_surface_from_batch(self):
+        store = self._store()
+        store.put(("a",), "k", {"v": 1})
+        self.assertEqual(store.get(("a",), "k")["value"], {"v": 1})
+        self.assertEqual([hit["key"] for hit in store.search(("a",))], ["k"])
+        store.delete(("a",), "k")
+        self.assertIsNone(store.get(("a",), "k"))
+
+    def test_async_surface_delegates(self):
+        import asyncio
+
+        store = self._store()
+
+        async def scenario():
+            await store.aput(("b",), "k", {"v": 2})
+            return await store.aget(("b",), "k")
+
+        self.assertEqual(asyncio.run(scenario())["value"], {"v": 2})
+
+    def test_ttl_requires_support(self):
+        store = self._store()
+        with self.assertRaises(NotImplementedError):
+            store.put(("a",), "k", {"v": 1}, ttl=1)

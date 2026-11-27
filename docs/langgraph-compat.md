@@ -177,6 +177,15 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `BaseStore` 也是完整协议基类（2026-11-27）
+
+与上一轮同一个问题：LG 的 `BaseStore` 子类只需实现 `batch`（可选 `abatch`），其余
+`get` / `put` / `delete` / `search` / `list_namespaces` 及异步孪生都由基类派生，并带 `supports_ttl` /
+`ttl_config` 与命名空间校验。扩展此前是 4 个 `@abstractmethod` + 返回空元组的 `list_namespaces`。
+
+现在成员与 LG **完全相同**（14 个），实测「只实现 `batch` 的自定义 store」可直接使用全部同步/异步方法；
+删除按 LG 的编码（`PutOp(value=None, ttl=None)`），TTL 在不支持的 store 上抛 `NotImplementedError`。
+
 ### `BaseCheckpointSaver` 现在是完整的协议基类（2026-11-27）
 
 LG 的 `BaseCheckpointSaver` 是"自带检查器"的基类：子类只实现 `get_tuple` / `put` / `put_writes` / `list`，

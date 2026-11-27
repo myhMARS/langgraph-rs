@@ -3885,3 +3885,17 @@ A layout test that asserted the old placeholder behaviour was updated to LangGra
 (instantiable, protocol methods raise).
 
 Suite is 593 tests (four new), parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 185: `BaseStore` implements LangGraph's protocol
+
+Same story as `BaseCheckpointSaver` one round earlier: LangGraph's `BaseStore` only asks a subclass
+for `batch` (optionally `abatch`) and derives `get` / `put` / `delete` / `search` /
+`list_namespaces` plus the async twins, along with `supports_ttl`, `ttl_config` and namespace
+validation. Our version was an ABC that required four methods and returned `()` from
+`list_namespaces`.
+
+It now carries LangGraph's 14 members and semantics: a store implementing only `batch` gets the whole
+surface (verified with a custom in-memory store), delete is the `PutOp(value=None, ttl=None)` encoding
+LangGraph uses, and a TTL raises `NotImplementedError` unless `supports_ttl` is set.
+
+Suite is 597 tests (four new), parity 88/88, examples 10/10, clippy and Rust tests clean.
