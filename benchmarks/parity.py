@@ -1148,6 +1148,58 @@ def run_remove_message_scenario() -> list[dict]:
     ]
 
 
+def run_incremental_stream_scenario() -> list[dict]:
+    """`stream(updates)` delivers each superstep's chunk as it finishes."""
+
+    def collect(engine):
+        import time
+
+        def slow(state):
+            time.sleep(0.15)
+            return {"value": state["value"] + 1}
+
+        if engine == "lg":
+            graph = LgStateGraph(TypedDict("S", {"value": int}, total=False))
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("x", slow)
+        graph.add_node("y", slow)
+        if engine == "lg":
+            graph.add_edge(START, "x")
+            graph.add_edge("x", "y")
+            graph.add_edge("y", END)
+        else:
+            graph.add_edge(rs.START, "x")
+            graph.add_edge("x", "y")
+            graph.add_edge("y", rs.END)
+        app = graph.compile()
+        started = time.perf_counter()
+        stamps = []
+        chunks = []
+        for chunk in app.stream({"value": 0}, stream_mode="updates"):
+            stamps.append(time.perf_counter() - started)
+            chunks.append(list(chunk)[0])
+        # Whether the first chunk arrives before the run ends (incremental delivery).
+        return {
+            "nodes": chunks,
+            "incremental": len(stamps) == 2 and stamps[0] < stamps[1] - 0.05,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "incremental_stream",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_message_ids_scenario() -> list[dict]:
     """`add_messages` dedupes by id, so echoing the current list does not duplicate it."""
 
@@ -6141,6 +6193,7 @@ def main() -> None:
         run_delta_history_scenario,
         run_audit_regressions_scenario,
         run_message_ids_scenario,
+        run_incremental_stream_scenario,
         run_remove_message_scenario,
         run_message_mutation_scenario,
         run_add_messages_function_scenario,

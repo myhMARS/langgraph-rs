@@ -177,6 +177,24 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `stream()` / `astream()` 现在逐 superstep 交付（2026-11-27，第 114 轮，已接线）
+
+第 109-113 轮铺垫的 live 流**终于接上了门面**，并且采用**有界接入**：只在「单个 `stream_mode`（`updates` /
+`values` / `custom` / `debug` / `tasks`）+ 不带 `subgraphs` + 无 `version="v2"`」时走 live，其余保持 eager
+（多模式、子图、v2 的形状另有测试覆盖）。
+
+实测（两个各 0.25s 节点）：
+
+```
+stream(stream_mode="updates")  块到达 [0.25, 0.50]   ← 逐 superstep（LG 行为）
+astream(stream_mode="updates") 块到达 [0.21, 0.41]   ← 异步同样生效
+多模式 ["updates","values"]     仍是 [0.50 × 5]      ← 有界接入的边界，已在文档标注
+带 checkpointer 的流式运行      history 3 行 + 值正确  ← 与 LG 完全一致
+```
+
+返回值同时兼容两种用法：`for chunk in ...` 逐块（真流式），以及 `len(...)` / `[i]`（内部会按需拉完），所以既有
+调用方无需改动。
+
 ### live 流的块形状已与 eager 一致（2026-11-27，第 113 轮）
 
 第 112 轮剩的"多一个中间块 + `__interrupt__` 是 tuple"本轮修掉了，两处都在 `PyLiveStream.poll`：

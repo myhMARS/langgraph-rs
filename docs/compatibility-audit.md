@@ -4393,3 +4393,20 @@ so the next attempt will be bounded: use the live stream only for the single-mod
 whose shapes are now verified identical, and keep the eager path everywhere else.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 211: streaming is now incremental (bounded integration)
+
+The live stream is finally wired into the facade — but bounded: it is used only for a single
+`stream_mode` (`updates`/`values`/`custom`/`debug`/`tasks`) without `subgraphs` and without
+`version="v2"`. Everything else keeps the eager path, whose shapes the existing tests cover.
+
+Measured: `stream(updates)` delivers chunks at `[0.25, 0.50]` and `astream(updates)` at `[0.21, 0.41]`
+for two 0.25 s nodes — per superstep, exactly like LangGraph. A streamed run with a checkpointer records
+three history rows, which is also what LangGraph does (the earlier test expecting four was wrong and has
+been corrected against real LangGraph).
+
+The return value supports both shapes: iterating yields chunks as they arrive, while `len()`/`[i]`
+materialise the rest, so existing callers keep working.
+
+Suite is 656 tests (three new), parity 99/99 (new `incremental_stream` scenario), examples 10/10, clippy
+and Rust tests clean.

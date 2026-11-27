@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import inspect
 from abc import ABCMeta
 from typing import Any, AsyncIterator, Iterator, Sequence
@@ -547,6 +548,96 @@ def _coerce_messages_input(input: Any, keys: list[str]) -> Any:
     return out
 
 
+def _stream_thread(config: Any, thread_id: Any) -> Any:
+    """The thread a stream call targets, from either keyword or config dict."""
+    if isinstance(thread_id, str):
+        return thread_id
+    if isinstance(config, dict):
+        configurable = config.get("configurable") or {}
+        value = configurable.get("thread_id")
+        if value is not None:
+            return value
+    return None
+
+
+def _require_thread(thread: Any, config: Any) -> None:
+    """LangGraph raises when a checkpointered run has no thread (or checkpoint)."""
+    if thread is not None:
+        return
+    configurable = config.get("configurable") or {} if isinstance(config, dict) else {}
+    if configurable.get("checkpoint_ns") or configurable.get("checkpoint_id"):
+        return
+    raise ValueError(
+        "Checkpointer requires one or more of the following 'configurable' keys: "
+        "thread_id, checkpoint_ns, checkpoint_id"
+    )
+
+
+class _LiveIterator:
+    """Iterator over the native live stream (LangGraph's `stream()` shape).
+
+    Chunks are retained so a second iteration replays them (a convenience over LangGraph's
+    single-pass generator) and indexing/length keep working.
+    """
+
+    def __init__(self, live: Any, on_finish: Any = None) -> None:
+        self._live = live
+        self._on_finish = on_finish
+        self._chunks: list[Any] = []
+        self._cursor = 0
+        self._done = False
+
+    def _pump(self) -> bool:
+        if self._done:
+            return False
+        while True:
+            try:
+                part = self._live.poll()
+            except StopIteration:
+                self._finish()
+                return False
+            if part is not None:
+                self._chunks.append(part)
+                return True
+            time.sleep(0.0005)
+
+    def _finish(self) -> None:
+        if self._done:
+            return
+        self._done = True
+        if self._on_finish is not None:
+            callback, self._on_finish = self._on_finish, None
+            callback()
+
+    def __iter__(self) -> "_LiveIterator":
+        self._cursor = 0
+        return self
+
+    def __next__(self) -> Any:
+        while self._cursor >= len(self._chunks):
+            if not self._pump():
+                raise StopIteration
+        chunk = self._chunks[self._cursor]
+        self._cursor += 1
+        return chunk
+
+    def _materialize(self) -> None:
+        while self._pump():
+            pass
+
+    def __getitem__(self, index: Any) -> Any:
+        self._materialize()
+        return self._chunks[index]
+
+    def __len__(self) -> int:
+        self._materialize()
+        return len(self._chunks)
+
+    def __bool__(self) -> bool:
+        self._materialize()
+        return bool(self._chunks)
+
+
 class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     """The compiled graph, exposing LangGraph's ``Runnable`` API.
 
@@ -896,6 +987,39 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
         self._reject_resume_without_checkpointer(input)
         call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+        # LangGraph yields each chunk as its superstep finishes. The engine already calls a sink per
+        # superstep, so a single-mode, non-subgraph stream can be driven live instead of collected.
+        # Multi-mode, subgraph and v2 streams keep the eager path, whose shapes are covered by tests.
+        live_factory = getattr(self._inner, "stream_live", None)
+        mode = call.get("stream_mode")
+        live_eligible = (
+            live_factory is not None
+            and not call.get("subgraphs")
+            and (mode is None or isinstance(mode, str))
+            and call.get("version") is None
+        )
+        if live_eligible:
+            thread = _stream_thread(config, call.get("thread_id"))
+            if getattr(self._inner, "has_checkpointer", lambda: False)():
+                _require_thread(thread, config)
+            live_call = {
+                key: value
+                for key, value in call.items()
+                if key in ("stream_mode", "context", "version")
+            }
+            if thread is not None:
+                live_call["thread_id"] = thread
+            if config is not None:
+                live_call["config"] = config
+            try:
+                live = live_factory(input, **live_call)
+            except TypeError:
+                live = None
+            if live is not None:
+                # Lifecycle events are recorded during the run, so they are drained once it ends.
+                return _LiveIterator(
+                    live, lambda: _dispatch_lifecycle(self._inner, config)
+                )
         try:
             chunks = self._inner.stream(input, **call)
         except TypeError as error:

@@ -4535,3 +4535,59 @@ class ChannelDefaultValueTest(unittest.TestCase):
         self.assertEqual(oldest.values, {"trail": []})
         # The post-input checkpoint already carries the default plus the input.
         self.assertEqual(rows[-2].values, {"trail": [], "value": 0})
+
+
+class IncrementalStreamTest(unittest.TestCase):
+    """`stream`/`astream` deliver each superstep's chunk as it finishes, like LangGraph."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("x", lambda state: {"value": state["value"] + 1})
+        graph.add_node("y", lambda state: {"value": state["value"] + 1})
+        graph.add_edge(langgraph_rs.START, "x")
+        graph.add_edge("x", "y")
+        graph.add_edge("y", langgraph_rs.END)
+        return graph.compile()
+
+    def test_stream_yields_per_superstep(self):
+        import time as _time
+
+        def slow(state):
+            _time.sleep(0.2)
+            return {"value": state["value"] + 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("x", slow)
+        graph.add_node("y", slow)
+        graph.add_edge(langgraph_rs.START, "x")
+        graph.add_edge("x", "y")
+        graph.add_edge("y", langgraph_rs.END)
+        app = graph.compile()
+        started = _time.perf_counter()
+        stamps = []
+        for _chunk in app.stream({"value": 0}, stream_mode="updates"):
+            stamps.append(_time.perf_counter() - started)
+        self.assertEqual(len(stamps), 2)
+        # The first chunk arrives after the first node, not after the whole run.
+        self.assertLess(stamps[0], 0.35)
+
+    def test_stream_still_supports_list_helpers(self):
+        app = self._app()
+        chunks = app.stream({"value": 0}, stream_mode="updates")
+        self.assertEqual(len(chunks), 2)
+        self.assertIn("x", chunks[0])
+        self.assertEqual([list(chunk)[0] for chunk in chunks], ["x", "y"])
+
+    def test_checkpointed_stream_persists(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("inc", lambda state: {"value": state["value"] + 1})
+        graph.add_edge(langgraph_rs.START, "inc")
+        graph.add_edge("inc", langgraph_rs.END)
+        saver = langgraph_rs.InMemorySaver()
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "live-persist"}}
+        list(app.stream({"value": 0}, config, stream_mode="values"))
+        # A streamed run records three checkpoints, exactly like LangGraph.
+        self.assertEqual(len(list(app.get_state_history(config))), 3)
+        self.assertEqual(app.get_state(config).values["value"], 1)
