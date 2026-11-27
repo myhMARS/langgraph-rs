@@ -449,7 +449,7 @@ static PY_ERRORS: std::sync::LazyLock<
 
 static PY_ERROR_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-fn stash_python_error(py: Python<'_>, error: &PyErr) -> u64 {
+pub(super) fn stash_python_error(py: Python<'_>, error: &PyErr) -> u64 {
     let id = PY_ERROR_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut stash) = PY_ERRORS.lock() {
         // Keep the map small when many errors are produced and never consumed.

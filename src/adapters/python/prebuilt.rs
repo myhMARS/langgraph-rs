@@ -102,7 +102,12 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                             .repr()
                             .map(|text| text.to_string())
                             .unwrap_or_else(|_| error.to_string());
-                        crate::_internal::error::Error::other(repr)
+                        // The exception object travels with the message so error handlers receive
+                        // it unchanged; the policies strip the marker before formatting.
+                        let id = crate::adapters::python::convert::stash_python_error(py, &error);
+                        crate::_internal::error::Error::other(format!(
+                            "{repr}\u{1}pyerr:{id}\u{1}"
+                        ))
                     };
                     let result = if injected.is_empty() {
                         call_plain_tool(py, &function, py_args.bind(py), &keywords)
@@ -413,15 +418,23 @@ fn tool_error_policy(
     if let Ok(text) = handler.extract::<String>() {
         return Ok(Some(Arc::new(move |_message: &str| Some(text.clone()))));
     }
+    // The default message must not show the invisible exception marker.
+    let strip = crate::adapters::python::convert::strip_python_error_marker;
     if handler.is_callable() {
         let callable = handler.clone().unbind();
         return Ok(Some(Arc::new(move |message: &str| {
             Python::attach(|py| -> Option<String> {
-                // LangGraph hands the handler the original exception; the engine keeps its `repr`
-                // (`ValueError('kaboom')`), so the payload is unwrapped back into the message the
-                // handler would have seen from `str(exc)`.
-                let error = pyo3::exceptions::PyRuntimeError::new_err(exception_text(message));
-                match callable.bind(py).call1((error.value(py),)) {
+                // LangGraph hands the handler the exception itself; the engine carries it in the
+                // stash, so the original object is passed when it is still available.
+                let stashed = crate::adapters::python::convert::python_error_id(message)
+                    .and_then(|id| crate::adapters::python::convert::peek_python_error(py, id));
+                let error = match stashed {
+                    Some(exception) => exception,
+                    None => pyo3::exceptions::PyRuntimeError::new_err(exception_text(message))
+                        .into_value(py)
+                        .into_any(),
+                };
+                match callable.bind(py).call1((error.bind(py),)) {
                     Ok(value) => value.extract::<String>().ok(),
                     Err(_) => None,
                 }
@@ -430,6 +443,7 @@ fn tool_error_policy(
     }
     // A tuple/type of exceptions only filters what propagates; the extension has no exception
     // object at this point, so those all use the default message.
+    let _ = strip;
     Ok(Some(crate::prebuilt::default_tool_error_policy()))
 }
 

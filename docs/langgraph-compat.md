@@ -332,6 +332,15 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `handle_tool_errors` 的可调用对象拿到原异常（2026-11-27）
+
+LG 把**异常本体**交给 `handle_tool_errors` 的回调；扩展此前构造一个 `RuntimeError` 代替，于是
+`type(error).__name__` 从 `ValueError` 变成了 `RuntimeError`。
+
+现在工具错误同样带着异常对象（消息里附不可见标记，表里存对象），回调拿到的是
+`ValueError('kaboom')`，与 LG 相同；而默认消息仍是 `Error: ValueError('kaboom')\n Please fix your
+mistakes.`（标记在格式化时被剥掉，不会泄漏给模型）。
+
 ### 失败节点的 `snapshot.tasks[i].error`（2026-11-27）
 
 LG 在一次失败之后仍能从 `get_state()` 读到"哪个任务失败了、为什么"：

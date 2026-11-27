@@ -95,7 +95,13 @@ pub type ToolErrorPolicy = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// LangGraph's default error message for a failed tool call.
 pub fn default_tool_error_policy() -> ToolErrorPolicy {
-    Arc::new(|message: &str| Some(format!("Error: {message}\n Please fix your mistakes.")))
+    Arc::new(|message: &str| {
+        // `is_hidden` strips the invisible Python-exception marker some adapters append.
+        Some(format!(
+            "Error: {}\n Please fix your mistakes.",
+            crate::_internal::error::strip_hidden_marker(message)
+        ))
+    })
 }
 
 impl std::fmt::Debug for ToolNode {

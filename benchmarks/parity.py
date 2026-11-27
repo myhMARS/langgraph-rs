@@ -1543,6 +1543,15 @@ def run_tool_error_scenario() -> list[dict]:
         except Exception as exc:  # noqa: BLE001
             return {"failed": type(exc).__name__}
 
+    seen: dict[str, list[str]] = {"rs": [], "lg": []}
+
+    def make_handler(engine):
+        def handler(error):
+            seen[engine].append(type(error).__name__)
+            return f"handled {error}"
+
+        return handler
+
     cases = {}
     for label, handler in (
         ("default", True),
@@ -1550,6 +1559,11 @@ def run_tool_error_scenario() -> list[dict]:
         ("callable", lambda error: f"handled {error}"),
     ):
         cases[label] = {"rs": rs_run(handler), "lg": lg_run(handler)}
+    cases["callable_types"] = {
+        "rs": rs_run(make_handler("rs")),
+        "lg": lg_run(make_handler("lg")),
+    }
+    cases["seen"] = {"rs": seen["rs"], "lg": seen["lg"]}
     return [
         {
             "scenario": "tool_errors",

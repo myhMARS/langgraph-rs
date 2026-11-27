@@ -200,6 +200,20 @@ pub enum Error {
     Other(String),
 }
 
+/// Drop the invisible `\u{1}pyerr:<id>\u{1}` marker some adapters append to a message.
+pub fn strip_hidden_marker(message: &str) -> String {
+    let marker = "\u{1}pyerr:";
+    let Some(start) = message.rfind(marker) else {
+        return message.to_string();
+    };
+    let rest = &message[start..];
+    let Some(offset) = rest[1..].find('\u{1}') else {
+        return message.to_string();
+    };
+    let end = start + 1 + offset + 1;
+    format!("{}{}", &message[..start], &message[end..])
+}
+
 impl Error {
     /// Build a graph validation error.
     pub fn validation(message: impl Into<String>) -> Self {

@@ -1320,9 +1320,16 @@ class ToolNodeErrorHandlingTest(unittest.TestCase):
         self.assertEqual(last["status"], "error")
 
     def test_callable_receives_the_error(self):
-        last = self._run(lambda error: f"handled {error}")["messages"][-1]
-        # LangGraph hands the handler the original exception, so `str(exc)` is the message.
+        seen = []
+
+        def handler(error):
+            seen.append(type(error).__name__)
+            return f"handled {error}"
+
+        last = self._run(handler)["messages"][-1]
+        # LangGraph hands the handler the original exception object.
         self.assertEqual(last["content"], "handled kaboom")
+        self.assertEqual(seen, ["ValueError"])
 
     def test_false_propagates(self):
         with self.assertRaises(Exception):

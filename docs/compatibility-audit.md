@@ -3235,4 +3235,21 @@ Verified identical: values, `next`, `(task.name, task.error)` and the history st
 parity scenario.
 
 Suite is 508 tests (one new), parity 71/71 (new `failed_task` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 148: tool error handlers receive the real exception
+
+LangGraph hands `handle_tool_errors`' callable the **exception object**, so
+`type(error).__name__` is `ValueError` and `str(error)` is `kaboom`. The extension built a
+`RuntimeError` from the message instead, so both the type and any `except` clause behaved
+differently.
+
+Tool errors now carry the exception the same way node errors do: the object is stashed and the message
+gets an invisible marker. The callable receives the original `ValueError('kaboom')`, while the default
+message stays `Error: ValueError('kaboom')\n Please fix your mistakes.` — the marker is stripped when
+the message is formatted, so nothing leaks into model-visible content.
+
+Still open, documented: `handle_tool_errors=<exception type or tuple>` cannot filter by type (the
+policy sees the message, not the exception) and `RetryPolicy(retry_on=<callable>)` matches by name
+only.
+
+Suite is 508 tests, parity 71/71 (the `tool_errors` scenario now also compares the exception class the
+handler sees), examples 10/10, clippy and Rust tests clean.
