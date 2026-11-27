@@ -329,16 +329,16 @@ impl PyCompiledGraph {
                 )));
             }
         };
-        let thread = thread_id.filter(|value| !value.is_none()).map(|value| {
-            value
-                .extract::<String>()
-                .or_else(|_| {
-                    value
-                        .get_item("thread_id")
-                        .and_then(|inner| inner.extract::<String>())
-                })
-                .unwrap_or_default()
-        });
+        // Accept a plain thread id or a LangGraph config dict (`{"configurable": {...}}`); the
+        // live path used to read the thread only from the top level, so a config dict lost it and
+        // the run silently persisted nothing.
+        let thread = crate::adapters::python::convert::config_from_py(py, thread_id)?
+            .0
+            .or_else(|| {
+                thread_id
+                    .filter(|value| !value.is_none())
+                    .and_then(|value| value.extract::<String>().ok())
+            });
         let requested = stream_modes_from_py(stream_mode)?
             .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         // Live consumers (the events API) need model tokens, as LangGraph's tracer does.

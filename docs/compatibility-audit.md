@@ -4322,3 +4322,21 @@ mechanically fixable, but doing it properly needs one focused pass:
 Documented, with the measurement, as next round's first task.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 207: the live stream never persisted (fixed)
+
+Working on the incremental-delivery wiring turned up a real defect in the native live stream: it read
+the thread id only from the top level of the `thread_id` argument, so a LangGraph config dict
+(`{"configurable": {"thread_id": ...}}`) produced an empty thread and **the run persisted nothing** —
+`get_state_history` came back empty while the chunks looked fine.
+
+`stream_live` now parses the argument with `config_from_py`, like every other entry point. Measured
+afterwards with two 0.2 s nodes and a checkpointer: chunk arrival `[0.25, 0.48]` (per superstep) and four
+history rows.
+
+The facade wiring is still not kept: four concrete issues remain — the missing-thread error surfaces as
+`RuntimeError` from the worker thread instead of `ValueError`; `subgraphs=True` debug chunk shapes and
+`updates` namespace prefixes differ on the live path; lifecycle events are dispatched at start rather
+than when the run ends; and `stream(thread_id=...)` must resolve the thread like a config dict does.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.

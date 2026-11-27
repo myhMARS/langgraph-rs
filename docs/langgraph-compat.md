@@ -177,6 +177,29 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `stream_live` 的线程解析缺陷已修（2026-11-27，第 110 轮）
+
+本轮先把 `stream_live`（后台线程 + 通道的原生流）修对：它此前从 `thread_id` 参数**只读顶层**，传
+`{"configurable": {"thread_id": ...}}` 时会拿到空字符串，于是**运行时什么都没持久化**（`get_state_history` 为空）。
+改用 `config_from_py` 解析后：
+
+```
+两个各 0.2s 节点 + checkpointer
+原生 live 到达: [0.25, 0.48]   ← 逐 superstep
+history: 4                     ← 正常落盘
+```
+
+这就是门面接上 live 之前必须修的底层缺陷（第 109 轮没发现，因为当时没带 checkpointer 测）。
+
+**门面接线仍未保留**：接上后还剩 4 个具体问题（都不难，但需要成组处理）：
+
+1. 缺 `thread_id` 时的错误类型：live 走工作线程，异常被包成 `RuntimeError`；应为 `ValueError`（门面需要在启动前校验）。
+2. `subgraphs=True` 的 debug 块形状（3 元组）与 `updates` 命名空间前缀在 live 路径上不一致。
+3. 中断/恢复时 lifecycle 事件的派发时机（应在运行结束后派发，而不是启动时）。
+4. `stream(thread_id=...)` 直接传关键字参数时的线程解析路径要与 config dict 等价。
+
+修完这 4 项再接线；接线后 `stream()` 与 `astream()` 同时是真流式。
+
 ### `stream()` 缓冲的真因：门面提前收集（2026-11-27，第 109 轮）
 
 上一轮判断"引擎把块攒到运行结束才交"，**这个判断是错的**。本轮把门面的 `stream()` 临时接到原生
