@@ -4916,3 +4916,48 @@ class PauseChunkShapeTest(unittest.TestCase):
         self.assertNotIn("__interrupt__", chunks[0])
         self.assertIn("__interrupt__", chunks[1])
         self.assertEqual(chunks[1]["answer"], None)
+
+
+class TaskResultTest(unittest.TestCase):
+    """`PregelTask.result` carries the node's own writes, as in LangGraph."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"seen": "append"})
+        graph.add_node("a", lambda state: {"seen": ["a"]})
+        graph.add_node("b", lambda state: {"seen": ["b"]})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("a", langgraph_rs.END)
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_history_tasks_report_results(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "task-results"}}
+        app.invoke({"seen": []}, config)
+        rows = list(app.get_state_history(config))
+        scheduled = [row for row in rows if len(row.tasks) == 2]
+        self.assertTrue(scheduled)
+        results = {task.name: task.result for task in scheduled[0].tasks}
+        self.assertEqual(results["a"], {"seen": ["a"]})
+        self.assertEqual(results["b"], {"seen": ["b"]})
+
+    def test_paused_tasks_report_completed_siblings(self):
+        def stop(state):
+            langgraph_rs.interrupt("?")
+            return {"seen": ["b"]}
+
+        graph = langgraph_rs.StateGraph({"seen": "append"})
+        graph.add_node("a", lambda state: {"seen": ["a"]})
+        graph.add_node("b", stop)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("a", langgraph_rs.END)
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "task-results-paused"}}
+        app.invoke({"seen": []}, config)
+        results = {task.name: task.result for task in app.get_state(config).tasks}
+        self.assertEqual(results["a"], {"seen": ["a"]})
+        self.assertIsNone(results["b"])

@@ -1148,6 +1148,58 @@ def run_remove_message_scenario() -> list[dict]:
     ]
 
 
+def run_task_result_scenario() -> list[dict]:
+    """`PregelTask.result` carries each node's own writes."""
+
+    def collect(engine):
+        import operator
+        from typing import Annotated
+
+        if engine == "lg":
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            state = TypedDict("S", {"seen": Annotated[list, operator.add]}, total=False)
+            graph = LgStateGraph(state)
+        else:
+            InMemorySaver = rs.InMemorySaver
+            graph = rs.StateGraph({"seen": "append"})
+        graph.add_node("a", lambda s: {"seen": ["a"]})
+        graph.add_node("b", lambda s: {"seen": ["b"]})
+        if engine == "lg":
+            graph.add_edge(START, "a")
+            graph.add_edge(START, "b")
+            graph.add_edge("a", END)
+            graph.add_edge("b", END)
+        else:
+            graph.add_edge(rs.START, "a")
+            graph.add_edge(rs.START, "b")
+            graph.add_edge("a", rs.END)
+            graph.add_edge("b", rs.END)
+        app = graph.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "task-result"}}
+        app.invoke({"seen": []}, config)
+        rows = list(app.get_state_history(config))
+        scheduled = [row for row in rows if len(row.tasks) == 2]
+        results = (
+            {task.name: task.result for task in scheduled[0].tasks} if scheduled else {}
+        )
+        return {"results": {name: results[name] for name in sorted(results)}}
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "task_result",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_incremental_stream_scenario() -> list[dict]:
     """`stream(updates)` delivers each superstep's chunk as it finishes."""
 
@@ -6194,6 +6246,7 @@ def main() -> None:
         run_audit_regressions_scenario,
         run_message_ids_scenario,
         run_incremental_stream_scenario,
+        run_task_result_scenario,
         run_remove_message_scenario,
         run_message_mutation_scenario,
         run_add_messages_function_scenario,

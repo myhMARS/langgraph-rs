@@ -185,6 +185,8 @@ pub(crate) fn finalize_tasks(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResu
                 PyTuple::new(py, Vec::<Py<PyAny>>::new()).unwrap().into_any()
             }),
             get("state").unwrap_or_else(|| py.None().into_bound(py)),
+            // LangGraph reports the task's own writes here (`PregelTask.result`).
+            get("result").unwrap_or_else(|| py.None().into_bound(py)),
         ))?;
         converted.push(value.unbind());
     }

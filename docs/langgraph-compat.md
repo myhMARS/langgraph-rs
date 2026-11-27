@@ -177,6 +177,20 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result` 已对齐（2026-11-27，第 130 轮）
+
+第 129 轮锁定的疑点是对的：`finalize_tasks`（把 dict 改写成 `PregelTask` 对象的那一步）**只传了 6 个字段，
+漏掉了 `result`**。补上第 7 个参数后，配合"历史按子行取写入"的合并，结果立刻正确：
+
+```
+LG   step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+扩展 step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+```
+
+暂停场景同样正确：已完成的兄弟任务带着自己的写入（`a: {'seen': ['a']}`），未完成的是 `None`。
+
+**仍有一处小差异**：暂停快照里的任务顺序是 `[b, a]`，LG 是声明顺序 `[a, b]`（第 103 轮审计的 F8，独立问题）。
+
 ### `PregelTask.result`：第三个疑点（2026-11-27，第 129 轮）
 
 本轮把读取侧的合并接进 Python 懒历史（`history.rs`，按"子行"取 `task_writes`），并用探针确认：

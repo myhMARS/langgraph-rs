@@ -124,9 +124,20 @@ impl HistoryInner {
         let Some(graph) = &self.graph else {
             return Err(PyIndexError::new_err("history index out of range"));
         };
-        let snapshot = graph
+        let mut snapshot = graph
             .snapshot_from_handle_for(handle)
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        // A row's tasks ran in the step recorded by the row written *after* it (history is newest
+        // first), so its per-task writes — LangGraph's `PregelTask.result` — live there.
+        if index > 0
+            && let Some(child) = handles.get(index - 1)
+        {
+            for task in &mut snapshot.tasks {
+                if task.result.is_none() {
+                    task.result = child.task_writes.get(&task.id).cloned();
+                }
+            }
+        }
         // A row's tasks ran in the step recorded by the row written *after* it (history is newest
         // first), so its per-task writes — LangGraph's `PregelTask.result` — live there.
         let converted = crate::adapters::python::convert::snapshot_to_py(py, &snapshot)?;

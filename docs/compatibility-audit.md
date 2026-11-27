@@ -4679,3 +4679,23 @@ The read-side change was reverted (round 128's verified write path stays), 669 t
 in `finalize_tasks`.
 
 Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 227: `PregelTask.result` is fixed
+
+The suspect from last round was right: `finalize_tasks`, which rebuilds the task dicts into `PregelTask`
+objects, passed only six fields and silently dropped `result`. Adding the seventh — together with the
+history merge that borrows the child row's per-task writes — makes both cases match LangGraph:
+
+```
+LangGraph step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+engine    step 0: [('a', {'seen': ['a']}), ('b', {'seen': ['b']})]
+```
+
+A paused superstep now also reports the completed sibling's writes (`a: {'seen': ['a']}`) with `None` for
+the interrupted task.
+
+One smaller difference remains and is separate work: the paused snapshot lists tasks as `[b, a]` where
+LangGraph uses declaration order `[a, b]`.
+
+Suite is 671 tests (two new), parity 100/100 (new `task_result` scenario), examples 10/10, clippy and Rust
+tests clean.
