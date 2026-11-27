@@ -21,6 +21,48 @@ fn progress_counter(py: Python<'_>) -> PyResult<Py<PyAny>> {
     })
 }
 
+/// Wrap an already-created awaitable with the Python idle watchdog.
+///
+/// `custom()` / `message()` bump the counter from inside the coroutine; polls of the counter reset the
+/// timer the same way the async builder's wrapper does for coroutine functions.
+pub(crate) fn wrap_awaitable_idle(
+    py: Python<'_>,
+    awaitable: &Bound<'_, PyAny>,
+    seconds: f64,
+) -> PyResult<Py<PyAny>> {
+    let locals = pyo3::types::PyDict::new(py);
+    locals.set_item("target", awaitable)?;
+    locals.set_item("seconds", seconds.max(0.001))?;
+    locals.set_item("_progress_counter", progress_counter(py)?)?;
+    py.run(
+        c"async def _idle_wait(target=target, seconds=seconds, _progress_counter=_progress_counter):
+    import asyncio
+    task = asyncio.ensure_future(target)
+    last = _progress_counter()
+    while True:
+        done, _pending = await asyncio.wait({task}, timeout=seconds)
+        if task in done:
+            return task.result()
+        current = _progress_counter()
+        if current == last:
+            task.cancel()
+            try:
+                await task
+            except BaseException:
+                pass
+            raise TimeoutError('langgraph-rs idle timeout')
+        last = current
+wrapper = _idle_wait",
+        None,
+        Some(&locals),
+    )?;
+    let wrapper = locals.get_item("wrapper")?.ok_or_else(|| {
+        pyo3::exceptions::PyRuntimeError::new_err("failed to build the idle wrapper")
+    })?;
+    // `wrapper` is the async function; calling it produces the coroutine to await.
+    Ok(wrapper.call0()?.unbind())
+}
+
 /// Wrap a coroutine so it fails when it stops reporting progress for `seconds`.
 ///
 /// Python coroutines run on a private loop, so the executor's idle watchdog cannot poll them;

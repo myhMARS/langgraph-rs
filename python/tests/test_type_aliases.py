@@ -4720,3 +4720,41 @@ class RunControlAbortTest(unittest.TestCase):
         # The aborted superstep is discarded: the thread sits at the previous checkpoint.
         self.assertEqual(state.values, {"value": 1})
         self.assertEqual(state.next, ("b",))
+
+
+class IdleTimeoutCoroutineNodeTest(unittest.TestCase):
+    """`idle_timeout` fires for coroutine nodes on the sync builder too, as on the async one."""
+
+    @staticmethod
+    def _build(builder, node, idle=0.12):
+        graph = builder({"value": "last_value"})
+        graph.add_node("s", node, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=idle))
+        graph.add_edge(langgraph_rs.START, "s")
+        graph.add_edge("s", langgraph_rs.END)
+        return graph.compile()
+
+    def test_quiet_coroutine_times_out(self):
+        import asyncio
+
+        async def quiet(state):
+            await asyncio.sleep(0.4)
+            return {"value": 1}
+
+        for builder in (langgraph_rs.StateGraph, langgraph_rs.AsyncStateGraph):
+            app = self._build(builder, quiet)
+            with self.assertRaises(Exception) as raised:
+                asyncio.run(app.ainvoke({"value": 0}))
+            self.assertIn("idle timeout", str(raised.exception).lower())
+
+    def test_reporting_progress_keeps_the_node_alive(self):
+        import asyncio
+
+        async def chatty(state):
+            for _ in range(12):
+                await asyncio.sleep(0.05)
+                langgraph_rs.custom({"tick": 1})
+            return {"value": 2}
+
+        for builder in (langgraph_rs.StateGraph, langgraph_rs.AsyncStateGraph):
+            app = self._build(builder, chatty)
+            self.assertEqual(asyncio.run(app.ainvoke({"value": 0})), {"value": 2})

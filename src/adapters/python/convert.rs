@@ -1287,6 +1287,19 @@ pub(super) fn node_from_python(
     callable: Py<PyAny>,
 ) -> impl Fn(&JsonState) -> crate::Result<NodeOutput> + std::marker::Send + std::marker::Sync + 'static
 {
+    node_from_python_with_idle(name, callable, None)
+}
+
+/// Like [`node_from_python`], with an idle timeout for coroutine nodes.
+///
+/// A coroutine runs on a private asyncio loop, so the engine cannot watch it; the watchdog has to be
+/// installed in Python, exactly as the async builder does for `AsyncStateGraph`.
+pub(super) fn node_from_python_with_idle(
+    name: String,
+    callable: Py<PyAny>,
+    idle_seconds: Option<f64>,
+) -> impl Fn(&JsonState) -> crate::Result<NodeOutput> + std::marker::Send + std::marker::Sync + 'static
+{
     move |state: &JsonState| {
         Python::attach(|py| {
             let state_obj = json_state_to_py(py, state).map_err(|error| {
@@ -1303,9 +1316,15 @@ pub(super) fn node_from_python(
             if let Ok(value) = &result {
                 let bound = value.bind(py);
                 if bound.hasattr("__await__").unwrap_or(false) {
+                    let awaitable = match idle_seconds {
+                        Some(seconds) => crate::adapters::python::async_graph::async_support::
+                            wrap_awaitable_idle(py, bound, seconds)
+                            .map_err(|error| pyerr_to_error(py, error))?,
+                        None => bound.clone().unbind(),
+                    };
                     result =
                         crate::adapters::python::async_graph::async_support::run_timed_awaitable(
-                            py, bound,
+                            py, awaitable.bind(py),
                         )
                         .map(|value| value.unbind());
                 }

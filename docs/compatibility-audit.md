@@ -4483,3 +4483,22 @@ node-wrapping signature; that needed more verification than the round allowed, s
 known difference with the workaround (`AsyncStateGraph` for nodes that need `idle_timeout`).
 
 Suite is 661 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 216: `idle_timeout` now works for coroutine nodes on the sync builder
+
+The gap located last round is closed: the sync builder's Python node wrapper now installs the same
+Python-side idle watchdog the async builder uses (`node_from_python_with_idle` +
+`wrap_awaitable_idle`), because a coroutine runs on a private asyncio loop that the engine cannot time.
+
+Both engines now agree on the two cases that used to differ:
+
+| `async def` node, `idle_timeout=0.12` | `StateGraph` | `AsyncStateGraph` |
+|---|---|---|
+| silent 0.4 s | `NodeTimeoutError` | `NodeTimeoutError` |
+| progress reported every 50 ms | completes | completes |
+
+(The first attempt built the wrapper but never called it, which surfaced as
+`TypeError: An asyncio.Future, a coroutine or awaitable is required` — caught by the parity probe
+immediately.)
+
+Suite is 663 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.

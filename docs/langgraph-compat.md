@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `idle_timeout` 在同步构建器上已修复（2026-11-27，第 119 轮）
+
+第 118 轮定位的缺口已补上：同步构建器的 Python 节点包装现在会在节点返回协程时套用同一个 Python 侧 idle
+看门狗（`node_from_python_with_idle` + `wrap_awaitable_idle`）。
+
+实测两个引擎现在完全一致：
+
+| 场景（`async def` 节点，`idle_timeout=0.12`） | `StateGraph` | `AsyncStateGraph` |
+|---|---|---|
+| 静默 0.4s | `NodeTimeoutError` ✓ | `NodeTimeoutError` ✓ |
+| 每 50ms `custom()` 报告进度 | 正常完成 ✓ | 正常完成 ✓ |
+
+实现要点：看门狗必须装在 Python 里（协程跑在私有事件循环上，引擎无法直接计时）；包装器要**调用**才得到协程
+（第一版忘了调用，直接报 `TypeError`）。
+
 ### 超时语义：`idle_timeout` 在同步构建器上不生效（2026-11-27，第 118 轮实测）
 
 第 106 轮审计提到的"异步执行器超时语义不同"，本轮测清楚了，方向**与预期相反**：

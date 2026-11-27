@@ -100,12 +100,20 @@ impl PyStateGraph {
         }
         // `trace_policy` only shapes tracing payloads; the extension records plain node metadata.
         let _ = trace_policy;
+        // A coroutine node needs its idle watchdog installed in Python; capture the policy first.
+        let idle_seconds = timeout
+            .as_ref()
+            .and_then(|policy| policy.to_policy().idle_timeout)
+            .map(|seconds| seconds.as_secs_f64());
         // LangGraph lets a compiled subgraph be registered with `add_node(name, subgraph)`; route
         // it to the subgraph path so both spellings behave the same.
         let subgraph = compiled_graph_of(slf.py(), function.bind(slf.py()));
         graph = match subgraph {
             Some(child) => graph.add_subgraph(name.clone(), child),
-            None => graph.add_node(name.clone(), node_from_python(name.clone(), function)),
+            None => graph.add_node(
+                name.clone(),
+                super::convert::node_from_python_with_idle(name.clone(), function, idle_seconds),
+            ),
         };
         if let Some(policy) = retry_policy {
             graph = graph.set_retry(name.clone(), policy.to_policy());
