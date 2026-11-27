@@ -2744,3 +2744,35 @@ class MessagesModeClassTest(unittest.TestCase):
         )
         self.assertEqual([type(chunk).__name__ for chunk, _ in chunks], ["AIMessage"])
         self.assertEqual([chunk.content for chunk, _ in chunks], ["hello"])
+
+
+class SaverWriteApiTest(unittest.TestCase):
+    """`put` / `put_writes` behave like LangGraph's `BaseCheckpointSaver`."""
+
+    @staticmethod
+    def _app():
+        saver = langgraph_rs.InMemorySaver()
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "writes"}}
+        app.invoke({"value": 0}, config)
+        return saver, config
+
+    def test_put_keeps_the_checkpoint(self):
+        saver, config = self._app()
+        found = saver.get_tuple(config)
+        written = saver.put(found.config, dict(found.checkpoint), dict(found.metadata), {})
+        self.assertEqual(
+            written["configurable"]["checkpoint_id"], found.checkpoint["id"]
+        )
+        self.assertEqual(len(list(saver.list(config))), 3)
+
+    def test_put_writes_appends_pending_writes(self):
+        saver, config = self._app()
+        found = saver.get_tuple(config)
+        saver.put_writes(found.config, [("value", 9)], "task-1")
+        after = saver.get_tuple(config)
+        self.assertEqual([(task, channel) for task, channel, _ in after.pending_writes], [("task-1", "value")])

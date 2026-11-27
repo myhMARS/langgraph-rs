@@ -64,6 +64,80 @@ class InMemorySaver(_NATIVE_SAVER):
     ``get_tuple`` / ``list`` / ``delete_thread`` behave as they do there.
     """
 
+    def put(
+        self,
+        config: Any,
+        checkpoint: Any,
+        metadata: Any,
+        new_versions: Any = None,
+    ) -> Any:
+        """Store a checkpoint given in LangGraph's shape."""
+        thread_id, checkpoint_ns, _ = _config_parts(config)
+        document = dict(checkpoint)
+        if new_versions:
+            versions = dict(document.get("channel_versions") or {})
+            versions.update(new_versions)
+            document["channel_versions"] = versions
+        document.setdefault("thread_id", thread_id)
+        document.setdefault("checkpoint_ns", checkpoint_ns or "")
+        # The importer reads the thread from the metadata (LangGraph keeps it in `config`).
+        meta = dict(metadata or {})
+        meta.setdefault("thread_id", thread_id)
+        meta.setdefault("checkpoint_ns", checkpoint_ns or "")
+        self.put_document(
+            {
+                "checkpoint": document,
+                "metadata": meta,
+                "config": {
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "checkpoint_ns": checkpoint_ns or "",
+                    }
+                },
+            }
+        )
+        return {
+            "configurable": {
+                "thread_id": thread_id,
+                "checkpoint_ns": checkpoint_ns or "",
+                "checkpoint_id": document.get("id"),
+            }
+        }
+
+    def put_writes(
+        self,
+        config: Any,
+        writes: Any,
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Append pending writes to the addressed checkpoint."""
+        del task_path
+        found = self.get_tuple(config)
+        if found is None:
+            return
+        checkpoint = dict(found.checkpoint)
+        pending = list(getattr(found, "pending_writes", None) or [])
+        pending.extend((task_id, channel, value) for channel, value in writes)
+        thread_id, checkpoint_ns, _ = _config_parts(config)
+        checkpoint.setdefault("thread_id", thread_id)
+        meta = dict(found.metadata or {})
+        meta.setdefault("thread_id", thread_id)
+        meta.setdefault("checkpoint_ns", checkpoint_ns or "")
+        self.put_document(
+            {
+                "checkpoint": checkpoint,
+                "metadata": meta,
+                "pending_writes": pending,
+                "config": {
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "checkpoint_ns": checkpoint_ns or "",
+                    }
+                },
+            }
+        )
+
     def get_tuple(self, config: Any) -> CheckpointTuple | None:
         thread_id, checkpoint_ns, checkpoint_id = _config_parts(config)
         raw = self._checkpoint_tuple(thread_id, checkpoint_ns or None, checkpoint_id)

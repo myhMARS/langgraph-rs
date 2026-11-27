@@ -158,6 +158,19 @@ impl PyInMemorySaver {
     }
 
     /// LangGraph's `delete_thread(thread_id)`.
+    /// Store a checkpoint given in LangGraph's document shape (`BaseCheckpointSaver.put`).
+    ///
+    /// The document may carry `pending_writes`, so `put_writes` can round-trip through it.
+    fn put_document(&self, py: Python<'_>, document: &Bound<'_, PyAny>) -> PyResult<()> {
+        use crate::Checkpointer as _;
+        let value = super::super::convert::py_to_value(document)?;
+        let checkpoint = crate::interop::checkpoint_from_langgraph(&value)
+            .map_err(|error| super::super::convert::to_pyerr(py, error))?;
+        self.inner
+            .put(checkpoint)
+            .map_err(|error| super::super::convert::to_pyerr(py, error))
+    }
+
     fn delete_thread(&self, thread_id: &str) -> PyResult<()> {
         use crate::Checkpointer as _;
         self.inner

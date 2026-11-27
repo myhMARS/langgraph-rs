@@ -3616,3 +3616,16 @@ token streaming     -> ('AIMessageChunk', 'Hello') / ('AIMessageChunk', ' ') / .
 Also added `langgraph_rs.checkpoint.base.RunnableConfig`, which LangGraph exports from that module.
 
 Suite is 554 tests, parity 81/81, examples 10/10, clippy and Rust tests clean.
+
+### Round 168: `BaseCheckpointSaver.put` and `put_writes`
+
+The saver had no write API: LangGraph's `put(config, checkpoint, metadata, new_versions)` and
+`put_writes(config, writes, task_id)` were documented as missing because the engine writes through its
+own path. Both are implemented now on top of a native `put_document` that accepts LangGraph's
+checkpoint document shape (`checkpoint` + `metadata` + optional `pending_writes`).
+
+Verified against LangGraph on the same sequence — re-putting the fetched checkpoint keeps its id and
+leaves the history length unchanged (3), and `put_writes` appends
+`[('task-1', 'value')]` to the pending writes.
+
+Suite is 556 tests (two new), parity 81/81, examples 10/10, clippy and Rust tests clean.

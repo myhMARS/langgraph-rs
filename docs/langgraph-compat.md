@@ -795,7 +795,11 @@ InMemorySaver` → `langgraph_rs.checkpoint.memory`）能拿到的方法，走�
 - 异步孪生 `aget_tuple` / `alist` / `aput` / `aput_writes` / `adelete_thread` / `acopy_thread`
 - `copy_thread(source, target, *, checkpoint_id=None)`（原生侧新增，实测能复制线程状态）
 
-**仍缺（已记录）**：`put` / `put_writes`（引擎内部写入路径，不经过 saver）、`prune` /
+**已补齐**：`put(config, checkpoint, metadata, new_versions)` 与 `put_writes(config, writes, task_id)`
+（原生 `put_document` 接收 LangGraph 形状的检查点文档并落盘，`put_writes` 在其上追加 pending writes；与 LG
+实测一致：id 保持、pending writes 追加、历史长度不变）。引擎自己的写入仍走内部路径。
+
+**仍缺（已记录）**：`prune` /
 `with_allowlist` / `get_delta_channel_history` / `delete_for_runs` 以及 `serde` / `storage` /
 `writes` / `blobs` 等内部属性。
 
