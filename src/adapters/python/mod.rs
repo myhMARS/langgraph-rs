@@ -436,6 +436,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     {
         module.add_class::<PyAsyncStateGraph>()?;
         module.add_class::<PyAsyncCompiledGraph>()?;
+    module.add_class::<async_graph::PyAsyncStreamChunks>()?;
     }
     module.add_function(wrap_pyfunction!(message_graph, module)?)?;
     module.add_function(wrap_pyfunction!(convert::_register_error_classes, module)?)?;

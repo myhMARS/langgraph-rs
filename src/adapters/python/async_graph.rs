@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 
@@ -48,6 +48,77 @@ impl PyAsyncCompiledGraph {
             builder_py,
             last_lifecycle: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
+    }
+}
+
+/// Async iterator over a running graph's stream chunks.
+///
+/// LangGraph's `astream` yields each chunk as it is produced; collecting them and returning a list
+/// at the end would make `astream` indistinguishable from `ainvoke` for a consumer that measures
+/// arrival times.
+#[pyclass(name = "_AsyncStreamChunks")]
+pub struct PyAsyncStreamChunks {
+    receiver: std::sync::Arc<
+        tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<StreamChunk>>>,
+    >,
+    requested: Vec<crate::_internal::stream::StreamMode>,
+    v2: bool,
+    subgraphs: bool,
+    /// Message of the error the run failed with, raised once the stream is drained.
+    failure: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[pymethods]
+impl PyAsyncStreamChunks {
+    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let requested = self.requested.clone();
+        let v2 = self.v2;
+        let subgraphs = self.subgraphs;
+        let failure = self.failure.clone();
+        let slot = self.receiver.clone();
+        let awaitable = pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            loop {
+                let chunk = {
+                    // A tokio mutex can be held across `await`, which is what `recv` needs.
+                    let mut guard = slot.lock().await;
+                    let Some(receiver) = guard.as_mut() else {
+                        return Python::attach(|_| {
+                            Err(pyo3::exceptions::PyStopAsyncIteration::new_err(()))
+                        });
+                    };
+                    receiver.recv().await
+                };
+                let Some(chunk) = chunk else {
+                    let message = failure.lock().ok().and_then(|mut slot| slot.take());
+                    return Python::attach(|_| match message {
+                        Some(message) => Err(PyRuntimeError::new_err(message)),
+                        None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(())),
+                    });
+                };
+                if !(chunk.is_interrupt() || chunk.matches_modes_strict(&requested)) {
+                    continue;
+                }
+                return Python::attach(|py| {
+                    let converted =
+                        crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+                            py,
+                            std::slice::from_ref(&chunk),
+                            v2,
+                            &requested,
+                            subgraphs,
+                        )?;
+                    match converted.into_iter().next() {
+                        Some(part) => Ok(part),
+                        None => Err(pyo3::exceptions::PyStopAsyncIteration::new_err(())),
+                    }
+                });
+            }
+        })?;
+        Ok(awaitable)
     }
 }
 
@@ -718,8 +789,17 @@ impl PyAsyncCompiledGraph {
         }
         let stream_thread = thread.clone();
         let graph = self.graph.clone();
-        let future = pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut collected: Vec<StreamChunk> = Vec::new();
+        // Stream through a channel so each chunk reaches Python as it is produced.
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<StreamChunk>();
+        let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let failure_slot = failure.clone();
+        let requested_for_run = requested.clone();
+        pyo3_async_runtimes::tokio::get_runtime().spawn(async move {
+            let requested = requested_for_run;
+            let sink_sender = sender.clone();
+            let sink = move |chunk: StreamChunk| {
+                let _ = sink_sender.send(chunk);
+            };
             let result = if let Some((resume, updates, goto, sends)) = resume_start {
                 let thread = stream_thread.as_deref().expect("command thread checked");
                 graph
@@ -731,7 +811,7 @@ impl PyAsyncCompiledGraph {
                         sends,
                         &config,
                         &requested,
-                        |chunk| collected.push(chunk),
+                        &sink,
                     )
                     .await
             } else if continue_thread {
@@ -745,39 +825,37 @@ impl PyAsyncCompiledGraph {
                         Vec::new(),
                         &config,
                         &requested,
-                        |chunk| collected.push(chunk),
+                        &sink,
                     )
                     .await
             } else {
                 let state = state.expect("input state checked");
                 graph
-                    .stream_modes_with(&state, &config, &requested, |chunk| collected.push(chunk))
+                    .stream_modes_with(&state, &config, &requested, &sink)
                     .await
             };
-            if let Err(error) = result {
-                if !matches!(error, crate::Error::Interrupt(_)) {
-                    return Python::attach(|py| Err(to_pyerr(py, error)));
+            drop(sink);
+            if let Err(error) = result
+                && !matches!(error, crate::Error::Interrupt(_))
+            {
+                if let Ok(mut slot) = failure_slot.lock() {
+                    *slot = Some(error.to_string());
                 }
             }
-            collected
-                .retain(|chunk| chunk.is_interrupt() || chunk.matches_modes_strict(&requested));
-            Python::attach(|py| {
-                let converted = crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+            drop(sender);
+        });
+        Ok(Py::new(
             py,
-            &collected,
-            v2,
-            &requested,
-            subgraphs,
-        )?;
-                let list = PyList::empty(py);
-                for item in converted {
-                    list.append(item)?;
-                }
-                Ok(list.into_any().unbind())
-            })
-        })?;
-        // Return the awaitable directly: the Python facade wraps it in `AsyncStream`.
-        Ok(future)
+            PyAsyncStreamChunks {
+                receiver: std::sync::Arc::new(tokio::sync::Mutex::new(Some(receiver))),
+                requested,
+                v2,
+                subgraphs,
+                failure,
+            },
+        )?
+        .into_bound(py)
+        .into_any())
     }
 
     #[pyo3(signature = (thread_id, checkpoint_ns=None, subgraphs=false))]

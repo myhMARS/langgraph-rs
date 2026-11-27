@@ -4283,3 +4283,20 @@ The attempt did pin down exactly what must be fixed before the switch is safe:
 3. **Timeout semantics** — the async executor must match the sync one for run and idle timeouts.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 205: a native async stream iterator, and the real cause of buffering
+
+`astream` now returns a genuine async iterator (`_AsyncStreamChunks`: an mpsc channel plus
+`__aiter__`/`__anext__`), and the shim's `AsyncStream` accepts a native iterator as well as an
+awaitable. Suite, parity, examples, clippy and Rust tests all stay green.
+
+Measuring chunk arrival times then showed the buffering is **not** in the wrapper: the engine releases
+a superstep's chunks only when the run finishes (`[0.60, 0.60]` synchronously, `[0.42, 0.42]`
+asynchronously, versus LangGraph's `[0.30, 0.60]` for two 0.2 s nodes). The parity harness never caught
+this because it compares chunk *sequences*, not *arrival times*.
+
+So the remaining work moved: the fix belongs in the run loop's emission path (drain the collector and
+invoke the sink as each superstep completes), not in the Python bindings. Documented with the measured
+numbers.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
