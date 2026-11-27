@@ -91,6 +91,12 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                     // A failing tool reports the exception's `repr`, which is what LangGraph puts
                     // in the `ToolMessage` (`Error: ValueError('kaboom')`).
                     let failed = |error: pyo3::PyErr| {
+                        // An `interrupt()` raised inside a tool must pause the graph, exactly as it
+                        // does inside a node; only real failures become ToolMessages.
+                        if error.is_instance_of::<crate::adapters::python::GraphInterrupt>(py)
+                        {
+                            return pyerr_to_error(py, error);
+                        }
                         let repr = error
                             .value(py)
                             .repr()

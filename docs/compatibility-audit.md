@@ -3143,4 +3143,32 @@ The Rust test that encoded the old restrictions now asserts the LangGraph behavi
 Also verified as matching: `Command(update=..., goto=...)` returns `{'value': 11}` on both engines.
 
 Suite is 500 tests (two new), parity 68/68 (new `defer` scenario), examples 10/10, clippy and Rust
-tests clean.
+tests clean.### Round 144: `interrupt()` inside a tool
+
+LangGraph lets a tool call `interrupt()`: the graph pauses, `__interrupt__` carries the value, and a
+resume continues inside the tool. The extension treated the `GraphInterrupt` exception as a **tool
+failure**, so `handle_tool_errors` turned it into an error `ToolMessage` — the graph never paused, the
+agent kept calling the tool again, and the run only stopped at the recursion limit (it looked like a
+hang).
+
+Two changes:
+
+1. `tool_definitions` hands `GraphInterrupt` to `pyerr_to_error` (producing `Error::Interrupt`)
+   instead of flattening it into a `repr` string;
+2. `ToolNode.execute` propagates `Error::Interrupt` directly, bypassing the `handle_tool_errors`
+   policy.
+
+Verified identical to LangGraph:
+
+```
+first invoke  -> __interrupt__ = [{'question': 'why?'}]
+resume('yes') -> message tail ['answer=yes', 'done']
+```
+
+Also checked and matching: `compile(interrupt_before=[...])`, `compile(interrupt_after=[...])`,
+conditional edges with a `path_map` dict, and three-way `stream_mode` mixes. `add_edge(START,
+["x","y"])` is rejected by LangGraph (`unhashable type: 'list'`) but accepted here — a superset, no
+action needed.
+
+Suite is 501 tests (one new), parity 69/69 (new `tool_interrupt` scenario), examples 10/10, clippy and
+Rust tests clean.

@@ -493,6 +493,124 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_tool_interrupt_scenario() -> list[dict]:
+    """`interrupt()` inside a tool pauses and resumes the graph."""
+
+    class LgState(TypedDict):
+        messages: Annotated[list, add_messages]
+
+    def build(engine):
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        if engine == "lg":
+            @tool
+            def ask(reason: str) -> str:
+                """Ask the user."""
+                answer = lg_interrupt({"question": reason})
+                return f"answer={answer}"
+
+            def agent(state):
+                last = state["messages"][-1]
+                if getattr(last, "type", None) == "tool":
+                    return {"messages": [AIMessage(content="done")]}
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {"name": "ask", "args": {"reason": "why?"}, "id": "c1",
+                                 "type": "tool_call"}
+                            ],
+                        )
+                    ]
+                }
+
+            graph = LgStateGraph(LgState)
+            graph.add_node("agent", agent)
+            graph.add_node("tools", LgToolNode([ask]))
+            graph.add_edge(START, "agent")
+            graph.add_conditional_edges(
+                "agent",
+                lambda s: "tools" if getattr(s["messages"][-1], "tool_calls", None) else END,
+            )
+            graph.add_edge("tools", "agent")
+            return graph.compile(checkpointer=LgInMemorySaver())
+
+        @tool
+        def ask(reason: str) -> str:
+            """Ask the user."""
+            answer = rs.interrupt({"question": reason})
+            return f"answer={answer}"
+
+        def agent(state):
+            last = state["messages"][-1]
+            role = (
+                last.get("role") if isinstance(last, dict) else getattr(last, "type", None)
+            )
+            if role == "tool":
+                return {"messages": [AIMessage(content="done")]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"name": "ask", "args": {"reason": "why?"}, "id": "c1",
+                             "type": "tool_call"}
+                        ],
+                    )
+                ]
+            }
+
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("agent", agent)
+        graph.add_node("tools", rs.prebuilt.ToolNode([ask]))
+        graph.add_edge(rs.START, "agent")
+        graph.add_conditional_edges(
+            "agent",
+            lambda s: "tools"
+            if (
+                s["messages"][-1].get("tool_calls")
+                if isinstance(s["messages"][-1], dict)
+                else getattr(s["messages"][-1], "tool_calls", None)
+            )
+            else rs.END,
+        )
+        graph.add_edge("tools", "agent")
+        return graph.compile(checkpointer=rs.InMemorySaver())
+
+    def collect(engine):
+        app = build(engine)
+        config = {"configurable": {"thread_id": f"tool-int-{engine}"}}
+        paused = app.invoke({"messages": [{"role": "user", "content": "go"}]}, config)
+        resume = (
+            LgCommand(resume="yes") if engine == "lg" else rs.Command(resume="yes")
+        )
+        resumed = app.invoke(resume, config)
+        contents = [
+            message.get("content") if isinstance(message, dict) else message.content
+            for message in resumed["messages"]
+        ]
+        return {
+            "interrupts": [item.value for item in paused.get("__interrupt__", ())],
+            "tail": contents[-2:],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "tool_interrupt",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_defer_scenario() -> list[dict]:
     """`add_node(defer=True)` runs after regular tasks and may have outgoing edges."""
 
@@ -4172,6 +4290,7 @@ def main() -> None:
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
+        run_tool_interrupt_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

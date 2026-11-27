@@ -1848,3 +1848,66 @@ class DeferAndCommandTest(unittest.TestCase):
         graph.add_edge(langgraph_rs.START, "a")
         graph.add_edge("b", langgraph_rs.END)
         self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 11})
+
+
+class ToolInterruptTest(unittest.TestCase):
+    """`interrupt()` inside a tool pauses the graph and resumes like LangGraph."""
+
+    @staticmethod
+    def _app():
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+        from langgraph_rs.prebuilt import ToolNode
+
+        @tool
+        def ask(reason: str) -> str:
+            """Ask the user."""
+            answer = langgraph_rs.interrupt({"question": reason})
+            return f"answer={answer}"
+
+        def agent(state):
+            last = state["messages"][-1]
+            role = last.get("role") if isinstance(last, dict) else getattr(last, "type", None)
+            if role == "tool":
+                return {"messages": [AIMessage(content="done")]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"name": "ask", "args": {"reason": "why?"}, "id": "c1", "type": "tool_call"}
+                        ],
+                    )
+                ]
+            }
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("agent", agent)
+        graph.add_node("tools", ToolNode([ask]))
+        graph.add_edge(langgraph_rs.START, "agent")
+        graph.add_conditional_edges(
+            "agent",
+            lambda state: "tools"
+            if (
+                state["messages"][-1].get("tool_calls")
+                if isinstance(state["messages"][-1], dict)
+                else getattr(state["messages"][-1], "tool_calls", None)
+            )
+            else langgraph_rs.END,
+        )
+        graph.add_edge("tools", "agent")
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_interrupt_pauses_and_resumes(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "tool-interrupt"}}
+        paused = app.invoke({"messages": [{"role": "user", "content": "go"}]}, config)
+        self.assertEqual(
+            [item.value for item in paused["__interrupt__"]], [{"question": "why?"}]
+        )
+        resumed = app.invoke(langgraph_rs.Command(resume="yes"), config)
+        contents = [
+            message.get("content") if isinstance(message, dict) else message.content
+            for message in resumed["messages"]
+        ]
+        self.assertEqual(contents[-2:], ["answer=yes", "done"])

@@ -332,6 +332,26 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 工具里的 `interrupt()`（2026-11-27）
+
+LG 允许在**工具内部**调用 `interrupt()`，效果与节点内相同：图暂停、`__interrupt__` 带上值、`resume`
+后工具从暂停处继续。扩展此前把 `interrupt()` 抛出的 `GraphInterrupt` 当成"工具执行失败"处理，
+`handle_tool_errors` 于是把它变成一条错误 `ToolMessage` —— 图不暂停，agent 会一直重复调用工具，
+直到触到递归上限（表现为"卡住"）。
+
+两处修复：
+
+1. `tool_definitions` 里把 `GraphInterrupt` 交回 `pyerr_to_error`（→ `Error::Interrupt`），不再转成
+   repr 文本
+2. `ToolNode.execute` 遇到 `Error::Interrupt` **直接向上传播**，不走 `handle_tool_errors` 策略
+
+实测与 LG 一致：
+
+```
+第一次 invoke → __interrupt__ = [{'question': 'why?'}]
+resume('yes') → 消息尾部 ['answer=yes', 'done']
+```
+
 ### `add_node(defer=True)`（2026-11-27）
 
 LG 用 `defer=True` 声明延迟节点（等没有常规任务时才跑），并且允许：

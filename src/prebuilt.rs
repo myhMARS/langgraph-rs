@@ -187,6 +187,11 @@ impl ToolNode {
                         None,
                     ),
                     Err(error) => {
+                        // Interrupts (and other control-flow errors) are not tool failures: they
+                        // must reach the engine so the graph can pause.
+                        if matches!(error, crate::_internal::error::Error::Interrupt(_)) {
+                            return Err(error);
+                        }
                         let detail = error.to_string();
                         match &self.error_policy {
                             Some(policy) => match policy(&detail) {
