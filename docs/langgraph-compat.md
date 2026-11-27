@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### Rust 不再反向导入 Python 包（2026-11-27）
+
+按架构要求，Rust 侧**不得** import `langgraph_rs.*`（那是 shim）。此前有 9 处反向导入，现已全部消除：
+
+| 原来 | 现在 |
+|---|---|
+| `py.import("langgraph_rs.errors")` ×6（`InvalidUpdateError` / `NodeTimeoutError`） | shim 在 `errors.py` 导入时**注册异常类**（`_register_error_classes`），Rust 查表构造 |
+| `py.import("langgraph_rs._compat").message_chunk` | shim 注册 `message_chunk` 钩子（`_register_shim_hook`） |
+| `py.import("langgraph_rs.types").PregelTask` | 同上，注册 `pregel_task` 类 |
+
+现在 `grep 'import("langgraph_rs' src/` 为空；异常对象仍是 shim 定义的类，`isinstance` / `except` 行为不变。
+
+**仍存在的例外（说明）**：`src/adapters/python/mod.rs` 里的回调处理器是**以 Python 源码字符串**注入解释器的，其中
+`import langgraph_rs._live` 是 Python→Python 调用（由 LangChain 回调触发），不是 Rust 反向调用。
+
 ## 5. 如何验证
 
 ```powershell
