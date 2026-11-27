@@ -4731,3 +4731,22 @@ costing more time than the round allowed. The tree is fully restored (671 tests,
 clean).
 
 Lesson recorded: this one has to be edited call site by call site, compiling after each.
+
+### Round 230: single-entry mode lists now match
+
+Done the careful way this time — one call site at a time, compiling after each. `convert_stream_chunks_with`
+keeps its signature (delegating with `requested.len() > 1`), and a new `convert_stream_chunks_full(...,
+multi_mode)` serves the callers that know whether the user passed a list: `stream()` decides from
+`PyList`/`PyTuple`, while `astream` and the live path keep the length rule (single-entry lists do not use the
+live path).
+
+```
+stream(stream_mode=["updates"])  -> [('updates', {'a': {'value': 1}})]
+stream(stream_mode="updates")    -> [{'a': {'value': 1}}]
+astream(["updates"])             -> [('updates', {'a': {'value': 1}})]
+```
+
+Two tests that encoded the old bare-payload shape were corrected against LangGraph's behaviour.
+
+Suite is 673 tests (two new), parity 101/101 (new `single_mode_list` scenario), examples 10/10, clippy and
+Rust tests clean.

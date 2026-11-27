@@ -1148,6 +1148,44 @@ def run_remove_message_scenario() -> list[dict]:
     ]
 
 
+def run_single_mode_list_scenario() -> list[dict]:
+    """A one-entry `stream_mode` list keeps the `(mode, payload)` wrapper."""
+
+    def collect(engine):
+        if engine == "lg":
+            graph = LgStateGraph(TypedDict("S", {"value": int}, total=False))
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda s: {"value": 1})
+        if engine == "lg":
+            graph.add_edge(START, "a")
+            graph.add_edge("a", END)
+        else:
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", rs.END)
+        app = graph.compile()
+        listed = list(app.stream({"value": 0}, stream_mode=["updates"]))
+        scalar = list(app.stream({"value": 0}, stream_mode="updates"))
+        return {
+            "listed": [[mode, payload] for mode, payload in listed],
+            "scalar": scalar,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "single_mode_list",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_task_result_scenario() -> list[dict]:
     """`PregelTask.result` carries each node's own writes."""
 
@@ -6247,6 +6285,7 @@ def main() -> None:
         run_message_ids_scenario,
         run_incremental_stream_scenario,
         run_task_result_scenario,
+        run_single_mode_list_scenario,
         run_remove_message_scenario,
         run_message_mutation_scenario,
         run_add_messages_function_scenario,

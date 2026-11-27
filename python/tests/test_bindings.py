@@ -1377,7 +1377,9 @@ class AsyncPythonTests(unittest.TestCase):
         graph.set_finish_point("cfg")
         compiled = graph.compile(checkpointer=lg.InMemorySaver())
         chunks = compiled.stream({}, thread_id="closeout", stream_mode=["custom"])
-        self.assertTrue(any(chunk == {"from": "cfg"} for chunk in chunks))
+        self.assertTrue(
+            any(mode == "custom" and payload == {"from": "cfg"} for mode, payload in chunks)
+        )
         snapshot = compiled.get_state("closeout")
         self.assertEqual(snapshot["values"]["value"], "closeout")
         self.assertEqual(

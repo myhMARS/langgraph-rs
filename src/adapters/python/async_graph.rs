@@ -104,12 +104,13 @@ impl PyAsyncStreamChunks {
                 }
                 return Python::attach(|py| {
                     let converted =
-                        crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+                        crate::adapters::python::convert::stream_convert::convert_stream_chunks_full(
                             py,
                             std::slice::from_ref(&chunk),
                             v2,
                             &requested,
                             subgraphs,
+                            requested.len() > 1,
                         )?;
                     match converted.into_iter().next() {
                         Some(part) => Ok(part),

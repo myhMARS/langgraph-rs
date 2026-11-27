@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 单元素模式列表的形状已对齐（2026-11-27，第 133 轮）
+
+第 132 轮验证了方向、但脚本改坏了语法。本轮改为**逐处手工编辑 + 每处独立编译**，一次通过：
+
+- `convert_stream_chunks_with` 保持不变（内部按 `requested.len() > 1`），新增 `convert_stream_chunks_full(...,
+  multi_mode)` 供"知道用户是否传了列表"的调用方使用；
+- 三处调用点各自计算 `multi_mode`：`stream()` 用 `PyList`/`PyTuple` 判定；`astream` 与 live 路径沿用长度判定
+  （单元素列表本来就不走 live）。
+
+实测三种形状：
+
+```
+stream(stream_mode=["updates"])  -> [('updates', {'a': {'value': 1}})]   ← 与 LG 相同
+stream(stream_mode="updates")    -> [{'a': {'value': 1}}]
+astream(["updates"])             -> [('updates', {'a': {'value': 1}})]
+```
+
 ### 单元素模式列表的形状：尝试与回退（2026-11-27，第 132 轮）
 
 目标：`stream(stream_mode=["updates"])` 应返回 `("updates", payload)` 对（LG 对**列表**总是给成对形式，哪怕只有一个

@@ -552,6 +552,13 @@ impl PyCompiledGraph {
         if subgraphs {
             config = config.with_stream_subgraphs(true);
         }
+        // LangGraph answers a mode *list* with `(mode, payload)` pairs even for one entry.
+        let multi_mode = stream_mode
+            .map(|value| {
+                value.is_instance_of::<pyo3::types::PyList>()
+                    || value.is_instance_of::<pyo3::types::PyTuple>()
+            })
+            .unwrap_or(false);
         let requested =
             stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         let lifecycle: crate::_internal::lifecycle::LifecycleSink =
@@ -656,12 +663,13 @@ impl PyCompiledGraph {
         }
         self.store_lifecycle(&lifecycle);
         let converted =
-            crate::adapters::python::convert::stream_convert::convert_stream_chunks_with(
+            crate::adapters::python::convert::stream_convert::convert_stream_chunks_full(
                 py,
                 &chunks,
                 v2,
                 &requested,
                 subgraphs,
+                multi_mode,
             )?;
         Py::new(py, crate::adapters::python::types::PyStreamChunks::new(converted))
     }

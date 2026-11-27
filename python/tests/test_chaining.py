@@ -220,11 +220,12 @@ class ReactAgentModelTests(unittest.TestCase):
         chunks = compiled.stream(
             {"value": 0}, thread_id="stream-interrupt", stream_mode=["updates"]
         )
+        # LangGraph answers a mode list with `(mode, payload)` pairs, even for one entry.
         self.assertTrue(chunks)
         self.assertTrue(
             any(
-                isinstance(chunk, dict) and "__interrupt__" in chunk
-                for chunk in chunks
+                isinstance(payload, dict) and "__interrupt__" in payload
+                for _mode, payload in chunks
             )
         )
         v2 = compiled.stream(

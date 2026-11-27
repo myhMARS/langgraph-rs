@@ -4964,3 +4964,38 @@ class TaskResultTest(unittest.TestCase):
         results = {task.name: task.result for task in tasks}
         self.assertEqual(results["a"], {"seen": ["a"]})
         self.assertIsNone(results["b"])
+
+
+class SingleElementModeListTest(unittest.TestCase):
+    """A one-entry mode list keeps the `(mode, payload)` wrapper, as LangGraph does."""
+
+    def test_shapes(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+        self.assertEqual(
+            list(app.stream({"value": 0}, stream_mode=["updates"])),
+            [("updates", {"a": {"value": 1}})],
+        )
+        self.assertEqual(
+            list(app.stream({"value": 0}, stream_mode="updates")), [{"a": {"value": 1}}]
+        )
+
+    def test_astream_shapes(self):
+        import asyncio
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect(mode):
+            return [chunk async for chunk in app.astream({"value": 0}, stream_mode=mode)]
+
+        self.assertEqual(
+            asyncio.run(collect(["updates"])), [("updates", {"a": {"value": 1}})]
+        )
+        self.assertEqual(asyncio.run(collect("updates")), [{"a": {"value": 1}}])

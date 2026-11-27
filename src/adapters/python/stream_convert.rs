@@ -242,6 +242,21 @@ pub(crate) fn convert_stream_chunks_with(
     requested: &[crate::StreamMode],
     subgraphs: bool,
 ) -> PyResult<Vec<Py<PyAny>>> {
+    convert_stream_chunks_full(py, chunks, v2, requested, subgraphs, requested.len() > 1)
+}
+
+/// Like [`convert_stream_chunks_with`], with the multi-mode decision supplied by the caller.
+///
+/// LangGraph answers a mode *list* with `(mode, payload)` pairs even when it has a single entry, and
+/// a plain string with the bare payload, so only the caller knows which shape to produce.
+pub(crate) fn convert_stream_chunks_full(
+    py: Python<'_>,
+    chunks: &[StreamChunk],
+    v2: bool,
+    requested: &[crate::StreamMode],
+    subgraphs: bool,
+    multi_mode: bool,
+) -> PyResult<Vec<Py<PyAny>>> {
     if subgraphs {
         let wrapped: Vec<StreamChunk> = chunks
             .iter()
@@ -253,9 +268,9 @@ pub(crate) fn convert_stream_chunks_with(
                 },
             })
             .collect();
-        return convert_stream_chunks_inner(py, &wrapped, v2, requested);
+        return convert_stream_chunks_inner(py, &wrapped, v2, requested, multi_mode);
     }
-    convert_stream_chunks_inner(py, chunks, v2, requested)
+    convert_stream_chunks_inner(py, chunks, v2, requested, multi_mode)
 }
 
 fn convert_stream_chunks_inner(
@@ -263,8 +278,8 @@ fn convert_stream_chunks_inner(
     chunks: &[StreamChunk],
     v2: bool,
     requested: &[crate::StreamMode],
+    multi_mode: bool,
 ) -> PyResult<Vec<Py<PyAny>>> {
-    let multi_mode = requested.len() > 1;
     let debug_mode = requested.contains(&crate::StreamMode::Debug);
     let tasks_enabled = requested.contains(&crate::StreamMode::Tasks);
     let mut converted: Vec<Py<PyAny>> = Vec::with_capacity(chunks.len());
