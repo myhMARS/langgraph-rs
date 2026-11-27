@@ -239,6 +239,37 @@ impl PyInterrupt {
         self.id.clone()
     }
 
+    /// Field equality, as LangGraph's `Interrupt` dataclass has.
+    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> bool {
+        let Ok(other) = other.extract::<PyRef<'_, PyInterrupt>>() else {
+            return false;
+        };
+        if self.id != other.id {
+            return false;
+        }
+        if !self
+            .value
+            .bind(py)
+            .eq(other.value.bind(py))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        match (self.response_schema.as_ref(), other.response_schema.as_ref()) {
+            (None, None) => true,
+            (Some(left), Some(right)) => left.bind(py).eq(right.bind(py)).unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// LangGraph's `Interrupt` dataclass is unhashable.
+    fn __hash__(&self) -> PyResult<isize> {
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "unhashable type: 'Interrupt'",
+        ))
+    }
+
+
     /// Build an interrupt for a namespaced run (LangGraph's `Interrupt.from_ns`).
     ///
     /// LangGraph derives a stable hash from the namespace and value; callers only use it to match
@@ -286,15 +317,28 @@ impl PyInterrupt {
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
-        format!(
-            "Interrupt(id={:?}, value={})",
-            self.id,
-            self.value
+        // LangGraph's `Interrupt` is a dataclass: `Interrupt(value=..., id=..., response_schema=...)`.
+        let value = self
+            .value
+            .bind(py)
+            .repr()
+            .map(|repr| repr.to_string())
+            .unwrap_or_else(|_| "<value>".to_string());
+        let id = if self.id.is_empty() {
+            "placeholder-id".to_string()
+        } else {
+            self.id.clone()
+        };
+        let schema = match self.response_schema.as_ref() {
+            Some(schema) => schema
                 .bind(py)
                 .repr()
                 .map(|repr| repr.to_string())
-                .unwrap_or_else(|_| "<value>".to_string())
-        )
+                .unwrap_or_else(|_| "<schema>".to_string()),
+            None => "None".to_string(),
+        };
+        // `id` renders like Python's repr of a string (single quotes), as in LangGraph.
+        format!("Interrupt(value={value}, id='{id}', response_schema={schema})")
     }
 }
 

@@ -177,6 +177,28 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 子图中断的两种接入方式（已知差异）
+
+在父节点里**手工调用**子图（`child.invoke(...)`）时，子图返回 `{"__interrupt__": [...]}` 而不是抛出，父图会继续
+跑完（`answer: None`）；LG 会让父图暂停，`Command(resume=...)` 后子图拿到答案。**改用
+`parent.add_node("child", compiled_subgraph)` 这种接入方式则完全一致**（暂停载荷、`next`、任务路径、恢复都相同）。
+
+另外：`interrupt()` 写在条件边路由器里，LG 允许（暂停 + 恢复），扩展会在运行时拒绝 —— 这是未文档化的边缘用法。
+
+### `Interrupt` 对象语义与按键恢复错误类型（2026-11-27）
+
+审计还发现两处 API 契约差异，已修复：
+
+| 项 | LG | 改前 | 现在 |
+|---|---|---|---|
+| `Interrupt` 相等性 | dataclass 字段相等（`Interrupt("v") == Interrupt("v")` 为真，可 `in` 列表） | 身份比较（为假） | 字段相等 |
+| `Interrupt` 可哈希性 | `TypeError: unhashable type: 'Interrupt'` | 可哈希（身份哈希） | 同样不可哈希 |
+| `Interrupt` repr | `Interrupt(value='v', id='placeholder-id', response_schema=None)` | `Interrupt(id="", value='v')` | 与 LG 一致 |
+| 多中断并行时用普通值 resume | `RuntimeError`（含文档链接的提示） | `ValueError` | `RuntimeError`，文案一致 |
+
+`dataclasses.is_dataclass(Interrupt(...))` 仍为 `False`（原生 pyclass），这是已知差异 —— 其余 dataclass 行为
+（`==`、`in`、不可哈希、repr）已对齐。
+
 ### `interrupt(response_schema=...)` 校验归属重做（2026-11-27，第四轮审计）
 
 第四次独立审计专攻 **human-in-the-loop（interrupt/resume）**。核心流程（单次/连续/并行中断、工具内中断、编译期

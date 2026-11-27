@@ -4176,3 +4176,21 @@ invoked subgraph is not propagated; `interrupt()` in a conditional router.
 
 Suite is 645 tests (four new), parity 97/97 (two new scenarios), examples 10/10, clippy and Rust tests
 clean.
+
+### Round 200: `Interrupt` object contract and ambiguous resume
+
+Two more findings from the human-in-the-loop audit:
+
+* **`Interrupt` now compares by field, is unhashable, and reprs like LangGraph's dataclass**
+  (`Interrupt(value='v', id='placeholder-id', response_schema=None)`). `is_dataclass()` still reports
+  False because the class is a native pyclass — documented.
+* **Resuming several pending interrupts with a plain value** raises `RuntimeError` with LangGraph's
+  wording (it raised `ValueError`).
+
+Two gaps documented rather than fixed, with reasons: `interrupt()` inside a manually invoked subgraph
+(`child.invoke(...)`) is not propagated to the parent — the documented `add_node(name, compiled_sub)`
+form works identically, and a real fix needs namespace-aware resume plumbing; and `interrupt()` inside a
+conditional-edge router, which LangGraph tolerates and we reject.
+
+Suite is 649 tests (four new), parity 98/98 (new `interrupt_object` scenario), examples 10/10, clippy
+and Rust tests clean.

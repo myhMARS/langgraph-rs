@@ -687,6 +687,87 @@ def _is_invalid_resume(error: BaseException) -> bool:
         return bool(is_invalid_resume(error))
 
 
+def run_interrupt_object_scenario() -> list[dict]:
+    """`Interrupt` field equality/repr and the ambiguous-resume error."""
+
+    def collect(engine):
+        if engine == "lg":
+            from langgraph.types import Interrupt as Intr
+        else:
+            Intr = rs.Interrupt
+        left, right = Intr("v"), Intr("v")
+        try:
+            hash(left)
+            hashable = True
+        except TypeError:
+            hashable = False
+
+        if engine == "lg":
+            from langgraph.types import Command as Cmd
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            interrupt_fn = LG_INTERRUPT
+            graph_cls = LgStateGraph
+            state = TypedDict("S", {"x": int, "y": int}, total=False)
+        else:
+            Cmd = rs.Command
+            InMemorySaver = rs.InMemorySaver
+            interrupt_fn = rs.interrupt
+            graph_cls = rs.StateGraph
+            state = {"x": "last_value", "y": "last_value"}
+
+        def first(s):
+            interrupt_fn("a?")
+            return {"x": 1}
+
+        def second(s):
+            interrupt_fn("b?")
+            return {"y": 1}
+
+        graph = graph_cls(state)
+        graph.add_node("a", first)
+        graph.add_node("b", second)
+        if engine == "lg":
+            graph.add_edge(START, "a")
+            graph.add_edge(START, "b")
+            graph.add_edge("a", END)
+            graph.add_edge("b", END)
+        else:
+            graph.add_edge(rs.START, "a")
+            graph.add_edge(rs.START, "b")
+            graph.add_edge("a", rs.END)
+            graph.add_edge("b", rs.END)
+        app = graph.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "ambiguous"}}
+        app.invoke({}, config)
+        try:
+            app.invoke(Cmd(resume="PLAIN"), config)
+            ambiguous = None
+        except BaseException as exc:
+            ambiguous = type(exc).__name__
+        return {
+            "eq": left == right,
+            "in_list": left in [right],
+            "hashable": hashable,
+            "repr": repr(left),
+            "ambiguous": ambiguous,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "interrupt_object",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_interrupt_validation_scenario() -> list[dict]:
     """Pydantic owns resume validation; a raw JSON-schema dict is never validated."""
 
@@ -6061,6 +6142,7 @@ def main() -> None:
         run_add_messages_function_scenario,
         run_interrupt_schema_scenario,
         run_interrupt_validation_scenario,
+        run_interrupt_object_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

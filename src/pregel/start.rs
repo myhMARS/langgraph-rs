@@ -152,8 +152,9 @@ pub(crate) fn resolve_resume_start<S: State>(
         && checkpoint.interrupts.len() > 1
         && !matches!(resume, Some(crate::Value::Object(_)))
     {
-        return Err(Error::validation(
-            "multiple pending interrupts; resume must be keyed by interrupt id",
+        // LangGraph raises `RuntimeError` with this wording.
+        return Err(Error::other(
+            "When there are multiple pending interrupts, you must specify the interrupt id when resuming. Docs: https://docs.langchain.com/oss/python/langgraph/interrupts#handling-multiple-interrupts.",
         ));
     }
     let mut tasks = crate::pregel::checkpointing::prepare_resume_tasks(checkpoint, resume)?;

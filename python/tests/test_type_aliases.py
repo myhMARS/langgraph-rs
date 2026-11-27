@@ -4414,3 +4414,49 @@ class ResponseSchemaValidationTest(unittest.TestCase):
         self.assertEqual([interrupt.value for interrupt in state.interrupts], [{"q": "ok?"}])
         output = app.invoke(langgraph_rs.Command(resume={"approved": True}), config)
         self.assertEqual(output["messages"][-1].content, "approved=True")
+
+
+class InterruptSemanticsTest(unittest.TestCase):
+    """`Interrupt` compares by field, is unhashable, and reprs like LangGraph's dataclass."""
+
+    def test_field_equality(self):
+        self.assertEqual(langgraph_rs.Interrupt("v"), langgraph_rs.Interrupt("v"))
+        self.assertNotEqual(langgraph_rs.Interrupt("v"), langgraph_rs.Interrupt("other"))
+        self.assertIn(langgraph_rs.Interrupt("v"), [langgraph_rs.Interrupt("v")])
+
+    def test_unhashable(self):
+        with self.assertRaises(TypeError):
+            hash(langgraph_rs.Interrupt("v"))
+
+    def test_repr_matches_langgraph(self):
+        self.assertEqual(
+            repr(langgraph_rs.Interrupt("v")),
+            "Interrupt(value='v', id='placeholder-id', response_schema=None)",
+        )
+
+
+class AmbiguousResumeTest(unittest.TestCase):
+    """Resuming several pending interrupts without ids raises RuntimeError, as in LangGraph."""
+
+    def test_plain_resume_with_two_pending(self):
+        def first(state):
+            langgraph_rs.interrupt("a?")
+            return {"x": 1}
+
+        def second(state):
+            langgraph_rs.interrupt("b?")
+            return {"y": 1}
+
+        graph = langgraph_rs.StateGraph({"x": "last_value", "y": "last_value"})
+        graph.add_node("a", first)
+        graph.add_node("b", second)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("a", langgraph_rs.END)
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "ambiguous"}}
+        app.invoke({}, config)
+        with self.assertRaises(RuntimeError) as raised:
+            app.invoke(langgraph_rs.Command(resume="PLAIN"), config)
+        self.assertIn("must specify the interrupt id", str(raised.exception))
