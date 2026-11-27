@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result`：第三个疑点（2026-11-27，第 129 轮）
+
+本轮把读取侧的合并接进 Python 懒历史（`history.rs`，按"子行"取 `task_writes`），并用探针确认：
+
+```
+[probe] row 0 own=1 child=0 tasks=0
+[probe] row 1 own=0 child=1 tasks=1
+[probe] task=a9568e44-… keys=["a9568e44-…"]   ← 任务 id 与写入键匹配，lookup 成功
+step 0 [('a', None)]                          ← 但 Python 侧仍是 None
+```
+
+也就是说：**合并执行了、键也匹配、赋值也发生了**，但转换后的对象里依然是 `None`。疑点因此移到转换层 ——
+`convert::snapshot_to_py` 先由 `snapshot_to_py_raw` 生成 dict 形式的 tasks，再由 `finalize_tasks` 改写成
+`PregelTask`；问题很可能在 `finalize_tasks` 重建对象时没有保留 `result`。
+
+本轮把读取侧改动回退（保留第 128 轮已验证的写入链路），669 测试全绿。下一轮从 `finalize_tasks` 入手。
+
 ### `PregelTask.result`：探针定位到真正断点（2026-11-27，第 128 轮）
 
 改用**探针法**（`LG_PROBE_TASKS=1` 打印关键点计数）而不是继续猜，一次就定位了：

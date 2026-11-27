@@ -4659,3 +4659,23 @@ not touching the `task_results` memo the resume path reads — and pins the rema
 checkpoint into the lazy history builder".
 
 Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 226: the merge runs and matches, yet `result` stays None — suspect moved to conversion
+
+Wiring the child-row merge into the Python lazy history and probing it showed the merge executes and the
+task id matches the recorded write key:
+
+```
+[probe] row 1 own=0 child=1 tasks=1
+[probe] task=a9568e44-… keys=["a9568e44-…"]
+step 0 [('a', None)]     ← still None on the Python side
+```
+
+So the assignment happens but does not reach the object Python sees. The suspect is now the conversion
+chain: `snapshot_to_py` builds task dicts in `snapshot_to_py_raw` and then rewrites them into `PregelTask`
+objects in `finalize_tasks` — the rebuild may drop `result`.
+
+The read-side change was reverted (round 128's verified write path stays), 669 tests green. Next pass starts
+in `finalize_tasks`.
+
+Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
