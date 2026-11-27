@@ -332,6 +332,30 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 消息对象改造：地基已就位（开关默认关闭，2026-11-27）
+
+LG 的 `add_messages` 通道返回的是 **LangChain 消息对象**（`HumanMessage` / `AIMessage` /
+`ToolMessage`），扩展一直返回 dict（`{'role': 'user', 'content': ...}`），这是剩余最大的结构性差异。
+
+这一轮把地基做完：
+
+- `StateSchema` 记录哪些通道是 `add_messages` 通道（`with_messages_channel` /
+  `messages_channel_names`）
+- 运行时把这些通道名登记到全局注册表（异步运行时在别的线程，不能用线程局部）
+- `json_state_to_py` 对消息通道调用 `langchain_core.messages.convert_to_messages` 转成对象
+- 开关 `_set_messages_objects(bool)`（默认 **关**），关闭时保持旧 dict 行为
+
+打开开关后已验证：
+
+```
+_set_messages_objects(True)  → ['HumanMessage', 'AIMessage']，m.content 可用
+_set_messages_objects(False) → ['dict', 'dict']
+```
+
+**为什么默认关闭**：打开后扩展自身的 Python 门面与测试（`ValidationNode`、prompt 处理、
+`MessageGraph` 等约 14 处）仍按 dict 取字段，需要一并改成 LG 的写法。这条迁移留给下一轮，
+完成后再把默认值翻成开。
+
 ### `create_react_agent` 的参数面（2026-11-27）
 
 LG 的 `create_react_agent` 有一份明确的参数表（`model, tools, prompt, response_format,

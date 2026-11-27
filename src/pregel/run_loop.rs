@@ -61,6 +61,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     )?;
     // `get_config()` surfaces the caller's tags and metadata, like LangGraph.
     crate::runtime::context::set_user_config(config.tags.clone(), config.metadata.clone());
+    // Message channels are returned to Python as LangChain message objects.
+    crate::runtime::context::set_messages_channels(backend.schema().messages_channel_names());
 
     if thread_id.is_some() && !backend.has_checkpointer() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));

@@ -229,12 +229,38 @@ pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> 
     })
 }
 
+/// Convert one channel value, turning message lists into LangChain message objects.
+fn channel_value_to_py(py: Python<'_>, name: &str, value: &Value) -> PyResult<Py<PyAny>> {
+    if crate::runtime::context::messages_as_objects()
+        && crate::runtime::context::is_messages_channel(name)
+        && let Value::Array(items) = value
+        && !items.is_empty()
+        && items.iter().all(Value::is_object)
+    {
+        if let Some(converted) = messages_to_py_objects(py, value) {
+            return Ok(converted);
+        }
+    }
+    value_to_py(py, value)
+}
+
+/// Build LangChain message objects from a list of message dictionaries.
+fn messages_to_py_objects(py: Python<'_>, value: &Value) -> Option<Py<PyAny>> {
+    let module = py.import("langchain_core.messages").ok()?;
+    let convert = module.getattr("convert_to_messages").ok()?;
+    let payload = value_to_py(py, value).ok()?;
+    match convert.call1((payload,)) {
+        Ok(converted) => Some(converted.unbind()),
+        Err(_) => None,
+    }
+}
+
 pub(super) fn json_state_to_py(py: Python<'_>, state: &JsonState) -> PyResult<Py<PyAny>> {
     // Build the dict straight from the borrowed map: wrapping it in `Value::Object` used to
     // deep-clone every channel value on each node call and snapshot conversion.
     let dict = PyDict::new(py);
     for (key, value) in &state.0 {
-        dict.set_item(key, value_to_py(py, value)?)?;
+        dict.set_item(key, channel_value_to_py(py, key, value)?)?;
     }
     Ok(dict.into_any().unbind())
 }
@@ -762,6 +788,9 @@ pub(super) fn schema_from_py(schema: Option<&Bound<'_, PyAny>>) -> PyResult<Stat
             if matches!(spec.as_str(), "is_last_step" | "remaining_steps") {
                 out = out.with_managed_values();
                 continue;
+            }
+            if matches!(spec.as_str(), "add_messages" | "messages") {
+                out = out.with_messages_channel(name.clone());
             }
             let spec = match spec.as_str() {
                 "last" | "value" => "last_value".to_string(),

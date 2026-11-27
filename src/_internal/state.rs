@@ -22,6 +22,8 @@ use crate::{Error, Result};
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct StateSchema {
+    /// Channels declared with `add_messages`; their values are LangChain message lists.
+    messages_channels: std::collections::HashSet<String>,
     channels: IndexMap<String, Channel>,
     allow_implicit_channels: bool,
     input_channels: Option<std::collections::HashSet<String>>,
@@ -133,6 +135,25 @@ impl StateSchema {
     }
 
     /// Add a channel with an explicit merge strategy.
+    /// Mark a channel as an `add_messages` channel (LangChain message lists).
+    #[must_use]
+    pub fn with_messages_channel(mut self, name: impl Into<String>) -> Self {
+        self.messages_channels.insert(name.into());
+        self
+    }
+
+    /// Every channel declared with `add_messages`.
+    #[must_use]
+    pub fn messages_channel_names(&self) -> Vec<String> {
+        self.messages_channels.iter().cloned().collect()
+    }
+
+    /// Names of the channels LangGraph treats as message lists.
+    #[must_use]
+    pub fn is_messages_channel(&self, name: &str) -> bool {
+        self.messages_channels.contains(name)
+    }
+
     pub fn with_channel(mut self, name: impl Into<String>, channel: Channel) -> Self {
         self.channels.insert(name.into(), channel);
         self

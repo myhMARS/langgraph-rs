@@ -12,6 +12,14 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// Messages channels of the latest compiled run.
+///
+/// Conversion to Python happens both inside a run (node input) and after it (results, snapshots)
+/// and, for async graphs, on a different thread than the one that installed the scope — so the
+/// names live in a process-wide registry instead of the run context.
+static LAST_MESSAGES_CHANNELS: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
 /// Install `sink` for the next run started on this thread.
 pub(crate) fn set_pending_live_sink(sink: LiveSink) {
     PENDING_LIVE_SINK.with(|slot| {
@@ -46,6 +54,8 @@ pub(crate) struct RunContext {
     pub(crate) tags: Vec<String>,
     /// `RunnableConfig["metadata"]` of the current run.
     pub(crate) metadata: serde_json::Map<String, serde_json::Value>,
+    /// Channels holding LangChain message lists (`add_messages`).
+    pub(crate) messages_channels: Vec<String>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -63,6 +73,50 @@ impl Drop for RunGuard {
 }
 
 /// Install the run context for the duration of a graph execution.
+/// Whether message channels are handed back to Python as LangChain message objects.
+///
+/// LangGraph always returns message objects; the extension is migrating to that representation, and
+/// the switch keeps the old dictionary shape available until the whole surface is ready.
+static MESSAGES_AS_OBJECTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Enable or disable message-object conversion.
+pub(crate) fn set_messages_as_objects(enabled: bool) {
+    MESSAGES_AS_OBJECTS.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether message channels should be converted to LangChain message objects.
+pub(crate) fn messages_as_objects() -> bool {
+    MESSAGES_AS_OBJECTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Record which channels hold LangChain message lists.
+pub(crate) fn set_messages_channels(channels: Vec<String>) {
+    if let Ok(mut known) = LAST_MESSAGES_CHANNELS.lock() {
+        *known = channels.clone();
+    }
+    CURRENT_RUN.with(|slot| {
+        if let Some(run) = slot.borrow_mut().as_mut() {
+            run.messages_channels = channels;
+        }
+    });
+}
+
+/// Whether `name` is an `add_messages` channel of the running graph.
+pub(crate) fn is_messages_channel(name: &str) -> bool {
+    let in_run = CURRENT_RUN
+        .try_with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .is_some_and(|run| run.messages_channels.iter().any(|item| item == name))
+        })
+        .unwrap_or(false);
+    in_run
+        || LAST_MESSAGES_CHANNELS
+            .lock()
+            .is_ok_and(|known| known.iter().any(|item| item == name))
+}
+
 /// Tags and metadata of the active run.
 pub(crate) fn user_config() -> (
     Vec<String>,
@@ -101,6 +155,7 @@ pub(crate) fn install_run(
         slot.borrow_mut().replace(RunContext {
             tags: Vec::new(),
             metadata: serde_json::Map::new(),
+            messages_channels: Vec::new(),
             thread_id,
             namespace,
             store,
@@ -126,6 +181,7 @@ pub(crate) fn run_context(
     RunContext {
         tags: Vec::new(),
         metadata: serde_json::Map::new(),
+        messages_channels: Vec::new(),
         thread_id,
         namespace,
         store,

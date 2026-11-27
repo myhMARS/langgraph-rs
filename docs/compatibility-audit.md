@@ -3306,4 +3306,26 @@ remaining structural difference and needs the schema to mark `add_messages` chan
 can build real message objects on the way out.
 
 Suite is 515 tests (two new), parity 73/73 (new `react_helper` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 152: message-object conversion — groundwork (disabled by default)
+
+LangGraph's `add_messages` channels hold LangChain message objects (`HumanMessage`, `AIMessage`,
+`ToolMessage`); the extension has always returned plain dicts (`{'role': 'user', ...}`). This round
+lays the foundation:
+
+* `StateSchema` records which channels are `add_messages` channels
+  (`with_messages_channel` / `messages_channel_names`);
+* the run registers those names in a process-wide registry (async graphs convert on a different
+  thread than the one installing the run scope, so a thread-local is not enough);
+* `json_state_to_py` converts message channels with
+  `langchain_core.messages.convert_to_messages`;
+* `_set_messages_objects(bool)` toggles the behaviour, **default off** so nothing changes yet.
+
+With the switch on, `invoke` returns `['HumanMessage', 'AIMessage']` and `message.content` works; with
+it off the previous dict shape is preserved. Both verified in one run.
+
+Why it is off: turning it on breaks roughly 14 places in the extension's own Python facade and tests
+(`ValidationNode`, prompt handling, `MessageGraph`, message-dict assertions) that read messages as
+dicts. Those need migrating to LangGraph's attribute API first; the next round does that and then
+flips the default.
+
+Suite is 515 tests, parity 73/73, examples 10/10, clippy and Rust tests clean (switch off).
