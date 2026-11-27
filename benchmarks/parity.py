@@ -38,6 +38,7 @@ from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTim
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode as LgToolNode
+from langgraph.prebuilt import create_react_agent as LgCreateReactAgent
 from langgraph.prebuilt import ValidationNode as LgValidationNode
 from langgraph.prebuilt import create_react_agent as LgCreateReactAgent
 from langgraph.types import interrupt as lg_interrupt
@@ -491,6 +492,80 @@ class _MessagesState(TypedDict):
 class _DeferState(TypedDict, total=False):
     log: Annotated[list, operator.add]
     value: int
+
+
+def run_react_helper_scenario() -> list[dict]:
+    """`create_react_agent` runs the same agent/tools loop on both engines."""
+
+    def build(engine):
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+        from langchain_core.tools import tool
+
+        class Stub(BaseChatModel):
+            replies: list
+            index: int = 0
+
+            @property
+            def _llm_type(self):
+                return "stub"
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                reply = self.replies[min(self.index, len(self.replies) - 1)]
+                self.index += 1
+                return ChatResult(generations=[ChatGeneration(message=reply)])
+
+        @tool
+        def add(a: int, b: int) -> int:
+            """Add."""
+            return a + b
+
+        model = Stub(
+            replies=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "add", "args": {"a": 1, "b": 2}, "id": "c1", "type": "tool_call"}
+                    ],
+                ),
+                AIMessage(content="3"),
+            ]
+        )
+        helper = LgCreateReactAgent if engine == "lg" else rs.prebuilt.create_react_agent
+        return helper(model, [add])
+
+    def collect(engine):
+        agent = build(engine)
+        out = agent.invoke({"messages": [{"role": "user", "content": "1+2?"}]})
+        return {
+            "nodes": sorted(agent.get_graph().nodes),
+            "length": len(out["messages"]),
+            "tool_contents": [
+                message.get("content")
+                if isinstance(message, dict)
+                else message.content
+                for message in out["messages"][1:]
+                if (message.get("role") if isinstance(message, dict) else message.type) == "tool"
+            ],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "react_helper",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
 
 
 def run_get_config_scenario() -> list[dict]:
@@ -4501,6 +4576,7 @@ def main() -> None:
         run_node_exception_scenario,
         run_failed_task_scenario,
         run_get_config_scenario,
+        run_react_helper_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

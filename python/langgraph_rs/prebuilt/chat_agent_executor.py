@@ -92,15 +92,50 @@ _MISSING = re_export(globals(), ["create_react_agent"])
 _native_create_react_agent = globals()["create_react_agent"]
 
 
-def create_react_agent(*args: Any, **kwargs: Any) -> Any:
-    """Build the agent natively, then apply the facade (LangGraph returns a runnable graph)."""
+def create_react_agent(
+    model: Any,
+    tools: Any,
+    *,
+    prompt: Any = None,
+    response_format: Any = None,
+    state_schema: Any = None,
+    config_schema: Any = None,
+    checkpointer: Any = None,
+    store: Any = None,
+    interrupt_before: Any = None,
+    interrupt_after: Any = None,
+    debug: bool = False,
+    version: str = "v2",
+    name: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """LangGraph's deprecated agent helper, built by the native engine."""
     from ..graph._schema import normalize_schema
     from ..graph.state import CompiledStateGraph
 
     # The extension only accepts a normalised schema dict; class schemas are expanded here.
-    if "state_schema" in kwargs:
-        kwargs["state_schema"] = normalize_schema(kwargs["state_schema"])
-    return CompiledStateGraph(_native_create_react_agent(*args, **kwargs))
+    if state_schema is not None:
+        state_schema = normalize_schema(state_schema)
+    return CompiledStateGraph(
+        _native_create_react_agent(
+            model,
+            tools,
+            prompt=prompt,
+            response_format=response_format,
+            state_schema=state_schema,
+            # LangGraph's deprecated helper calls this `config_schema`; the native engine models it
+            # as the run's context schema. An explicit `context_schema` wins.
+            context_schema=kwargs.pop("context_schema", config_schema),
+            checkpointer=checkpointer,
+            store=store,
+            interrupt_before=interrupt_before,
+            interrupt_after=interrupt_after,
+            debug=debug,
+            version=version,
+            name=name,
+            **kwargs,
+        )
+    )
 
 
 #: Deprecated LangGraph name for `create_react_agent`.

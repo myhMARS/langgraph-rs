@@ -3287,4 +3287,23 @@ and is re-exported now.
 A module-surface audit found every other `langgraph.*` module path importable from `langgraph_rs.*`.
 
 Suite is 513 tests (two new), parity 72/72 (new `get_config` scenario), examples 10/10, clippy and Rust
-tests clean.
+tests clean.### Round 151: `create_react_agent` signature parity
+
+LangGraph's deprecated `create_react_agent` has an explicit parameter list
+(`model, tools, *, prompt, response_format, state_schema, config_schema, checkpointer, store,
+interrupt_before, interrupt_after, debug, version, name`). The extension exposed
+`(*args, **kwargs)`, so `inspect.signature` showed nothing and a misspelled parameter was silently
+forwarded.
+
+The shim now declares the same parameters and forwards them; `config_schema` maps to the engine's
+`context_schema` (an explicit `context_schema` wins). Behaviour verified against LangGraph with a
+stub model: identical message flow `[human, ai(tool_call), tool('3'), ai('3')]` and identical graph
+nodes.
+
+Note for the next rounds: message **values** are still returned as dicts (`role: user/ai/tool`)
+where LangGraph returns LangChain message objects (`type: human/ai/tool`). That is the largest
+remaining structural difference and needs the schema to mark `add_messages` channels so the adapter
+can build real message objects on the way out.
+
+Suite is 515 tests (two new), parity 73/73 (new `react_helper` scenario), examples 10/10, clippy and
+Rust tests clean.

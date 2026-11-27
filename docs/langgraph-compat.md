@@ -332,6 +332,19 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `create_react_agent` 的参数面（2026-11-27）
+
+LG 的 `create_react_agent` 有一份明确的参数表（`model, tools, prompt, response_format,
+state_schema, config_schema, checkpointer, store, interrupt_before, interrupt_after, debug, version,
+name`）；扩展此前是 `(*args, **kwargs)`，`inspect.signature` 看不到任何参数，传错名字也不会报错。
+
+现在参数表与 LG 一致：`model / tools / prompt / response_format / state_schema / config_schema /
+checkpointer / store / interrupt_before / interrupt_after / debug / version / name`。
+`config_schema` 映射到引擎的 `context_schema`（显式传 `context_schema` 时以它为准）。
+
+行为也逐条核对过：假模型 + 一个工具时，两边都是
+`[human, ai(tool_call), tool('3'), ai('3')]`，图节点都是 `__start__ / agent / tools / __end__`。
+
 ### `get_config()` 的形状（2026-11-27）
 
 LG 在节点里调用 `get_config()` 拿到的是完整 RunnableConfig 视图：

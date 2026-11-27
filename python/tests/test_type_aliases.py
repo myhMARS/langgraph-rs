@@ -2115,3 +2115,81 @@ class GetConfigTest(unittest.TestCase):
         from langgraph_rs.config import RunnableConfig
 
         self.assertIsNotNone(RunnableConfig)
+
+
+class ReactAgentHelperTest(unittest.TestCase):
+    """`create_react_agent` keeps LangGraph's parameter names and message flow."""
+
+    @staticmethod
+    def _model():
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        class Stub(BaseChatModel):
+            replies: list
+            index: int = 0
+
+            @property
+            def _llm_type(self):
+                return "stub"
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                reply = self.replies[min(self.index, len(self.replies) - 1)]
+                self.index += 1
+                return ChatResult(generations=[ChatGeneration(message=reply)])
+
+        return Stub(
+            replies=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "add", "args": {"a": 1, "b": 2}, "id": "c1", "type": "tool_call"}
+                    ],
+                ),
+                AIMessage(content="3"),
+            ]
+        )
+
+    def test_signature_matches_langgraph(self):
+        import inspect
+
+        parameters = list(
+            inspect.signature(langgraph_rs.prebuilt.create_react_agent).parameters
+        )
+        for name in (
+            "model",
+            "tools",
+            "prompt",
+            "response_format",
+            "state_schema",
+            "config_schema",
+            "checkpointer",
+            "store",
+            "interrupt_before",
+            "interrupt_after",
+            "debug",
+            "version",
+            "name",
+        ):
+            self.assertIn(name, parameters)
+
+    def test_agent_runs_tool_loop(self):
+        from langchain_core.tools import tool
+
+        @tool
+        def add(a: int, b: int) -> int:
+            """Add."""
+            return a + b
+
+        agent = langgraph_rs.prebuilt.create_react_agent(self._model(), [add])
+        out = agent.invoke({"messages": [{"role": "user", "content": "1+2?"}]})
+        contents = [
+            message.get("content") if isinstance(message, dict) else message.content
+            for message in out["messages"]
+        ]
+        self.assertEqual(contents[-2:], ["3", "3"])
+        self.assertEqual(sorted(agent.get_graph().nodes), ["__end__", "__start__", "agent", "tools"])
