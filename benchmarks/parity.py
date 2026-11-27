@@ -676,6 +676,141 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_message_mutation_scenario() -> list[dict]:
+    """Remove-then-add ordering, repeated removals and REMOVE_ALL_MESSAGES."""
+
+    def collect(engine):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        def make_graph(node):
+            if engine == "lg":
+                from typing import Annotated
+
+                from langgraph.graph.message import add_messages
+
+                graph = LgStateGraph(
+                    TypedDict("S", {"messages": Annotated[list, add_messages]}, total=False)
+                )
+                graph.add_node("n", node)
+                graph.add_edge(START, "n")
+                graph.add_edge("n", END)
+            else:
+                graph = rs.StateGraph({"messages": "add_messages"})
+                graph.add_node("n", node)
+                graph.add_edge(rs.START, "n")
+                graph.add_edge("n", rs.END)
+            return graph.compile()
+
+        start = {"messages": [HumanMessage("a", id="1"), HumanMessage("b", id="2")]}
+        readd = make_graph(
+            lambda state: {
+                "messages": [
+                    RemoveMessage(id="1"),
+                    HumanMessage("a2", id="1"),
+                ]
+            }
+        ).invoke(start)
+        twice = make_graph(
+            lambda state: {"messages": [RemoveMessage(id="1"), RemoveMessage(id="1")]}
+        ).invoke(start)
+        clear = make_graph(
+            lambda state: {
+                "messages": [RemoveMessage(id="__remove_all__"), HumanMessage("fresh", id="f")]
+            }
+        ).invoke(start)
+        return {
+            "readd": [(m.content, m.id) for m in readd["messages"]],
+            "twice": [(m.content, m.id) for m in twice["messages"]],
+            "clear": [(m.content, m.id) for m in clear["messages"]],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "message_mutation",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
+def run_remove_message_scenario() -> list[dict]:
+    """`RemoveMessage` deletes by id and rejects unknown ids, like LangGraph."""
+
+    def collect(engine):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        def add(state):
+            return {"messages": [HumanMessage("a"), HumanMessage("b")]}
+
+        def drop(state):
+            return {"messages": [RemoveMessage(id=state["messages"][0].id)]}
+
+        def drop_missing(state):
+            return {"messages": [RemoveMessage(id="nope")]}
+
+        if engine == "lg":
+            from typing import Annotated
+
+            from langgraph.graph.message import add_messages
+
+            graph = LgStateGraph(
+                TypedDict("S", {"messages": Annotated[list, add_messages]}, total=False)
+            )
+        else:
+            graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("add", add)
+        graph.add_node("drop", drop)
+        if engine == "lg":
+            graph.add_edge(START, "add")
+            graph.add_edge("add", "drop")
+            graph.add_edge("drop", END)
+        else:
+            graph.add_edge(rs.START, "add")
+            graph.add_edge("add", "drop")
+            graph.add_edge("drop", rs.END)
+        after_drop = [m.content for m in graph.compile().invoke({"messages": []})["messages"]]
+
+        if engine == "lg":
+            missing_graph = LgStateGraph(
+                TypedDict("S", {"messages": Annotated[list, add_messages]}, total=False)
+            )
+        else:
+            missing_graph = rs.StateGraph({"messages": "add_messages"})
+        missing_graph.add_node("drop", drop_missing)
+        if engine == "lg":
+            missing_graph.add_edge(START, "drop")
+            missing_graph.add_edge("drop", END)
+        else:
+            missing_graph.add_edge(rs.START, "drop")
+            missing_graph.add_edge("drop", rs.END)
+        try:
+            missing_graph.compile().invoke({"messages": [HumanMessage("a")]})
+            missing = None
+        except BaseException as exc:
+            missing = [type(exc).__name__, str(exc)]
+        return {"after_drop": after_drop, "missing": missing}
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "remove_message",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_message_ids_scenario() -> list[dict]:
     """`add_messages` dedupes by id, so echoing the current list does not duplicate it."""
 
@@ -5665,6 +5800,8 @@ def main() -> None:
         run_delta_history_scenario,
         run_audit_regressions_scenario,
         run_message_ids_scenario,
+        run_remove_message_scenario,
+        run_message_mutation_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

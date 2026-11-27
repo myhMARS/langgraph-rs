@@ -4107,3 +4107,27 @@ Consequences verified: echo nodes no longer duplicate, replacing a message by id
 
 Suite is 629 tests (four new), parity 92/92 (new `message_ids` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 197: message mutation semantics
+
+A third independent audit, scoped to message/state semantics, found four more real differences:
+
+1. **Engine-written messages had no id** (`ToolNode` output, dict input, `update_state`), because ids
+   were only assigned on the Python encode path. A node echoing the list therefore duplicated tool
+   messages. Ids are now also assigned inside the `add_messages` reducer, which every write goes
+   through.
+2. **Remove-then-add lost the position**: `[RemoveMessage(id), msg_with_same_id]` produced
+   `[b, a2]` instead of LangGraph's `[a2, b]`.
+3. **Removing the same id twice** raised `ValueError`; LangGraph treats it as a no-op.
+4. **`REMOVE_ALL_MESSAGES`** (`RemoveMessage("__remove_all__")`) raised "doesn't exist" instead of
+   clearing the list.
+
+The reducer now mirrors LangGraph's order: collect removal intents, apply the writes (replacing in
+place by id), then delete only the messages this update did not replace; removals are idempotent and
+the remove-all sentinel has its own branch.
+
+Still open from this audit: `add_messages` is exported as the channel-spec string rather than a
+callable, tuple/single-message input coercion, and `JsonPlusSerializer` returning dicts for messages.
+
+Suite is 636 tests (four new), parity 94/94 (new `message_mutation` scenario), examples 10/10, clippy
+and Rust tests clean.

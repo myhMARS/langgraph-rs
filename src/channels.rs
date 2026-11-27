@@ -403,11 +403,118 @@ pub mod reducers {
         })
     }
 
+
+/// LangGraph's sentinel id that clears the whole message list.
+const REMOVE_ALL_MESSAGES: &str = "__remove_all__";
+
+/// The id a `RemoveMessage` marker asks to delete, when `message` is one.
+///
+/// `Some(Some(id))` removes that id, `Some(None)` is a marker without an id, and `None` means the
+/// value is an ordinary message write.
+fn removal_id(message: &Value) -> Option<Option<String>> {
+    let object = message.as_object()?;
+    // Our own marker, or LangChain's serialized `RemoveMessage` (its fields live under `kwargs`
+    // and the class is recorded in `id`).
+    let kind = object.get("type").and_then(Value::as_str);
+    let kwargs = object.get("kwargs").and_then(Value::as_object);
+    let class_name = object
+        .get("id")
+        .and_then(Value::as_array)
+        .and_then(|path| path.last())
+        .and_then(Value::as_str);
+    let remove = kind == Some("remove")
+        || kwargs
+            .and_then(|kwargs| kwargs.get("type"))
+            .and_then(Value::as_str)
+            == Some("remove")
+        || class_name == Some("RemoveMessage")
+        || object
+            .get("__remove__")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    remove.then(|| message_id(message).map(str::to_owned))
+}
+
+/// Give every incoming message an id, so a later write that echoes it dedupes by id.
+///
+/// Engine-side writes (`ToolNode` output, dict input, `update_state`) never pass through the Python
+/// encoder, so ids have to be assigned here as well as there.
+fn ensure_message_ids(incoming: &mut [serde_json::Value]) {
+    for message in incoming.iter_mut() {
+        // Only message-like objects carry `content`; plain state values are left alone.
+        let Some(object) = message.as_object_mut() else {
+            continue;
+        };
+        let has_content = object.contains_key("content")
+            || object
+                .get("kwargs")
+                .and_then(serde_json::Value::as_object)
+                .map(|kwargs| kwargs.contains_key("content"))
+                .unwrap_or(false);
+        if !has_content {
+            continue;
+        }
+        let filled = if object.contains_key("kwargs") {
+            let kwargs = object
+                .get_mut("kwargs")
+                .and_then(serde_json::Value::as_object_mut);
+            match kwargs {
+                Some(kwargs) => {
+                    if kwargs.get("id").map(serde_json::Value::is_string).unwrap_or(false) {
+                        continue;
+                    }
+                    kwargs.insert("id".to_string(), serde_json::Value::String(new_message_id()));
+                    true
+                }
+                None => false,
+            }
+        } else {
+            if object.get("id").map(serde_json::Value::is_string).unwrap_or(false) {
+                continue;
+            }
+            object.insert("id".to_string(), serde_json::Value::String(new_message_id()));
+            true
+        };
+        let _ = filled;
+    }
+}
+
+/// A fresh message id (`uuid4`, dashed like LangGraph's).
+fn new_message_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as u64)
+        .unwrap_or_default()
+        ^ (COUNTER.fetch_add(1, Ordering::Relaxed) << 17)
+        ^ std::process::id() as u64;
+    let mut state = seed | 1;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let a = next();
+    let b = next();
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        (a >> 32) as u32,
+        ((a >> 16) & 0xffff) as u16,
+        (a & 0xffff) as u16,
+        ((b >> 48) & 0xffff) as u16,
+        b & 0xffff_ffff_ffff
+    )
+}
+
     /// Merge chat-message style arrays by `id`.
     ///
-    /// Messages without an `id` are appended; messages that share an `id` with an
-    /// existing message replace it in place. This mirrors LangGraph's
-    /// `add_messages` reducer.
+    /// Mirrors LangGraph's `add_messages`: `RemoveMessage` markers are collected first and applied
+    /// after the loop (so remove-then-add keeps its position and a repeated removal is a no-op),
+    /// `REMOVE_ALL_MESSAGES` clears the list, messages without an id get one, and a write that shares
+    /// an id replaces the existing message in place.
     pub fn messages() -> Reducer {
         Reducer::new(|current, incoming| {
             let mut accumulated = match current {
@@ -419,14 +526,38 @@ pub mod reducers {
                     )));
                 }
             };
-            let incoming = match incoming {
-                Value::Array(values) => values,
+            let mut incoming: Vec<Value> = match incoming {
+                Value::Array(values) => values.clone(),
                 other => {
                     return Err(Error::other(format!(
                         "reducer `messages` expected an array write, found `{other}`"
                     )));
                 }
             };
+            // LangGraph gives every stored message an id, so an echoed list dedupes.
+            ensure_message_ids(&mut incoming);
+            let mut removed: Vec<String> = Vec::new();
+            let mut remove_all = false;
+            let mut writes: Vec<Value> = Vec::new();
+            for message in incoming.iter().cloned() {
+                match removal_id(&message) {
+                    Some(Some(id)) if id == REMOVE_ALL_MESSAGES => remove_all = true,
+                    Some(Some(id)) => {
+                        if !removed.contains(&id) {
+                            removed.push(id);
+                        }
+                    }
+                    Some(None) => {}
+                    None => writes.push(message),
+                }
+            }
+            if remove_all {
+                accumulated.clear();
+                removed.clear();
+            }
+            // Writes apply first, so a message re-added under a removed id survives at that
+            // position (LangGraph only deletes the messages the update did not replace).
+            let mut replaced: Vec<String> = Vec::new();
             let mut index: std::collections::HashMap<String, usize> = accumulated
                 .iter()
                 .enumerate()
@@ -434,45 +565,32 @@ pub mod reducers {
                     message_id(message).map(|id| (id.to_string(), index))
                 })
                 .collect();
-            for message in incoming {
-                let removal = message.as_object().and_then(|object| {
-                    let remove = object.get("type").and_then(Value::as_str) == Some("remove")
-                        || object
-                            .get("__remove__")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false);
-                    remove.then(|| {
-                        message_id(&serde_json::Value::Object(object.clone())).map(str::to_owned)
-                    })
-                });
-                if let Some(Some(remove_id)) = removal {
-                    accumulated.retain(|candidate| {
-                        candidate
-                            .as_object()
-                            .and_then(|object| object.get("id"))
-                            .and_then(Value::as_str)
-                            != Some(remove_id.as_str())
-                    });
-                    index = accumulated
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, message)| {
-                            message_id(message).map(|id| (id.to_string(), index))
-                        })
-                        .collect();
-                    continue;
-                }
-                match message_id(message) {
+            for message in writes {
+                match message_id(&message) {
                     Some(id) => match index.get(id).copied() {
                         Some(position) => {
-                            accumulated[position] = message.clone();
+                            replaced.push(id.to_string());
+                            accumulated[position] = message;
                         }
                         None => {
                             index.insert(id.to_string(), accumulated.len());
-                            accumulated.push(message.clone());
+                            accumulated.push(message);
                         }
                     },
-                    None => accumulated.push(message.clone()),
+                    None => accumulated.push(message),
+                }
+            }
+            for id in &removed {
+                if replaced.iter().any(|kept| kept == id) {
+                    continue;
+                }
+                let before = accumulated.len();
+                accumulated.retain(|candidate| message_id(candidate) != Some(id.as_str()));
+                if accumulated.len() == before {
+                    // LangGraph refuses to delete an id that is not there.
+                    return Err(Error::validation(format!(
+                        "Attempting to delete a message with an ID that doesn't exist ('{id}')"
+                    )));
                 }
             }
             Ok(Value::Array(accumulated))

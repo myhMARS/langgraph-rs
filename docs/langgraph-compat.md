@@ -177,6 +177,20 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 消息变更语义（2026-11-27，第二轮审计）
+
+第三次独立审计专攻消息语义，又发现 4 处真实差异，都已修复：
+
+| 场景 | LG | 改前 | 现在 |
+|---|---|---|---|
+| 引擎自己写入的消息（`ToolNode`、dict 输入、`update_state`） | 有 id | **无 id**，导致"原样返回"时重复 | 由 reducer 补 id |
+| `RemoveMessage(id)` + 同 id 新消息 | `[a2, b]`（原位替换） | `[b, a2]`（先删后追加） | `[a2, b]` |
+| 同一 update 里重复删除同一 id | `[b]`（幂等） | `ValueError` | `[b]` |
+| `RemoveMessage("__remove_all__")` | 清空 | `ValueError: ... doesn't exist` | 清空 |
+
+修法：reducer 改成 LG 的顺序 —— 先收集删除意图、再应用写入（同 id 原位替换）、最后只删除**没有被本次写入替换**的旧消息；
+重复删除幂等；`__remove_all__` 走单独分支。消息 id 在 reducer 入口统一补齐（覆盖引擎侧写入路径）。
+
 ### `add_messages` 按 id 去重 + 消息自动分配 id（2026-11-27）
 
 调试 `pre_model_hook` 时发现更底层的问题：**`add_messages` 从来不按 id 去重**。LG 会给每条消息分配 `id`，并在

@@ -4097,3 +4097,134 @@ class MessageIdDedupeTest(unittest.TestCase):
             [(message.type, message.content) for message in output["messages"]],
             [("human", "hi"), ("human", "hook"), ("ai", "done")],
         )
+
+
+class RemoveMessageTest(unittest.TestCase):
+    """`RemoveMessage` deletes by id and rejects unknown ids, like LangGraph."""
+
+    def test_removes_an_existing_message(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        def add(state):
+            return {"messages": [HumanMessage("a"), HumanMessage("b")]}
+
+        def drop(state):
+            return {"messages": [RemoveMessage(id=state["messages"][0].id)]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("add", add)
+        graph.add_node("drop", drop)
+        graph.add_edge(langgraph_rs.START, "add")
+        graph.add_edge("add", "drop")
+        graph.add_edge("drop", langgraph_rs.END)
+        output = graph.compile().invoke({"messages": []})
+        self.assertEqual([message.content for message in output["messages"]], ["b"])
+
+    def test_unknown_id_is_rejected(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("drop", lambda state: {"messages": [RemoveMessage(id="nope")]})
+        graph.add_edge(langgraph_rs.START, "drop")
+        graph.add_edge("drop", langgraph_rs.END)
+        with self.assertRaises(ValueError) as raised:
+            graph.compile().invoke({"messages": [HumanMessage("a")]})
+        self.assertIn("doesn't exist ('nope')", str(raised.exception))
+
+    def test_ids_survive_a_checkpoint(self):
+        from langchain_core.messages import HumanMessage
+
+        saver = langgraph_rs.InMemorySaver()
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", lambda state: {"messages": state["messages"] + [HumanMessage("b")]})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "ids"}}
+        app.invoke({"messages": [HumanMessage("a")]}, config)
+        messages = app.get_state(config).values["messages"]
+        self.assertTrue(all(message.id for message in messages))
+        stored = saver.get_tuple(config).checkpoint["channel_values"]["messages"]
+        ids = [
+            message.id if hasattr(message, "id") else (message.get("kwargs") or {}).get("id")
+            for message in stored
+        ]
+        self.assertTrue(all(ids))
+
+
+class MessageMutationSemanticsTest(unittest.TestCase):
+    """`RemoveMessage` ordering and `REMOVE_ALL_MESSAGES`, as in LangGraph."""
+
+    def test_readd_keeps_position(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        def readd(state):
+            return {
+                "messages": [
+                    RemoveMessage(id=state["messages"][0].id),
+                    HumanMessage("a2", id=state["messages"][0].id),
+                ]
+            }
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("r", readd)
+        graph.add_edge(langgraph_rs.START, "r")
+        graph.add_edge("r", langgraph_rs.END)
+        output = graph.compile().invoke(
+            {"messages": [HumanMessage("a", id="1"), HumanMessage("b", id="2")]}
+        )
+        self.assertEqual([(m.content, m.id) for m in output["messages"]], [("a2", "1"), ("b", "2")])
+
+    def test_double_remove_is_a_no_op(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node(
+            "d", lambda state: {"messages": [RemoveMessage(id="1"), RemoveMessage(id="1")]}
+        )
+        graph.add_edge(langgraph_rs.START, "d")
+        graph.add_edge("d", langgraph_rs.END)
+        output = graph.compile().invoke(
+            {"messages": [HumanMessage("a", id="1"), HumanMessage("b", id="2")]}
+        )
+        self.assertEqual([m.content for m in output["messages"]], ["b"])
+
+    def test_remove_all_messages(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node(
+            "x",
+            lambda state: {
+                "messages": [
+                    RemoveMessage(id="__remove_all__"),
+                    HumanMessage("fresh"),
+                ]
+            },
+        )
+        graph.add_edge(langgraph_rs.START, "x")
+        graph.add_edge("x", langgraph_rs.END)
+        output = graph.compile().invoke({"messages": [HumanMessage("a", id="1")]})
+        self.assertEqual([m.content for m in output["messages"]], ["fresh"])
+
+    def test_engine_written_messages_get_ids(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        @tool
+        def add(a: int, b: int) -> int:
+            """Add."""
+            return a + b
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", langgraph_rs.prebuilt.ToolNode([add]))
+        graph.add_edge(langgraph_rs.START, "tools")
+        graph.add_edge("tools", langgraph_rs.END)
+        output = graph.compile().invoke(
+            {
+                "messages": [
+                    AIMessage("", tool_calls=[{"name": "add", "args": {"a": 1, "b": 2}, "id": "c1"}])
+                ]
+            }
+        )
+        self.assertTrue(all(message.id for message in output["messages"]))
