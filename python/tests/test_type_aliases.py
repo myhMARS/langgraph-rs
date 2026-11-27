@@ -3684,3 +3684,31 @@ class RuntimeSurfaceTest(unittest.TestCase):
         self.assertEqual(
             len([name for name in dir(BaseCheckpointSaver) if not name.startswith("_")]), 24
         )
+
+
+class SmallSurfaceTest(unittest.TestCase):
+    """Small LangGraph members verified against the reference package."""
+
+    def test_timeout_policy_coerce(self):
+        self.assertIsNone(langgraph_rs.TimeoutPolicy.coerce(None))
+        policy = langgraph_rs.TimeoutPolicy.coerce(0.5)
+        self.assertEqual(policy.run_timeout, 0.5)
+        given = langgraph_rs.TimeoutPolicy(run_timeout=2.0, refresh_on="heartbeat")
+        self.assertEqual(langgraph_rs.TimeoutPolicy.coerce(given).refresh_on, "heartbeat")
+
+    def test_serializer_allowlist(self):
+        from langgraph_rs.checkpoint.serde import JsonPlusSerializer
+
+        serializer = JsonPlusSerializer()
+        extended = serializer.with_msgpack_allowlist([("mod", "Type")])
+        self.assertIsNot(extended, serializer)
+        self.assertIs(serializer.with_msgpack_allowlist([]), serializer)
+
+    def test_tool_node_class_attributes(self):
+        self.assertEqual(langgraph_rs.prebuilt.ToolNode.name, "tools")
+        self.assertIn("tools_by_name", dir(langgraph_rs.prebuilt.ToolNode))
+
+    def test_delta_channel_history_shape(self):
+        from langgraph_rs.checkpoint.base import DeltaChannelHistory
+
+        self.assertEqual(list(DeltaChannelHistory.__annotations__), ["writes", "seed"])

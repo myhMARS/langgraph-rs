@@ -79,8 +79,26 @@ def _object_hook(value: dict[str, Any]) -> Any:
 class JsonPlusSerializer:
     """JSON serializer used by custom savers and caches."""
 
-    def __init__(self, *, pickle_fallback: bool = False) -> None:
+    def __init__(self, *, pickle_fallback: bool = False, allowed_msgpack_modules: Any = None) -> None:
         self.pickle_fallback = pickle_fallback
+        self._allowed_msgpack_modules = allowed_msgpack_modules
+
+    def with_msgpack_allowlist(self, extra_allowlist: Any) -> "JsonPlusSerializer":
+        """Return a serializer that also accepts these msgpack types, like LangGraph."""
+        base = self._allowed_msgpack_modules
+        if base is True or base is False:
+            return self
+        merged = set(base or ()) | set(extra_allowlist or ())
+        if merged == set(base or ()):
+            return self
+        clone = JsonPlusSerializer(
+            pickle_fallback=self.pickle_fallback, allowed_msgpack_modules=merged
+        )
+        return clone
+
+    def with_allowlist(self, extra_allowlist: Any) -> "JsonPlusSerializer":
+        """Alias of `with_msgpack_allowlist` (LangGraph exposes both)."""
+        return self.with_msgpack_allowlist(extra_allowlist)
 
     def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
         return ("json", self.dumps(obj))

@@ -17,7 +17,11 @@ from ..errors import EmptyChannelError
 from typing import Union
 
 ChannelVersions = dict[str, Union[str, int, float]]
-DeltaChannelHistory = list[tuple[str, Any]]
+class DeltaChannelHistory(TypedDict):
+    """Per-channel write history (`get_delta_channel_history` results)."""
+
+    writes: list[tuple[str, str, Any]]
+    seed: int
 ChannelProtocol = Any
 from ..checkpoint.serde import EncryptedSerializer, JsonPlusSerializer, SerializerProtocol
 

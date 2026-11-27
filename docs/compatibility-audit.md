@@ -3948,3 +3948,18 @@ Remaining gaps are protocol internals (`BaseChannel`, `ChannelProtocol`, `Pregel
 a few small members, tracked in the doc.
 
 Suite is 605 tests (three new), parity 89/89, examples 10/10, clippy and Rust tests clean.
+
+### Round 189: last small members from the class sweep
+
+* `TimeoutPolicy.coerce(value)` — normalises a number / `timedelta` / policy, `None` for `None`.
+* `JsonPlusSerializer.with_msgpack_allowlist` (and its `with_allowlist` alias) returns an extended
+  serializer, or `self` when there is nothing to add.
+* `ToolNode.name` / `tools_by_name` are declared at class level, as LangGraph's dataclass fields are.
+* `checkpoint.base.DeltaChannelHistory` is the TypedDict LangGraph ships.
+
+The sweep is down to 8 entries, all protocol internals (`Pregel` with its 69 `Runnable` members,
+`NodeBuilder`, `BaseChannel` / `ChannelProtocol`, `PregelExecutableTask`), `RetryPolicy.count`/`index`
+(LangGraph makes it a NamedTuple; ours is a native class with identical field access and retry
+behaviour, verified against `ConnectionError`), and `ToolRuntime.emit_output_delta`.
+
+Suite is 609 tests (four new), parity 89/89, examples 10/10, clippy and Rust tests clean.

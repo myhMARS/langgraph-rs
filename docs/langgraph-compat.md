@@ -177,6 +177,20 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 最后一批小成员（2026-11-27）
+
+| 项 | 变化 |
+|---|---|
+| `TimeoutPolicy.coerce(value)` | 补上（数字 / `timedelta` / `TimeoutPolicy` → 规范化策略，`None` → `None`） |
+| `JsonPlusSerializer.with_msgpack_allowlist` / `with_allowlist` | 补上（返回新的序列化器；无可加项时返回自身） |
+| `ToolNode.name` / `tools_by_name` | 补上类级声明（LG 是 dataclass 字段，`dir()` 里能看到） |
+| `checkpoint.base.DeltaChannelHistory` | 改为 TypedDict（`writes` / `seed`） |
+
+**类扫描剩下的差异（8 处，均在内部协议层）**：`Pregel`（含 69 个成员，主要是 `Runnable` 组合）、
+`NodeBuilder`、`BaseChannel` / `ChannelProtocol`（自定义通道协议）、`PregelExecutableTask`、
+`RetryPolicy` 的 `count`/`index`（LG 是 NamedTuple，我们是原生类；字段访问与重试行为已实测一致）、
+`ToolRuntime.emit_output_delta`。
+
 ### 小类型与运行时辅助（2026-11-27）
 
 按类扫描继续补齐：

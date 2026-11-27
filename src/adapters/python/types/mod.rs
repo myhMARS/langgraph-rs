@@ -754,6 +754,41 @@ pub struct PyTimeoutPolicy {
 
 #[pymethods]
 impl PyTimeoutPolicy {
+    /// Normalise a duration or policy into a `TimeoutPolicy` (LangGraph's `TimeoutPolicy.coerce`).
+    #[staticmethod]
+    #[pyo3(signature = (value))]
+    fn coerce(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyAny>>> {
+        if value.is_none() {
+            return Ok(None);
+        }
+        if let Ok(policy) = value.extract::<PyRef<'_, PyTimeoutPolicy>>() {
+            return Py::new(
+                py,
+                PyTimeoutPolicy {
+                    run_timeout: policy.run_timeout,
+                    idle_timeout: policy.idle_timeout,
+                    refresh_on: policy.refresh_on.clone(),
+                },
+            )
+            .map(|value| Some(value.into_any()));
+        }
+        let seconds = send_timeout_seconds(py, value);
+        Ok(match seconds {
+            Some(seconds) => Some(
+                Py::new(
+                    py,
+                    PyTimeoutPolicy {
+                        run_timeout: Some(seconds),
+                        idle_timeout: None,
+                        refresh_on: "auto".to_string(),
+                    },
+                )?
+                .into_any(),
+            ),
+            None => None,
+        })
+    }
+
     #[new]
     #[pyo3(signature = (run_timeout=None, idle_timeout=None, refresh_on="auto"))]
     fn new(

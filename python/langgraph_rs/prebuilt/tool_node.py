@@ -468,8 +468,12 @@ class ToolNode(_Runnable):
     """LangGraph's ``ToolNode`` including its constructor surface.
 
     The native node executes the calls; ``wrap_tool_call`` / ``awrap_tool_call`` run in Python
-    around it, exactly as LangGraph's middleware does.
+    around it, exactly as LangGraph's middleware does. ``name`` and ``tools_by_name`` are declared
+    at class level, as LangGraph's dataclass does.
     """
+
+    name: str = "tools"
+    tools_by_name: dict[str, Any] = {}
 
     def __init__(
         self,
