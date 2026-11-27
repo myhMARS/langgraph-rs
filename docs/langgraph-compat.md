@@ -177,6 +177,12 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `get_delta_channel_history` 的语义（2026-11-27）
+
+引擎按检查点快照**完整值**，没有 LG 的增量 blob 存储，所以：`writes` 为空、`seed` = 该通道在检查点里的值。
+之前 `seed` 固定返回 `0`（类型都不对）。现在按"把 writes 叠加到 seed 上"的读取方式，两边都能还原出正确状态 ——
+parity 场景 `delta_history` 就是按这个语义比对（LG 把值拆成 seed + writes，我们全放 seed）。
+
 ### 内部协议类型与工具输出增量（2026-11-27）
 
 类扫描从 5 处收窄到 **1 处**：

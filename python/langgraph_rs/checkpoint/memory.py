@@ -231,17 +231,30 @@ class InMemorySaver(_NATIVE_SAVER):
     def get_delta_channel_history(
         self, *, config: Any, channels: Any
     ) -> dict[str, Any]:
-        """Per-channel write log, shaped like LangGraph's delta history."""
+        """Per-channel write log, shaped like LangGraph's delta history.
+
+        This engine stores a full snapshot of every channel per checkpoint rather than delta
+        blobs, so the recorded value is the seed and there are no writes to replay on top of it:
+        a reader that applies `writes` over `seed` still gets the checkpoint's values.
+        """
+        if not channels:
+            return {}
         found = self.get_tuple(config)
-        writes = list(getattr(found, "pending_writes", None) or [])
+        if found is None:
+            return {channel: {"writes": [], "seed": 0} for channel in channels}
+        values = dict(getattr(found, "checkpoint", None) or {}).get("channel_values") or {}
+        pending = list(getattr(found, "pending_writes", None) or [])
         history: dict[str, Any] = {}
         for channel in channels:
             entries = [
                 (task_id, name, value)
-                for task_id, name, value in writes
+                for task_id, name, value in pending
                 if name == channel
             ]
-            history[channel] = {"writes": entries, "seed": 0}
+            if entries:
+                history[channel] = {"writes": entries, "seed": []}
+            else:
+                history[channel] = {"writes": [], "seed": values.get(channel, 0)}
         return history
 
     async def aget_delta_channel_history(

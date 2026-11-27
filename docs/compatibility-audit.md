@@ -3998,3 +3998,20 @@ The only remaining surface difference is `RetryPolicy.count`/`index`, because La
 policy as a NamedTuple while ours is a native class with identical field access and retry behaviour.
 
 Suite is 612 tests (one new), parity 89/89, examples 10/10, clippy and Rust tests clean.
+
+### Round 192: delta history carries the channel values
+
+`get_delta_channel_history` returned `{"writes": [], "seed": 0}` for every channel — the seed was a
+placeholder integer, so a reader reconstructing state got nothing useful. The engine snapshots full
+channel values per checkpoint (no delta blobs), so the value now goes into `seed`:
+
+```
+ours: {'value': {'writes': [], 'seed': 1}, 'log': {'writes': [], 'seed': ['b']}}
+lgs : {'value': {'writes': [], 'seed': 1}, 'log': {'writes': [(task, 'log', ['b'])], 'seed': []}}
+```
+
+Applying `writes` over `seed` reconstructs the same state in both, which is what the new
+`delta_history` parity scenario compares. Empty channel list returns `{}` like LangGraph.
+
+Suite is 612 tests, parity 90/90 (new `delta_history` scenario), examples 10/10, clippy and Rust tests
+clean.

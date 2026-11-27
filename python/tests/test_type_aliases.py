@@ -2276,7 +2276,11 @@ class SaverSurfaceTest2(unittest.TestCase):
         history = saver.get_delta_channel_history(config=config, channels=["value"])
         self.assertEqual(sorted(history), ["value"])
         self.assertEqual(sorted(history["value"]), ["seed", "writes"])
-        self.assertEqual(history["value"]["seed"], 0)
+        # The engine snapshots full channel values, so the value is the seed and there is
+        # nothing to replay on top of it.
+        self.assertEqual(history["value"]["writes"], [])
+        self.assertEqual(history["value"]["seed"], 1)
+        self.assertEqual(saver.get_delta_channel_history(config=config, channels=[]), {})
 
     def test_config_specs_and_serde(self):
         saver, _ = self._saver()

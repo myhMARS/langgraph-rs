@@ -676,6 +676,71 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_delta_history_scenario() -> list[dict]:
+    """Delta history keeps the channel's value reachable (as seed or as writes)."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+        log: list
+
+    def collect(engine):
+        if engine == "lg":
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"log": ["b"]})
+            graph.add_edge(START, "a")
+            graph.add_edge("a", "b")
+            graph.add_edge("b", END)
+            saver = InMemorySaver()
+        else:
+            graph = rs.StateGraph({"value": "last_value", "log": "last_value"})
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"log": ["b"]})
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", "b")
+            graph.add_edge("b", rs.END)
+            saver = rs.InMemorySaver()
+        app = graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": "delta"}}
+        app.invoke({"value": 0, "log": []}, config)
+        latest = saver.get_tuple(config)
+        history = saver.get_delta_channel_history(
+            config=latest.config, channels=["value", "log"]
+        )
+
+        def final_state(channel):
+            """Apply the writes over the seed, which is what a reader reconstructs."""
+            entry = history[channel]
+            result = entry["seed"]
+            for _task, _name, value in entry["writes"]:
+                result = value
+            return result
+
+        return {
+            "channels": sorted(history),
+            "keys": sorted(history["value"]),
+            "value": final_state("value"),
+            "log": final_state("log"),
+            "empty": saver.get_delta_channel_history(config=latest.config, channels=[]),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "delta_history",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_store_item_scenario() -> list[dict]:
     """Store items have LangGraph's type, namespace shape and UTC timestamps."""
 
@@ -5473,6 +5538,7 @@ def main() -> None:
         run_python_state_scenario,
         run_unknown_channel_scenario,
         run_store_item_scenario,
+        run_delta_history_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,
