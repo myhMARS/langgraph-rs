@@ -3062,4 +3062,25 @@ against LangGraph).
 runs reads first and applies writes afterwards.
 
 Suite is 491 tests (four new), parity 64/64 (new `store_surface` scenario), examples 10/10, clippy and
+Rust tests clean.### Round 140: top-level saver/store are the compatibility classes
+
+`langgraph_rs.InMemorySaver` pointed at the **native** class (`delete_thread` and
+`get_next_version` only), while the class with LangGraph's surface (`get_tuple`, `list`,
+`aget_tuple`, `alist`, `adelete_thread`) lived in `langgraph_rs.checkpoint.memory`. So the same
+import spelled at top level was near-empty. The top-level names now point at the compatibility
+classes (`InMemorySaver`, `MemorySaver`, `AsyncInMemorySaver`, `InMemoryStore`, `Store`).
+
+The saver also gained the rest of its public surface: the async twins `aget_tuple`, `alist`, `aput`,
+`aput_writes`, `adelete_thread`, `acopy_thread`, and `copy_thread(source, target, *,
+checkpoint_id=None)` backed by a new native implementation (verified by copying a thread's state).
+
+Still missing, documented as such: `put` / `put_writes` (engine-internal writes never pass through
+the saver), `prune` / `with_allowlist` / `get_delta_channel_history` / `delete_for_runs`, and the
+internal `serde` / `storage` / `writes` / `blobs` attributes.
+
+A Python subclass of a pyclass must also build in `__new__`, not `__init__` — `InMemoryStore.__init__`
+calling `super().__init__(index)` produced `object.__init__() takes exactly one argument`, caught by
+the store-index tests.
+
+Suite is 495 tests (four new), parity 65/65 (new `saver_surface` scenario), examples 10/10, clippy and
 Rust tests clean.

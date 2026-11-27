@@ -109,6 +109,25 @@ class InMemorySaver(_NATIVE_SAVER):
         for entry in self.list(config, before=before, limit=limit, filter=filter):
             yield entry
 
+    def copy_thread(
+        self,
+        source_thread_id: str,
+        target_thread_id: str | None = None,
+        *,
+        checkpoint_id: str | None = None,
+    ) -> None:
+        """Copy a thread's checkpoints (LangGraph's `copy_thread`)."""
+        super().copy_thread(source_thread_id, target_thread_id, checkpoint_id)
+
+    async def acopy_thread(self, *args: Any, **kwargs: Any) -> None:
+        self.copy_thread(*args, **kwargs)
+
+    async def aput(self, *args: Any, **kwargs: Any) -> None:
+        return self.put(*args, **kwargs)
+
+    async def aput_writes(self, *args: Any, **kwargs: Any) -> None:
+        return self.put_writes(*args, **kwargs)
+
     async def adelete_thread(self, thread_id: str) -> None:
         self.delete_thread(thread_id)
 

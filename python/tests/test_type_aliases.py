@@ -1727,3 +1727,36 @@ class StoreSurfaceTest(unittest.TestCase):
         store = langgraph_rs.store.memory.InMemoryStore()
         self.assertFalse(store.supports_ttl)
         self.assertIsNone(store.ttl_config)
+
+
+class CheckpointerSurfaceTest(unittest.TestCase):
+    """The top-level saver is the compatibility class, with LangGraph's async twins."""
+
+    def test_top_level_saver_is_the_shim_class(self):
+        from langgraph_rs.checkpoint.memory import InMemorySaver as ShimSaver
+
+        self.assertIs(langgraph_rs.InMemorySaver, ShimSaver)
+        self.assertIs(langgraph_rs.MemorySaver, ShimSaver)
+
+    def test_async_twins_exist(self):
+        saver = langgraph_rs.InMemorySaver()
+        for name in ("aget_tuple", "alist", "aput", "aput_writes", "adelete_thread", "acopy_thread"):
+            self.assertTrue(hasattr(saver, name), name)
+
+    def test_copy_thread(self):
+        saver = langgraph_rs.InMemorySaver()
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=saver)
+        app.invoke({"value": 0}, {"configurable": {"thread_id": "copy-src"}})
+        saver.copy_thread("copy-src", "copy-dst")
+        self.assertEqual(
+            app.get_state({"configurable": {"thread_id": "copy-dst"}}).values, {"value": 1}
+        )
+
+    def test_store_is_the_shim_class(self):
+        from langgraph_rs.store.memory import InMemoryStore as ShimStore
+
+        self.assertIs(langgraph_rs.InMemoryStore, ShimStore)

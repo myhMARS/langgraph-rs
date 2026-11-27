@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 顶层导出的 saver / store 是"兼容类"（2026-11-27）
+
+`langgraph_rs.InMemorySaver` 之前指向**原生类**（只有 `delete_thread` / `get_next_version`），而带
+完整表面（`get_tuple` / `list` / `aget_tuple` / `alist` / `adelete_thread`）的兼容子类藏在
+`langgraph_rs.checkpoint.memory` 里 —— 同一路径（`from langgraph.checkpoint.memory import
+InMemorySaver` → `langgraph_rs.checkpoint.memory`）能拿到的方法，走顶层导入就没有。现在顶层导出
+统一指向兼容类（`InMemorySaver` / `MemorySaver` / `AsyncInMemorySaver` / `InMemoryStore` / `Store`）。
+
+补上的 saver 表面：
+
+- 异步孪生 `aget_tuple` / `alist` / `aput` / `aput_writes` / `adelete_thread` / `acopy_thread`
+- `copy_thread(source, target, *, checkpoint_id=None)`（原生侧新增，实测能复制线程状态）
+
+**仍缺（已记录）**：`put` / `put_writes`（引擎内部写入路径，不经过 saver）、`prune` /
+`with_allowlist` / `get_delta_channel_history` / `delete_for_runs` 以及 `serde` / `storage` /
+`writes` / `blobs` 等内部属性。
+
 ### `CachePolicy.key_func` 与 `InMemoryStore` 的批量/异步面（2026-11-27）
 
 **`CachePolicy.key_func`**：LG 用 `key_func(val)` 计算节点缓存键（一个参数，节点输入状态），扩展此前

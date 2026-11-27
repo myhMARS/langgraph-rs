@@ -165,6 +165,25 @@ impl PyInMemorySaver {
             .map_err(|error| PyTypeError::new_err(error.to_string()))
     }
 
+    /// LangGraph's `copy_thread`: clone a thread's checkpoints into another thread.
+    #[pyo3(signature = (source_thread_id, target_thread_id=None, checkpoint_id=None))]
+    fn copy_thread(
+        &self,
+        source_thread_id: &str,
+        target_thread_id: Option<&str>,
+        checkpoint_id: Option<&str>,
+    ) -> PyResult<Option<String>> {
+        use crate::Checkpointer as _;
+        let _ = checkpoint_id;
+        let target = target_thread_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{source_thread_id}-copy"));
+        self.inner
+            .copy_thread(source_thread_id, &target)
+            .map_err(|error| PyTypeError::new_err(error.to_string()))?;
+        Ok(Some(target))
+    }
+
     /// LangGraph's channel version counter (`"<counter:032x>.<hash>.<timestamp>"`).
     #[pyo3(signature = (_current=None, _channel=None))]
     fn get_next_version(&self, _current: Option<&Bound<'_, PyAny>>, _channel: Option<&str>) -> String {

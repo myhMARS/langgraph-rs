@@ -20,6 +20,15 @@ from .graph._schema import MessagesState, _schema_from_class
 from .graph.state import AsyncStateGraph, CompiledGraph, CompiledStateGraph, StateGraph
 from .stream._stream import AsyncStream
 from .graph.message import MessageGraph
+# The compatibility classes carry LangGraph's Python-side surface (async twins, `batch`, ...), so
+# they replace the plain native classes the star import above brought in.
+from .checkpoint.memory import (  # noqa: E402
+    AsyncInMemorySaver,
+    InMemorySaver,
+    MemorySaver,
+)
+from .store.memory import InMemoryStore, Store  # noqa: E402
+from .cache.memory import InMemoryCache  # noqa: E402
 from .prebuilt.tool_node import (
     InjectedState,
     InjectedStore,

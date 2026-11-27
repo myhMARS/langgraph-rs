@@ -488,6 +488,42 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_saver_surface_scenario() -> list[dict]:
+    """The checkpointer exposes LangGraph's sync and async surface."""
+
+    names = (
+        "get_tuple",
+        "list",
+        "delete_thread",
+        "get_next_version",
+        "copy_thread",
+        "aget_tuple",
+        "alist",
+        "adelete_thread",
+        "aput",
+        "aput_writes",
+        "acopy_thread",
+    )
+
+    def collect(saver):
+        return {name: hasattr(saver, name) for name in names}
+
+    lg_value = collect(LgInMemorySaver())
+    rs_value = collect(rs.checkpoint.memory.InMemorySaver())
+    return [
+        {
+            "scenario": "saver_surface",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: rs.checkpoint.memory.InMemorySaver()),
+                "lg": measure(lambda: LgInMemorySaver()),
+            },
+        }
+    ]
+
+
 def run_store_surface_scenario() -> list[dict]:
     """`InMemoryStore` batch/async surface and item types match LangGraph."""
 
@@ -3969,6 +4005,7 @@ def main() -> None:
         run_snapshot_objects_scenario,
         run_policy_surface_scenario,
         run_store_surface_scenario,
+        run_saver_surface_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

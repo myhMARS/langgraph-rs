@@ -54,11 +54,13 @@ class InMemoryStore(_NativeStore):
     supports_ttl = False
     ttl_config = None
 
-    def __init__(self, *, index: Any = None, ttl: Any = None) -> None:
+    def __new__(cls, *, index: Any = None, ttl: Any = None) -> "InMemoryStore":
+        # The native type builds itself in `tp_new`, so the index goes there rather than `__init__`.
         if index is None:
-            super().__init__()
-        else:
-            super().__init__(index)
+            return super().__new__(cls)
+        return super().__new__(cls, index)
+
+    def __init__(self, *, index: Any = None, ttl: Any = None) -> None:
         self.ttl = ttl
 
     def batch(self, ops: Sequence[Any]) -> list[Any]:
