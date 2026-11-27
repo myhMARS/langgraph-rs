@@ -177,6 +177,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result` 的实现结论：需要跨行关联（2026-11-27，第 126 轮）
+
+本轮尝试实现"按 task 记录写入"，做完后仍拿不到结果，但把**真实结构**摸清了：
+
+- 检查点 N（含 `next: [a, b]`）是在 superstep **执行之前**写入的，因此它的 `task_writes` 必然为空；
+- a/b 的写入随检查点 N+1 一起落盘（N+1 的 `next` 已经空了）。
+
+所以 `tasks[].result` 不是"同一行内的字段"，而是**行 N 的 tasks ← 行 N+1 的 task_writes** 的跨行关联。LG 能直接给出来，
+是因为它把每一步的 pending writes 挂在"将被修正"的那个检查点上（`pending_writes`），快照时再合并。
+
+结论：实现路径是「写 checkpoint N+1 时把 N 的 tasks 结果带上（或快照时按 `parent_id` 取子行合并）」，而不是本轮试的
+同快照查找。试验代码已完整回退（669 测试全绿），避免留下半成品字段。
+
 ### `PregelTask.result` 为何恒为 `None`（2026-11-27，第 125 轮实测）
 
 审计里"`PregelTask.result` 恒为 `None`"这条，本轮查清了根因：

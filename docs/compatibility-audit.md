@@ -4604,3 +4604,19 @@ uses to skip already-completed tasks (`load_task_results`), so it needs a carefu
 change. Recorded with the root cause and the plan.
 
 Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 223: implementing `PregelTask.result` needs a cross-row join
+
+Attempting the implementation (record per-task writes in a separate store, persist them on the
+checkpoint, look them up per task) produced no results — and revealed why: the checkpoint that lists
+`next: [a, b]` is written *before* the superstep runs, so its own task writes are necessarily empty; the
+writes land on the next checkpoint, whose `next` is already empty.
+
+LangGraph sidesteps this by attaching each step's pending writes to the checkpoint that will be amended,
+and merging them when it builds a snapshot. The equivalent here is either "carry step N's task results
+when writing N+1" or "join a snapshot with its child row".
+
+The experiment was fully reverted (669 tests green) rather than leaving an unused checkpoint field behind;
+the design conclusion is recorded for the next attempt.
+
+Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
