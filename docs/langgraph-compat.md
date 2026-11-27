@@ -332,6 +332,27 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `RetryPolicy(retry_on=<callable>)`（2026-11-27）
+
+LG 的 `retry_on` 接受**三种**形式：异常类型、类型序列、以及 `(exc) -> bool` 的谓词。扩展此前只把
+`retry_on` 解析成"异常名列表"再按名字匹配，于是：
+
+| 形式 | LG | 扩展（改前） | 现在 |
+|---|---|---|---|
+| `retry_on=lambda exc: isinstance(exc, ValueError)` | 3 次 | **1 次**（`<lambda>` 匹配不到） | 3 次 |
+| `retry_on=lambda exc: False` | 1 次 | 1 次 | 1 次 |
+| `retry_on=ValueError` | 3 次 | 3 次 | 3 次 |
+| `retry_on=KeyError`（不匹配） | 1 次 | 1 次 | 1 次 |
+| `retry_on=[ValueError, KeyError]` | 3 次 | 3 次 | 3 次 |
+
+实现：Rust 的 `RetryPolicy` 新增 `condition: Option<RetryCondition>`（`Arc<dyn Fn(&str) -> bool>`），
+由 Python 适配层注入 —— 引擎只用**错误消息**回调，消息里带着异常对象的标记，适配层据此取回原异常
+再调用用户谓词。这不违反"Rust 不反向调用 shim"的约定：回调是用户提供的可调用对象。
+
+`repr(RetryPolicy(retry_on=...))` 也与 LG 逐字一致：
+`retry_on=<class 'ValueError'>` / `retry_on=[<class 'ValueError'>, <class 'KeyError'>]` /
+`retry_on=<function <lambda> at 0x...>`。
+
 ### `RemoteGraph` 的公共面与 LG 完全一致（2026-11-27）
 
 `RemoteGraph`（连 LangGraph Server 的客户端）此前只有 `invoke`/`stream`/`get_state`/`update_state` 等

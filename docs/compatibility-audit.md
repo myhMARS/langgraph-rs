@@ -3456,4 +3456,24 @@ input schema is actually more robust here (LangGraph raises `SchemaError` for a 
 
 Two tests cover the surface equality and that `bulk_update_state` forwards to the SDK client.
 
-Suite is 528 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.
+Suite is 528 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.### Round 159: `RetryPolicy(retry_on=<callable>)`
+
+LangGraph's `retry_on` accepts an exception type, a sequence of types, **or** a
+`Callable[[Exception], bool]` predicate. The extension only turned `retry_on` into a list of exception
+names, so a predicate never matched (`<lambda>` is not an exception name) and retries silently stopped
+after one attempt — `retry_on=lambda exc: isinstance(exc, ValueError)` ran once instead of three times.
+
+The Rust `RetryPolicy` gained `condition: Option<RetryCondition>` (`Arc<dyn Fn(&str) -> bool>`), which
+the Python adapter fills in: the engine calls back with the error message only, the message carries the
+exception's marker, and the adapter resolves it back to the original exception before invoking the
+user predicate. That keeps the "no Rust → shim calls" rule intact — the callback is a user-provided
+callable.
+
+All five shapes now match LangGraph (predicate true/false, type, non-matching type, sequence), and
+`repr(RetryPolicy(retry_on=...))` is byte-identical for the type and sequence forms.
+
+Note for future benchmark work: a parity `measure()` loop around retries replays the real backoff
+sleeps; the scenario measures policy construction instead.
+
+Suite is 532 tests (four new), parity 76/76 (new `retry_on` scenario), examples 10/10, clippy and Rust
+tests clean.

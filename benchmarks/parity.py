@@ -501,6 +501,67 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_retry_on_scenario() -> list[dict]:
+    """`RetryPolicy(retry_on=...)` accepts callables, types and sequences."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("kaboom")
+
+        def build(policy):
+            attempts.clear()
+            if engine == "lg":
+                graph = LgStateGraph(LgState)
+                graph.add_node("b", boom, retry_policy=policy)
+                graph.add_edge(START, "b")
+                graph.add_edge("b", END)
+            else:
+                graph = rs.StateGraph({"value": "last_value"})
+                graph.add_node("b", boom, retry_policy=policy)
+                graph.add_edge(rs.START, "b")
+                graph.add_edge("b", rs.END)
+            try:
+                graph.compile().invoke({"value": 0})
+            except BaseException:
+                pass
+            return len(attempts)
+
+        policy_cls = LgRetryPolicy if engine == "lg" else rs.RetryPolicy
+        return {
+            "callable_true": build(
+                policy_cls(max_attempts=3, retry_on=lambda exc: isinstance(exc, ValueError))
+            ),
+            "callable_false": build(policy_cls(max_attempts=3, retry_on=lambda exc: False)),
+            "type": build(policy_cls(max_attempts=3, retry_on=ValueError)),
+            "type_miss": build(policy_cls(max_attempts=3, retry_on=KeyError)),
+            "sequence": build(policy_cls(max_attempts=3, retry_on=[ValueError, KeyError])),
+            "repr_type": repr(policy_cls(retry_on=ValueError)),
+            "repr_sequence": repr(policy_cls(retry_on=[ValueError, KeyError])),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "retry_on",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            # Benchmarking the retry loop itself would replay the backoff sleeps; measure the
+            # policy construction instead.
+            "bench": {
+                "rs": measure(lambda: rs.RetryPolicy(max_attempts=3, retry_on=lambda exc: True)),
+                "lg": measure(lambda: LgRetryPolicy(max_attempts=3, retry_on=lambda exc: True)),
+            },
+        }
+    ]
+
+
 def run_saver_surface_scenario() -> list[dict]:
     """`BaseCheckpointSaver` surface: `get`, delta history, config specs, unsupported calls."""
 
@@ -4715,6 +4776,7 @@ def main() -> None:
         run_policy_surface_scenario,
         run_store_surface_scenario,
         run_saver_surface_scenario,
+        run_retry_on_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

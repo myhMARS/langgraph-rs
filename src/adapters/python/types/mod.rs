@@ -451,7 +451,6 @@ impl PyStreamWriter {
 
 /// Retry policy usable as `StateGraph.add_node(..., retry_policy=RetryPolicy(...))`.
 #[pyclass(name = "RetryPolicy", from_py_object)]
-#[derive(Clone)]
 pub struct PyRetryPolicy {
     #[pyo3(get)]
     pub max_attempts: usize,
@@ -465,6 +464,10 @@ pub struct PyRetryPolicy {
     pub jitter: f64,
     #[pyo3(get)]
     pub retry_on: Vec<String>,
+    /// The callable form of `retry_on` (LangGraph accepts either).
+    condition_source: Option<Py<PyAny>>,
+    /// How `__repr__` shows the callable.
+    condition_repr: Option<String>,
 }
 
 #[pymethods]
@@ -494,12 +497,20 @@ impl PyRetryPolicy {
                 },
             },
             retry_on: retry_on.map(retry_on_names).unwrap_or_default(),
+            // LangGraph also accepts a callable receiving the exception.
+            condition_source: retry_on.filter(|value| value.is_callable() && !value.is_instance_of::<pyo3::types::PyType>()).map(|value| value.clone().unbind()),
+            // LangGraph prints the value as the caller passed it.
+            condition_repr: retry_on
+                .and_then(|value| value.repr().ok())
+                .map(|repr| repr.to_string()),
         }
     }
 
     fn __repr__(&self) -> String {
         let jitter = if self.jitter > 0.0 { "True" } else { "False" };
-        let retry_on = if self.retry_on.is_empty() {
+        let retry_on = if let Some(text) = &self.condition_repr {
+            text.clone()
+        } else if self.retry_on.is_empty() {
             "()".to_string()
         } else {
             format!(
@@ -519,14 +530,56 @@ impl PyRetryPolicy {
     }
 }
 
+impl Clone for PyRetryPolicy {
+    fn clone(&self) -> Self {
+        Self {
+            max_attempts: self.max_attempts,
+            initial_interval: self.initial_interval,
+            backoff_factor: self.backoff_factor,
+            max_interval: self.max_interval,
+            jitter: self.jitter,
+            retry_on: self.retry_on.clone(),
+            condition_source: self
+                .condition_source
+                .as_ref()
+                .map(|value| Python::attach(|py| value.clone_ref(py))),
+            condition_repr: self.condition_repr.clone(),
+        }
+    }
+}
+
 impl PyRetryPolicy {
     pub(super) fn to_policy(&self) -> RetryPolicy {
-        RetryPolicy::new(self.max_attempts.max(1))
+        let mut policy = RetryPolicy::new(self.max_attempts.max(1))
             .with_backoff(Duration::from_secs_f64(self.initial_interval.max(0.0)))
             .with_multiplier(self.backoff_factor.max(1.0))
             .with_max_backoff(Duration::from_secs_f64(self.max_interval.max(0.0)))
             .with_jitter(self.jitter)
-            .with_retry_on(self.retry_on.clone())
+            .with_retry_on(self.retry_on.clone());
+        if let Some(callable) = &self.condition_source {
+            let callable = Python::attach(|py| callable.clone_ref(py));
+            policy.condition = Some(std::sync::Arc::new(move |message: &str| {
+                Python::attach(|py| {
+                    // The engine carries the exception's identity in the message; a plain message
+                    // (for example a timeout) is passed to the predicate as a `RuntimeError`.
+                    let stashed = crate::adapters::python::convert::python_error_id(message)
+                        .and_then(|id| crate::adapters::python::convert::peek_python_error(py, id));
+                    let exception = match stashed {
+                        Some(exception) => exception,
+                        None => pyo3::exceptions::PyRuntimeError::new_err(
+                            crate::_internal::error::strip_hidden_marker(message),
+                        )
+                        .into_value(py)
+                        .into_any(),
+                    };
+                    match callable.bind(py).call1((exception.bind(py),)) {
+                        Ok(value) => value.is_truthy().unwrap_or(false),
+                        Err(_) => false,
+                    }
+                })
+            }));
+        }
+        policy
     }
 }
 

@@ -22,7 +22,7 @@ use std::time::Duration;
 /// assert_eq!(policy.backoff_for(1), Duration::from_millis(10));
 /// assert_eq!(policy.backoff_for(2), Duration::from_millis(20));
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct RetryPolicy {
     /// Total attempts, including the first one.
     pub max_attempts: usize,
@@ -36,6 +36,39 @@ pub struct RetryPolicy {
     pub jitter: f64,
     /// Only retry when the error message contains one of these substrings (empty = any).
     pub retry_on: Vec<String>,
+    /// Predicate form of `retry_on`: LangGraph also accepts a callable receiving the exception.
+    /// Adapters supply it; the engine only ever calls back with the error message.
+    pub condition: Option<RetryCondition>,
+}
+
+/// Callable form of `retry_on`, supplied by an adapter.
+pub type RetryCondition = std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>;
+
+impl std::fmt::Debug for RetryPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetryPolicy")
+            .field("max_attempts", &self.max_attempts)
+            .field("initial_backoff", &self.initial_backoff)
+            .field("multiplier", &self.multiplier)
+            .field("max_backoff", &self.max_backoff)
+            .field("jitter", &self.jitter)
+            .field("retry_on", &self.retry_on)
+            .field("condition", &self.condition.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for RetryPolicy {
+    /// The callable predicate has no observable identity, so only its presence is compared.
+    fn eq(&self, other: &Self) -> bool {
+        self.max_attempts == other.max_attempts
+            && self.initial_backoff == other.initial_backoff
+            && self.multiplier == other.multiplier
+            && self.max_backoff == other.max_backoff
+            && self.jitter == other.jitter
+            && self.retry_on == other.retry_on
+            && self.condition.is_some() == other.condition.is_some()
+    }
 }
 
 impl Default for RetryPolicy {
@@ -47,6 +80,7 @@ impl Default for RetryPolicy {
             max_backoff: Duration::ZERO,
             jitter: 0.0,
             retry_on: Vec::new(),
+            condition: None,
         }
     }
 }
@@ -96,6 +130,9 @@ impl RetryPolicy {
 
     /// Returns `true` when `message` matches the configured `retry_on` predicates.
     pub fn should_retry(&self, message: &str) -> bool {
+        if let Some(condition) = &self.condition {
+            return condition(message);
+        }
         self.retry_on.is_empty()
             || self
                 .retry_on

@@ -2355,3 +2355,55 @@ class BulkUpdateStateShapeTest(unittest.TestCase):
         app.invoke({"value": 0}, config)
         app.bulk_update_state(config, [[{"values": {"value": 9}, "as_node": "a"}]])
         self.assertEqual(app.get_state(config).values, {"value": 9})
+
+
+class RetryOnCallableTest(unittest.TestCase):
+    """`RetryPolicy(retry_on=...)` accepts a callable, an exception type or a sequence."""
+
+    def _run(self, policy):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("kaboom")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("b", boom, retry_policy=policy)
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(ValueError):
+            graph.compile().invoke({"value": 0})
+        return len(attempts)
+
+    def test_callable_predicate_true_retries(self):
+        self.assertEqual(
+            self._run(
+                langgraph_rs.RetryPolicy(
+                    max_attempts=3, retry_on=lambda exc: isinstance(exc, ValueError)
+                )
+            ),
+            3,
+        )
+
+    def test_callable_predicate_false_stops(self):
+        self.assertEqual(
+            self._run(langgraph_rs.RetryPolicy(max_attempts=3, retry_on=lambda exc: False)), 1
+        )
+
+    def test_exception_type_and_sequence(self):
+        self.assertEqual(self._run(langgraph_rs.RetryPolicy(max_attempts=3, retry_on=ValueError)), 3)
+        self.assertEqual(
+            self._run(langgraph_rs.RetryPolicy(max_attempts=3, retry_on=[ValueError, KeyError])), 3
+        )
+        self.assertEqual(self._run(langgraph_rs.RetryPolicy(max_attempts=3, retry_on=KeyError)), 1)
+
+    def test_repr_matches_langgraph(self):
+        self.assertEqual(
+            repr(langgraph_rs.RetryPolicy(retry_on=ValueError)),
+            "RetryPolicy(initial_interval=0.5, backoff_factor=2.0, max_interval=128.0, "
+            "max_attempts=3, jitter=True, retry_on=<class 'ValueError'>)",
+        )
+        self.assertIn(
+            "retry_on=[<class 'ValueError'>, <class 'KeyError'>]",
+            repr(langgraph_rs.RetryPolicy(retry_on=[ValueError, KeyError])),
+        )
