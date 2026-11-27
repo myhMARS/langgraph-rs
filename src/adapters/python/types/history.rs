@@ -127,6 +127,8 @@ impl HistoryInner {
         let snapshot = graph
             .snapshot_from_handle_for(handle)
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        // A row's tasks ran in the step recorded by the row written *after* it (history is newest
+        // first), so its per-task writes — LangGraph's `PregelTask.result` — live there.
         let converted = crate::adapters::python::convert::snapshot_to_py(py, &snapshot)?;
         if let Some(slot) = self.cache.get_mut(index) {
             *slot = Some(converted.clone_ref(py));
