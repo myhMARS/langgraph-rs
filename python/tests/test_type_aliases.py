@@ -3560,3 +3560,48 @@ class BaseStoreProtocolTest(unittest.TestCase):
         store = self._store()
         with self.assertRaises(NotImplementedError):
             store.put(("a",), "k", {"v": 1}, ttl=1)
+
+
+class StoreItemShapeTest(unittest.TestCase):
+    """Store items are LangGraph's `Item`, with UTC timestamps and `dict()`."""
+
+    def test_item_type_and_fields(self):
+        from datetime import datetime, timezone
+
+        from langgraph_rs.store.base import Item
+
+        store = langgraph_rs.InMemoryStore()
+        store.put(("n", "sub"), "k", {"v": 1})
+        item = store.get(("n", "sub"), "k")
+        self.assertIs(type(item), Item)
+        self.assertEqual(item.namespace, ("n", "sub"))
+        self.assertEqual(item.key, "k")
+        self.assertEqual(item.created_at.tzinfo, timezone.utc)
+        hit = store.search(("n",))[0]
+        self.assertIs(type(hit).__name__, "SearchItem")
+        # `Item.dict()` has no score; `SearchItem.dict()` adds it, like LangGraph.
+        self.assertEqual(
+            sorted(hit.dict()),
+            ["created_at", "key", "namespace", "score", "updated_at", "value"],
+        )
+        self.assertEqual(
+            sorted(item.dict()),
+            ["created_at", "key", "namespace", "updated_at", "value"],
+        )
+
+    def test_item_dict_serialises_timestamps(self):
+        store = langgraph_rs.InMemoryStore()
+        store.put(("n",), "k", {"v": 1})
+        payload = store.get(("n",), "k").dict()
+        self.assertEqual(payload["namespace"], ["n"])
+        self.assertTrue(payload["created_at"].endswith("+00:00"))
+
+    def test_op_classes_are_named_tuples(self):
+        from langgraph_rs.store.base import GetOp, ListNamespacesOp, MatchCondition, PutOp, SearchOp
+
+        for cls in (GetOp, PutOp, SearchOp, ListNamespacesOp, MatchCondition):
+            self.assertTrue(issubclass(cls, tuple), cls)
+        op = PutOp(("a",), "k", {"v": 1})
+        self.assertEqual((op.namespace, op.key, op.value), (("a",), "k", {"v": 1}))
+        namespace, key, value, index, ttl = op
+        self.assertEqual(key, "k")

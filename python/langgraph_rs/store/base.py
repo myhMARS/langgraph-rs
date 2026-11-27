@@ -16,7 +16,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, NamedTuple, TypedDict, TypeVar
 
 from .._compat import module_getattr
 
@@ -253,12 +253,24 @@ class Item:
         updated_at: Any = None,
         score: float | None = None,
     ) -> None:
-        self.namespace = list(namespace or [])
+        self.namespace = tuple(namespace or ())
         self.key = key
         self.value = value
         self.created_at = created_at
         self.updated_at = updated_at
         self.score = score
+
+    def dict(self) -> dict[str, Any]:
+        """Plain-dict form, as LangGraph's `Item.dict()` returns."""
+        created = getattr(self.created_at, "isoformat", None)
+        updated = getattr(self.updated_at, "isoformat", None)
+        return {
+            "namespace": list(self.namespace),
+            "key": self.key,
+            "value": self.value,
+            "created_at": created() if callable(created) else self.created_at,
+            "updated_at": updated() if callable(updated) else self.updated_at,
+        }
 
     def __repr__(self) -> str:
         return (
@@ -267,7 +279,13 @@ class Item:
         )
 
 
-SearchItem = Item
+class SearchItem(Item):
+    """A search hit: an item plus its relevance score."""
+
+    def dict(self) -> dict[str, Any]:
+        payload = super().dict()
+        payload["score"] = self.score
+        return payload
 
 NamespaceMatchType = Literal["prefix", "suffix"]
 NamespacePath = tuple[str | Literal["*"], ...]
@@ -286,35 +304,31 @@ class NotProvided:
 NOT_PROVIDED: NotProvided = NotProvided()
 
 
-@dataclass
-class MatchCondition:
+class MatchCondition(NamedTuple):
     """One namespace match condition (`prefix` or `suffix`)."""
 
     match_type: NamespaceMatchType
     path: NamespacePath
 
 
-@dataclass
-class TTLConfig:
-    """TTL policy of a store."""
+class TTLConfig(TypedDict):
+    """TTL policy of a store (LangGraph models this as a dict)."""
 
-    refresh_on_read: bool = True
-    omit_expired: bool = True
-    default_ttl: float | None = None
-    sweep_interval_minutes: int | None = None
+    refresh_on_read: bool
+    omit_expired: bool
+    default_ttl: float | None
+    sweep_interval_minutes: int | None
 
 
-@dataclass
-class IndexConfig:
+class IndexConfig(TypedDict):
     """Embedding index configuration of a store."""
 
     dims: int
     embed: Any  # Embeddings | EmbeddingsFunc | AEmbeddingsFunc | str
-    fields: list[str] | None = None
+    fields: list[str] | None
 
 
-@dataclass
-class GetOp:
+class GetOp(NamedTuple):
     """Batch op: read one key."""
 
     namespace: tuple[str, ...]
@@ -322,8 +336,7 @@ class GetOp:
     refresh_ttl: bool = False
 
 
-@dataclass
-class PutOp:
+class PutOp(NamedTuple):
     """Batch op: write one key."""
 
     namespace: tuple[str, ...]
@@ -333,8 +346,7 @@ class PutOp:
     ttl: float | None = None
 
 
-@dataclass
-class SearchOp:
+class SearchOp(NamedTuple):
     """Batch op: search a namespace prefix."""
 
     namespace_prefix: tuple[str, ...]
@@ -345,8 +357,7 @@ class SearchOp:
     refresh_ttl: bool = False
 
 
-@dataclass
-class ListNamespacesOp:
+class ListNamespacesOp(NamedTuple):
     """Batch op: list namespaces."""
 
     match_conditions: tuple[MatchCondition, ...] | None = None

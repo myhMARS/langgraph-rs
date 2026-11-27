@@ -3899,3 +3899,22 @@ surface (verified with a custom in-memory store), delete is the `PutOp(value=Non
 LangGraph uses, and a TTL raises `NotImplementedError` unless `supports_ttl` is set.
 
 Suite is 597 tests (four new), parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 186: store ops, `Item` shape and UTC timestamps
+
+A class-surface sweep over every public LangGraph class (73 captured) pointed at the store layer:
+
+* `GetOp` / `PutOp` / `SearchOp` / `ListNamespacesOp` / `MatchCondition` are NamedTuples in LangGraph
+  (unpackable, `count`/`index`, `_fields`); ours were dataclasses. Converted, and `TTLConfig` /
+  `IndexConfig` became the TypedDicts LangGraph uses.
+* `store.get()` / `store.search()` returned the native `StoreItem`; LangGraph returns `Item` and
+  `SearchItem`. The shim now wraps them, `SearchItem.dict()` adds `score` while `Item.dict()` does
+  not, and `Item.namespace` stays a tuple.
+* Store timestamps were local-time naive; LangGraph reports UTC-aware datetimes. The native conversion
+  now attaches `timezone.utc`, so `item.created_at` is `...T14:33:29+00:00` instead of a local naive
+  value — a real serialisation difference.
+
+Two tests that used dict-style item access (our old behaviour) were updated to LangGraph's attribute API.
+
+Suite is 600 tests (three new), parity 89/89 (new `store_item` scenario), examples 10/10, clippy and
+Rust tests clean.

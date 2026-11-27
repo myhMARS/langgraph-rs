@@ -574,7 +574,7 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertEqual(store.get(["mem"], "n").value, 2)
         items = store.search(["mem"])
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["key"], "n")
+        self.assertEqual(items[0].key, "n")
         self.assertIn(["mem"], store.namespaces())
         store.delete(["mem"], "n")
         self.assertIsNone(store.get(["mem"], "n"))

@@ -386,7 +386,9 @@ fn datetime_from_millis(py: Python<'_>, millis: u64) -> Py<PyAny> {
         let class = module.getattr("datetime")?;
         let seconds = millis / 1000;
         let micros = (millis % 1000) * 1000;
-        let value = class.call_method1("fromtimestamp", (seconds,))?;
+        // LangGraph reports timezone-aware UTC timestamps.
+        let utc = module.getattr("timezone")?.getattr("utc")?;
+        let value = class.call_method1("fromtimestamp", (seconds, utc))?;
         let value = if micros > 0 {
             let delta = module.getattr("timedelta")?.call1((0, 0, micros))?;
             value.call_method1("__add__", (delta,))?

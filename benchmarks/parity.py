@@ -676,6 +676,48 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_store_item_scenario() -> list[dict]:
+    """Store items have LangGraph's type, namespace shape and UTC timestamps."""
+
+    def collect(engine):
+        from datetime import timezone
+
+        if engine == "lg":
+            from langgraph.store.memory import InMemoryStore
+
+            store = InMemoryStore()
+        else:
+            store = rs.InMemoryStore()
+        store.put(("n", "sub"), "k", {"v": 1})
+        item = store.get(("n", "sub"), "k")
+        payload = item.dict()
+        payload.pop("created_at")
+        payload.pop("updated_at")
+        return {
+            "type": type(item).__name__,
+            "namespace": list(item.namespace),
+            "namespace_is_tuple": isinstance(item.namespace, tuple),
+            "created_tz": str(item.created_at.tzinfo),
+            "utc": item.created_at.tzinfo == timezone.utc,
+            "dict": payload,
+            "search_type": type(store.search(("n",))[0]).__name__,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "store_item",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_unknown_channel_scenario() -> list[dict]:
     """Keys the state does not declare are ignored, like LangGraph."""
 
@@ -5430,6 +5472,7 @@ def main() -> None:
         run_context_schema_scenario,
         run_python_state_scenario,
         run_unknown_channel_scenario,
+        run_store_item_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

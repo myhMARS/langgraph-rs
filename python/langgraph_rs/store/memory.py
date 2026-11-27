@@ -48,6 +48,23 @@ __all__ = [
 from ..langgraph_rs import InMemoryStore as _NativeStore  # noqa: E402  (native implementation)
 
 
+def _wrap_item(item: Any, *, search: bool = False) -> Any:
+    """Present a native store item as LangGraph's `Item` (or `SearchItem`)."""
+    if item is None:
+        return None
+    from .base import Item, SearchItem
+
+    cls = SearchItem if search else Item
+    return cls(
+        namespace=item.namespace,
+        key=item.key,
+        value=item.value,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        score=getattr(item, "score", None),
+    )
+
+
 class InMemoryStore(_NativeStore):
     """LangGraph's `InMemoryStore`, with its batch and async surface."""
 
@@ -67,6 +84,17 @@ class InMemoryStore(_NativeStore):
         self.embeddings = (
             self.index_config.get("embed") if isinstance(self.index_config, dict) else None
         )
+
+    def get(self, namespace: Any, key: str, **kwargs: Any) -> Any:
+        """Read one item, returned as LangGraph's `Item`."""
+        return _wrap_item(super().get(tuple(namespace), key, **kwargs))
+
+    def search(self, namespace_prefix: Any, **kwargs: Any) -> list[Any]:
+        """Search, returning LangGraph `Item` objects."""
+        return [
+            _wrap_item(hit, search=True)
+            for hit in super().search(tuple(namespace_prefix), **kwargs)
+        ]
 
     def put(self, namespace: Any, key: str, value: Any, index: Any = None, *, ttl: Any = None) -> None:
         """Store a value; LangGraph's in-memory store rejects a TTL."""

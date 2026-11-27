@@ -177,6 +177,20 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### store 的 op 类与 Item 形状（2026-11-27）
+
+| 项 | LG | 改前 | 现在 |
+|---|---|---|---|
+| `GetOp` / `PutOp` / `SearchOp` / `ListNamespacesOp` / `MatchCondition` | NamedTuple（可解包、`_fields`） | dataclass | NamedTuple |
+| `TTLConfig` / `IndexConfig` | TypedDict | dataclass | TypedDict |
+| `store.get()` 返回类型 | `Item` | 原生 `StoreItem` | `Item` |
+| `store.search()` 返回类型 | `SearchItem` | 原生 `StoreItem` | `SearchItem` |
+| `Item.namespace` | tuple | list（shim 侧） | tuple |
+| 时间戳时区 | UTC-aware | **本地时区 naive** | UTC-aware |
+| `Item.dict()` / `SearchItem.dict()` | 有（SearchItem 多 `score`） | 无 | 有，键集合一致 |
+
+时区那条影响最实际：同一时刻我们给 `2026-11-27T22:33:28`，LG 给 `2026-11-27T14:33:29+00:00`。
+
 ### `BaseStore` 也是完整协议基类（2026-11-27）
 
 与上一轮同一个问题：LG 的 `BaseStore` 子类只需实现 `batch`（可选 `abatch`），其余
