@@ -59,6 +59,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         backend.collector(),
         config.live_sink.clone(),
     )?;
+    // `get_config()` surfaces the caller's tags and metadata, like LangGraph.
+    crate::runtime::context::set_user_config(config.tags.clone(), config.metadata.clone());
 
     if thread_id.is_some() && !backend.has_checkpointer() {
         return Err(Error::MissingCheckpointer("a run bound to a thread_id"));

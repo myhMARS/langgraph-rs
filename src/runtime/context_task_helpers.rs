@@ -354,11 +354,59 @@ fn matches_type(value: &Value, kind: &str) -> bool {
 
 /// LangGraph-style config of the current run (`configurable.thread_id` / `checkpoint_ns`).
 pub fn get_config() -> Value {
+    let (tags, mut metadata) = crate::runtime::context::user_config();
+    // LangGraph merges the run metadata with the task's own `langgraph_*` keys.
+    if let Some(thread_id) = current_thread_id() {
+        metadata.insert("thread_id".into(), Value::String(thread_id));
+    }
+    if let Some(node) = crate::runtime::context::current_node() {
+        metadata.insert("langgraph_node".into(), Value::String(node.clone()));
+        let namespace = current_namespace();
+        let mut path = vec![Value::String("__pregel_pull".into()), Value::String(node)];
+        if !namespace.is_empty() {
+            path.extend(
+                namespace
+                    .split('|')
+                    .filter(|part| !part.is_empty())
+                    .map(|part| Value::String(part.to_string())),
+            );
+        }
+        metadata.insert("langgraph_path".into(), Value::Array(path));
+    }
+    if let Some(step) = crate::runtime::context::current_step() {
+        // LangGraph counts supersteps from 1 in this metadata.
+        metadata.insert("langgraph_step".into(), Value::from(step as u64 + 1));
+    }
+    let triggers = crate::runtime::context::current_triggers();
+    if !triggers.is_empty() {
+        metadata.insert(
+            "langgraph_triggers".into(),
+            Value::Array(triggers.into_iter().map(Value::String).collect()),
+        );
+    }
+    // `<node>:<task id>` for the running task, the run's namespace otherwise.
+    let checkpoint_ns = match crate::runtime::context::current_task_id() {
+        Some(id) => match crate::runtime::context::current_node() {
+            Some(node) if !node.is_empty() => format!("{node}:{id}"),
+            _ => id,
+        },
+        None => current_namespace(),
+    };
+    if !checkpoint_ns.is_empty() {
+        metadata.insert(
+            "langgraph_checkpoint_ns".into(),
+            Value::String(checkpoint_ns),
+        );
+    }
     serde_json::json!({
+        "callbacks": [],
         "configurable": {
             "thread_id": current_thread_id(),
             "checkpoint_ns": current_namespace(),
-        }
+            "__pregel_task_id": crate::runtime::context::current_task_id(),
+        },
+        "tags": tags,
+        "metadata": metadata,
     })
 }
 

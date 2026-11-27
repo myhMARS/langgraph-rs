@@ -493,6 +493,77 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_get_config_scenario() -> list[dict]:
+    """`get_config()` inside a node reports the caller's tags and metadata."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        seen = {}
+
+        def node(state):
+            if engine == "lg":
+                from langgraph.config import get_config
+
+                config = get_config()
+            else:
+                from langgraph_rs.config import get_config
+
+                config = get_config()
+            metadata = dict(config.get("metadata") or {})
+            # Both engines report tuples; normalise so the comparison is JSON-safe.
+            for key in ("langgraph_path", "langgraph_triggers"):
+                if key in metadata:
+                    metadata[key] = list(metadata[key])
+            # The checkpoint namespace embeds a uuid; compare only its `<node>:` prefix.
+            if "langgraph_checkpoint_ns" in metadata:
+                metadata["langgraph_checkpoint_ns"] = metadata["langgraph_checkpoint_ns"].split(
+                    ":"
+                )[0]
+            seen.update(
+                {
+                    "keys": sorted(config),
+                    "thread": (config.get("configurable") or {}).get("thread_id"),
+                    "tags": config.get("tags"),
+                    "metadata": metadata,
+                }
+            )
+            return {"value": 1}
+
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("n", node)
+            graph.add_edge(START, "n")
+            graph.add_edge("n", END)
+            app = graph.compile(checkpointer=LgInMemorySaver())
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("n", node)
+            graph.add_edge(rs.START, "n")
+            graph.add_edge("n", rs.END)
+            app = graph.compile(checkpointer=rs.InMemorySaver())
+        app.invoke(
+            {"value": 0},
+            {"configurable": {"thread_id": "cfg"}, "tags": ["t1"], "metadata": {"m": 1}},
+        )
+        return seen
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "get_config",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_failed_task_scenario() -> list[dict]:
     """After a failed run, `snapshot.tasks[i].error` describes the exception."""
 
@@ -4429,6 +4500,7 @@ def main() -> None:
         run_tool_interrupt_scenario,
         run_node_exception_scenario,
         run_failed_task_scenario,
+        run_get_config_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

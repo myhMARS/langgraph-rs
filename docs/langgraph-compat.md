@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `get_config()` 的形状（2026-11-27）
+
+LG 在节点里调用 `get_config()` 拿到的是完整 RunnableConfig 视图：
+
+```
+keys: callbacks / configurable / metadata / tags
+metadata: {'m': 1, 'thread_id': 'cfg', 'langgraph_step': 1, 'langgraph_node': 'n',
+           'langgraph_triggers': ('branch:to:n',), 'langgraph_path': ('__pregel_pull', 'n'),
+           'langgraph_checkpoint_ns': 'n:<uuid>'}
+```
+
+扩展此前只返回 `{'configurable': {'thread_id', 'checkpoint_ns'}}`：`tags`、`metadata` 全丢，
+`config["metadata"]` 直接 KeyError。
+
+现在四个键齐全，`metadata` 里合并了调用方的 metadata 与六个 `langgraph_*` 键，
+`langgraph_path` / `langgraph_triggers` 与 LG 一样是**元组**。
+顺带补上 `langgraph_rs.config.RunnableConfig`（LG 从这里导出的类型别名）。
+
 ### `handle_tool_errors=<异常类型/元组>` 按类型过滤（2026-11-27）
 
 LG 允许只处理特定异常：`handle_tool_errors=ValueError` 只接住 `ValueError`，其它异常照常抛出。扩展此前

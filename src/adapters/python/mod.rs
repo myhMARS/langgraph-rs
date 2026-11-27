@@ -181,7 +181,21 @@ fn get_stream_writer() -> PyStreamWriter {
 #[pyfunction]
 fn get_config(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let config = crate::get_config();
-    value_to_py(py, &config)
+    let value = value_to_py(py, &config)?;
+    // LangGraph reports these metadata entries as tuples.
+    if let Ok(dict) = value.bind(py).cast::<pyo3::types::PyDict>()
+        && let Ok(metadata) = dict.get_item("metadata")
+        && let Some(metadata) = metadata.and_then(|meta| meta.cast_into::<pyo3::types::PyDict>().ok())
+    {
+        for key in ["langgraph_triggers", "langgraph_path"] {
+            if let Ok(Some(entry)) = metadata.get_item(key)
+                && let Ok(items) = entry.extract::<Vec<Py<PyAny>>>()
+            {
+                metadata.set_item(key, pyo3::types::PyTuple::new(py, items)?)?;
+            }
+        }
+    }
+    Ok(value)
 }
 
 /// Remaining supersteps before the recursion limit (managed value).

@@ -36,3 +36,9 @@ __all__ = [
 
 _MISSING = re_export(globals(), __all__)
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+
+try:  # LangGraph re-exports the config type here; it comes from langchain_core.
+    from langchain_core.runnables import RunnableConfig  # noqa: F401
+except Exception:  # pragma: no cover - langchain_core is optional
+    from .types import RunnableConfig  # type: ignore[assignment]  # noqa: F401

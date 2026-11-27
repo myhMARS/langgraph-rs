@@ -2078,3 +2078,40 @@ class ToolErrorTypeFilterTest(unittest.TestCase):
     def test_non_matching_type_propagates(self):
         with self.assertRaises(ValueError):
             self._run(KeyError)
+
+
+class GetConfigTest(unittest.TestCase):
+    """`get_config()` inside a node mirrors LangGraph's RunnableConfig view."""
+
+    def test_config_shape(self):
+        from langgraph_rs.config import get_config
+
+        seen = {}
+
+        def node(state):
+            seen.update(get_config())
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        graph.compile().invoke(
+            {"value": 0}, {"tags": ["t1"], "metadata": {"m": 1}}
+        )
+        self.assertEqual(sorted(seen), ["callbacks", "configurable", "metadata", "tags"])
+        self.assertEqual(seen["tags"], ["t1"])
+        metadata = seen["metadata"]
+        self.assertEqual(metadata["m"], 1)
+        self.assertEqual(metadata["langgraph_node"], "n")
+        self.assertEqual(metadata["langgraph_step"], 1)
+        self.assertIsInstance(metadata["langgraph_path"], tuple)
+        self.assertEqual(metadata["langgraph_path"], ("__pregel_pull", "n"))
+        self.assertIsInstance(metadata["langgraph_triggers"], tuple)
+        self.assertEqual(metadata["langgraph_triggers"], ("branch:to:n",))
+        self.assertTrue(metadata["langgraph_checkpoint_ns"].startswith("n:"))
+
+    def test_runnable_config_is_exported(self):
+        from langgraph_rs.config import RunnableConfig
+
+        self.assertIsNotNone(RunnableConfig)

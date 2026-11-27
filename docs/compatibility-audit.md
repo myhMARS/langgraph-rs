@@ -3271,4 +3271,20 @@ Still open, documented: `RetryPolicy(retry_on=<callable>)` matches by name only,
 decides retries without calling back into Python.
 
 Suite is 511 tests (three new), parity 71/71 (the `tool_errors` scenario now covers type matching,
-tuples and non-matching types), examples 10/10, clippy and Rust tests clean.
+tuples and non-matching types), examples 10/10, clippy and Rust tests clean.### Round 150: `get_config()` matches LangGraph's RunnableConfig view
+
+Inside a node, LangGraph's `get_config()` returns `callbacks` / `configurable` / `metadata` / `tags`,
+where `metadata` merges the caller's metadata with `thread_id`, `langgraph_step`, `langgraph_node`,
+`langgraph_triggers`, `langgraph_path` and `langgraph_checkpoint_ns`. The extension returned only
+`{"configurable": {"thread_id", "checkpoint_ns"}}` — so `config["metadata"]`, `config["tags"]` and the
+`langgraph_*` lookups raised `KeyError`.
+
+`RunConfig` now carries `tags` and `metadata` (parsed from the Python config dict), the run context
+stores them, and `get_config()` rebuilds the full view, including tuple-valued `langgraph_path` /
+`langgraph_triggers` as LangGraph reports them. `langgraph_rs.config.RunnableConfig` was also missing
+and is re-exported now.
+
+A module-surface audit found every other `langgraph.*` module path importable from `langgraph_rs.*`.
+
+Suite is 513 tests (two new), parity 72/72 (new `get_config` scenario), examples 10/10, clippy and Rust
+tests clean.

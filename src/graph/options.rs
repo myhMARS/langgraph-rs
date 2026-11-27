@@ -256,6 +256,10 @@ pub struct RunConfig {
     pub live_sink: Option<crate::runtime::context::LiveSink>,
     /// Records pause/resume transitions for the callback layer; internal.
     pub lifecycle: Option<crate::_internal::lifecycle::LifecycleSink>,
+    /// Tags of this run (LangGraph's `RunnableConfig["tags"]`), visible through `get_config()`.
+    pub tags: Vec<String>,
+    /// Metadata of this run (LangGraph's `RunnableConfig["metadata"]`).
+    pub metadata: serde_json::Map<String, Value>,
 }
 
 impl RunConfig {

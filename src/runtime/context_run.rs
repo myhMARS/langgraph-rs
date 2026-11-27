@@ -42,6 +42,10 @@ pub(crate) struct RunContext {
     pub(crate) step_active: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Emits node-produced chunks immediately when a caller asked for live output.
     pub(crate) live_sink: Option<LiveSink>,
+    /// `RunnableConfig["tags"]` of the current run, exposed through `get_config()`.
+    pub(crate) tags: Vec<String>,
+    /// `RunnableConfig["metadata"]` of the current run.
+    pub(crate) metadata: serde_json::Map<String, serde_json::Value>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -59,6 +63,32 @@ impl Drop for RunGuard {
 }
 
 /// Install the run context for the duration of a graph execution.
+/// Tags and metadata of the active run.
+pub(crate) fn user_config() -> (
+    Vec<String>,
+    serde_json::Map<String, serde_json::Value>,
+) {
+    CURRENT_RUN.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|run| (run.tags.clone(), run.metadata.clone()))
+            .unwrap_or_default()
+    })
+}
+
+/// Record the caller's `tags` / `metadata` on the active run (used by `get_config()`).
+pub(crate) fn set_user_config(
+    tags: Vec<String>,
+    metadata: serde_json::Map<String, serde_json::Value>,
+) {
+    CURRENT_RUN.with(|slot| {
+        if let Some(run) = slot.borrow_mut().as_mut() {
+            run.tags = tags;
+            run.metadata = metadata;
+        }
+    });
+}
+
 pub(crate) fn install_run(
     thread_id: Option<String>,
     namespace: String,
@@ -69,6 +99,8 @@ pub(crate) fn install_run(
     let live_sink = live_sink.or_else(take_pending_live_sink).or_else(current_live_sink);
     let previous = CURRENT_RUN.with(|slot| {
         slot.borrow_mut().replace(RunContext {
+            tags: Vec::new(),
+            metadata: serde_json::Map::new(),
             thread_id,
             namespace,
             store,
@@ -92,6 +124,8 @@ pub(crate) fn run_context(
     context: Option<Value>,
 ) -> RunContext {
     RunContext {
+        tags: Vec::new(),
+        metadata: serde_json::Map::new(),
         thread_id,
         namespace,
         store,

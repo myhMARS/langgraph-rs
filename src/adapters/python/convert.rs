@@ -1142,6 +1142,18 @@ pub(crate) fn config_from_py(
             config = config.with_durability(durability);
         }
     }
+    if let Some(item) = object.get_item("tags")? {
+        if let Ok(tags) = item.extract::<Vec<String>>() {
+            config.tags = tags;
+        }
+    }
+    if let Some(item) = object.get_item("metadata")? {
+        if let Ok(metadata) = py_to_value(&item)
+            && let serde_json::Value::Object(map) = metadata
+        {
+            config.metadata = map;
+        }
+    }
     config.thread_id = thread.clone();
     Ok((thread, config))
 }
