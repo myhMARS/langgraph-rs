@@ -3872,3 +3872,16 @@ Verified equal in the same pass: all four `list_namespaces` parameter forms, `de
 `filter` and `query`.
 
 Suite is 589 tests (two new), parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 184: `BaseCheckpointSaver` implements LangGraph's protocol
+
+`langgraph_rs.checkpoint.base.BaseCheckpointSaver` was an empty placeholder, so code that subclasses
+it to bring a custom checkpointer had no `get`, no async twins and no `get_next_version` defaults.
+LangGraph's base class is now reproduced: all 24 public members, `get` derived from `get_tuple`,
+`get_next_version` counting from 1, `with_allowlist`, `serde`, `config_specs`, async methods
+delegating to the sync ones, and `NotImplementedError` for the parts a saver must supply.
+
+A layout test that asserted the old placeholder behaviour was updated to LangGraph's semantics
+(instantiable, protocol methods raise).
+
+Suite is 593 tests (four new), parity 88/88, examples 10/10, clippy and Rust tests clean.

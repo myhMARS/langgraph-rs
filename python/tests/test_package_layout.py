@@ -82,10 +82,12 @@ class PackageLayoutTest(unittest.TestCase):
     def test_unsupported_names_import_but_raise(self):
         from langgraph_rs.checkpoint.base import BaseCheckpointSaver
 
+        # LangGraph's base class is instantiable; the protocol methods raise instead.
+        saver = BaseCheckpointSaver()
         with self.assertRaises(NotImplementedError):
-            BaseCheckpointSaver()
-        with self.assertRaises(NotImplementedError):
-            type("MySaver", (BaseCheckpointSaver,), {})
+            saver.get_tuple({})
+        saver_type = type("MySaver", (BaseCheckpointSaver,), {})
+        self.assertTrue(issubclass(saver_type, BaseCheckpointSaver))
 
     def test_unknown_attribute_message(self):
         with self.assertRaises(AttributeError) as raised:

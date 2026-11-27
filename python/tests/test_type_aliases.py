@@ -3393,3 +3393,82 @@ class StoreTtlTest(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             store.batch([{"namespace": ("a",), "key": "k", "value": {}}])
         self.assertIn("Unknown operation type", str(raised.exception))
+
+
+class BaseCheckpointSaverTest(unittest.TestCase):
+    """`BaseCheckpointSaver` carries LangGraph's protocol surface."""
+
+    def test_members_match_langgraph(self):
+        from langgraph_rs.checkpoint.base import BaseCheckpointSaver
+
+        self.assertEqual(
+            sorted(name for name in dir(BaseCheckpointSaver) if not name.startswith("_")),
+            sorted(
+                [
+                    "acopy_thread",
+                    "adelete_for_runs",
+                    "adelete_thread",
+                    "aget",
+                    "aget_delta_channel_history",
+                    "aget_tuple",
+                    "alist",
+                    "aprune",
+                    "aput",
+                    "aput_writes",
+                    "config_specs",
+                    "copy_thread",
+                    "delete_for_runs",
+                    "delete_thread",
+                    "get",
+                    "get_delta_channel_history",
+                    "get_next_version",
+                    "get_tuple",
+                    "list",
+                    "prune",
+                    "put",
+                    "put_writes",
+                    "serde",
+                    "with_allowlist",
+                ]
+            ),
+        )
+
+    def test_get_uses_get_tuple(self):
+        from langgraph_rs.checkpoint.base import BaseCheckpointSaver
+
+        class Tuple:
+            checkpoint = {"id": "c1"}
+
+        class Saver(BaseCheckpointSaver):
+            def get_tuple(self, config):
+                return Tuple()
+
+        self.assertEqual(Saver().get({"configurable": {"thread_id": "t"}}), {"id": "c1"})
+        # Without an implementation the protocol method propagates the failure, as in LangGraph.
+        with self.assertRaises(NotImplementedError):
+            BaseCheckpointSaver().get({})
+
+    def test_protocol_methods_raise(self):
+        from langgraph_rs.checkpoint.base import BaseCheckpointSaver
+
+        saver = BaseCheckpointSaver()
+        for call in (
+            lambda: saver.get_tuple({}),
+            lambda: saver.list(None),
+            lambda: saver.put({}, {}, {}, {}),
+            lambda: saver.put_writes({}, [], "task"),
+            lambda: saver.delete_thread("t"),
+            lambda: saver.copy_thread("a", "b"),
+            lambda: saver.prune(["t"]),
+        ):
+            with self.assertRaises(NotImplementedError):
+                call()
+
+    def test_next_version_counts_up(self):
+        from langgraph_rs.checkpoint.base import BaseCheckpointSaver
+
+        saver = BaseCheckpointSaver()
+        self.assertEqual(saver.get_next_version(None), 1)
+        self.assertEqual(saver.get_next_version(4), 5)
+        with self.assertRaises(NotImplementedError):
+            saver.get_next_version("v1")

@@ -177,6 +177,15 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `BaseCheckpointSaver` 现在是完整的协议基类（2026-11-27）
+
+LG 的 `BaseCheckpointSaver` 是"自带检查器"的基类：子类只实现 `get_tuple` / `put` / `put_writes` / `list`，
+其余（`get`、异步孪生、`get_next_version`、`with_allowlist`、`config_specs`、`serde`）由基类提供。
+扩展此前是个空占位类（`dir()` 里一个成员都没有）。
+
+现在成员与 LG **完全相同**（24 个），语义也一致：`get` 基于 `get_tuple`、`get_next_version` 默认自增从 1 开始、
+未实现的方法抛 `NotImplementedError`、异步孪生委托同步版本。
+
 ### `InMemoryStore` 的 TTL 与 batch 错误类型（2026-11-27）
 
 两处对齐 LG：
