@@ -19,6 +19,12 @@ from typing import Any, Callable, Generic, Sequence, TypeVar
 
 from .._compat import module_getattr, re_export
 
+try:  # LangGraph's `ToolNode` is a `Runnable`, so it composes in LCEL chains.
+    from langchain_core.runnables import Runnable as _Runnable
+except Exception:  # pragma: no cover - langchain_core is optional
+    class _Runnable:  # type: ignore[no-redef]
+        pass
+
 __all__ = [
     "ContextT",
     "StateT",
@@ -148,7 +154,7 @@ def _validate_call(schema: Any, arguments: dict[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
-class ValidationNode:
+class ValidationNode(_Runnable):
     """Validate pending tool calls instead of executing them.
 
     LangGraph's `ValidationNode` answers every tool call with a ``ToolMessage`` containing the
@@ -191,6 +197,16 @@ class ValidationNode:
 
     def __repr__(self) -> str:
         return f"ValidationNode(schemas={list(self._by_name)})"
+
+    def get_name(self, suffix: str | None = None, *, name: str | None = None) -> str:
+        base = name or self.name
+        return f"{base}{suffix}" if suffix else base
+
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        return self(input)
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        return self(input)
 
     def __call__(self, state: Any) -> Any:
         messages = state.get("messages", []) if isinstance(state, dict) else []
@@ -448,7 +464,7 @@ def _message_dict(message: Any) -> dict[str, Any]:
     return data
 
 
-class ToolNode:
+class ToolNode(_Runnable):
     """LangGraph's ``ToolNode`` including its constructor surface.
 
     The native node executes the calls; ``wrap_tool_call`` / ``awrap_tool_call`` run in Python
@@ -482,8 +498,10 @@ class ToolNode:
             kwargs["handle_tool_errors"] = handle_tool_errors
         self._inner = _NativeToolNode(self.tools, **kwargs)
 
-    def get_name(self) -> str:
-        return self.name
+    def get_name(self, suffix: str | None = None, *, name: str | None = None) -> str:
+        """`Runnable.get_name`, with LangGraph's node name as the base."""
+        base = name or self.name
+        return f"{base}{suffix}" if suffix else base
 
     def __repr__(self) -> str:
         return f"ToolNode({list(self.tools_by_name)})"

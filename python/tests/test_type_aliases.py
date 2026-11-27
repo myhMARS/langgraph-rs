@@ -3605,3 +3605,47 @@ class StoreItemShapeTest(unittest.TestCase):
         self.assertEqual((op.namespace, op.key, op.value), (("a",), "k", {"v": 1}))
         namespace, key, value, index, ttl = op
         self.assertEqual(key, "k")
+
+
+class ToolNodeRunnableTest(unittest.TestCase):
+    """`ToolNode` / `ValidationNode` are LangChain `Runnable`s, as in LangGraph."""
+
+    def test_tool_node_is_a_runnable(self):
+        from langchain_core.runnables import Runnable
+        from langchain_core.tools import tool
+
+        @tool
+        def search(query: str) -> str:
+            """Search."""
+            return f"hit:{query}"
+
+        node = langgraph_rs.prebuilt.ToolNode([search])
+        self.assertIsInstance(node, Runnable)
+        self.assertEqual(node.get_name(), "tools")
+        self.assertEqual(node.get_name(" suffix"), "tools suffix")
+        output = node.invoke(
+            {
+                "messages": [
+                    {
+                        "role": "ai",
+                        "content": "",
+                        "tool_calls": [{"name": "search", "args": {"query": "x"}, "id": "1"}],
+                    }
+                ]
+            }
+        )
+        self.assertEqual(output["messages"][0]["content"], "hit:x")
+
+    def test_validation_node_is_a_runnable(self):
+        from langchain_core.runnables import Runnable
+        from langchain_core.tools import tool
+
+        @tool
+        def search(query: str) -> str:
+            """Search."""
+            return f"hit:{query}"
+
+        with self.assertWarns(langgraph_rs.warnings.LangGraphDeprecatedSinceV10):
+            node = langgraph_rs.prebuilt.ValidationNode([search])
+        self.assertIsInstance(node, Runnable)
+        self.assertEqual(node.get_name(), "validation")

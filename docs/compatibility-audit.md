@@ -3918,3 +3918,15 @@ Two tests that used dict-style item access (our old behaviour) were updated to L
 
 Suite is 600 tests (three new), parity 89/89 (new `store_item` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 187: `ToolNode` and `ValidationNode` are Runnables
+
+LangGraph's `ToolNode` is a LangChain `Runnable` (it composes in LCEL chains and carries the whole
+`batch` / `stream` / `as_tool` surface); ours was a plain class, 38 members short. Both node classes
+now subclass `langchain_core.runnables.Runnable`, with `get_name(suffix, name=)` matching LangChain's
+signature and `ValidationNode` gaining the `invoke` / `ainvoke` its abstract base requires.
+
+`as_tool()` fails in LangGraph too (`PydanticUserError: tools_input is not fully defined`), so the
+behaviour matches as-is.
+
+Suite is 602 tests (two new), parity 89/89, examples 10/10, clippy and Rust tests clean.

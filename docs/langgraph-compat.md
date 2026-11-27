@@ -177,6 +177,15 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `ToolNode` / `ValidationNode` 是 `Runnable`（2026-11-27）
+
+LG 的 `ToolNode` 是 LangChain `Runnable`，因此可以放进 LCEL 链、能用 `batch` / `stream` / `as_tool` 等。扩展此前是
+普通类，`dir()` 上少 38 个成员。现在两者都继承 `langchain_core.runnables.Runnable`，`get_name(suffix, name=)`
+签名也对齐。
+
+`as_tool()` 两边都**不可用**：LG 自己会抛
+`PydanticUserError: tools_input is not fully defined`（同一处 pydantic 限制），我们是等价错误 —— 行为一致。
+
 ### store 的 op 类与 Item 形状（2026-11-27）
 
 | 项 | LG | 改前 | 现在 |
