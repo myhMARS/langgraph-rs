@@ -332,6 +332,36 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 函数式 API：`entrypoint` 的取值语义与签名（2026-11-27）
+
+LG 的 `@entrypoint` 是**值进值出**：装饰的函数收到输入值本身，返回值就是结果；签名是
+`entrypoint(checkpointer=None, store=None, cache=None, context_schema=None, cache_policy=None,
+retry_policy=None, timeout=None)`。扩展此前只接受 `entrypoint(function)`，且把整份 **state dict**
+交给函数 —— `entrypoint(checkpointer=...)` 直接 `TypeError`，`entrypoint(fn).invoke(3)` 报
+`graph state must be a dict`。
+
+现在与 LG 一致：
+
+```
+@task
+def double(x): return x * 2
+
+@entrypoint(checkpointer=InMemorySaver())
+def workflow(x): return double(x).result() + 1
+
+workflow.invoke(3, cfg)                    -> 7
+interrupt()                                -> __interrupt__ = [{'q': 'value?'}]
+invoke(Command(resume=7))                  -> 7
+```
+
+实现要点：
+
+- 适配层把值包进单通道状态，再把输出解回来（`invoke` / `ainvoke` / `stream` / `astream` /
+  `get_state` / `update_state` / `resume`），`Command` 输入原样透传
+- `@task` 的返回值统一带 `.result()` / `.aresult()`（LG 返回 future；引擎可能已即时算完），
+  函数返回结构里夹带的 future 会被自动解开
+- 顶层 `entrypoint` / `task` 现在指向门面实现（`from langgraph_rs.func import ...` 同样可用）
+
 ### saver 的其余 API 面（2026-11-27）
 
 `InMemorySaver` 补齐到 LG 的 `BaseCheckpointSaver` 形状：

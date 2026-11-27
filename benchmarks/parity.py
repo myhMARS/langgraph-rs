@@ -3707,9 +3707,7 @@ def lg_functional_graph():
 
 def rs_functional_graph():
     add = rs.task(lambda x: x + 1, name="add")
-    return rs.entrypoint(
-        lambda state: {"value": add(state["value"])}
-    ).compile()
+    return rs.entrypoint(lambda state: {"value": add(state["value"])})
 
 
 def lg_update_state_task():

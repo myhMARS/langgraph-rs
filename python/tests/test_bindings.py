@@ -741,8 +741,9 @@ class PythonParityRound2Tests(unittest.TestCase):
             return value + 1
 
         task = lg.task(add, name="add")
-        graph = lg.entrypoint(lambda state: {"value": task(state["value"])})
-        compiled = graph.compile(store=store)
+        compiled = lg.entrypoint(
+            lambda value: {"value": task(value["value"])}, store=store
+        )
         first = compiled.invoke({"value": 1})
         second = compiled.invoke({"value": 1})
         self.assertEqual(first["value"], 2)
@@ -767,12 +768,12 @@ class PythonParityRound2Tests(unittest.TestCase):
         second_task = lg.task(second, name="second")
 
         def entry(state):
-            head = first_task(state["value"])
+            head = first_task(state["value"]).result()
             delta = lg.interrupt({"question": "delta"})
-            tail = second_task(delta)
+            tail = second_task(delta).result()
             return {"value": head + tail}
 
-        compiled = lg.entrypoint(entry).compile(checkpointer=saver, store=store)
+        compiled = lg.entrypoint(entry, checkpointer=saver, store=store)
         result = compiled.invoke({"value": 1}, thread_id="py-functional")
         self.assertIn("__interrupt__", result)
         self.assertEqual(first_calls, [1])
@@ -1346,11 +1347,11 @@ class AsyncPythonTests(unittest.TestCase):
         first_task = lg.task(first, name="first")
 
         def entry(state):
-            head = first_task(state["value"])
+            head = first_task(state["value"]).result()
             delta = lg.interrupt({"question": "delta"})
             return {"value": head + delta}
 
-        compiled = lg.entrypoint(entry).compile(checkpointer=saver)
+        compiled = lg.entrypoint(entry, checkpointer=saver)
         result = compiled.invoke({"value": 1}, thread_id="py-functional-checkpoint")
         self.assertIn("__interrupt__", result)
         self.assertEqual(calls, [1])

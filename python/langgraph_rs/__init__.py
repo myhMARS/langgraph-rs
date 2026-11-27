@@ -55,6 +55,8 @@ __all__ = [
 
 
 from .prebuilt.chat_agent_executor import create_react_agent
+from .func import entrypoint as entrypoint  # noqa: E402
+from .func import task as task  # noqa: E402
 
 def __getattr__(name: str):
     try:

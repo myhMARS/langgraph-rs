@@ -3369,4 +3369,35 @@ engine snapshots full values per superstep rather than keeping a delta log; only
 (interrupts) show up there.
 
 Suite is 522 tests (four new), parity 75/75 (new `saver_surface_2` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 155: the functional API takes and returns values
+
+LangGraph's `@entrypoint` is value-in/value-out and accepts compiler options
+(`entrypoint(checkpointer=..., store=..., context_schema=...)`). The extension accepted only
+`entrypoint(function)` and handed the function the whole state **mapping**, so
+`entrypoint(checkpointer=saver)` raised `TypeError` and `entrypoint(fn).invoke(3)` raised
+`graph state must be a dict`.
+
+Both now match LangGraph:
+
+```
+@task
+def double(x): return x * 2
+
+@entrypoint(checkpointer=InMemorySaver())
+def workflow(x): return double(x).result() + 1
+
+workflow.invoke(3, cfg)        -> 7
+interrupt()                    -> __interrupt__ = [{'q': 'value?'}]
+invoke(Command(resume=7))      -> 7
+```
+
+How: a facade adapts value semantics onto a single-channel graph and translates in `invoke` /
+`ainvoke` / `stream` / `astream` / `get_state` / `update_state` / `resume` (a `Command` input passes
+through untouched); `@task` results always expose `.result()` / `.aresult()` even when the engine
+already resolved them, and futures embedded in a returned structure are unwrapped; the top-level
+`entrypoint` / `task` names now point at these facade implementations.
+
+Three tests that encoded the old mapping-state API (`entry(fn).compile(...)`, `head + tail` on raw
+task results) were migrated to LangGraph's form, and the parity functional scenario with them.
+
+Suite is 522 tests, parity 75/75, examples 10/10, clippy and Rust tests clean.
