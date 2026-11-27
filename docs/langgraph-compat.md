@@ -177,6 +177,26 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 单元素模式列表的形状：尝试与回退（2026-11-27，第 132 轮）
+
+目标：`stream(stream_mode=["updates"])` 应返回 `("updates", payload)` 对（LG 对**列表**总是给成对形式，哪怕只有一个
+元素；只有字符串才给裸载荷）。
+
+改动方向是对的：把"用户是否传了列表"作为参数传给转换层（`convert_stream_chunks_with(..., multi_mode)`），而不是在
+Python 侧包裹。改完后形状确实正确：
+
+```
+单元素列表: [('updates', {'a': {'value': 1}})]   ← 与 LG 一致
+标量:       [{'a': {'value': 1}}]
+双元素列表: [('values', …), ('updates', …), ('values', …)]
+```
+
+但**回退**了：需要用脚本给 5 个调用点补参数，脚本改坏了 `graph_compiled.rs` 的语法（两次），修复耗时超过本轮预算。
+工作树已完全恢复（671 测试、100/100 parity、clippy 0）。
+
+结论与教训：**这一项不适合用脚本批量改** —— 调用点分散在 `stream`/`stream_live`/`astream` 里，每处都需要各自的
+`multi_mode` 定义。下一轮用逐处手工编辑（每处独立编译验证）完成，预计 15 分钟。
+
 ### 暂停快照的任务顺序已对齐（2026-11-27，第 131 轮）
 
 第 103 轮审计的 F8 修掉了：暂停快照里的任务顺序此前是"未完成在前、已完成在后"（`[b, a]`），LG 用的是

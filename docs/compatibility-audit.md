@@ -4713,3 +4713,21 @@ now:    [('a', {'seen': ['a']}), ('b', None)]
 ```
 
 Suite is 671 tests, parity 100/100, examples 10/10, clippy and Rust tests clean.
+
+### Round 229: single-entry mode lists — attempt, verified shape, reverted
+
+The right shape is confirmed: LangGraph answers a mode *list* with `(mode, payload)` pairs even when the list
+has one entry, and a plain string with the bare payload. Threading an explicit `multi_mode` flag into
+`convert_stream_chunks_with` produced exactly that:
+
+```
+["updates"]  -> [('updates', {'a': {'value': 1}})]
+"updates"    -> [{'a': {'value': 1}}]
+```
+
+The change was reverted: five call sites (`stream`, `stream_live`, `astream`, plus the two internal helpers)
+each need their own flag definition, and my scripted batch edit broke `graph_compiled.rs`'s syntax twice,
+costing more time than the round allowed. The tree is fully restored (671 tests, parity 100/100, clippy
+clean).
+
+Lesson recorded: this one has to be edited call site by call site, compiling after each.
