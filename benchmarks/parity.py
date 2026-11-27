@@ -676,6 +676,57 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_message_ids_scenario() -> list[dict]:
+    """`add_messages` dedupes by id, so echoing the current list does not duplicate it."""
+
+    class LgState(TypedDict, total=False):
+        messages: list
+
+    def collect(engine):
+        from langchain_core.messages import HumanMessage
+
+        def echo(state):
+            return {"messages": state["messages"] + [HumanMessage("new")]}
+
+        if engine == "lg":
+            from typing import Annotated
+
+            from langgraph.graph.message import add_messages
+
+            state = dict(LgState.__annotations__)
+            graph = LgStateGraph(
+                TypedDict("S", {"messages": Annotated[list, add_messages]}, total=False)
+            )
+        else:
+            graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("e", echo)
+        if engine == "lg":
+            graph.add_edge(START, "e")
+            graph.add_edge("e", END)
+        else:
+            graph.add_edge(rs.START, "e")
+            graph.add_edge("e", END)
+        output = graph.compile().invoke({"messages": [HumanMessage("hi")]})
+        return {
+            "contents": [message.content for message in output["messages"]],
+            "ids_present": all(message.id for message in output["messages"]),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "message_ids",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_audit_regressions_scenario() -> list[dict]:
     """Defaults the audit flagged: tools_condition routing, stream default, retry default."""
 
@@ -5613,6 +5664,7 @@ def main() -> None:
         run_store_item_scenario,
         run_delta_history_scenario,
         run_audit_regressions_scenario,
+        run_message_ids_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

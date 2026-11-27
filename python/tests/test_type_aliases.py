@@ -4021,3 +4021,79 @@ class ReactAgentSignatureTest(unittest.TestCase):
             "deprecated_kwargs",
         ):
             self.assertIn(expected, names)
+
+
+class MessageIdDedupeTest(unittest.TestCase):
+    """`add_messages` keys on message ids, so an echo of the current list does not duplicate."""
+
+    def test_echo_does_not_duplicate(self):
+        from langchain_core.messages import HumanMessage
+
+        def echo(state):
+            return {"messages": state["messages"] + [HumanMessage("new")]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("e", echo)
+        graph.add_edge(langgraph_rs.START, "e")
+        graph.add_edge("e", langgraph_rs.END)
+        output = graph.compile().invoke({"messages": [HumanMessage("hi")]})
+        self.assertEqual([message.content for message in output["messages"]], ["hi", "new"])
+
+    def test_messages_get_ids(self):
+        from langchain_core.messages import HumanMessage
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("e", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "e")
+        graph.add_edge("e", langgraph_rs.END)
+        output = graph.compile().invoke({"messages": [HumanMessage("hi")]})
+        self.assertIsNotNone(output["messages"][0].id)
+
+    def test_same_id_replaces_in_place(self):
+        from langchain_core.messages import HumanMessage
+
+        def rewrite(state):
+            message = HumanMessage("updated")
+            message.id = state["messages"][0].id
+            return {"messages": [message]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("r", rewrite)
+        graph.add_edge(langgraph_rs.START, "r")
+        graph.add_edge("r", langgraph_rs.END)
+        output = graph.compile().invoke({"messages": [HumanMessage("original")]})
+        self.assertEqual([message.content for message in output["messages"]], ["updated"])
+
+    def test_pre_model_hook_echo(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        class Stub(BaseChatModel):
+            replies: list
+            index: int = 0
+
+            @property
+            def _llm_type(self):
+                return "stub"
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                reply = self.replies[min(self.index, len(self.replies) - 1)]
+                self.index += 1
+                return ChatResult(generations=[ChatGeneration(message=reply)])
+
+        def pre_model_hook(state):
+            return {"messages": state["messages"] + [HumanMessage("hook")]}
+
+        model = Stub(replies=[AIMessage("done")])
+        app = langgraph_rs.prebuilt.create_react_agent(
+            model, [], pre_model_hook=pre_model_hook
+        )
+        output = app.invoke({"messages": [HumanMessage("hi")]})
+        self.assertEqual(
+            [(message.type, message.content) for message in output["messages"]],
+            [("human", "hi"), ("human", "hook"), ("ai", "done")],
+        )

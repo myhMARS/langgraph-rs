@@ -4087,3 +4087,23 @@ the two engines dedupe messages without `id` differently. Hooks that return only
 identically.
 
 Suite is 625 tests (five new), parity 91/91, examples 10/10, clippy and Rust tests clean.
+
+### Round 196: `add_messages` dedupes by id, and messages get ids
+
+Chasing the `pre_model_hook` message echo turned up a deeper defect: `add_messages` never deduped by
+`id`, so any node returning the current message list plus new ones duplicated the existing messages
+(`['hi', 'hi', 'new']` instead of LangGraph's `['hi', 'new']`).
+
+Two causes, both fixed:
+
+1. Message encoding now assigns a uuid to a message without an id, **writing it back onto the object**
+   the way LangGraph's `add_messages` does — so echoing the same object carries the same id.
+2. The reducer reads ids from both shapes: a top-level `id` (the engine's own JSON) and `kwargs.id`
+   (LangChain's serialization). It only looked at the top level before, so real message objects never
+   matched and every write appended.
+
+Consequences verified: echo nodes no longer duplicate, replacing a message by id works, and the
+`create_react_agent` `pre_model_hook` example now matches LangGraph exactly.
+
+Suite is 629 tests (four new), parity 92/92 (new `message_ids` scenario), examples 10/10, clippy and
+Rust tests clean.

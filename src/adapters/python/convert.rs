@@ -91,6 +91,8 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
 /// produced from the object's own `model_dump` / `to_json`, so the extension carries the data
 /// without calling into the shim.
 fn encode_object(obj: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
+    // LangGraph assigns an id to every message it stores, so an echoed message keeps its identity.
+    ensure_message_id(obj.py(), obj)?;
     let kind = obj.get_type();
     let module: String = kind.getattr("__module__")?.extract()?;
     let name: String = kind.getattr("__qualname__")?.extract().or_else(|_| {
@@ -128,6 +130,28 @@ fn encode_object(obj: &Bound<'_, PyAny>) -> PyResult<Option<Value>> {
     dict.set_item("id", (module, name))?;
     dict.set_item("kwargs", kwargs)?;
     Ok(Some(py_to_value(&dict.into_any())?))
+}
+
+/// Give a message an id when it has none, mutating the object the way LangGraph's
+/// `add_messages` does.
+///
+/// LangGraph assigns an id to every incoming message, so a node that echoes the current messages
+/// back (plus new ones) does not duplicate them: the echo carries the same id. Without this the
+/// reducer appends the echo a second time.
+fn ensure_message_id(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<()> {
+    if !obj.hasattr("id")? || !obj.hasattr("content")? || !obj.hasattr("type")? {
+        return Ok(());
+    }
+    let Ok(id) = obj.getattr("id") else {
+        return Ok(());
+    };
+    if !id.is_none() {
+        return Ok(());
+    }
+    let uuid = py.import("uuid")?;
+    let value = uuid.getattr("uuid4")?.call0()?.getattr("hex")?;
+    let _ = obj.setattr("id", value);
+    Ok(())
 }
 
 /// Revive a JSON-plus constructor dict: import the recorded class and rebuild it from `kwargs`.

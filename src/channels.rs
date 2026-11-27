@@ -345,6 +345,24 @@ impl Serialize for RemoveMessage {
 pub mod reducers {
     use super::*;
 
+    /// The id of a stored message.
+    ///
+    /// Messages arrive either as LangChain constructor dicts (their fields under `kwargs`) or as
+    /// plain mappings, so both shapes are checked.
+    fn message_id(message: &serde_json::Value) -> Option<&str> {
+        let object = message.as_object()?;
+        object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| {
+                object
+                    .get("kwargs")
+                    .and_then(serde_json::Value::as_object)
+                    .and_then(|kwargs| kwargs.get("id"))
+                    .and_then(serde_json::Value::as_str)
+            })
+    }
+
     /// Concatenate arrays: `[a, b] + [c] == [a, b, c]`.
     ///
     /// This is the Rust equivalent of `operator.add` on message lists.
@@ -413,11 +431,7 @@ pub mod reducers {
                 .iter()
                 .enumerate()
                 .filter_map(|(index, message)| {
-                    message
-                        .as_object()
-                        .and_then(|object| object.get("id"))
-                        .and_then(Value::as_str)
-                        .map(|id| (id.to_string(), index))
+                    message_id(message).map(|id| (id.to_string(), index))
                 })
                 .collect();
             for message in incoming {
@@ -427,7 +441,9 @@ pub mod reducers {
                             .get("__remove__")
                             .and_then(Value::as_bool)
                             .unwrap_or(false);
-                    remove.then(|| object.get("id").and_then(Value::as_str).map(str::to_owned))
+                    remove.then(|| {
+                        message_id(&serde_json::Value::Object(object.clone())).map(str::to_owned)
+                    })
                 });
                 if let Some(Some(remove_id)) = removal {
                     accumulated.retain(|candidate| {
@@ -441,20 +457,12 @@ pub mod reducers {
                         .iter()
                         .enumerate()
                         .filter_map(|(index, message)| {
-                            message
-                                .as_object()
-                                .and_then(|object| object.get("id"))
-                                .and_then(Value::as_str)
-                                .map(|id| (id.to_string(), index))
+                            message_id(message).map(|id| (id.to_string(), index))
                         })
                         .collect();
                     continue;
                 }
-                match message
-                    .as_object()
-                    .and_then(|object| object.get("id"))
-                    .and_then(Value::as_str)
-                {
+                match message_id(message) {
                     Some(id) => match index.get(id).copied() {
                         Some(position) => {
                             accumulated[position] = message.clone();

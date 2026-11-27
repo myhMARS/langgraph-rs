@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `add_messages` 按 id 去重 + 消息自动分配 id（2026-11-27）
+
+调试 `pre_model_hook` 时发现更底层的问题：**`add_messages` 从来不按 id 去重**。LG 会给每条消息分配 `id`，并在
+reducer 里按键替换，所以"节点把当前消息列表原样返回"不会产生重复；扩展此前是纯追加：
+
+```
+输入 [hi]，节点返回 state["messages"] + [new]
+改前: ['hi', 'hi', 'new']        ← 重复
+改后: ['hi', 'new']              ← 与 LG 相同
+```
+
+两处原因，都已修：
+
+1. 消息编码时如果 `id` 为空，就按 LG 的做法**分配一个 uuid 并写回对象**（所以"原样返回"能带上同一个 id）
+2. reducer 读 id 时同时支持两种形状 —— 顶层 `id`（引擎的 JSON 形式）和 `kwargs.id`（LangChain 序列化形式）；
+   此前只看顶层，因此真实消息对象永远匹配不到
+
 ### 审计后续三项（2026-11-27）
 
 1. **`context_schema` 接受裸类**：LG 允许 `context_schema=Ctx` 传任意类；扩展此前抛
@@ -929,9 +946,8 @@ post_model_hook / state_schema / context_schema / checkpointer / store / interru
 interrupt_after / debug / version / name / deprecated_kwargs`（`config_schema` 作为旧拼写保留，映射到
 `context_schema`）。
 
-**`pre_model_hook` / `post_model_hook` 的已知差异**：两个钩子都作为图中节点执行（LG 也是这样接的），但当钩子
-返回"原消息 + 新消息"时，扩展的 `add_messages` 会把原消息再追加一次（LG 的结果里不会重复）—— 因为两边对无 `id`
-消息的去重规则不同。钩子返回**只含新消息**的列表时行为一致。
+**`pre_model_hook` / `post_model_hook`** 两个钩子都作为图中节点执行（与 LG 相同），钩子返回
+"原消息 + 新消息"时结果也一致 —— 前提是 `add_messages` 按 `id` 去重（见下一条：这一条原先不一致，已修复）。
 
 行为也逐条核对过：假模型 + 一个工具时，两边都是
 `[human, ai(tool_call), tool('3'), ai('3')]`，图节点都是 `__start__ / agent / tools / __end__`。
