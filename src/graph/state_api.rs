@@ -193,14 +193,23 @@ impl<S: State> CompiledGraph<S> {
             .ok_or(Error::MissingCheckpointer("get_state_history"))?;
         let checkpoints =
             checkpointer.history_page_in_shared(thread_id, namespace, before, limit)?;
-        checkpoints
-            .into_iter()
-            .map(|checkpoint| {
-                let mut snapshot = StateSnapshot::from_checkpoint_borrowed(&checkpoint)?;
-                snapshot.step = snapshot.step.saturating_sub(1);
-                Ok(snapshot)
-            })
-            .collect()
+        // A row's tasks ran in the step recorded by the row written *after* it, so each snapshot
+        // borrows its child's per-task writes for `PregelTask.result`.
+        let mut snapshots: Vec<StateSnapshot<S>> = Vec::with_capacity(checkpoints.len());
+        for (index, checkpoint) in checkpoints.iter().enumerate() {
+            let mut snapshot = StateSnapshot::from_checkpoint_borrowed(checkpoint)?;
+            snapshot.step = snapshot.step.saturating_sub(1);
+            if let Some(previous) = index.checked_sub(1) {
+                let child = &checkpoints[previous];
+                for task in &mut snapshot.tasks {
+                    if task.result.is_none() {
+                        task.result = child.task_writes.get(&task.id).cloned();
+                    }
+                }
+            }
+            snapshots.push(snapshot);
+        }
+        Ok(snapshots)
     }
 
     /// History checkpoint handles without building snapshots.
@@ -468,6 +477,7 @@ impl<S: State> CompiledGraph<S> {
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),
+            task_writes: checkpoint.task_writes.clone(),
             channel_versions,
             versions_seen,
             updated_channels,
@@ -619,6 +629,7 @@ impl<S: State> CompiledGraph<S> {
             metadata: Map::from_iter([("source".to_string(), Value::String("update".to_string()))]),
             namespace: String::new(),
             task_results: checkpoint.task_results.clone(),
+            task_writes: checkpoint.task_writes.clone(),
             channel_versions,
             versions_seen,
             updated_channels,

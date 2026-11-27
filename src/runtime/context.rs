@@ -23,6 +23,7 @@ thread_local! {
         const { RefCell::new(None) };
     static PARENT_COMMAND: RefCell<Option<ParentCommand>> = const { RefCell::new(None) };
     static TASK_RESULTS: RefCell<Map<String, Value>> = RefCell::new(Map::new());
+    static TASK_WRITES: RefCell<Map<String, Value>> = RefCell::new(Map::new());
 }
 
 #[cfg(feature = "async")]
@@ -30,6 +31,7 @@ tokio::task_local! {
     /// Run context mirrored into the async task so tokio can migrate the future.
     pub(crate) static ASYNC_RUN: RunContext;
     static ASYNC_TASK_RESULTS: RefCell<Map<String, Value>>;
+    static ASYNC_TASK_WRITES: RefCell<Map<String, Value>>;
     static ASYNC_NODE: (String, Option<String>);
     static ASYNC_TASK: std::sync::Arc<dyn AsyncTaskOps>;
 }

@@ -54,6 +54,43 @@ pub(crate) fn task_result_put(key: String, value: Value) {
     });
 }
 
+/// Record one task's writes for the current superstep (LangGraph's `PregelTask.result`).
+pub(crate) fn record_task_write(task_id: String, writes: Value) {
+    #[cfg(feature = "async")]
+    if ASYNC_TASK_WRITES
+        .try_with(|slot| {
+            slot.borrow_mut().insert(task_id.clone(), writes.clone());
+        })
+        .is_ok()
+    {
+        return;
+    }
+    TASK_WRITES.with(|slot| {
+        slot.borrow_mut().insert(task_id, writes);
+    });
+}
+
+/// Snapshot of this superstep's per-task writes.
+pub(crate) fn snapshot_task_writes() -> Map<String, Value> {
+    #[cfg(feature = "async")]
+    if let Ok(writes) = ASYNC_TASK_WRITES.try_with(|slot| slot.borrow().clone()) {
+        return writes;
+    }
+    TASK_WRITES.with(|slot| slot.borrow().clone())
+}
+
+/// Drop the recorded writes (a new superstep replaces them).
+pub(crate) fn clear_task_writes() {
+    #[cfg(feature = "async")]
+    if ASYNC_TASK_WRITES
+        .try_with(|slot| slot.borrow_mut().clear())
+        .is_ok()
+    {
+        return;
+    }
+    TASK_WRITES.with(|slot| slot.borrow_mut().clear());
+}
+
 /// Reset the task-result cache at the start of a fresh run.
 pub(crate) fn clear_task_results() {
     #[cfg(feature = "async")]

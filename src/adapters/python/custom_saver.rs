@@ -250,6 +250,7 @@ fn checkpoint_from_py(py: Python<'_>, tuple: &Bound<'_, PyAny>, thread: &str) ->
             .unwrap_or_default(),
         namespace: field("namespace").as_str().unwrap_or_default().to_string(),
         task_results: to_map("task_results")?,
+            task_writes: to_map("task_writes")?,
         channel_versions: payload
             .get("channel_versions")
             .and_then(Value::as_object)

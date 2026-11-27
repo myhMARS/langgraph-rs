@@ -201,9 +201,8 @@ pub(crate) async fn with_async_run<F: std::future::Future>(
     future: F,
 ) -> F::Output {
     let results = RefCell::new(Map::new());
-    ASYNC_TASK_RESULTS
-        .scope(results, ASYNC_RUN.scope(run, future))
-        .await
+    let writes = RefCell::new(Map::new());
+    ASYNC_TASK_WRITES.scope(writes, ASYNC_TASK_RESULTS.scope(results, ASYNC_RUN.scope(run, future))).await
 }
 
 /// Scope an async node future with its task identity for context accessors.

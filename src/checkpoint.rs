@@ -97,6 +97,12 @@ pub struct Checkpoint {
     /// Channels whose values changed when this checkpoint was written.
     #[serde(default)]
     pub updated_channels: Vec<String>,
+    /// Per-task writes of the superstep that produced this checkpoint (task id -> update map).
+    ///
+    /// LangGraph reports them as `PregelTask.result`; kept apart from `task_results`, which the
+    /// resume path reads to skip functional-API tasks that already ran.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub task_writes: Map<String, Value>,
     /// Successful task writes recorded when a superstep paused on an interrupt.
     #[serde(default)]
     pub pending_writes: Vec<PendingWrite>,
@@ -131,6 +137,7 @@ impl Checkpoint {
             metadata: Map::new(),
             namespace: String::new(),
             task_results: Map::new(),
+            task_writes: Map::new(),
             channel_versions: Map::new(),
             versions_seen: indexmap::IndexMap::new(),
             updated_channels: Vec::new(),

@@ -4638,3 +4638,24 @@ This is the only remaining item with a known root cause and no implementation; e
 audits is either fixed or a thread-model limitation.
 
 Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 225: probing found the missing link for `PregelTask.result`
+
+Instead of guessing again, this round added an `LG_PROBE_TASKS` instrument. It answered the question in one
+run:
+
+```
+[probe] save store=0        first checkpoint (before the superstep) — expected
+[probe] recorded=1 store=1  the run context recorded the task's write
+[probe] save store=1        the following checkpoint carries it
+```
+
+So recording and persistence both work; the failure was on the **read** side. The Python binding builds
+history lazily via `snapshot_from_handle`, which never goes through `get_state_history_filtered_in`, so the
+merge I wrote was dead code for that path (its probe never printed).
+
+This round keeps the verified write path — a separate `task_writes` field and run-context store, deliberately
+not touching the `task_results` memo the resume path reads — and pins the remaining work to "pass the child
+checkpoint into the lazy history builder".
+
+Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.

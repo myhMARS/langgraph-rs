@@ -381,6 +381,21 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             ));
         }
 
+        crate::runtime::context::clear_task_writes();
+        for outcome in &outcomes {
+            if let crate::pregel::outcome::TaskOutcome::Ok(result) = outcome {
+                let writes = result.output.updates_map();
+                if !writes.is_empty() {
+                    crate::runtime::context::record_task_write(
+                        result.id.clone(),
+                        serde_json::Value::Object(
+                            writes.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                        ),
+                    );
+                }
+            }
+        }
+
         let interrupts = interrupts_from(&outcomes);
         if !interrupts.is_empty() {
             if interrupts.len() == 1 {

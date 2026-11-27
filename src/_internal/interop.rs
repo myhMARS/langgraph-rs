@@ -528,6 +528,7 @@ pub fn checkpoint_from_langgraph(value: &Value) -> Result<Checkpoint> {
         resume_tasks: Vec::new(),
         goto_sources: Vec::new(),
         completed_tasks: Vec::new(),
+        task_writes: Default::default(),
         interrupted,
         paused_before: extra
             .and_then(|extra| extra.get("paused_before"))

@@ -182,7 +182,11 @@ impl<S: State> StateSnapshot<S> {
                 state: None,
                 error: task.error.clone(),
                 resume: task.resume.clone(),
-                result: checkpoint.task_results.get(&task.id).cloned(),
+                result: checkpoint
+                    .task_writes
+                    .get(&task.id)
+                    .or_else(|| checkpoint.task_results.get(&task.id))
+                    .cloned(),
                 interrupts: checkpoint
                     .interrupts
                     .iter()
@@ -203,7 +207,11 @@ impl<S: State> StateSnapshot<S> {
                 state: None,
                 error: None,
                 resume: None,
-                result: checkpoint.task_results.get(&task.id).cloned(),
+                result: checkpoint
+                    .task_writes
+                    .get(&task.id)
+                    .or_else(|| checkpoint.task_results.get(&task.id))
+                    .cloned(),
                 interrupts: Vec::new(),
             });
         }

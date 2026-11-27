@@ -84,6 +84,7 @@ pub(crate) struct CheckpointDraft<'a> {
     pub(crate) writes_by_node: &'a std::collections::HashMap<String, Vec<String>>,
     pub(crate) previous: Option<&'a Checkpoint>,
     pub(crate) task_results: Map<String, Value>,
+    pub(crate) task_writes: Map<String, Value>,
 }
 
 /// Build a checkpoint with the version metadata used by both runtimes.
@@ -116,6 +117,7 @@ pub(crate) fn build_checkpoint(draft: CheckpointDraft<'_>) -> Checkpoint {
         )]),
         namespace: draft.namespace.to_string(),
         task_results: draft.task_results,
+        task_writes: draft.task_writes,
         channel_versions,
         versions_seen,
         updated_channels,
@@ -340,6 +342,7 @@ pub(crate) async fn save_checkpoint_via<
         writes_by_node,
         previous: previous.as_deref(),
         task_results: crate::runtime::context::snapshot_task_results(),
+        task_writes: crate::runtime::context::snapshot_task_writes(),
     });
     let checkpoint = std::sync::Arc::new(checkpoint);
     backend.persist_checkpoint(std::sync::Arc::clone(&checkpoint)).await?;

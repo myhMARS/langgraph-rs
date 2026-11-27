@@ -177,6 +177,26 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result`：探针定位到真正断点（2026-11-27，第 128 轮）
+
+改用**探针法**（`LG_PROBE_TASKS=1` 打印关键点计数）而不是继续猜，一次就定位了：
+
+```
+[probe] save store=0      ← 第一个检查点（superstep 之前，符合预期）
+[probe] recorded=1 store=1 ← superstep 之后，运行上下文里已记录 1 条写入
+[probe] save store=1      ← 之后的检查点确实带上了写入
+```
+
+结论分三层：
+
+1. **记录是有效的**（`TaskResult.output.updates_map()` 非空，写入成功入存储）；
+2. **保存也带上了**（检查点的 `task_writes` 非空）；
+3. 但**读取路径没走我改的分支** —— Python 的 `get_state_history` 走的是"懒序列 + `snapshot_from_handle`"，
+   不经过 `get_state_history_filtered_in`，所以"子行合并"从未执行（探针在读取侧一次都没打印）。
+
+因此本轮的工作是**打通并验证了写入链路**（新增独立 `task_writes` 字段与运行上下文存储，不动恢复语义），
+并把读取侧的确切接入点定位到"Python 懒历史需要把子行传进去"。这一步留给下一轮完成，避免在收尾阶段做大改。
+
 ### `PregelTask.result`：第二次尝试与结论（2026-11-27，第 127 轮）
 
 按第 126 轮的结论做了完整实现：新增独立的 `task_writes` 存储（不碰恢复用的 `task_results`）、superstep 后按

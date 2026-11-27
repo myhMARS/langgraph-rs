@@ -427,6 +427,7 @@ impl<S: State> AsyncCompiledGraph<S> {
             )]),
             namespace: namespace.to_string(),
             task_results: checkpoint.task_results.clone(),
+            task_writes: checkpoint.task_writes.clone(),
             channel_versions,
             versions_seen,
             updated_channels,
