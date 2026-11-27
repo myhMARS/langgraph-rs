@@ -86,8 +86,8 @@ pub struct PyLiveStream {
     requested: Vec<crate::StreamMode>,
     /// Interrupt chunks are reported together when the run ends, like the eager conversion does.
     pending_interrupts: std::sync::Mutex<Vec<StreamChunk>>,
-    /// Payload of the last `values` chunk, so a duplicated one is not reported twice.
-    last_values: std::sync::Mutex<Option<String>>,
+    /// Step and payload of the last `values` chunk, so a duplicate for one step is not repeated.
+    last_values: std::sync::Mutex<Option<(Option<usize>, String)>>,
 }
 
 impl PyLiveStream {
@@ -179,13 +179,15 @@ impl PyLiveStream {
                     }
                     // The eager conversion runs over the whole list and collapses a repeated
                     // `values` payload; do the same so chunk sequences match.
-                    if let crate::StreamChunk::Values { values, .. } = chunk.as_ref() {
-                        let key = serde_json::to_string(values).unwrap_or_default();
+                    if let crate::StreamChunk::Values { step, values } = chunk.as_ref() {
+                        // Only a repeated payload for the *same* step is a duplicate; two supersteps
+                        // may legitimately produce identical values.
+                        let key = (Some(*step), serde_json::to_string(values).unwrap_or_default());
                         let mut last = self
                             .last_values
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        if last.as_deref() == Some(key.as_str()) {
+                        if last.as_ref() == Some(&key) {
                             continue;
                         }
                         *last = Some(key);
@@ -214,17 +216,14 @@ impl PyLiveStream {
 /// Record LangGraph's "pending" interrupt lifecycle event for a paused live run.
 ///
 /// The eager `stream()`/`invoke()` paths do this after the run; without it a streamed pause never
-/// reaches `GraphCallbackHandler`.
+/// reaches `GraphCallbackHandler`. When the run did not pause, the run's own events (a resume, for
+/// instance) are moved across untouched.
 fn record_paused_run(
     graph: &crate::CompiledGraph<JsonState>,
     config: &crate::graph::RunConfig,
     target: &std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::lifecycle::LifecycleEvent>>>,
     sink: Option<&crate::_internal::lifecycle::LifecycleSink>,
 ) {
-    let Some(thread_id) = config.thread_id.as_deref() else {
-        return;
-    };
-    // The eager path installs a sink on the run config; the live worker has to make its own.
     let owned;
     let sink = match sink {
         Some(sink) => sink,
@@ -233,10 +232,11 @@ fn record_paused_run(
             &owned
         }
     };
-    let Ok(Some(snapshot)) = graph.get_state(thread_id) else {
-        return;
-    };
-    if snapshot.interrupted && !snapshot.interrupts.is_empty() {
+    if let Some(thread_id) = config.thread_id.as_deref()
+        && let Ok(Some(snapshot)) = graph.get_state(thread_id)
+        && snapshot.interrupted
+        && !snapshot.interrupts.is_empty()
+    {
         crate::adapters::python::graph_pause::record_interrupt(
             Some(sink),
             "pending",

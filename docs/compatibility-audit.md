@@ -4410,3 +4410,23 @@ materialise the rest, so existing callers keep working.
 
 Suite is 656 tests (three new), parity 99/99 (new `incremental_stream` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 212: multi-mode streams deliver per superstep too
+
+Widening last round's bounded live integration from single-mode to multi-mode (`["updates","values"]` etc.)
+needed two fixes:
+
+* **The `values` dedupe was too aggressive** — keyed on the payload alone it dropped a chunk whenever two
+  consecutive supersteps happened to produce identical values. It is now keyed on `(step, payload)`, so
+  only a genuine duplicate within one step is dropped.
+* **A `Command` input must stay on the eager path** — the live path does not implement resume plumbing and
+  treated a resume as ordinary input, leaving the graph paused. Streams whose input is a `Command` now use
+  the eager path.
+
+Measured after the change: single-mode `[0.20, 0.40]`, multi-mode `[0.00, 0.20, 0.20, 0.40, 0.40]` for two
+0.2 s nodes.
+
+Remaining boundary: `subgraphs=True` streams stay eager, because the live path does not wrap parent chunks
+as `((), payload)`.
+
+Suite is 658 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.

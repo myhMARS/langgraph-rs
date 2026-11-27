@@ -991,12 +991,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         # superstep, so a single-mode, non-subgraph stream can be driven live instead of collected.
         # Multi-mode, subgraph and v2 streams keep the eager path, whose shapes are covered by tests.
         live_factory = getattr(self._inner, "stream_live", None)
-        mode = call.get("stream_mode")
+        from ..types import Command as _Command
+
         live_eligible = (
             live_factory is not None
+            # Namespaced (`subgraphs=True`) chunks are not wrapped the same way on the live path.
             and not call.get("subgraphs")
-            and (mode is None or isinstance(mode, str))
-            and call.get("version") is None
+            # A `Command` resume needs the resume plumbing, which only the eager path has.
+            and not isinstance(input, _Command)
         )
         if live_eligible:
             thread = _stream_thread(config, call.get("thread_id"))

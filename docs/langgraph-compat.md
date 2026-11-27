@@ -177,6 +177,25 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 多模式流也逐 superstep 交付（2026-11-27，第 115 轮）
+
+第 114 轮的"有界接入"本只覆盖单模式，本轮把范围扩到**多模式**（`["updates","values"]` 等）：
+
+```
+两个各 0.2s 节点
+单模式 updates : [0.20, 0.40]
+多模式 [updates, values]: [0.00, 0.20, 0.20, 0.40, 0.40]   ← 逐 superstep
+```
+
+扩范围时修掉两个真问题：
+
+1. **`values` 去重过猛**：第 113 轮的去重只看载荷，会把「相邻两个 superstep 恰好产生相同 values」误删。现在按
+   `(step, 载荷)` 一起去重，只丢弃**同一步**里的重复块。
+2. **`Command` 输入必须走 eager**：live 路径不处理 `Command(resume=...)`（会把恢复当成普通输入），实测"恢复后仍
+   处于暂停状态"。现在带 `Command` 的流一律走 eager 路径，恢复语义正确。
+
+剩下的边界：`subgraphs=True` 的流仍走 eager —— live 路径不给父图块加 `((), payload)` 包装，形状不一致。
+
 ### `stream()` / `astream()` 现在逐 superstep 交付（2026-11-27，第 114 轮，已接线）
 
 第 109-113 轮铺垫的 live 流**终于接上了门面**，并且采用**有界接入**：只在「单个 `stream_mode`（`updates` /

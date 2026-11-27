@@ -4572,6 +4572,44 @@ class IncrementalStreamTest(unittest.TestCase):
         # The first chunk arrives after the first node, not after the whole run.
         self.assertLess(stamps[0], 0.35)
 
+    def test_multi_mode_also_streams(self):
+        import time as _time
+
+        def slow(state):
+            _time.sleep(0.2)
+            return {"value": state["value"] + 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("x", slow)
+        graph.add_node("y", slow)
+        graph.add_edge(langgraph_rs.START, "x")
+        graph.add_edge("x", "y")
+        graph.add_edge("y", langgraph_rs.END)
+        app = graph.compile()
+        started = _time.perf_counter()
+        stamps = []
+        for _chunk in app.stream({"value": 0}, stream_mode=["updates", "values"]):
+            stamps.append(_time.perf_counter() - started)
+        self.assertGreater(len(stamps), 2)
+        self.assertLess(stamps[1], 0.35)
+
+    def test_command_resume_still_uses_the_eager_path(self):
+        def node(state):
+            if state.get("answer") is None:
+                return {"answer": langgraph_rs.interrupt({"q": "ok?"})}
+            return {}
+
+        graph = langgraph_rs.StateGraph({"answer": "last_value"})
+        graph.add_node("node", node)
+        graph.set_entry_point("node")
+        graph.set_finish_point("node")
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "command-stream"}}
+        list(app.stream({"answer": None}, config, stream_mode="values"))
+        self.assertEqual(app.get_state(config).next, ("node",))
+        list(app.stream(langgraph_rs.Command(resume="yes"), config, stream_mode="values"))
+        self.assertEqual(app.get_state(config).values["answer"], "yes")
+
     def test_stream_still_supports_list_helpers(self):
         app = self._app()
         chunks = app.stream({"value": 0}, stream_mode="updates")
