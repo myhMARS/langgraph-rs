@@ -249,6 +249,28 @@ class StateGraph(_native.StateGraph):
             handlers[str(name)] = handler
         return super().add_node(name, action, **kwargs)
 
+    def add_edge(self, start_key: Any, end_key: Any) -> Any:
+        """Record edge declaration order so `get_graph()` matches LangGraph's ordering."""
+        result = super().add_edge(start_key, end_key)
+        self.__dict__.setdefault("_edge_order", []).append((start_key, end_key, False))
+        return result
+
+    def add_conditional_edges(self, source: Any, path: Any, path_map: Any = None) -> Any:
+        """Record branch declaration order alongside the plain edges."""
+        result = super().add_conditional_edges(source, path, path_map)
+        targets: list[Any] = []
+        if isinstance(path_map, dict):
+            for value in path_map.values():
+                targets.extend(value if isinstance(value, (list, tuple)) else [value])
+        elif isinstance(path_map, (list, tuple)):
+            targets.extend(path_map)
+        if targets:
+            for target in targets:
+                self.__dict__.setdefault("_edge_order", []).append((source, target, True))
+        else:
+            self.__dict__.setdefault("_edge_order", []).append((source, None, True))
+        return result
+
     def add_sequence(self, nodes: Any) -> Any:
         """Add a chain of nodes, each wired to the next, like LangGraph's `add_sequence`."""
         items = list(nodes)
@@ -305,6 +327,7 @@ class StateGraph(_native.StateGraph):
             schema_class=getattr(self, "_builder_schema", None),
             output_names=getattr(self, "_builder_outputs", None),
             error_handlers=getattr(self, "_builder_handlers", None),
+            edge_order=getattr(self, "_edge_order", None),
         )
 
 
@@ -405,11 +428,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         schema_class: Any = None,
         output_names: list[str] | None = None,
         error_handlers: dict[str, Any] | None = None,
+        edge_order: list[Any] | None = None,
     ) -> None:
         self._inner = inner
         self._schema_class = schema_class
         self._output_names = output_names
         self._error_handlers = dict(error_handlers or {})
+        # Declaration order of the builder's edges, used by `get_graph()`.
+        self._edge_order = list(edge_order or [])
 
     # -- LangGraph introspection surface -----------------------------------------------------
     @property
@@ -671,18 +697,26 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         for item in description.get("nodes", ()):
             node_id = item["id"]
             nodes[node_id] = graph.add_node(None, id=node_id, metadata=item.get("metadata"))
+        declared: list[tuple[Any, Any, bool]] = []
         for item in description.get("edges", ()):
-            source, target = item["source"], item["target"]
+            declared.append((item["source"], item["target"], bool(item.get("conditional"))))
+        for item in description.get("conditional_edges", ()):
+            if item.get("target") is not None:
+                declared.append((item["source"], item["target"], True))
+        # LangGraph keeps the declaration order; reconstruct it from the builder's call history.
+        order = getattr(self, "_edge_order", None) or []
+        rank = {edge: index for index, edge in enumerate(order)}
+        fallback = len(rank)
+        decorated = [
+            (rank.get(edge, fallback + position), position, edge)
+            for position, edge in enumerate(declared)
+        ]
+        decorated.sort(key=lambda item: (item[0], item[1]))
+        declared = [edge for _, _, edge in decorated]
+        for source, target, conditional in declared:
             if source not in nodes or target not in nodes:
                 continue
-            graph.add_edge(
-                nodes[source], nodes[target], data=None, conditional=bool(item.get("conditional"))
-            )
-        for item in description.get("conditional_edges", ()):
-            source, target = item["source"], item.get("target")
-            if target is None or source not in nodes or target not in nodes:
-                continue
-            graph.add_edge(nodes[source], nodes[target], data=None, conditional=True)
+            graph.add_edge(nodes[source], nodes[target], data=None, conditional=conditional)
         # Convenience kept from the native graph: the raw description LangGraph derives from the
         # same data via `draw_mermaid()` / `to_json()`.
         graph.to_dict = lambda: description  # type: ignore[method-assign]

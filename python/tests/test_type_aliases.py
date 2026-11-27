@@ -2819,3 +2819,28 @@ class StateSnapshotTupleTest(unittest.TestCase):
         self.assertIn("values", snapshot)
         self.assertEqual(sorted(snapshot.keys()), sorted(snapshot._fields))
         self.assertEqual(snapshot.get("missing", "fallback"), "fallback")
+
+
+class GraphDrawingOrderTest(unittest.TestCase):
+    """`get_graph()` keeps LangGraph's declaration order for edges."""
+
+    @staticmethod
+    def _graph():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_conditional_edges("a", lambda state: "b", ["b"])
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile()
+
+    def test_edge_order(self):
+        drawn = self._graph().get_graph()
+        self.assertEqual(
+            [(edge.source, edge.target, edge.conditional) for edge in drawn.edges],
+            [("__start__", "a", False), ("a", "b", True), ("b", "__end__", False)],
+        )
+
+    def test_mermaid_keeps_the_order(self):
+        mermaid = self._graph().get_graph().draw_mermaid()
+        self.assertIn("\t__start__ --> a;\n\ta -.-> b;\n\tb --> __end__;", mermaid)

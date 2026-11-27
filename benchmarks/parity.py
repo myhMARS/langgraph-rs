@@ -501,6 +501,50 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_drawing_scenario() -> list[dict]:
+    """`get_graph()` edges and mermaid output follow declaration order."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"value": 2})
+            graph.add_edge(START, "a")
+            graph.add_conditional_edges("a", lambda state: "b", ["b"])
+            graph.add_edge("b", END)
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"value": 2})
+            graph.add_edge(rs.START, "a")
+            graph.add_conditional_edges("a", lambda state: "b", ["b"])
+            graph.add_edge("b", rs.END)
+        drawn = graph.compile().get_graph()
+        return {
+            "edges": [
+                (edge.source, edge.target, edge.conditional) for edge in drawn.edges
+            ],
+            "mermaid": drawn.draw_mermaid(),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "drawing",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_no_checkpointer_scenario() -> list[dict]:
     """A thread id without a checkpointer is ignored; `Command` fields are readable."""
 
@@ -5054,6 +5098,7 @@ def main() -> None:
         run_validation_error_scenario,
         run_deprecation_scenario,
         run_no_checkpointer_scenario,
+        run_drawing_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

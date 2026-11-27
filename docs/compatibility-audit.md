@@ -3644,3 +3644,18 @@ list (LangGraph yields an iterator) so older callers keep index access, and `fil
 facade for async graphs, which have no server-side filter.
 
 Suite is 559 tests (three new), parity 81/81, examples 10/10, clippy and Rust tests clean.
+
+### Round 170: `get_graph()` keeps LangGraph's edge order
+
+`get_graph()` emitted ordinary edges first and conditional ones last, while LangGraph follows the
+declaration order of `add_edge` / `add_conditional_edges`. The facade now records that order on the
+builder, hands it to the compiled graph, and sorts the rebuilt `Graph` accordingly.
+
+Verified against LangGraph on a mixed graph: the `edges` list and the **entire** `draw_mermaid()`
+document are now byte-identical.
+
+Remaining cosmetic difference: `Graph.nodes[...].data` is `None` where LangGraph exposes its internal
+`PregelNode` repr.
+
+Suite is 561 tests (two new), parity 82/82 (new `drawing` scenario), examples 10/10, clippy and Rust
+tests clean.

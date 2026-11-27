@@ -459,8 +459,10 @@ LG: [([], 'task'), (['sub:...'], 'task'), (['sub:...'], 'task_result'), ([], 'ta
 顺带核对（已一致）：`stream_mode="tasks", subgraphs=True` 的名称与命名空间序列；`astream_events(version="v2")`
 的事件序列（`on_chain_start` / `on_chain_stream` / `on_chain_end`，含 `LangGraph` 根节点）逐条相同。
 
-**已知的表层差异（不影响功能）**：`get_graph().draw_mermaid()` 里条件边的**输出顺序**与 LG 不同（扩展先输出
-普通边再输出条件边；LG 按声明顺序）；`Graph.nodes[...].data` 为 `None`（LG 是内部 `PregelNode` 的 repr）。
+**`get_graph()` 的边顺序已对齐**：门面在 `add_edge` / `add_conditional_edges` 时记录声明顺序，并传给编译后的
+图，`edges` 与 `draw_mermaid()` 与 LG **逐字相同**（实测整段 mermaid 文本相等）。
+
+**仍有的表层差异**：`Graph.nodes[...].data` 为 `None`（LG 是内部 `PregelNode` 的 repr 字符串）。
 编译后的图对象公共面仅缺 `nodes` / `attach_node` / `attach_edge` / `attach_branch` 这组 Pregel 内部成员。
 
 ### `RetryPolicy(retry_on=<callable>)`（2026-11-27）
