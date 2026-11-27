@@ -3081,3 +3081,48 @@ class UnknownChannelTest(unittest.TestCase):
         out = graph.compile().invoke({"point": Point(4), "value": 0})
         self.assertEqual(out["point"], Point(4))
         self.assertEqual(out["value"], 1)
+
+
+class InputCheckpointValuesTest(unittest.TestCase):
+    """The `source="input"` checkpoint holds the thread's values before the new turn."""
+
+    def test_input_checkpoints_carry_previous_values(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": state.get("value", 0) + 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "inputs"}}
+        for payload in ({"value": 0}, {"value": 10}, {"value": 20}):
+            app.invoke(payload, config)
+        inputs = [
+            (snapshot.metadata["step"], snapshot.values)
+            for snapshot in app.get_state_history(config)
+            if snapshot.metadata.get("source") == "input"
+        ]
+        self.assertEqual(inputs, [(5, {"value": 11}), (2, {"value": 1}), (-1, {})])
+
+    def test_history_shape_matches_langgraph(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": state.get("value", 0) + 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "shape"}}
+        app.invoke({"value": 0}, config)
+        app.invoke({"value": 10}, config)
+        rows = [
+            (snapshot.metadata["step"], snapshot.metadata["source"], snapshot.values, snapshot.next)
+            for snapshot in app.get_state_history(config)
+        ]
+        self.assertEqual(
+            rows,
+            [
+                (4, "loop", {"value": 11}, ()),
+                (3, "loop", {"value": 10}, ("a",)),
+                (2, "input", {"value": 1}, ("__start__",)),
+                (1, "loop", {"value": 1}, ()),
+                (0, "loop", {"value": 0}, ("a",)),
+                (-1, "input", {}, ("__start__",)),
+            ],
+        )

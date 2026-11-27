@@ -47,16 +47,19 @@ where
         let raw_id = thread_id.map(|thread| new_checkpoint_id(thread, base_step));
         let raw_parent = parent.clone();
         if persist {
-            // LangGraph's `source="input"` checkpoint carries no channel values; the input lands in
-            // the post-input checkpoint that follows it.
-            let empty = Map::new();
+            // LangGraph's `source="input"` checkpoint holds the thread's values *before* this turn
+            // (empty on the first run); the new input lands in the post-input checkpoint.
+            let carried = previous
+                .as_ref()
+                .map(|checkpoint| checkpoint.values.clone())
+                .unwrap_or_default();
             save_checkpoint_via(
                 backend,
                 thread_id,
                 namespace,
                 parent,
                 previous,
-                &empty,
+                &carried,
                 &start_tasks,
                 base_step,
                 false,

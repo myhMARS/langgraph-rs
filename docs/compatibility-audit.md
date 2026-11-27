@@ -3728,3 +3728,17 @@ Also noted: LangGraph rejects dict schemas outright (`StateGraph({"value": "last
 
 Suite is 575 tests (three new), parity 85/85 (new `unknown_channels` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 175: `source="input"` checkpoints carry the thread's previous values
+
+Running two turns and comparing `get_state_history` showed the input checkpoint of the second turn was
+empty here but carried the previous state in LangGraph (`{'value': 1}` at step 2). The engine now seeds
+that checkpoint from the latest one (empty on the first run), so every row — step, source, values,
+`next` — matches LangGraph's exactly.
+
+Verified as already equal in the same pass: `durability` history lengths (`sync` 4, `async` 4, `exit`
+1), time travel via `invoke(None, older_config)`, and unknown-key dropping in `Command(update=...)` and
+`update_state`.
+
+Suite is 577 tests (two new), parity 86/86 (new `checkpoint_shape` scenario), examples 10/10, clippy and
+Rust tests clean.

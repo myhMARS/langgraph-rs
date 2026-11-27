@@ -501,6 +501,55 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_checkpoint_shape_scenario() -> list[dict]:
+    """`get_state_history` rows (step, source, values, next) match LangGraph's."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": state.get("value", 0) + 1})
+            graph.add_edge(START, "a")
+            graph.add_edge("a", END)
+            app = graph.compile(checkpointer=LgInMemorySaver())
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("a", lambda state: {"value": state.get("value", 0) + 1})
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", rs.END)
+            app = graph.compile(checkpointer=rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "shape"}}
+        app.invoke({"value": 0}, config)
+        app.invoke({"value": 10}, config)
+        return {
+            "rows": [
+                [
+                    snapshot.metadata.get("step"),
+                    snapshot.metadata.get("source"),
+                    dict(snapshot.values),
+                    list(snapshot.next),
+                ]
+                for snapshot in app.get_state_history(config)
+            ]
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "checkpoint_shape",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_unknown_channel_scenario() -> list[dict]:
     """Keys the state does not declare are ignored, like LangGraph."""
 
@@ -5255,6 +5304,7 @@ def main() -> None:
         run_context_schema_scenario,
         run_python_state_scenario,
         run_unknown_channel_scenario,
+        run_checkpoint_shape_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

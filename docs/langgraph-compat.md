@@ -332,6 +332,29 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `source="input"` 检查点带上一轮的值（2026-11-27）
+
+LG 的历史里，每一轮开头的 `source="input"` 检查点存的是**本轮开始前**线程的值（首轮为空）。扩展此前一律存空，
+所以连跑两轮后历史对不上：
+
+```
+step 2  input   LG: {'value': 1}    扩展改前: {}
+```
+
+现在一致，完整历史逐条相同（`step` / `source` / `values` / `next`）：
+
+```
+(4, loop,  {'value': 11}, ())
+(3, loop,  {'value': 10}, ('a',))
+(2, input, {'value': 1},  ('__start__',))
+(1, loop,  {'value': 1},  ())
+(0, loop,  {'value': 0},  ('a',))
+(-1, input, {},           ('__start__',))
+```
+
+另外确认已一致：`durability` 三种模式的历史长度（sync 4 / async 4 / exit 1）、时间旅行
+（`invoke(None, older_config)`）、`Command(update=...)` 与 `update_state` 里未声明的 key 丢弃。
+
 ### 未声明的 key 会被丢弃（2026-11-27）
 
 LG 只保留 state schema 里声明过的通道：输入里多给的 key、节点返回里多写的 key 都**静默丢弃**。扩展此前会
