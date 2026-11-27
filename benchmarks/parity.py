@@ -676,6 +676,81 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_add_messages_function_scenario() -> list[dict]:
+    """`add_messages` is callable, input coercion matches, and the serializer round-trips."""
+
+    def collect(engine):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+
+        if engine == "lg":
+            from langgraph.graph.message import add_messages
+            from langgraph.checkpoint.memory import InMemorySaver
+        else:
+            from langgraph_rs.graph.message import add_messages
+
+            InMemorySaver = rs.InMemorySaver
+        base = [HumanMessage("a", id="1"), HumanMessage("b", id="2")]
+        merged = add_messages(base, [HumanMessage("a2", id="1")])
+        removed = add_messages(base, [RemoveMessage(id="1")])
+        try:
+            add_messages(base, [RemoveMessage(id="nope")])
+            missing = None
+        except BaseException as exc:
+            missing = [type(exc).__name__, str(exc)]
+
+        if engine == "lg":
+            from typing import Annotated
+
+            from langgraph.graph.message import add_messages as channel_spec
+
+            graph = LgStateGraph(
+                TypedDict("S", {"messages": Annotated[list, channel_spec]}, total=False)
+            )
+        else:
+            graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", lambda state: {})
+        if engine == "lg":
+            graph.add_edge(START, "n")
+            graph.add_edge("n", END)
+        else:
+            graph.add_edge(rs.START, "n")
+            graph.add_edge("n", END)
+        app = graph.compile()
+        tuples = app.invoke({"messages": [("user", "hi")]})["messages"]
+        single = app.invoke({"messages": HumanMessage("hi")})["messages"]
+
+        serializer = InMemorySaver().serde
+        kind, payload = serializer.dumps_typed([HumanMessage("hi", id="x-1")])
+        restored = serializer.loads_typed((kind, payload))
+        return {
+            "callable": callable(add_messages),
+            "merged": [(m.content, m.id) for m in merged],
+            "removed": [m.content for m in removed],
+            "missing": missing,
+            "tuples": [[type(m).__name__, m.content] for m in tuples],
+            "single": [[type(m).__name__, m.content] for m in single],
+            "round_trip": [[type(m).__name__, m.id] for m in restored],
+        }
+
+    def collect_rs_safe(engine):
+        # `rs.InMemorySaver().serde` is the shim serializer; the LG side has its own.
+        return collect(engine)
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "add_messages_function",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_message_mutation_scenario() -> list[dict]:
     """Remove-then-add ordering, repeated removals and REMOVE_ALL_MESSAGES."""
 
@@ -5802,6 +5877,7 @@ def main() -> None:
         run_message_ids_scenario,
         run_remove_message_scenario,
         run_message_mutation_scenario,
+        run_add_messages_function_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

@@ -4228,3 +4228,59 @@ class MessageMutationSemanticsTest(unittest.TestCase):
             }
         )
         self.assertTrue(all(message.id for message in output["messages"]))
+
+
+class AddMessagesFunctionTest(unittest.TestCase):
+    """`add_messages` is a callable reducer, and message inputs are coerced."""
+
+    def test_callable_merge(self):
+        from langchain_core.messages import HumanMessage, RemoveMessage
+        from langgraph_rs.graph.message import add_messages
+
+        self.assertTrue(callable(add_messages))
+        base = [HumanMessage("a", id="1"), HumanMessage("b", id="2")]
+        self.assertEqual(
+            [m.content for m in add_messages(base, [HumanMessage("c", id="3")])], ["a", "b", "c"]
+        )
+        self.assertEqual(
+            [m.content for m in add_messages(base, [HumanMessage("a2", id="1")])], ["a2", "b"]
+        )
+        self.assertEqual([m.content for m in add_messages(base, [RemoveMessage(id="1")])], ["b"])
+        self.assertEqual(
+            [
+                m.content
+                for m in add_messages(base, [RemoveMessage(id="1"), HumanMessage("a2", id="1")])
+            ],
+            ["a2", "b"],
+        )
+        with self.assertRaises(ValueError):
+            add_messages(base, [RemoveMessage(id="nope")])
+
+    def test_tuple_and_single_message_inputs(self):
+        from langchain_core.messages import HumanMessage
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+
+        tuples = app.invoke({"messages": [("user", "hi")]})["messages"]
+        self.assertEqual([(type(m).__name__, m.content) for m in tuples], [("HumanMessage", "hi")])
+
+        single = app.invoke({"messages": HumanMessage("hi")})["messages"]
+        self.assertEqual([(type(m).__name__, m.content) for m in single], [("HumanMessage", "hi")])
+
+
+class SerializerRoundTripTest(unittest.TestCase):
+    """`JsonPlusSerializer` rebuilds the LangChain objects it wrote."""
+
+    def test_messages_round_trip(self):
+        from langchain_core.messages import HumanMessage
+
+        from langgraph_rs.checkpoint.serde import JsonPlusSerializer
+
+        serializer = JsonPlusSerializer()
+        kind, payload = serializer.dumps_typed([HumanMessage("hi", id="x-1")])
+        restored = serializer.loads_typed((kind, payload))
+        self.assertEqual([(type(m).__name__, m.id) for m in restored], [("HumanMessage", "x-1")])

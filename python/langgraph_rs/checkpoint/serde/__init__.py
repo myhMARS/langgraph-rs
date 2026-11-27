@@ -52,7 +52,12 @@ def _default(value: Any) -> Any:
 
     to_json = getattr(value, "to_json", None)
     if callable(to_json):
-        return {_TAG: "serializable", "type": type(value).__name__, "data": to_json()}
+        payload = to_json()
+        # LangChain objects round-trip through `langchain_core.load` when they carry the
+        # `{"lc": 1, ...}` envelope; plain JSON payloads stay as they are.
+        if isinstance(payload, dict) and payload.get("lc") == 1:
+            return {_TAG: "serializable", "type": type(value).__name__, "data": payload}
+        return payload
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
@@ -73,6 +78,18 @@ def _object_hook(value: dict[str, Any]) -> Any:
         return set(data)
     if tag == "tuple":
         return tuple(data)
+    if tag == "serializable":
+        # Revive the LangChain object recorded by `_default` (e.g. a chat message).
+        import warnings as _warnings
+
+        try:
+            from langchain_core.load import load
+
+            with _warnings.catch_warnings():
+                _warnings.simplefilter("ignore")
+                return load(data)
+        except Exception:  # pragma: no cover - keep the payload when it cannot be rebuilt
+            return data
     return data
 
 

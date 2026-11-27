@@ -74,5 +74,9 @@ def normalize_schema(schema: Any) -> Any:
         schema = _schema_from_class(schema)
     normalized: dict[str, Any] = {}
     for name, spec in schema.items():
+        # A reducer function may name its engine channel (`add_messages` -> "messages").
+        marker = getattr(spec, "__channel_spec__", None)
+        if marker is not None:
+            spec = marker
         normalized[name] = {"__custom_channel__": spec} if _is_custom_channel(spec) else spec
     return normalized

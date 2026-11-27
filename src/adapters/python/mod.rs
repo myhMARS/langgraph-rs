@@ -288,6 +288,12 @@ fn _set_messages_objects(enabled: bool) {
     crate::runtime::context::set_messages_as_objects(enabled);
 }
 
+/// Whether message channels are handed to Python as LangChain message objects.
+#[pyfunction]
+fn messages_as_objects() -> bool {
+    crate::runtime::context::messages_as_objects()
+}
+
 /// Write a value to a state channel from inside a node (LangGraph's `CONFIG_KEY_SEND`).
 #[pyfunction]
 fn _send(py: Python<'_>, channel: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -452,6 +458,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("GraphBubbleUp", module.py().get_type::<GraphBubbleUp>())?;
     module.add("GraphInterrupt", module.py().get_type::<GraphInterrupt>())?;
     module.add("_set_messages_objects", wrap_pyfunction!(_set_messages_objects, module)?)?;
+    module.add_function(wrap_pyfunction!(messages_as_objects, module)?)?;
     module.add_function(wrap_pyfunction!(_send, module)?)?;
     module.add("GraphRecursionError", module.py().get_type::<GraphRecursionError>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;

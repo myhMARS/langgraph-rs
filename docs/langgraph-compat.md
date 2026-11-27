@@ -177,6 +177,16 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `add_messages` 可调用、输入归一化、序列化往返（2026-11-27，第三轮审计）
+
+第三轮审计剩余三项，均已修复：
+
+| 项 | LG | 改前 | 现在 |
+|---|---|---|---|
+| `add_messages` | 可调用函数（`add_messages(left, right)`） | 导出的是**字符串** `"messages"`，调用报 `TypeError` | 真函数（支持按 id 合并/替换、`RemoveMessage`、`__remove_all__`、缺 id 时报错），并带 `__channel_spec__` 标记供建图识别 |
+| 输入归一化 | 单条消息 → 包成 list；`("user", "hi")` 元组 → `HumanMessage` | 原样存进 channel（存成裸消息 / 裸 list） | 与 LG 相同（`_set_messages_objects(False)` 的旧模式仍跳过归一化） |
+| `JsonPlusSerializer.loads_typed` | 还原成 `HumanMessage` 等对象 | 返回 dict | 通过 `langchain_core.load` 还原（往返后类型与 id 都保留） |
+
 ### 消息变更语义（2026-11-27，第二轮审计）
 
 第三次独立审计专攻消息语义，又发现 4 处真实差异，都已修复：

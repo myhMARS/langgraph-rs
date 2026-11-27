@@ -57,6 +57,83 @@ except Exception:  # pragma: no cover
 
 from .state import StateGraph
 
+
+def add_messages(left: Any, right: Any, *, format: Any = None) -> list[Any]:
+    """Merge message lists by id, LangGraph's `add_messages` reducer.
+
+    `RemoveMessage` entries delete by id (a repeated removal is a no-op, and
+    `REMOVE_ALL_MESSAGES` clears the list); a message sharing an id with an existing one replaces it
+    in place. Messages without an id get one.
+    """
+    import uuid
+
+    def _kind(message: Any) -> Any:
+        if isinstance(message, dict):
+            return message.get("type")
+        return getattr(message, "type", None)
+
+    def _id(message: Any) -> Any:
+        if isinstance(message, dict):
+            return message.get("id")
+        return getattr(message, "id", None)
+
+    deleted: set[Any] = set()
+    clear_all = False
+    writes: list[Any] = []
+    for message in right or []:
+        if _kind(message) != "remove":
+            writes.append(message)
+            continue
+        message_id = _id(message)
+        if message_id == REMOVE_ALL_MESSAGES:
+            clear_all = True
+        elif message_id is not None and message_id not in deleted:
+            deleted.add(message_id)
+    merged = list(left or [])
+    if clear_all:
+        merged.clear()
+        deleted.clear()
+    index = {
+        _id(message): position
+        for position, message in enumerate(merged)
+        if _id(message) is not None
+    }
+    replaced: set[Any] = set()
+    for message in writes:
+        message_id = _id(message)
+        if message_id is None:
+            message_id = uuid.uuid4().hex
+            if isinstance(message, dict):
+                message = {**message, "id": message_id}
+            else:
+                try:
+                    message.id = message_id
+                except Exception:  # pragma: no cover - immutable message classes
+                    pass
+        position = index.get(message_id)
+        if position is not None:
+            merged[position] = message
+            replaced.add(message_id)
+        else:
+            index[message_id] = len(merged)
+            merged.append(message)
+    for message_id in deleted:
+        if message_id in replaced:
+            continue
+        remaining = [message for message in merged if _id(message) != message_id]
+        if len(remaining) == len(merged):
+            # LangGraph refuses to delete an id that is not there.
+            raise ValueError(
+                f"Attempting to delete a message with an ID that doesn't exist ('{message_id}')"
+            )
+        merged = remaining
+    return merged
+
+
+# The native builder maps this marker to the engine's `messages` channel.
+add_messages.__channel_spec__ = "messages"  # type: ignore[attr-defined]
+
+
 __all__ = [
     "AnyMessage",
     "BaseMessage",
@@ -271,7 +348,8 @@ def push_message(
     """Write a message to the `messages` stream mode and (optionally) the state channel."""
     return message  # type: ignore[return-value]
 
-_MISSING = re_export(globals(), ["RemoveMessage", "add_messages", "message_graph"])
+# `add_messages` is defined above (a real callable, as in LangGraph), so it is not re-exported.
+_MISSING = re_export(globals(), ["RemoveMessage", "message_graph"])
 # `MessagesState` lives in `_schema` now that the extension no longer embeds it.
 from ._schema import MessagesState  # noqa: E402  (after the re-export block)
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

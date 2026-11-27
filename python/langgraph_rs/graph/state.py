@@ -218,6 +218,13 @@ class StateGraph(_native.StateGraph):
         instance._builder_handlers = {}
         # LangGraph takes the runtime context schema on the builder and carries it into `compile`.
         instance._builder_context_schema = context_schema
+        # `add_messages` (and its channel-spec marker) identifies a chat-message channel.
+        instance._builder_messages_keys = [
+            key
+            for key, spec in (normalize_schema(state_schema) or {}).items()
+            if spec in ("messages", "add_messages")
+            or getattr(spec, "__channel_spec__", None) == "messages"
+        ]
         return instance
 
     def add_node(self, name: Any, action: Any = None, **kwargs: Any) -> Any:
@@ -342,6 +349,7 @@ class StateGraph(_native.StateGraph):
             output_names=getattr(self, "_builder_outputs", None),
             error_handlers=getattr(self, "_builder_handlers", None),
             edge_order=getattr(self, "_edge_order", None),
+            messages_keys=getattr(self, "_builder_messages_keys", None),
         )
 
 
@@ -497,6 +505,48 @@ def _state_snapshot(raw: Any, requested: Any = None) -> Any:
 from ..pregel import Pregel as _Pregel
 
 
+def _coerce_messages_input(input: Any, keys: list[str]) -> Any:
+    """Normalise message inputs the way LangGraph does.
+
+    LangGraph accepts a bare message, a list of messages, and `(role, content)` tuples; the engine
+    only understands the list-of-messages form, so the other shapes are wrapped or converted here.
+    """
+    if not keys or not isinstance(input, dict):
+        return input
+    # The legacy escape hatch (`_set_messages_objects(False)`) keeps the plain dict form.
+    try:
+        from .._compat import NATIVE as _NATIVE
+
+        if getattr(_NATIVE, "messages_as_objects", lambda: True)() is False:
+            return input
+    except Exception:  # pragma: no cover - defensive
+        pass
+    try:
+        from langchain_core.messages import BaseMessage, convert_to_messages
+    except Exception:  # pragma: no cover - langchain_core is optional
+        return input
+    out = dict(input)
+    for key in keys:
+        value = out.get(key)
+        if value is None:
+            continue
+        if isinstance(value, BaseMessage):
+            out[key] = [value]
+            continue
+        if isinstance(value, (list, tuple)) and value and not isinstance(value, BaseMessage):
+            if all(
+                isinstance(item, BaseMessage)
+                or isinstance(item, dict)
+                or (isinstance(item, (list, tuple)) and len(item) == 2)
+                for item in value
+            ):
+                try:
+                    out[key] = convert_to_messages(list(value))
+                except Exception:  # pragma: no cover - leave the value untouched
+                    pass
+    return out
+
+
 class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     """The compiled graph, exposing LangGraph's ``Runnable`` API.
 
@@ -514,6 +564,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         output_names: list[str] | None = None,
         error_handlers: dict[str, Any] | None = None,
         edge_order: list[Any] | None = None,
+        messages_keys: list[str] | None = None,
     ) -> None:
         self._inner = inner
         self._schema_class = schema_class
@@ -521,6 +572,8 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         self._error_handlers = dict(error_handlers or {})
         # Declaration order of the builder's edges, used by `get_graph()`.
         self._edge_order = list(edge_order or [])
+        # Channels that hold chat messages; inputs are coerced like LangGraph's.
+        self._messages_keys = list(messages_keys or [])
 
     # -- LangGraph introspection surface -----------------------------------------------------
     @property
@@ -821,6 +874,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
 
     def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
         self._reject_resume_without_checkpointer(input)
+        input = _coerce_messages_input(input, getattr(self, "_messages_keys", []))
         call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
         result = self._inner.invoke(input, **call)
         _dispatch_lifecycle(self._inner, config)

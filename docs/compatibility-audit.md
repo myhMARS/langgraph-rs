@@ -4131,3 +4131,22 @@ callable, tuple/single-message input coercion, and `JsonPlusSerializer` returnin
 
 Suite is 636 tests (four new), parity 94/94 (new `message_mutation` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 198: callable `add_messages`, input coercion, serializer round trip
+
+The last three findings from the message-semantics audit:
+
+* **`add_messages` is a real function again.** It was exported as the channel-spec string
+  `"messages"`, so `add_messages(left, right)` raised `TypeError`. The shim now ships LangGraph's
+  semantics (merge by id, `RemoveMessage` deletion with the missing-id error, `REMOVE_ALL_MESSAGES`,
+  id assignment) and marks itself with `__channel_spec__ = "messages"` so graph construction still
+  maps the channel.
+* **Message inputs are coerced** like LangGraph: a bare message becomes a one-element list and
+  `("user", "hi")` tuples become `HumanMessage`s. The legacy `_set_messages_objects(False)` escape
+  hatch skips the coercion (a new native `messages_as_objects()` getter exposes the switch).
+* **`JsonPlusSerializer` rebuilds what it wrote**: `loads_typed` restores LangChain objects through
+  `langchain_core.load` instead of returning the raw `lc` dict, so message type and `id` survive a
+  round trip.
+
+Suite is 639 tests (three new), parity 95/95 (new `add_messages_function` scenario), examples 10/10,
+clippy and Rust tests clean.
