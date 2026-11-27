@@ -2832,4 +2832,27 @@ Known gap: `handle_tool_errors=<exception type or tuple>` cannot filter by type,
 only keeps the error text; those values fall back to the default message.
 
 Suite is 465 tests (four new), parity 54/54 (new `tool_errors` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 130: `ValidationNode` semantics and `timedelta` timeouts
+
+`ValidationNode` returned messages without `status`, never validated argument *types*, and turned an
+unknown tool into an error message. LangGraph:
+
+```
+valid call      -> status="success", content = '{"query":"x"}'
+bad arguments   -> status="success", content = '1 validation error for Validation\ncount\n  Input should be ...'
+unknown tool    -> KeyError, so the node fails
+```
+
+All three now match. Argument validation follows LangGraph's approach: the callable's signature is
+turned into a pydantic model named `Validation`, so annotations are enforced — previously only
+`inspect.signature().bind()` ran and `"nope"` passed for an `int`.
+
+Timeouts also accept `timedelta` now. LangGraph's `TimeoutPolicy`, `Send(timeout=...)` and
+`add_node(timeout=...)` take "seconds / `timedelta` / `TimeoutPolicy`"; the extension only took a
+`float` and raised `TypeError: must be real number, not datetime.timedelta`.
+
+The `send_interrupts` parity scenario was flaky: parallel `Send` tasks have no defined order, so the
+interrupt values are now compared sorted.
+
+Suite is 470 tests (five new), parity 55/55 (new `validation_node` scenario), examples 10/10, clippy
+and Rust tests clean.

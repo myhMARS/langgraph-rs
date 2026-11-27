@@ -79,6 +79,27 @@ def _validation_error_text(error: Exception) -> str:
     return str(error)
 
 
+def _signature_model(schema: Any, signature: inspect.Signature) -> Any:
+    """Pydantic model mirroring a callable's parameters, as LangGraph builds internally."""
+    try:
+        from pydantic import create_model
+    except Exception:  # pragma: no cover - pydantic is a LangGraph dependency
+        return None
+    fields: dict[str, Any] = {}
+    for name, parameter in signature.parameters.items():
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+            continue
+        annotation = parameter.annotation
+        if annotation is inspect.Parameter.empty:
+            annotation = Any
+        default = ... if parameter.default is inspect.Parameter.empty else parameter.default
+        fields[name] = (annotation, default)
+    try:
+        return create_model("Validation", **fields)
+    except Exception:  # pragma: no cover - unusual annotations
+        return None
+
+
 def _validate_call(schema: Any, arguments: dict[str, Any]) -> tuple[bool, str]:
     """Check `arguments` against a tool / pydantic model / callable schema."""
     try:
@@ -86,7 +107,13 @@ def _validate_call(schema: Any, arguments: dict[str, Any]) -> tuple[bool, str]:
             schema.model_validate(arguments)
             return True, ""
         if callable(schema) and not isinstance(schema, type):
-            inspect.signature(schema).bind(**arguments)
+            # LangGraph builds a pydantic model from the signature (named `Validation`), so the
+            # annotations are enforced, not just the parameter names.
+            signature = inspect.signature(schema)
+            signature.bind(**arguments)
+            model = _signature_model(schema, signature)
+            if model is not None:
+                model.model_validate(arguments)
             return True, ""
         if hasattr(schema, "args_schema") and schema.args_schema is not None:
             return _validate_call(schema.args_schema, arguments)
@@ -142,7 +169,8 @@ class ValidationNode:
             call_id = call.get("id") or ""
             schema = self._by_name.get(name)
             if schema is None:
-                content = f"Error: {name} is not a valid tool, try one of {list(self._by_name)}."
+                # LangGraph looks the schema up by name and lets the `KeyError` fail the node.
+                raise KeyError(name)
             else:
                 valid, error = _validate_call(schema, arguments)
                 if valid:
@@ -152,7 +180,14 @@ class ValidationNode:
                 else:
                     content = error
             results.append(
-                {"role": "tool", "content": content, "tool_call_id": call_id, "name": name}
+                {
+                    "role": "tool",
+                    "content": content,
+                    "tool_call_id": call_id,
+                    "name": name,
+                    # A validated call is reported as a successful tool message.
+                    "status": "success",
+                }
             )
         return {"messages": results}
 

@@ -32,6 +32,7 @@ from langgraph.types import CachePolicy as LgCachePolicy, TimeoutPolicy as LgTim
 from langgraph.types import Command as LgCommand, RetryPolicy as LgRetryPolicy, Send as LgSend
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode as LgToolNode
+from langgraph.prebuilt import ValidationNode as LgValidationNode
 from langgraph.types import interrupt as lg_interrupt
 
 HERE = Path(__file__).resolve().parent
@@ -476,6 +477,63 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_validation_node_scenario() -> list[dict]:
+    """`ValidationNode` answers every tool call with a validated `ToolMessage`."""
+
+    def search(query: str) -> str:
+        """Search for a query."""
+        return "results"
+
+    def need_int(count: int) -> str:
+        """Needs an int."""
+        return "done"
+
+    calls = [
+        {"name": "search", "args": {"query": "x"}, "id": "c1", "type": "tool_call"},
+        {"name": "need_int", "args": {"count": "nope"}, "id": "c2", "type": "tool_call"},
+    ]
+
+    def lg_run():
+        class S(TypedDict):
+            messages: Annotated[list, add_messages]
+
+        graph = LgStateGraph(S)
+        graph.add_node("validate", LgValidationNode([search, need_int]))
+        graph.add_edge(START, "validate")
+        graph.add_edge("validate", END)
+        out = graph.compile().invoke(
+            {"messages": [{"role": "ai", "content": "", "tool_calls": calls}]}
+        )
+        return [
+            {"status": getattr(m, "status", None), "name": m.name, "content": str(m.content)[:40]}
+            for m in out["messages"]
+        ]
+
+    def rs_run():
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("validate", rs.prebuilt.ValidationNode([search, need_int]))
+        graph.set_entry_point("validate")
+        graph.set_finish_point("validate")
+        out = graph.compile().invoke(
+            {"messages": [{"role": "ai", "content": "", "tool_calls": calls}]}
+        )
+        return [
+            {"status": m.get("status"), "name": m.get("name"), "content": str(m.get("content"))[:40]}
+            for m in out["messages"]
+        ]
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "validation_node",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_tool_error_scenario() -> list[dict]:
     """`ToolNode(handle_tool_errors=...)`: error ToolMessages and propagation."""
 
@@ -675,11 +733,16 @@ def run_send_interrupt_scenario() -> list[dict]:
     def trace(app, label):
         config = {"configurable": {"thread_id": f"send-int-{label}"}}
         out = app.invoke({"log": []}, config)
-        ids = [interrupt.id for interrupt in out.get("__interrupt__", ())]
-        steps = [[interrupt.value for interrupt in out.get("__interrupt__", ())]]
+        pending = list(out.get("__interrupt__", ()))
+        ids = [interrupt.id for interrupt in pending]
+        # Parallel `Send` tasks have no defined order, so compare the interrupt values sorted.
+        steps = [[sorted(i.value["ask"] for i in pending)]]
         for index, value in enumerate(("a", "b")):
             out = app.invoke(LgCommand(resume={ids[index]: value}) if label == "lg" else rs.Command(resume={ids[index]: value}), config)
-            steps.append([sorted(out.get("log") or []), [i.value for i in out.get("__interrupt__", ())]])
+            steps.append([
+                sorted(out.get("log") or []),
+                sorted(i.value["ask"] for i in out.get("__interrupt__", ())),
+            ])
         return steps
 
     rs_view = trace(rs_build(), "rs")
@@ -3358,6 +3421,7 @@ def main() -> None:
         run_events_v2_scenario,
         run_command_graph_scenario,
         run_tool_error_scenario,
+        run_validation_node_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

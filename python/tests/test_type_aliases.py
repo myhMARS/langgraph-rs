@@ -1327,3 +1327,66 @@ class ToolNodeErrorHandlingTest(unittest.TestCase):
     def test_false_propagates(self):
         with self.assertRaises(Exception):
             self._run(False)
+
+
+class TimeoutDurationsTest(unittest.TestCase):
+    """`timedelta` is accepted wherever a timeout is (LangGraph takes both forms)."""
+
+    def test_timeout_policy_accepts_timedelta(self):
+        from datetime import timedelta
+
+        policy = langgraph_rs.TimeoutPolicy(run_timeout=timedelta(milliseconds=250))
+        self.assertAlmostEqual(policy.run_timeout, 0.25, places=3)
+
+    def test_send_accepts_timedelta(self):
+        from datetime import timedelta
+
+        langgraph_rs.types.Send("work", {"v": 1}, timeout=timedelta(milliseconds=50))
+
+    def test_node_timeout_accepts_timedelta(self):
+        import asyncio
+
+        from datetime import timedelta
+
+        from langgraph_rs.errors import NodeTimeoutError
+
+        async def scenario():
+            async def slow(state):
+                await asyncio.sleep(0.2)
+                return {"value": 1}
+
+            graph = langgraph_rs.AsyncStateGraph({"value": "last_value"})
+            graph.add_node("slow", slow, timeout=timedelta(milliseconds=20))
+            graph.set_entry_point("slow")
+            graph.set_finish_point("slow")
+            with self.assertRaises(NodeTimeoutError):
+                await graph.compile().ainvoke({"value": 0})
+
+        asyncio.run(scenario())
+
+
+class ValidationNodeTest(unittest.TestCase):
+    """`ValidationNode` answers every call with a validated `ToolMessage`."""
+
+    @staticmethod
+    def _node():
+        def search(query: str) -> str:
+            """Search for a query."""
+            return "results"
+
+        def need_int(count: int) -> str:
+            """Needs an int."""
+            return "done"
+
+        return langgraph_rs.prebuilt.ValidationNode([search, need_int])
+
+    def test_valid_call_reports_success(self):
+        out = self._node()({"messages": [{"role": "ai", "content": "", "tool_calls": [
+            {"name": "search", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}]}]})
+        self.assertEqual(out["messages"][0]["status"], "success")
+        self.assertEqual(out["messages"][0]["content"], '{"query":"x"}')
+
+    def test_invalid_arguments_are_reported(self):
+        out = self._node()({"messages": [{"role": "ai", "content": "", "tool_calls": [
+            {"name": "need_int", "args": {"count": "nope"}, "id": "c2", "type": "tool_call"}]}]})
+        self.assertIn("validation error", out["messages"][0]["content"])

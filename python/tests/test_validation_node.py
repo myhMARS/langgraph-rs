@@ -68,10 +68,11 @@ class ValidationNodeTest(unittest.TestCase):
         self.assertIn("validation error", content)
         self.assertIn("query", content)
 
-    def test_unknown_tool_is_reported(self):
-        result = _compile(ValidationNode([search])).compile().invoke(_call("other", {}))
-        content = [m for m in result["messages"] if m.get("role") == "tool"][0]["content"]
-        self.assertIn("not a valid tool", content)
+    def test_unknown_tool_fails_the_node(self):
+        # LangGraph looks the schema up by name, so an unknown tool raises `KeyError`.
+        with self.assertRaises(Exception) as raised:
+            _compile(ValidationNode([search])).compile().invoke(_call("other", {}))
+        self.assertIn("KeyError", str(raised.exception) + type(raised.exception).__name__)
 
     def test_matches_langgraph(self):
         if _LgState is None:  # pragma: no cover - langgraph is optional here

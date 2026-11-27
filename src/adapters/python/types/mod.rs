@@ -25,6 +25,7 @@ pub struct PySend {
     #[pyo3(get)]
     pub node: String,
     pub arg: Option<Py<PyAny>>,
+    /// Run timeout in seconds, from `float`, `timedelta` or a `TimeoutPolicy`.
     pub timeout: Option<f64>,
 }
 
@@ -32,13 +33,38 @@ pub struct PySend {
 impl PySend {
     #[new]
     #[pyo3(signature = (node, arg=None, timeout=None))]
-    fn new(node: String, arg: Option<Py<PyAny>>, timeout: Option<f64>) -> Self {
-        Self { node, arg, timeout }
+    fn new(
+        py: Python<'_>,
+        node: String,
+        arg: Option<Py<PyAny>>,
+        timeout: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            node,
+            arg,
+            timeout: timeout.and_then(|value| send_timeout_seconds(py, value)),
+        })
     }
 
     fn __repr__(&self) -> String {
         format!("Send(node={:?})", self.node)
     }
+}
+
+/// Seconds described by a `Send(timeout=...)` value: a number, a `timedelta` or a
+/// `TimeoutPolicy(run_timeout=...)`.
+fn send_timeout_seconds(_py: Python<'_>, value: &Bound<'_, PyAny>) -> Option<f64> {
+    if let Ok(seconds) = value.extract::<f64>() {
+        return Some(seconds);
+    }
+    if let Ok(policy) = value.cast::<PyTimeoutPolicy>() {
+        return policy.borrow().run_timeout;
+    }
+    // `datetime.timedelta.total_seconds()`
+    value
+        .call_method0("total_seconds")
+        .ok()
+        .and_then(|seconds| seconds.extract::<f64>().ok())
 }
 
 impl PySend {
@@ -491,10 +517,17 @@ pub struct PyTimeoutPolicy {
 impl PyTimeoutPolicy {
     #[new]
     #[pyo3(signature = (run_timeout=None, idle_timeout=None))]
-    fn new(run_timeout: Option<f64>, idle_timeout: Option<f64>) -> Self {
+    fn new(
+        py: Python<'_>,
+        run_timeout: Option<&Bound<'_, PyAny>>,
+        idle_timeout: Option<&Bound<'_, PyAny>>,
+    ) -> Self {
+        let seconds = |value: Option<&Bound<'_, PyAny>>| {
+            value.and_then(|value| send_timeout_seconds(py, value))
+        };
         Self {
-            run_timeout,
-            idle_timeout,
+            run_timeout: seconds(run_timeout),
+            idle_timeout: seconds(idle_timeout),
         }
     }
 }

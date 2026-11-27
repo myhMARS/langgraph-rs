@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `ValidationNode` 与超时的时间类型（2026-11-27）
+
+**`ValidationNode`**：LG 逐条校验 tool_calls 而不执行工具，扩展此前的输出缺 `status`、不校验参数类型、
+未知工具只是写一条错误消息。现与 LG 一致：
+
+```
+有效调用   -> status="success", content = '{"query":"x"}'
+参数不合法 -> status="success", content = '1 validation error for Validation\ncount\n  Input should be ...'
+未知工具   -> 抛 KeyError（节点失败）
+```
+
+参数校验按 LG 的做法：把可调用对象的签名转成名为 `Validation` 的 pydantic 模型，
+所以注解真的会被检查（此前只 `inspect.signature().bind()`，`"nope"` 能当 `int` 通过）。
+
+**超时的时间类型**：LG 的 `TimeoutPolicy` / `Send(timeout=...)` / `add_node(timeout=...)` 都接受
+「秒数 / `timedelta` / `TimeoutPolicy`」；扩展此前只吃 `float`，传 `timedelta` 会报
+`TypeError: must be real number`。现在三处都接受 `timedelta`（内部换算成秒）。
+
 ### `ToolNode(handle_tool_errors=...)`（2026-11-26）
 
 LG 的 `ToolNode` 用 `handle_tool_errors` 决定工具抛异常后的行为，扩展此前连这个参数都不接受
