@@ -259,7 +259,7 @@ impl PyCompiledGraph {
         let state = state_from_py(input)?;
         let mut config = run_config(thread_id);
         if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let outcome = py
             .detach(|| self.graph.run(&state, &config))
@@ -322,7 +322,7 @@ impl PyCompiledGraph {
             config = config.with_stream_subgraphs(true);
         }
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let state = match input.filter(|value| !value.is_none()) {
             Some(value) => state_from_py(Some(value))?,
@@ -397,7 +397,7 @@ impl PyCompiledGraph {
             config = config.with_control(control.inner.clone());
         }
         if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         if subgraphs {
             config = config.with_stream_subgraphs(true);
@@ -543,7 +543,7 @@ impl PyCompiledGraph {
         });
         let mut base = RunConfig::new();
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            base = base.with_context(py_to_value(context)?);
+            base = base.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let results: Vec<crate::Result<JsonState>> = match (shared, configs) {
             (true, None) => py.detach(|| self.graph.batch(states, &base)),

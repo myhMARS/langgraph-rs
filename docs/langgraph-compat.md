@@ -332,6 +332,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `context_schema` 与 `context=` 参数（2026-11-27）
+
+LG 允许 `StateGraph(state_schema, context_schema=Ctx)`，运行期 `invoke(..., context=Ctx(user="ann"))`，
+节点里 `runtime.context` 拿到的就是**那个对象**。扩展此前两条都不行：
+
+| | LG | 改前 | 现在 |
+|---|---|---|---|
+| `StateGraph(..., context_schema=Ctx)` | 支持 | `TypeError: unexpected keyword argument 'context_schema'` | 支持（构建期声明，编译时带上） |
+| `invoke(context=Ctx(...))` | 节点收到原对象 | `TypeError: value of type Ctx cannot be converted to JSON` | 节点收到原对象 |
+| `get_context_jsonschema()` | 输出 schema | 一致 | 一致 |
+
+实现方式：context 无法 JSON 化时，引擎把 **Python 对象按引用暂存**（`{"__langgraph_rs_object__": id}` 占位）
+并在取回时还原成原对象；这类按引用的 context 跳过引擎内的 JSON schema 校验（Python 侧已经校验过）。
+暂存表上限 4096 条，避免长跑进程无限增长。
+
 ### `Runtime` 注入与同步构建器里的异步节点（2026-11-27）
 
 **1. `Runtime` 注入**：LG 允许节点声明 `runtime: Runtime` 参数，运行期注入上下文对象。扩展此前只传

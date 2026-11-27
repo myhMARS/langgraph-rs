@@ -31,7 +31,7 @@ pub(crate) fn invoke(
         invoke_config = invoke_config.with_control(control.inner.clone());
     }
     if let Some(context) = context {
-        invoke_config = invoke_config.with_context(py_to_value(context)?);
+        invoke_config = invoke_config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
     }
     if let Some(lifecycle) = lifecycle {
         invoke_config = invoke_config.with_lifecycle_sink(lifecycle.clone());

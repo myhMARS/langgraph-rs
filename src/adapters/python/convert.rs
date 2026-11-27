@@ -191,9 +191,69 @@ fn decode_object(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResult<Option<Py
     })
 }
 
+/// Python objects kept alive while the engine carries a JSON placeholder for them.
+static STASHED_OBJECTS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<u64, Py<PyAny>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+static NEXT_STASHED_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Marker stored in place of a value that has no JSON form.
+const STASHED_KEY: &str = "__langgraph_rs_object__";
+
+/// How many referenced objects are kept before the oldest are dropped.
+const STASH_LIMIT: usize = 4096;
+
+fn stash_object(value: &Bound<'_, PyAny>) -> u64 {
+    let id = NEXT_STASHED_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut map) = STASHED_OBJECTS.lock() {
+        // Bounded so a long-lived process does not grow without limit; running graphs look their
+        // context up by id, and only very old finished runs can fall out.
+        if map.len() >= STASH_LIMIT
+            && let Some(oldest) = map.keys().min().copied()
+        {
+            map.remove(&oldest);
+        }
+        map.insert(id, value.clone().unbind());
+    }
+    id
+}
+
+fn stashed_object(py: Python<'_>, id: u64) -> Option<Py<PyAny>> {
+    STASHED_OBJECTS
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&id).map(|value| value.clone_ref(py)))
+}
+
+fn stashed_from_value(py: Python<'_>, value: &Value) -> Option<Py<PyAny>> {
+    if !crate::interop::is_stashed_object(value) {
+        return None;
+    }
+    let id = value.as_object()?.get(STASHED_KEY)?.as_u64()?;
+    stashed_object(py, id)
+}
+
+/// Convert a run `context` into the engine's JSON form, keeping Python objects by reference.
+///
+/// LangGraph hands the very object passed to `invoke(context=...)` to `Runtime.context`; the engine
+/// travels as JSON, so anything without a JSON form is stashed and referenced by id.
+pub(crate) fn context_to_value(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Value> {
+    match py_to_value(value) {
+        Ok(converted) => Ok(converted),
+        Err(_) => {
+            let _ = py;
+            let id = stash_object(value);
+            Ok(serde_json::json!({ STASHED_KEY: id }))
+        }
+    }
+}
+
 pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     use pyo3::conversion::IntoPyObjectExt;
 
+    if let Some(stashed) = stashed_from_value(py, value) {
+        return Ok(stashed);
+    }
     Ok(match value {
         Value::Null => py.None(),
         Value::Bool(value) => value.into_py_any(py)?,

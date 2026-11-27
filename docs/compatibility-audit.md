@@ -3677,3 +3677,20 @@ Two real gaps found by probing LangGraph directly:
    `TypeError: No synchronous function provided`, while the extension also runs it.
 
 Suite is 566 tests (five new), parity 82/82, examples 10/10, clippy and Rust tests clean.
+
+### Round 172: `context_schema` on the builder and Python contexts
+
+LangGraph takes the runtime context schema on the builder (`StateGraph(S, context_schema=Ctx)`) and
+hands the object passed as `invoke(context=...)` straight to `Runtime.context`. Neither worked here:
+the builder rejected the keyword with `TypeError`, and a dataclass context died with
+`TypeError: value of type Ctx cannot be converted to JSON`.
+
+The builder now stores the schema and passes it to `compile`, and the context travels as a reference:
+when a value has no JSON form the engine stashes the Python object and carries
+`{"__langgraph_rs_object__": id}`, resolving it back on the Python side (the stash is capped at 4096
+entries). Such a context also skips the engine's JSON-schema validation, since Python already checked
+it. `runtime.context` is now the very object the caller passed, and `get_context_jsonschema()` matches
+LangGraph's output.
+
+Suite is 568 tests (two new), parity 83/83 (new `context_schema` scenario), examples 10/10, clippy and
+Rust tests clean.

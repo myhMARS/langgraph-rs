@@ -51,7 +51,7 @@ impl PyAsyncCompiledGraph {
         let (thread, mut config) =
             super::convert::config_from_py(py, config.or(thread_id))?;
         if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let mut resume_start: Option<(
             Option<crate::Value>,
@@ -251,7 +251,7 @@ impl PyAsyncCompiledGraph {
         let (thread, mut config) =
             super::convert::config_from_py(py, config.or(thread_id))?;
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         if let Some(namespace) = checkpoint_ns {
             config.checkpoint_ns = Some(namespace);
@@ -507,7 +507,7 @@ impl PyAsyncCompiledGraph {
         let (thread, mut config) = super::convert::config_from_py(py, config.or(thread_id))?;
         let _ = thread;
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         if subgraphs {
             config = config.with_stream_subgraphs(true);
@@ -549,7 +549,7 @@ impl PyAsyncCompiledGraph {
             .collect::<PyResult<Vec<_>>>()?;
         let (_, mut config) = super::convert::config_from_py(py, config)?;
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let graph = self.graph.clone();
         let results = py.detach(move || {
@@ -588,7 +588,7 @@ impl PyAsyncCompiledGraph {
         let configs = super::graph::graph_compiled::per_input_configs(py, config, states.len())?;
         let mut base = run_config(thread_id);
         if let Some(context) = context.filter(|value| !value.is_none()) {
-            base = base.with_context(py_to_value(context)?);
+            base = base.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         let graph = self.graph.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -646,7 +646,7 @@ impl PyAsyncCompiledGraph {
             super::convert::config_from_py(py, config.or(thread_id))?;
 
         if let Some(context) = context {
-            config = config.with_context(py_to_value(context)?);
+            config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }
         if subgraphs {
             config = config.with_stream_subgraphs(true);

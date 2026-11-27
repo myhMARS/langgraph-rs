@@ -127,7 +127,15 @@ pub(crate) fn begin_run(
 ) -> Result<RunSetup> {
     // A new run must not inherit a parent command left by an unconsumed goto_parent.
     crate::runtime::context::clear_parent_command();
-    if let (Some(schema), Some(context)) = (context_schema, context.as_ref()) {
+    // LangGraph validates the Python object itself; a context the engine carries by reference (no
+    // JSON form) has already been checked by Python, so there is nothing left to validate here.
+    let stashed = context
+        .as_ref()
+        .map(crate::interop::is_stashed_object)
+        .unwrap_or(false);
+    if let (Some(schema), Some(context)) = (context_schema, context.as_ref())
+        && !stashed
+    {
         crate::runtime::context::validate_response(context, Some(schema)).map_err(|error| {
             Error::validation(format!("context does not match context_schema: {error}"))
         })?;

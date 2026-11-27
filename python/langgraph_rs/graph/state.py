@@ -198,6 +198,7 @@ class StateGraph(_native.StateGraph):
         output_schema: Any = None,
         private_schema: Any = None,
         managed_values: bool = False,
+        context_schema: Any = None,
     ) -> Any:
         # The native constructor is `tp_new`, so normalisation has to happen here (before the
         # engine sees the schema); a subclass `__init__` would run too late.
@@ -215,6 +216,8 @@ class StateGraph(_native.StateGraph):
         instance._builder_schema = state_schema
         instance._builder_outputs = list(output_schema) if output_schema else None
         instance._builder_handlers = {}
+        # LangGraph takes the runtime context schema on the builder and carries it into `compile`.
+        instance._builder_context_schema = context_schema
         return instance
 
     def add_node(self, name: Any, action: Any = None, **kwargs: Any) -> Any:
@@ -323,6 +326,10 @@ class StateGraph(_native.StateGraph):
                 "Node timeouts are only supported for async nodes because sync Python execution "
                 f"cannot be safely cancelled in-process. Node {name!r} is sync."
             )
+        if kwargs.get("context_schema") is None:
+            declared = getattr(self, "_builder_context_schema", None)
+            if declared is not None:
+                kwargs["context_schema"] = declared
         return CompiledStateGraph(
             super().compile(*args, **kwargs),
             schema_class=getattr(self, "_builder_schema", None),

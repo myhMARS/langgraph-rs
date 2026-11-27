@@ -663,6 +663,17 @@ pub fn checkpoint_from_langgraph_msgpack(bytes: &[u8]) -> Result<Checkpoint> {
     checkpoint_from_langgraph(&msgpack::decode(bytes)?)
 }
 
+/// Key used when a value has no JSON form and is carried by reference instead.
+pub const STASHED_OBJECT_KEY: &str = "__langgraph_rs_object__";
+
+/// Is this value a placeholder for an object the engine only references?
+pub fn is_stashed_object(value: &Value) -> bool {
+    value
+        .as_object()
+        .map(|object| object.len() == 1 && object.contains_key(STASHED_OBJECT_KEY))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

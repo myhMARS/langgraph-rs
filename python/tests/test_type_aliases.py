@@ -2932,3 +2932,41 @@ class AsyncNodeInSyncGraphTest(unittest.TestCase):
 
         chunks = asyncio.run(collect())
         self.assertEqual(chunks[-1], {"value": 3})
+
+
+class ContextSchemaTest(unittest.TestCase):
+    """`context_schema` on the builder and `context=` at run time, like LangGraph."""
+
+    @staticmethod
+    def _app(seen):
+        from dataclasses import dataclass
+
+        from langgraph_rs.runtime import Runtime
+
+        @dataclass
+        class Ctx:
+            user: str
+
+        def node(state, runtime: Runtime):
+            seen["context"] = runtime.context
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"}, context_schema=Ctx)
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile(), Ctx
+
+    def test_context_object_reaches_the_node(self):
+        seen = {}
+        app, Ctx = self._app(seen)
+        self.assertEqual(app.invoke({"value": 0}, context=Ctx(user="ann")), {"value": 1})
+        self.assertEqual(seen["context"], Ctx(user="ann"))
+        self.assertIs(type(seen["context"]), Ctx)
+
+    def test_context_jsonschema_is_exposed(self):
+        seen = {}
+        app, _ = self._app(seen)
+        schema = app.get_context_jsonschema()
+        self.assertEqual(schema["properties"]["user"]["type"], "string")
+        self.assertEqual(schema["required"], ["user"])
