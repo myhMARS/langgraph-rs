@@ -4620,3 +4620,21 @@ The experiment was fully reverted (669 tests green) rather than leaving an unuse
 the design conclusion is recorded for the next attempt.
 
 Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 224: second `PregelTask.result` attempt, and why it is not a one-field change
+
+The implementation followed the cross-row plan: a separate `task_writes` store (deliberately not the
+`task_results` memo the resume path reads), recording after each superstep, merging on pause, and joining a
+history row with its child. After all of it the checkpoints still carried an empty `task_writes`.
+
+Two candidate causes remain, and I could not separate them in this round: either
+`TaskResult.output.updates_map()` is already drained at the recording point, or the synchronous executor
+saves through a different path (`fresh.rs`) than the `save_checkpoint_via` branch that reads the store.
+
+Both attempts were reverted (669 tests green). The honest conclusion: task writes have to become first-class
+data collected where the superstep settles, wired into both save paths.
+
+This is the only remaining item with a known root cause and no implementation; everything else found by the
+audits is either fixed or a thread-model limitation.
+
+Suite is 669 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.

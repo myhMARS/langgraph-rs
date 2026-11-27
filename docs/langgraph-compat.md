@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `PregelTask.result`：第二次尝试与结论（2026-11-27，第 127 轮）
+
+按第 126 轮的结论做了完整实现：新增独立的 `task_writes` 存储（不碰恢复用的 `task_results`）、superstep 后按
+task 记录写入、暂停时合并、历史快照与"子行"合并。
+
+结果：**检查点里的 `task_writes` 始终为空**。定位到两个环节之一有问题（未能区分）：
+
+- `TaskResult.output.updates_map()` 在记录点可能已被消费为空；
+- 同步执行器保存检查点的路径可能不在我改的 `save_checkpoint_via` 分支上（`fresh.rs` 另有一条）。
+
+两次尝试都完整回退（669 测试全绿）。结论：这不是"加一个字段"的改动，需要把"任务写入"作为**一等数据**在
+superstep 结算处收集，并在两条保存路径（同步/异步）上都接上。工作量与风险都超出单轮可安全完成的范围。
+
+这是当前唯一**已知根因但未实现**的功能项，其余项都已修复或属线程模型限制。
+
 ### `PregelTask.result` 的实现结论：需要跨行关联（2026-11-27，第 126 轮）
 
 本轮尝试实现"按 task 记录写入"，做完后仍拿不到结果，但把**真实结构**摸清了：
