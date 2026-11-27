@@ -3375,3 +3375,21 @@ class EventTaskRunsTest(unittest.TestCase):
         )
         self.assertEqual(node_event["metadata"]["langgraph_path"], ["__pregel_pull", "a"])
         self.assertTrue(node_event["metadata"]["langgraph_checkpoint_ns"].startswith("a:"))
+
+
+class StoreTtlTest(unittest.TestCase):
+    """`InMemoryStore` rejects a TTL and unknown batch ops, like LangGraph."""
+
+    def test_ttl_is_rejected(self):
+        store = langgraph_rs.InMemoryStore()
+        self.assertFalse(store.supports_ttl)
+        with self.assertRaises(NotImplementedError):
+            store.put(("a",), "k", {"v": 1}, ttl=1)
+        store.put(("a",), "k", {"v": 1})
+        self.assertEqual(store.get(("a",), "k").value, {"v": 1})
+
+    def test_unknown_batch_op_is_a_value_error(self):
+        store = langgraph_rs.InMemoryStore()
+        with self.assertRaises(ValueError) as raised:
+            store.batch([{"namespace": ("a",), "key": "k", "value": {}}])
+        self.assertIn("Unknown operation type", str(raised.exception))

@@ -3856,3 +3856,19 @@ executes or imports the Python package. The handler behaves identically (`stream
 still yields the completed `AIMessage` for a non-streaming model).
 
 Suite is 587 tests, parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 183: `InMemoryStore` TTL and batch error types
+
+Two store-level differences:
+
+* `store.put(..., ttl=...)` was silently honoured; LangGraph's in-memory store declares
+  `supports_ttl = False` and raises `NotImplementedError` with a specific message. It now raises the
+  same. A test that relied on TTL expiry was rewritten to assert LangGraph's behaviour.
+* `store.batch([{...}])` (a plain dict instead of an op object) raised `TypeError: unknown store op`;
+  LangGraph raises `ValueError: Unknown operation type: <class 'dict'>`. Aligned.
+
+Verified equal in the same pass: all four `list_namespaces` parameter forms, `delete`, the async twins
+(`aget` / `aput` / `asearch` / `alist_namespaces` / `abatch`), missing-key `get`, and `search` with
+`filter` and `query`.
+
+Suite is 589 tests (two new), parity 88/88, examples 10/10, clippy and Rust tests clean.

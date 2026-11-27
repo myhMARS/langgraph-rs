@@ -78,10 +78,11 @@ class StoreSearchTest(unittest.TestCase):
 
     def test_ttl_hides_expired_items(self):
         store = rs.InMemoryStore()
-        store.put(("u",), "gone", {"text": "x"}, ttl=-0.01)
-        store.put(("u",), "kept", {"text": "y"}, ttl=60)
+        # LangGraph's in-memory store declares `supports_ttl = False` and rejects a TTL.
+        with self.assertRaises(NotImplementedError):
+            store.put(("u",), "gone", {"text": "x"}, ttl=-0.01)
+        store.put(("u",), "kept", {"text": "y"})
         self.assertEqual([h.key for h in store.search(("u",))], ["kept"])
-        self.assertIsNone(store.get(("u",), "gone"))
         self.assertEqual(store.get(("u",), "kept").value, {"text": "y"})
 
     def test_index_and_refresh_ttl_arguments_are_accepted(self):

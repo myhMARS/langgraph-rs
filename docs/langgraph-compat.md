@@ -177,6 +177,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `InMemoryStore` 的 TTL 与 batch 错误类型（2026-11-27）
+
+两处对齐 LG：
+
+| 场景 | LG | 改前 | 现在 |
+|---|---|---|---|
+| `store.put(..., ttl=1)` | `NotImplementedError`（`supports_ttl = False`） | 静默接受并生效 | `NotImplementedError`，文案一致 |
+| `store.batch([{...}])`（非 op 对象） | `ValueError: Unknown operation type: <class 'dict'>` | `TypeError: unknown store op` | `ValueError`，文案一致 |
+
+顺带确认一致：`list_namespaces` 的 `prefix` / `suffix` / `max_depth` / `limit` / `offset` 四种用法、
+`delete` / `aget` / `aput` / `asearch` / `alist_namespaces` / `abatch([])`、`get` 缺失返回 `None`、
+`search` 的 `filter` 与 `query`。
+
 ### Rust 不再反向导入 Python 包（2026-11-27）
 
 按架构要求，Rust 侧**不得** import `langgraph_rs.*`（那是 shim）。此前有 9 处反向导入，现已全部消除：

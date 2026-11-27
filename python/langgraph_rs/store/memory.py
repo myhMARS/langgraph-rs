@@ -68,6 +68,15 @@ class InMemoryStore(_NativeStore):
             self.index_config.get("embed") if isinstance(self.index_config, dict) else None
         )
 
+    def put(self, namespace: Any, key: str, value: Any, index: Any = None, *, ttl: Any = None) -> None:
+        """Store a value; LangGraph's in-memory store rejects a TTL."""
+        if ttl is not None and not self.supports_ttl:
+            raise NotImplementedError(
+                "TTL is not supported by InMemoryStore. Use a store implementation that supports "
+                "TTL or set ttl=None."
+            )
+        super().put(tuple(namespace), key, value, index=index)
+
     def batch(self, ops: Sequence[Any]) -> list[Any]:
         """Run a list of ops, mirroring LangGraph's dispatch.
 
@@ -95,8 +104,9 @@ class InMemoryStore(_NativeStore):
                 results[index] = self.list_namespaces(
                     max_depth=op.max_depth, limit=op.limit, offset=op.offset
                 )
-            else:  # pragma: no cover - unknown op
-                raise TypeError(f"unknown store op: {name}")
+            else:
+                # LangGraph rejects anything that is not an op object.
+                raise ValueError(f"Unknown operation type: {type(op)}")
         for op in writes:
             self.put(tuple(op.namespace), op.key, op.value, ttl=op.ttl)
         return results
