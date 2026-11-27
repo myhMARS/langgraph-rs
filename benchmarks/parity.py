@@ -477,6 +477,61 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+class _MessagesState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+def run_message_token_scenario() -> list[dict]:
+    """`stream_mode="messages"` streams model tokens with LangGraph's metadata."""
+
+    prompt = {"messages": [{"role": "user", "content": "hi"}]}
+
+    def build(engine):
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        model = GenericFakeChatModel(messages=iter([AIMessage(content="hello world")]))
+        if engine == "lg":
+            graph = LgStateGraph(_MessagesState)
+            graph.add_node("model", lambda state: {"messages": [model.invoke(state["messages"])]})
+            graph.add_edge(START, "model")
+            graph.add_edge("model", END)
+            return graph.compile()
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("model", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.add_edge(rs.START, "model")
+        graph.add_edge("model", rs.END)
+        return graph.compile()
+
+    def collect(engine):
+        chunks = list(build(engine).stream(prompt, stream_mode="messages"))
+        return [
+            {
+                "content": chunk[0].content,
+                "node": chunk[1].get("langgraph_node"),
+                "step": chunk[1].get("langgraph_step"),
+                "has_checkpoint_ns": str(chunk[1].get("checkpoint_ns", "")).startswith("model:"),
+                "path": list(chunk[1].get("langgraph_path") or ()),
+                "triggers": list(chunk[1].get("langgraph_triggers") or ()),
+            }
+            for chunk in chunks
+        ]
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "message_tokens",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_subgraph_stream_scenario() -> list[dict]:
     """`subgraphs=True` reports every chunk as `(namespace, payload)`, `()` at the top level."""
 
@@ -3591,6 +3646,7 @@ def main() -> None:
         run_wrap_tool_call_scenario,
         run_tasks_stream_scenario,
         run_subgraph_stream_scenario,
+        run_message_token_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

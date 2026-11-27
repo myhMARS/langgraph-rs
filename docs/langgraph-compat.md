@@ -332,6 +332,32 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `stream_mode="messages"` 的 token 流（2026-11-27）
+
+LG 在 `messages` 模式下按 **token** 上报模型输出，元数据是一整套 `langgraph_*` / `ls_*` 键。扩展
+此前只把节点的最终消息上报一条（`'hello world'`），元数据也缺 `checkpoint_ns` / `lc_versions` /
+`ls_*`。
+
+两处根因：
+
+1. 我们的 LangChain 回调处理器**不是** `_StreamingCallbackHandler`，于是 LangChain 的
+   `BaseChatModel._should_stream()` 返回 False，节点里的 `model.invoke(...)` 不会走流式路径，
+   自然没有 token。改成同时继承 `BaseCallbackHandler` 与
+   `langchain_core.tracers._streaming._StreamingCallbackHandler` 后，`invoke` 与 LG 一样自动流式。
+2. 元数据里少了 `checkpoint_ns`。LG 用的是**任务级**命名空间 `<node>:<task id>`，而
+   `langgraph_path` 只追加**子图**段 —— 两者不是同一个值，现在分别取用。
+
+实测两边一致：
+
+```
+tokens: ['hello', ' ', 'world']
+meta:   checkpoint_ns, langgraph_checkpoint_ns, langgraph_node, langgraph_path,
+        langgraph_step, langgraph_triggers, lc_versions, ls_integration,
+        ls_model_type, ls_provider
+```
+
+顺带把 `tags` 从消息元数据里去掉（LG 的元数据里没有这个键）。
+
 ### `subgraphs=True` 的命名空间包装（2026-11-27）
 
 LG 在 `subgraphs=True` 时把**每个** chunk 都包成 `(namespace, payload)`，顶层用空元组 `()`：

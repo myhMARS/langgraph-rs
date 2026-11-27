@@ -2917,4 +2917,33 @@ mode gets the `ns` key too).
 Also verified as already matching: `stream_mode="checkpoints"` (four chunks with the same key set).
 
 Suite is 477 tests (two new), parity 58/58 (new `subgraph_stream` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 134: `stream_mode="messages"` streams tokens
+
+LangGraph reports model output token by token in `messages` mode, with a full `langgraph_*` / `ls_*`
+metadata set. The extension reported one chunk with the node's final message (`'hello world'`) and
+left out `checkpoint_ns`, `lc_versions` and the `ls_*` keys.
+
+Two root causes:
+
+1. The LangChain callback handler was not a `_StreamingCallbackHandler`, so
+   `BaseChatModel._should_stream()` returned False and a node's `model.invoke(...)` never took the
+   streaming path — no tokens were produced. It now inherits both `BaseCallbackHandler` and
+   `langchain_core.tracers._streaming._StreamingCallbackHandler`, so `invoke` streams exactly as it
+   does under LangGraph.
+2. `checkpoint_ns` was missing. LangGraph uses the **task-level** namespace `<node>:<task id>` while
+   `langgraph_path` only appends *subgraph* segments — they are different values and are now read
+   separately.
+
+Verified identical:
+
+```
+tokens: ['hello', ' ', 'world']
+meta:   checkpoint_ns, langgraph_checkpoint_ns, langgraph_node, langgraph_path,
+        langgraph_step, langgraph_triggers, lc_versions, ls_integration,
+        ls_model_type, ls_provider
+```
+
+`tags` was also dropped from the message metadata, where LangGraph does not have it.
+
+Suite is 478 tests (one new), parity 59/59 (new `message_tokens` scenario), examples 10/10, streaming
+liveness check PASS, clippy and Rust tests clean.

@@ -1508,3 +1508,33 @@ class SubgraphStreamShapeTest(unittest.TestCase):
     def test_without_subgraphs_chunks_are_bare(self):
         chunks = list(self._app().stream({"value": 0}, stream_mode="updates"))
         self.assertIn({"sub": {"value": 7}}, chunks)
+
+
+class MessagesStreamTokensTest(unittest.TestCase):
+    """`stream_mode="messages"` streams model tokens, as LangGraph's handler does."""
+
+    @staticmethod
+    def _app():
+        from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+        from langchain_core.messages import AIMessage
+
+        model = GenericFakeChatModel(messages=iter([AIMessage(content="hello world")]))
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("model", lambda state: {"messages": [model.invoke(state["messages"])]})
+        graph.add_edge(langgraph_rs.START, "model")
+        graph.add_edge("model", langgraph_rs.END)
+        return graph.compile()
+
+    def test_tokens_are_streamed_separately(self):
+        chunks = list(
+            self._app().stream(
+                {"messages": [{"role": "user", "content": "hi"}]}, stream_mode="messages"
+            )
+        )
+        self.assertEqual([chunk[0].content for chunk in chunks], ["hello", " ", "world"])
+        metadata = chunks[0][1]
+        # LangGraph's metadata keys for a model event inside a node.
+        self.assertEqual(metadata["langgraph_node"], "model")
+        self.assertEqual(metadata["langgraph_step"], 1)
+        self.assertTrue(metadata["checkpoint_ns"].startswith("model:"))
+        self.assertNotIn("tags", metadata)

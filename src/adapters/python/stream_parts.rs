@@ -493,7 +493,8 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
                     }
                 }
             }
-            metadata.set_item("tags", tags)?;
+            // LangGraph does not put `tags` in the metadata of a message chunk.
+            let _ = &tags;
             // LangGraph yields `(message_chunk, metadata)`; rebuild the chunk type from the
             // JSON payload so callers can read `.content` / `.tool_call_chunks`.
             let payload = value_to_py(py, message)?;

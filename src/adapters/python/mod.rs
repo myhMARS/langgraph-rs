@@ -123,6 +123,17 @@ fn current_namespace() -> String {
     crate::current_namespace()
 }
 
+/// Checkpoint namespace of the running task: `<node>:<task id>`, as LangGraph reports it.
+#[pyfunction]
+fn current_checkpoint_ns() -> String {
+    let node = crate::runtime::context::current_node().unwrap_or_default();
+    match crate::runtime::context::current_task_id() {
+        Some(id) if !node.is_empty() => format!("{node}:{id}"),
+        Some(id) => id,
+        None => crate::current_namespace(),
+    }
+}
+
 /// Resume value stamped onto the current task, when replaying an interrupt.
 #[pyfunction]
 fn current_resume(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
@@ -260,7 +271,18 @@ pub(super) fn langchain_callback_handler(
     tags: Option<Vec<String>>,
 ) -> PyResult<Py<PyAny>> {
     let source = r#"
-class LangChainCallbackHandler:
+try:  # LangChain's base classes: `_StreamingCallbackHandler` makes `invoke` stream tokens.
+    from langchain_core.callbacks import BaseCallbackHandler as _LcBase
+    from langchain_core.tracers._streaming import _StreamingCallbackHandler as _LcStreaming
+except Exception:  # pragma: no cover - langchain_core is optional
+    class _LcBase:  # type: ignore[no-redef]
+        pass
+
+    class _LcStreaming:  # type: ignore[no-redef]
+        pass
+
+
+class LangChainCallbackHandler(_LcBase, _LcStreaming):
     raise_error = False
     ignore_llm = False
     ignore_chat_model = False
@@ -276,6 +298,7 @@ class LangChainCallbackHandler:
         # LLM runs that already streamed tokens; a run without tokens still has to reach
         # the `messages` stream once, the way LangGraph reports non-streaming models.
         self._streamed = set()
+        self._run_metadata = {}
 
     def _emit(self, token, kwargs=None):
         import langgraph_rs
@@ -286,13 +309,15 @@ class LangChainCallbackHandler:
         for key, value in event_metadata.items():
             if isinstance(value, (str, int, float, bool)):
                 metadata.setdefault(key, value)
-        for key in ("ls_provider", "ls_model_name", "ls_model_type", "ls_integration"):
-            value = (kwargs or {}).get(key)
-            if value is not None:
-                metadata[key] = value
+        for key, value in self._run_metadata.items():
+            metadata.setdefault(key, value)
+        # `checkpoint_ns` is the task's own namespace (`<node>:<task id>`); `langgraph_path` only
+        # appends *subgraph* segments, so it keeps using the run's namespace.
+        checkpoint_ns = langgraph_rs.current_checkpoint_ns()
+        if checkpoint_ns:
+            metadata["langgraph_checkpoint_ns"] = checkpoint_ns
+            metadata["checkpoint_ns"] = checkpoint_ns
         namespace = langgraph_rs.current_namespace()
-        if namespace:
-            metadata["langgraph_checkpoint_ns"] = namespace
         node = langgraph_rs.current_node()
         if node:
             metadata["langgraph_node"] = node
@@ -341,6 +366,16 @@ class LangChainCallbackHandler:
         name = metadata.get("ls_model_name") or metadata.get("model")
         if name:
             self.model = name
+        # LangChain reports the provider details on the start event; token events do not repeat
+        # them, so they are remembered here and merged into every chunk's metadata.
+        for key in ("ls_provider", "ls_model_name", "ls_model_type", "ls_integration"):
+            value = kwargs.get(key) or metadata.get(key)
+            if value is not None:
+                self._run_metadata[key] = value
+        for key in ("lc_versions",):
+            value = metadata.get(key)
+            if value is not None:
+                self._run_metadata[key] = value
 
     def on_llm_start(self, serialized, prompts, **kwargs):
         self._pick_model(kwargs)
@@ -557,6 +592,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_triggers, module)?)?;
     module.add_function(wrap_pyfunction!(current_step, module)?)?;
     module.add_function(wrap_pyfunction!(_progress_counter, module)?)?;
+    module.add_function(wrap_pyfunction!(current_checkpoint_ns, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
