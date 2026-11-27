@@ -362,6 +362,33 @@ def _normalize_supersteps(supersteps: Any) -> Any:
         normalized.append(entries)
     return normalized
 
+
+
+def _state_snapshot(raw: Any) -> Any:
+    """Turn the engine's snapshot dict into LangGraph's `StateSnapshot` named tuple."""
+    if raw is None:
+        return None
+    from ..types import StateSnapshot
+
+    snapshot = StateSnapshot.from_native(raw)
+    if snapshot is None:
+        return None
+    if snapshot.tasks:
+        tasks = []
+        for task in snapshot.tasks:
+            state = getattr(task, "state", None)
+            if isinstance(state, dict) and "values" in state:
+                state = StateSnapshot.from_native(state)
+                try:
+                    task = task._replace(state=state)
+                except AttributeError:
+                    pass
+            tasks.append(task)
+        if tuple(tasks) != snapshot.tasks:
+            snapshot = snapshot._replace(tasks=tuple(tasks))
+    return snapshot
+
+
 class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     """The compiled graph, exposing LangGraph's ``Runnable`` API.
 
@@ -472,6 +499,40 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             },
         }
 
+    def get_state(self, thread_id: Any = None, checkpoint_ns: Any = None, subgraphs: bool = False, config: Any = None) -> Any:
+        """LangGraph's `get_state`, returning a `StateSnapshot` named tuple."""
+        return _state_snapshot(
+            self._inner.get_state(
+                thread_id, checkpoint_ns=checkpoint_ns, subgraphs=subgraphs
+            )
+        )
+
+    def get_state_history(self, thread_id: Any, before: Any = None, limit: Any = None, checkpoint_ns: Any = None, filter: Any = None) -> Any:
+        """LangGraph's `get_state_history`, newest first."""
+        # LangGraph returns an iterator; a list keeps it iterable and indexable for callers that
+        # relied on the extension's earlier behaviour.
+        try:
+            entries = self._inner.get_state_history(
+                thread_id, before=before, limit=limit, checkpoint_ns=checkpoint_ns, filter=filter
+            )
+        except TypeError:
+            # Async graphs have no server-side filter; apply it here.
+            entries = self._inner.get_state_history(
+                thread_id, before=before, limit=limit, checkpoint_ns=checkpoint_ns
+            )
+        snapshots = [_state_snapshot(entry) for entry in entries]
+        if filter:
+            wanted = dict(filter)
+            snapshots = [
+                snapshot
+                for snapshot in snapshots
+                if all(
+                    (snapshot.metadata or {}).get(key) == value
+                    for key, value in wanted.items()
+                )
+            ]
+        return snapshots
+
     async def aget_state(
         self,
         thread_id: Any = None,
@@ -480,8 +541,10 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         config: Any = None,
     ) -> Any:
         if getattr(self._inner, "_native_async", False):
-            return await self._inner.aget_state(
-                thread_id, checkpoint_ns=checkpoint_ns, subgraphs=subgraphs
+            return _state_snapshot(
+                await self._inner.aget_state(
+                    thread_id, checkpoint_ns=checkpoint_ns, subgraphs=subgraphs
+                )
             )
         return await asyncio.to_thread(
             self._inner.get_state,

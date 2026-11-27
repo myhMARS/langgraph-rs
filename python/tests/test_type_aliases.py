@@ -2776,3 +2776,46 @@ class SaverWriteApiTest(unittest.TestCase):
         saver.put_writes(found.config, [("value", 9)], "task-1")
         after = saver.get_tuple(config)
         self.assertEqual([(task, channel) for task, channel, _ in after.pending_writes], [("task-1", "value")])
+
+
+class StateSnapshotTupleTest(unittest.TestCase):
+    """`StateSnapshot` is LangGraph's named tuple, with the extension's helpers on top."""
+
+    @staticmethod
+    def _snapshot():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "tuple"}}
+        app.invoke({"value": 0}, config)
+        return app.get_state(config)
+
+    def test_is_a_named_tuple(self):
+        snapshot = self._snapshot()
+        self.assertIsInstance(snapshot, tuple)
+        self.assertEqual(len(snapshot), 8)
+        self.assertEqual(
+            snapshot._fields,
+            ("values", "next", "config", "metadata", "created_at", "parent_config", "tasks", "interrupts"),
+        )
+        values, next_nodes = snapshot[0], snapshot[1]
+        self.assertEqual(values, {"value": 1})
+        self.assertEqual(next_nodes, ())
+
+    def test_fields_and_helpers(self):
+        snapshot = self._snapshot()
+        self.assertEqual(snapshot.values, {"value": 1})
+        self.assertEqual(snapshot.metadata["source"], "loop")
+        self.assertFalse(snapshot.interrupted)
+        self.assertEqual(snapshot.step, 1)
+        self.assertEqual(snapshot.thread_id, "tuple")
+        self.assertEqual(snapshot.checkpoint_ns, "")
+
+    def test_mapping_style_still_works(self):
+        snapshot = self._snapshot()
+        self.assertEqual(snapshot["values"], {"value": 1})
+        self.assertIn("values", snapshot)
+        self.assertEqual(sorted(snapshot.keys()), sorted(snapshot._fields))
+        self.assertEqual(snapshot.get("missing", "fallback"), "fallback")

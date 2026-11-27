@@ -3629,3 +3629,18 @@ leaves the history length unchanged (3), and `put_writes` appends
 `[('task-1', 'value')]` to the pending writes.
 
 Suite is 556 tests (two new), parity 81/81, examples 10/10, clippy and Rust tests clean.
+
+### Round 169: `StateSnapshot` is LangGraph's named tuple
+
+The snapshot used to be a dict subclass: field attributes read fine, but `isinstance(snapshot, tuple)`,
+tuple unpacking and the `dir()` shape all differed from LangGraph.
+
+`langgraph_rs.types.StateSnapshot` is now a `NamedTuple` with LangGraph's exact eight fields
+(`values`, `next`, `config`, `metadata`, `created_at`, `parent_config`, `tasks`, `interrupts`), built at
+the facade boundary from the engine's JSON snapshot. The extension keeps its convenience layer on top:
+mapping-style `snapshot["values"]`, `in`, `keys()`/`get()`, and the derived `step` / `thread_id` /
+`checkpoint_ns` / `parent_checkpoint_id` / `interrupted` properties. `get_state_history` still returns a
+list (LangGraph yields an iterator) so older callers keep index access, and `filter` is applied in the
+facade for async graphs, which have no server-side filter.
+
+Suite is 559 tests (three new), parity 81/81, examples 10/10, clippy and Rust tests clean.

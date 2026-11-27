@@ -1044,7 +1044,7 @@ impl PyAsyncCompiledGraph {
     }
 
     /// Read the full checkpoint history of a thread, newest first.
-    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None))]
+    #[pyo3(signature = (thread_id, checkpoint_ns=None, before=None, limit=None, filter=None))]
     fn get_state_history(
         &self,
         py: Python<'_>,
@@ -1052,6 +1052,7 @@ impl PyAsyncCompiledGraph {
         checkpoint_ns: Option<String>,
         before: Option<String>,
         limit: Option<usize>,
+        filter: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let (thread_id, parsed_config) = super::convert::config_from_py(py, Some(thread_id))?;
         let thread_id = thread_id
@@ -1063,6 +1064,8 @@ impl PyAsyncCompiledGraph {
             .map_err(|error| to_pyerr(py, error))?;
         let source: std::sync::Arc<dyn crate::adapters::python::types::history::HistorySource> =
             self.graph.clone();
+        // The facade applies `filter` in Python: the async history source has no SQL-like query.
+        let _ = filter;
         let history = crate::adapters::python::types::PyStateHistory::new(
             source, thread_id, namespace, before, limit,
         );

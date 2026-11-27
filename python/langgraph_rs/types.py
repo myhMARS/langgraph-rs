@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable as AbcCallable
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, NamedTuple, Protocol, TypedDict
 
 from ._compat import fill_unsupported, module_getattr, re_export
 from .warnings import LangGraphDeprecatedSinceV10, LangGraphDeprecatedSinceV11
@@ -113,6 +113,92 @@ _MISSING = re_export(globals(), ["CachePolicy", "Command", "GraphInterrupt", "In
 
 # ``PregelTask`` is a plain named tuple in LangGraph, so the Python definition is used.
 PregelTask = _PregelTask
+
+
+class StateSnapshot(NamedTuple):
+    """LangGraph's snapshot of a thread: a named tuple with derived conveniences.
+
+    The eight fields mirror LangGraph exactly (so ``isinstance(snapshot, tuple)`` and tuple
+    unpacking work); the extension additionally answers mapping-style lookups and exposes the
+    derived `thread_id` / `step` / `interrupted` helpers older code used.
+    """
+
+    values: Any
+    next: Any
+    config: Any
+    metadata: Any
+    created_at: Any
+    parent_config: Any
+    tasks: Any
+    interrupts: Any
+
+    @property
+    def thread_id(self) -> Any:
+        return (self.config or {}).get("configurable", {}).get("thread_id")
+
+    @property
+    def checkpoint_ns(self) -> Any:
+        return (self.config or {}).get("configurable", {}).get("checkpoint_ns")
+
+    @property
+    def checkpoint_id(self) -> Any:
+        return (self.config or {}).get("configurable", {}).get("checkpoint_id")
+
+    @property
+    def parent_checkpoint_id(self) -> Any:
+        return (self.parent_config or {}).get("configurable", {}).get("checkpoint_id")
+
+    @property
+    def step(self) -> Any:
+        return (self.metadata or {}).get("step")
+
+    @property
+    def interrupted(self) -> bool:
+        return bool(self.interrupts)
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            try:
+                return getattr(self, key)
+            except AttributeError as error:
+                raise KeyError(key) from error
+        return tuple.__getitem__(self, key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Mapping-style lookup kept for callers that treated the snapshot as a dict."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def keys(self) -> tuple[str, ...]:
+        return self._fields
+
+    def __contains__(self, item: Any) -> bool:
+        # Tuple membership is by value; strings are treated as field names.
+        if isinstance(item, str):
+            return item in self._fields
+        return tuple.__contains__(self, item)
+
+    def items(self) -> Any:
+        return ((key, self[key]) for key in self._fields)
+
+    @classmethod
+    def from_native(cls, raw: Any) -> "StateSnapshot":
+        """Build a snapshot from the engine's JSON-shaped result."""
+        if isinstance(raw, cls) or raw is None:
+            return raw
+        data = dict(raw)
+        return cls(
+            values=data.get("values"),
+            next=data.get("next"),
+            config=data.get("config"),
+            metadata=data.get("metadata"),
+            created_at=data.get("created_at"),
+            parent_config=data.get("parent_config"),
+            tasks=data.get("tasks"),
+            interrupts=data.get("interrupts"),
+        )
 fill_unsupported(globals(), _MISSING)
 
 StreamMode = Literal[

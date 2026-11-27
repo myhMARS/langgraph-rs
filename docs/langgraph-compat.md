@@ -359,8 +359,10 @@ LG 的 `stream_mode="messages"` 里，模型**没有逐 token 流式**时会给�
 
 实测：`set_node_defaults(retry_policy=RetryPolicy(max_attempts=2))` 后注册的节点确实重试 2 次。
 
-**仍未对齐（已记录）**：`StateSnapshot` 是 dict 子类而非 NamedTuple；`InMemorySaver` 缺 `put` /
-`put_writes`（引擎内部写入路径）。
+**已对齐**：`StateSnapshot` 现在是 **NamedTuple**（字段与 LG 完全相同：`values`/`next`/`config`/
+`metadata`/`created_at`/`parent_config`/`tasks`/`interrupts`），`isinstance(snapshot, tuple)`、索引、
+解包都成立；扩展额外保留了字典式取值的便利（`snapshot["values"]`、`.step`、`.thread_id`、
+`.interrupted`）。
 
 ### `Send` / `Interrupt` / `TimeoutPolicy` 的属性面（2026-11-27）
 
