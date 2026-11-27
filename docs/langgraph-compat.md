@@ -177,6 +177,28 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 异步 API：`AsyncStateGraph` 是真异步，`StateGraph.compile()` 是线程模拟（已知差异，2026-11-27）
+
+第六次审计专攻**异步 API**（此前从未审计）。结论分两半：
+
+**真异步路径（`AsyncStateGraph(...).compile()`）**：`_inner` 是原生 `AsyncCompiledGraph`，`ainvoke` / `astream` /
+`aget_state` / `Command(resume=...)` 都是原生实现。实测：`astream` 逐块返回（0.21s 的节点在 0.21s 时而不是运行结束时
+给块）、异步节点、同步节点、混用、取消后同线程可复用、并发 `gather` 全部正常。
+
+**线程模拟路径（`StateGraph(...).compile()` 与 `create_react_agent`）**：`_inner` 是同步 `CompiledGraph`，门面的
+`a*` 方法走 `asyncio.to_thread(同步调用)`。结果是**结果正确但异步语义不完整**：
+
+| 症状 | 原因 |
+|---|---|
+| `astream` 仍然"攒完再吐"（两块同时到达） | `to_thread` 里跑完整个同步流后再逐个 yield |
+| `asyncio.wait_for` / `task.cancel()` 后节点**仍然跑完并写检查点** | 线程里的同步运行无法被取消 |
+| `async def` 节点里 `await model.ainvoke()` 的 token 不出现（`stream_mode="messages"` 为空） | 模型回调在第三个线程触发，Rust 引擎的线程内上下文不在那里 |
+| `astream_events(version="v2")` + 异步节点直接报 `Cannot run the event loop while another loop is running` | v2 在调用方事件循环线程上驱动同步 `stream()` |
+| `aget_state_history` 是协程而非异步迭代器 | 同样是 `to_thread` 包装 |
+
+**规避方式**：需要真异步语义时用 `AsyncStateGraph`（或等下一轮把 `StateGraph.compile()` 统一到异步实现）。
+LG 只有一个 `StateGraph`，编译产物同时支持同步与异步 —— 这是两边结构的差异，不是参数差异。
+
 ### 子图中断的两种接入方式（已知差异）
 
 在父节点里**手工调用**带 checkpointer 的子图（`child.invoke(...)`，且不传 config）：LG 会把父图的 config 传进嵌套

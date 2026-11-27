@@ -4234,3 +4234,30 @@ means making empty channels report their default everywhere, which would also ch
 node-input semantics — disproportionate risk for the difference.
 
 Suite is 653 tests (one new), parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 203: async API audit — the sync builder fakes async
+
+A sixth audit covered the async API, which no earlier round had touched. 30 checks passed and 14 failed;
+almost all failures trace to one structural fact: **`StateGraph.compile()` returns a sync-only inner**,
+so the facade's `a*` methods fall back to `asyncio.to_thread(sync)`. Graphs compiled from
+`AsyncStateGraph` do have a native `AsyncCompiledGraph` and behave correctly (verified: incremental
+`astream`, async nodes, cancellation, `gather`, interrupt/resume).
+
+Consequences on the sync builder's async facade, all reproduced:
+
+* `astream` buffers: chunks arrive only when the whole run finishes.
+* `asyncio.wait_for`/`task.cancel()` does not stop the run — the abandoned node still completes and
+  commits its checkpoint.
+* Tokens from `await model.ainvoke()` inside an `async def` node never reach `stream_mode="messages"`
+  (the callback fires on a third thread where the engine's thread-local context is absent).
+* `astream_events(version="v2")` with async nodes raises `Cannot run the event loop while another loop
+  is running`.
+* `aget_state_history` is a coroutine rather than an async iterator.
+* `AsyncInMemorySaver` lacks `aput`/`aput_writes`/`adelete_thread`/`aget`/`acopy_thread` (its
+  `InMemorySaver` sibling has the full surface).
+
+Documented in `docs/langgraph-compat.md` with the workaround (use `AsyncStateGraph`). Round 204 will
+unify `StateGraph.compile()` on the async implementation so one compiled graph supports both APIs, the
+way LangGraph does.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
