@@ -3808,3 +3808,19 @@ Still missing, documented: `langgraph_triggers`, `langgraph_path`, and the task-
 
 Suite is 585 tests, parity 88/88 (the `stream_events` scenario now also compares a metadata subsequence),
 examples 10/10, clippy and Rust tests clean.
+
+### Round 180: task-scoped event metadata and per-task runs
+
+Two refinements to `astream_events`:
+
+* The `updates` stream chunk now carries its task id, so node event metadata can include
+  `langgraph_checkpoint_ns` (`<node>:<task-id>`, matching LangGraph's shape) and `langgraph_path`
+  (`["__pregel_pull", <node>]`). Metadata is now LangGraph's key set minus `langgraph_triggers`.
+* Runs are keyed per task instead of per node, so parallel `Send`s to the same node produce one run
+  each (distinct `run_id` and namespace), the way LangGraph reports them.
+
+Still different, documented: `langgraph_triggers` (LangGraph distinguishes edge-driven
+`branch:to:<node>` from `__pregel_push`, which the stream does not carry), the interleaving order of
+parallel tasks' events within a superstep, and the child `LangGraph` `on_chain_end` payload.
+
+Suite is 587 tests (two new), parity 88/88, examples 10/10, clippy and Rust tests clean.

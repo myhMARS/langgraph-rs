@@ -29,6 +29,8 @@ pub enum StreamChunk {
     Updates {
         /// Superstep index.
         step: usize,
+        /// Task that produced the writes (LangGraph's checkpoint namespace uses it).
+        id: String,
         /// Node that produced the writes.
         node: String,
         /// Map of channel -> write.

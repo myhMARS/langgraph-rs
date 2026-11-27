@@ -275,6 +275,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         }
                         sink(StreamChunk::Updates {
                             step,
+                            id: id.clone(),
                             node: node.clone(),
                             update: Value::Object(written),
                         });

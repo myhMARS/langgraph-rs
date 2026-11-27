@@ -540,14 +540,22 @@ async def astream_events_v2(
     # Subgraph runs, keyed by their namespace path, so nested events nest like LangGraph's.
     child_runs: dict[tuple, dict[str, Any]] = {}
 
-    def node_metadata(namespace: tuple, node: str, step: Any = None) -> dict:
-        # LangGraph tags every node event with the integration, superstep and node name.
+    def node_metadata(
+        namespace: tuple, node: str, step: Any = None, task_id: Any = None
+    ) -> dict:
+        # LangGraph tags every node event with the integration, superstep, node and pull path.
         metadata: dict[str, Any] = {"ls_integration": "langgraph"}
         if step is not None:
             metadata["langgraph_step"] = step
         metadata["langgraph_node"] = node
-        if namespace:
-            metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
+        path = ["__pregel_pull", node]
+        path.extend(part.split(":")[0] for part in namespace if part)
+        metadata["langgraph_path"] = path
+        segments = [part for part in namespace if part]
+        if task_id:
+            segments.append(f"{node}:{task_id}")
+        if segments:
+            metadata["langgraph_checkpoint_ns"] = "|".join(segments)
         return metadata
 
     def graph_chunk(payload: Any, namespace: tuple = ()) -> Any:
@@ -575,12 +583,15 @@ async def astream_events_v2(
 
     async for part in _aiter_collected(parts()):
         step = None
+        task_id: Any = None
         if isinstance(part, dict) and "type" in part:
             # v2 parts are `{"type", "ns", "data"}` (updates also carry their superstep).
             namespace, mode, payload = part.get("ns") or (), part["type"], part.get("data")
             step = part.get("step")
+            task_id = part.get("task_id")
         elif isinstance(part, tuple) and len(part) == 3:
             namespace, mode, payload = part
+            task_id = None
         else:
             namespace, mode, payload = (), "values", part
         namespace = tuple(namespace)
@@ -604,7 +615,7 @@ async def astream_events_v2(
                     node,
                     parent_node_run,
                     {"input": input},
-                    node_metadata(namespace[:-1], node, step),
+                    node_metadata(namespace[:-1], node, step, task_id),
                     [graph_run],
                 )
             child_run = str(uuid4())
@@ -629,9 +640,11 @@ async def astream_events_v2(
             for event_chunk in close_children(()):
                 yield event_chunk
         for node, update in (payload or {}).items():
-            key = (namespace, node)
-            run_id = node_runs.get(key)
-            metadata = node_metadata(namespace, node, step)
+            # One run per task: parallel `Send`s to the same node stay separate, like LangGraph.
+            # A subgraph host already opened its run when the child started, so fall back to that.
+            key = (namespace, node, task_id)
+            run_id = node_runs.get(key) or node_runs.get((namespace, node))
+            metadata = node_metadata(namespace, node, step, task_id)
             if run_id is None:
                 run_id = str(uuid4())
                 node_runs[key] = run_id

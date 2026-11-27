@@ -3301,3 +3301,77 @@ class EventMetadataTest(unittest.TestCase):
         )
         for item in node_events:
             self.assertEqual(item["metadata"]["ls_integration"], "langgraph")
+
+
+class EventTaskRunsTest(unittest.TestCase):
+    """Parallel `Send`s to one node get one run each; metadata mirrors LangGraph's keys."""
+
+    def test_parallel_sends_have_separate_runs(self):
+        import asyncio
+
+        def add(left, right):
+            return (left or 0) + (right or 0)
+
+        def fan(state):
+            return [langgraph_rs.Send("worker", {"v": 1}), langgraph_rs.Send("worker", {"v": 2})]
+
+        # A callable channel spec keeps the reducer explicit (this module uses postponed
+        # annotations, so `Annotated` metadata would arrive as text).
+        graph = langgraph_rs.StateGraph({"total": add, "v": "last_value"})
+        graph.add_node("fan", lambda state: {})
+        graph.add_node("worker", lambda state: {"total": state.get("v", 0)})
+        graph.add_edge(langgraph_rs.START, "fan")
+        graph.add_conditional_edges("fan", fan, ["worker"])
+        graph.add_edge("worker", langgraph_rs.END)
+        app = graph.compile()
+        self.assertEqual(app.invoke({"total": 0}), {"total": 3})
+
+        async def collect():
+            return [event async for event in app.astream_events({"total": 0}, version="v2")]
+
+        events = asyncio.run(collect())
+        workers = [item for item in events if item["metadata"].get("langgraph_node") == "worker"]
+        self.assertEqual(
+            [item["event"] for item in workers],
+            [
+                "on_chain_start",
+                "on_chain_stream",
+                "on_chain_end",
+                "on_chain_start",
+                "on_chain_stream",
+                "on_chain_end",
+            ],
+        )
+        self.assertEqual(len({item["run_id"] for item in workers}), 2)
+        self.assertEqual(
+            len({item["metadata"]["langgraph_checkpoint_ns"] for item in workers}), 2
+        )
+
+    def test_metadata_keys(self):
+        import asyncio
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = asyncio.run(collect())
+        node_event = next(
+            item for item in events if item["metadata"].get("langgraph_node") == "a"
+        )
+        self.assertEqual(
+            sorted(node_event["metadata"]),
+            [
+                "langgraph_checkpoint_ns",
+                "langgraph_node",
+                "langgraph_path",
+                "langgraph_step",
+                "ls_integration",
+            ],
+        )
+        self.assertEqual(node_event["metadata"]["langgraph_path"], ["__pregel_pull", "a"])
+        self.assertTrue(node_event["metadata"]["langgraph_checkpoint_ns"].startswith("a:"))

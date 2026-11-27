@@ -343,12 +343,17 @@ schema introspection 全套由基类提供。扩展现在也这样：
 **2. 图级 chunk 的内容**：LG 的 `on_chain_stream`（图级）装的是**该超步的 updates**（`{'a': {'value': 1}}`），
 不是完整 state；扩展此前装完整 values。现在一致。
 
-**metadata 已补**：节点事件现在带 `ls_integration`、`langgraph_step`（超步序号，从 1 开始）、`langgraph_node`
-（以及子图的 `langgraph_checkpoint_ns`），与 LG 相同的键值。
+**metadata 已基本齐平**：节点事件现在带 `ls_integration`、`langgraph_step`（超步序号，从 1 开始）、
+`langgraph_node`、`langgraph_path`（`["__pregel_pull", <node>]`）、`langgraph_checkpoint_ns`
+（`<node>:<task-id>`，子图带 `|` 前缀）。并行 `Send` 到同一节点时**每个任务各自一条 run**（run_id 与 ns 都不同）。
 
-**仍未对齐（记录）**：LG 的节点 metadata 还带 `langgraph_triggers`、`langgraph_path`，以及含 **task id** 的
-`langgraph_checkpoint_ns`（形如 `a:<task-id>`）；这些需要引擎把任务级信息接进流事件，属内部细节，暂不提供。
-另外子图 `LangGraph` 的 `on_chain_end` 里 LG 多一个 `input` 字段。
+**仍未对齐（记录）**：
+
+* `langgraph_triggers`：LG 是 `('branch:to:<node>',)` 或 `('__pregel_push',)`，取决于任务由边还是 `Send` 触发；
+  引擎目前不在流块里带这个信息。
+* 同一超步内多个并行任务的**事件交错顺序**：LG 先发完所有 start 再发 stream（
+  `start#1, start#2, stream#1, stream#2, end#1, end#2`），扩展按任务顺序发（`start#1, stream#1, end#1, start#2…`）。
+* 子图 `LangGraph` 的 `on_chain_end` 里 LG 多一个 `input` 字段。
 
 ### `astream_events` 的图级事件按超步发出（2026-11-27）
 
