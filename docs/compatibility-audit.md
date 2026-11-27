@@ -3776,3 +3776,21 @@ Confirmed equal in the same pass: the recursion-limit error text (byte for byte)
 
 Suite is 581 tests, parity 87/87 (new `stream_events` scenario), examples 10/10, clippy and Rust tests
 clean.
+
+### Round 178: nested subgraph events and the graph chunk payload
+
+Two more `astream_events` gaps:
+
+* Subgraphs emitted no events of their own. The event builder now streams with `subgraphs=True` and
+  opens a child `LangGraph` run per namespace, so the sequence and `parent_ids` depth match
+  LangGraph's: parent node start → child graph start → child node events → child graph end → parent
+  stream/end.
+* The graph-level `on_chain_stream` carried the whole state; LangGraph puts that superstep's updates
+  there (`{'a': {'value': 1}}`). Fixed.
+
+Still different (documented): subgraph event `metadata` is thinner than LangGraph's (no
+`langgraph_step` / `langgraph_triggers`), and the child `LangGraph` `on_chain_end` lacks LangGraph's
+`input` field.
+
+Suite is 584 tests (three new), parity 88/88 (new `subgraph_events` scenario), examples 10/10, clippy
+and Rust tests clean.

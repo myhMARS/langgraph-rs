@@ -501,6 +501,68 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_subgraph_events_scenario() -> list[dict]:
+    """`astream_events` nests subgraph runs like LangGraph."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        import asyncio
+
+        if engine == "lg":
+            child = LgStateGraph(LgState)
+            child.add_node("c", lambda state: {"value": 1})
+            child.add_edge(START, "c")
+            child.add_edge("c", END)
+            parent = LgStateGraph(LgState)
+            parent.add_node("sub", child.compile())
+            parent.add_edge(START, "sub")
+            parent.add_edge("sub", END)
+        else:
+            child = rs.StateGraph({"value": "last_value"})
+            child.add_node("c", lambda state: {"value": 1})
+            child.add_edge(rs.START, "c")
+            child.add_edge("c", rs.END)
+            parent = rs.StateGraph({"value": "last_value"})
+            parent.add_node("sub", child.compile())
+            parent.add_edge(rs.START, "sub")
+            parent.add_edge("sub", rs.END)
+        app = parent.compile()
+
+        async def collect_events():
+            return [
+                event async for event in app.astream_events({"value": 0}, version="v2")
+            ]
+
+        events = asyncio.run(collect_events())
+        return {
+            "sequence": [[item["event"], item["name"]] for item in events],
+            "depths": [
+                [item["name"], len(item["parent_ids"])] for item in events
+            ],
+            "chunks": [
+                item["data"]["chunk"]
+                for item in events
+                if item["event"] == "on_chain_stream" and item["name"] == "LangGraph"
+            ],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "subgraph_events",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_stream_events_scenario() -> list[dict]:
     """`astream_events` emits the same event sequence as LangGraph."""
 
@@ -5361,6 +5423,7 @@ def main() -> None:
         run_unknown_channel_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
+        run_subgraph_events_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

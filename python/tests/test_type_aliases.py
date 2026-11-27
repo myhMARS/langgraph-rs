@@ -3201,3 +3201,76 @@ class StreamEventsOrderTest(unittest.TestCase):
                 ("on_chain_end", "LangGraph"),
             ],
         )
+
+
+class SubgraphEventNestingTest(unittest.TestCase):
+    """Subgraph `astream_events` nest like LangGraph's."""
+
+    @staticmethod
+    def _app():
+        child = langgraph_rs.StateGraph({"value": "last_value"})
+        child.add_node("c", lambda state: {"value": 1})
+        child.add_edge(langgraph_rs.START, "c")
+        child.add_edge("c", langgraph_rs.END)
+        parent = langgraph_rs.StateGraph({"value": "last_value"})
+        parent.add_node("sub", child.compile())
+        parent.add_edge(langgraph_rs.START, "sub")
+        parent.add_edge("sub", langgraph_rs.END)
+        return parent.compile()
+
+    def test_nested_sequence(self):
+        import asyncio
+
+        app = self._app()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = [(item["event"], item["name"]) for item in asyncio.run(collect())]
+        self.assertEqual(
+            events,
+            [
+                ("on_chain_start", "LangGraph"),
+                ("on_chain_start", "sub"),
+                ("on_chain_start", "LangGraph"),
+                ("on_chain_start", "c"),
+                ("on_chain_stream", "c"),
+                ("on_chain_end", "c"),
+                ("on_chain_end", "LangGraph"),
+                ("on_chain_stream", "sub"),
+                ("on_chain_end", "sub"),
+                ("on_chain_stream", "LangGraph"),
+                ("on_chain_end", "LangGraph"),
+            ],
+        )
+
+    def test_parent_depth_increases_for_child_nodes(self):
+        import asyncio
+
+        app = self._app()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = asyncio.run(collect())
+        depths = {item["name"]: len(item["parent_ids"]) for item in events if item["name"] == "c"}
+        self.assertEqual(depths, {"c": 3})
+
+    def test_graph_chunk_carries_the_step_updates(self):
+        import asyncio
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        chunks = [
+            item["data"]["chunk"]
+            for item in asyncio.run(collect())
+            if item["event"] == "on_chain_stream" and item["name"] == "LangGraph"
+        ]
+        self.assertEqual(chunks, [{"a": {"value": 1}}])

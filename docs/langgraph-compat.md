@@ -332,6 +332,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `astream_events` 里子图事件嵌套 + 图级 chunk 内容（2026-11-27）
+
+两处继续对齐：
+
+**1. 子图事件**：LG 在父图节点是子图时，会**嵌套**发出子图自己的 `LangGraph` 生命周期事件（父节点 start →
+子图 start → 子图节点事件 → 子图 end → 父节点 stream/end）。扩展此前只有父图那一层。
+现在事件序列与 `parent_ids` 深度逐条相同。
+
+**2. 图级 chunk 的内容**：LG 的 `on_chain_stream`（图级）装的是**该超步的 updates**（`{'a': {'value': 1}}`），
+不是完整 state；扩展此前装完整 values。现在一致。
+
+**仍未对齐（记录）**：子图事件的 metadata 比 LG 少几个字段（LG 还带 `ls_integration` / `langgraph_step` /
+`langgraph_triggers` 等），以及子图 `LangGraph` 的 `on_chain_end` 里 LG 多一个 `input` 字段。
+
 ### `astream_events` 的图级事件按超步发出（2026-11-27）
 
 LG 在 `astream_events` 里，**每个超步结束**都会发一次图级 `on_chain_stream`（两个节点 → 两次 + 一次 start/end）。

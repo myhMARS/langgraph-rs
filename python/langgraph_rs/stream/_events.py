@@ -527,6 +527,7 @@ async def astream_events_v2(
                 thread_id=thread_id,
                 stream_mode=["updates", "values"],
                 version="v2",
+                subgraphs=True,
                 **kwargs,
             ):
                 collected["last"] = part
@@ -536,19 +537,37 @@ async def astream_events_v2(
 
     node_runs: dict[tuple, str] = {}
     collected: Any = None
-    # The engine emits `values` before `updates` for a superstep; the graph-level chunk is held
-    # back until that step's node events are out, which is the order LangGraph uses.
-    pending_values: Any = None
+    # Subgraph runs, keyed by their namespace path, so nested events nest like LangGraph's.
+    child_runs: dict[tuple, dict[str, Any]] = {}
 
-    def graph_chunk(payload: Any) -> Any:
-        return event(
-            "on_chain_stream",
-            graph_name,
-            graph_run,
-            {"chunk": payload},
-            {"ls_integration": "langgraph"},
-            [],
-        )
+    def node_metadata(namespace: tuple, node: str) -> dict:
+        metadata = {"langgraph_node": node}
+        if namespace:
+            metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
+        return metadata
+
+    def graph_chunk(payload: Any, namespace: tuple = ()) -> Any:
+        metadata: dict[str, Any] = {"ls_integration": "langgraph"}
+        if namespace:
+            metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
+        return event("on_chain_stream", graph_name, graph_run, {"chunk": payload}, metadata, [])
+
+    def close_children(namespace: tuple) -> Iterator[Any]:
+        """End every child graph run opened under `namespace` or deeper."""
+        for path in sorted(child_runs, key=len, reverse=True):
+            if len(path) <= len(namespace) and path != namespace:
+                continue
+            if path[: len(namespace)] != namespace:
+                continue
+            state = child_runs.pop(path)
+            yield event(
+                "on_chain_end",
+                graph_name,
+                state["run_id"],
+                {"output": state.get("values")},
+                {"ls_integration": "langgraph", "langgraph_checkpoint_ns": "|".join(path)},
+                list(state["parents"]),
+            )
 
     async for part in _aiter_collected(parts()):
         if isinstance(part, dict) and "type" in part:
@@ -558,34 +577,73 @@ async def astream_events_v2(
             namespace, mode, payload = part
         else:
             namespace, mode, payload = (), "values", part
+        namespace = tuple(namespace)
         if mode == "values":
-            collected = payload
-            pending_values = payload
+            if namespace:
+                state = child_runs.get(namespace)
+                if state is not None:
+                    state["values"] = payload
+            else:
+                collected = payload
             continue
+        if namespace and namespace not in child_runs:
+            # First activity inside a subgraph: its parent node starts, then the child graph.
+            node = namespace[-1].split(":")[0]
+            parent_node_run = node_runs.get((namespace[:-1], node))
+            if parent_node_run is None:
+                parent_node_run = str(uuid4())
+                node_runs[(namespace[:-1], node)] = parent_node_run
+                yield event(
+                    "on_chain_start",
+                    node,
+                    parent_node_run,
+                    {"input": input},
+                    node_metadata(namespace[:-1], node),
+                    [graph_run],
+                )
+            child_run = str(uuid4())
+            child_runs[namespace] = {
+                "run_id": child_run,
+                "node": node,
+                "parents": [graph_run, parent_node_run],
+                "values": None,
+            }
+            yield event(
+                "on_chain_start",
+                graph_name,
+                child_run,
+                {"input": input},
+                {"ls_integration": "langgraph", "langgraph_checkpoint_ns": "|".join(namespace)},
+                [graph_run, parent_node_run],
+            )
+        child = child_runs.get(namespace)
+        parents = [graph_run] if child is None else list(child["parents"]) + [child["run_id"]]
+        if not namespace:
+            # A subgraph node's own stream/end follow the child graph's end event.
+            for event_chunk in close_children(()):
+                yield event_chunk
         for node, update in (payload or {}).items():
             key = (namespace, node)
             run_id = node_runs.get(key)
-            metadata = {"langgraph_node": node}
-            if namespace:
-                metadata["langgraph_checkpoint_ns"] = "|".join(namespace)
+            metadata = node_metadata(namespace, node)
             if run_id is None:
                 run_id = str(uuid4())
                 node_runs[key] = run_id
-                yield event(
-                    "on_chain_start", node, run_id, {"input": input}, metadata, [graph_run]
-                )
-            yield event("on_chain_stream", node, run_id, {"chunk": update}, metadata, [graph_run])
+                yield event("on_chain_start", node, run_id, {"input": input}, metadata, parents)
+            yield event("on_chain_stream", node, run_id, {"chunk": update}, metadata, parents)
             yield event(
                 "on_chain_end",
                 node,
                 run_id,
                 {"input": input, "output": update},
                 metadata,
-                [graph_run],
+                parents,
             )
-        if pending_values is not None:
-            yield graph_chunk(pending_values)
-            pending_values = None
+        if not namespace:
+            # LangGraph's graph-level chunk is this superstep's updates, not the whole state.
+            yield graph_chunk(payload)
+    for event_chunk in close_children(()):
+        yield event_chunk
     yield event(
         "on_chain_end",
         graph_name,
