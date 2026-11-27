@@ -332,6 +332,13 @@ pub(super) fn langchain_callback_handler(
     Ok(handler.unbind())
 }
 
+/// Emit a tool-call lifecycle event (`stream_mode="tools"`) from inside a tool.
+#[pyfunction]
+fn _tool_event(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    let value = py_to_value(value)?;
+    crate::runtime::context::push_tool_event(value).map_err(|error| to_pyerr(py, error))
+}
+
 /// Record consumption for the current node.
 #[pyfunction]
 fn record_usage(py: Python<'_>, usage: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -447,6 +454,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(custom, module)?)?;
     module.add_function(wrap_pyfunction!(message, module)?)?;
     module.add_function(wrap_pyfunction!(langchain_callback_handler, module)?)?;
+    module.add_function(wrap_pyfunction!(_tool_event, module)?)?;
     module.add_function(wrap_pyfunction!(record_usage, module)?)?;
     module.add_function(wrap_pyfunction!(record_tokens, module)?)?;
     module.add_function(wrap_pyfunction!(version, module)?)?;

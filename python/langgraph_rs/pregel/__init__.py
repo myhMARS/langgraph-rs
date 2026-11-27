@@ -31,6 +31,60 @@ except Exception:  # pragma: no cover - langchain_core is optional
         pass
 
 
+class NodeBuilder:
+    """Fluent builder for a node's read/write channels (LangGraph internal)."""
+
+    def __init__(self) -> None:
+        self._writes: list[Any] = []
+        self._reads: list[str] = []
+        self._subscribers: list[str] = []
+        self._metadata: dict[str, Any] = {}
+        self._cache_policy: Any = None
+        self._retry_policies: Any = (None,)
+        self._timeout: Any = None
+
+    def subscribe_to(self, *channels: str) -> "NodeBuilder":
+        self._subscribers.extend(channels)
+        return self
+
+    def read_from(self, *channels: str) -> "NodeBuilder":
+        self._reads.extend(channels)
+        return self
+
+    def write_to(self, *writes: Any) -> "NodeBuilder":
+        self._writes.extend(writes)
+        return self
+
+    def meta(self, **metadata: Any) -> "NodeBuilder":
+        self._metadata.update(metadata)
+        return self
+
+    def subscribe_only(self, channel: str) -> "NodeBuilder":
+        return self.subscribe_to(channel)
+
+    def add_cache_policy(self, cache_policy: Any) -> "NodeBuilder":
+        self._cache_policy = cache_policy
+        return self
+
+    def add_retry_policies(self, *retry_policies: Any) -> "NodeBuilder":
+        self._retry_policies = retry_policies or (None,)
+        return self
+
+    def set_timeout(self, timeout: Any) -> "NodeBuilder":
+        self._timeout = timeout
+        return self
+
+    def do(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError(
+            "NodeBuilder is internal to LangGraph; build nodes with StateGraph.add_node()."
+        )
+
+    def build(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError(
+            "NodeBuilder is internal to LangGraph; build nodes with StateGraph.add_node()."
+        )
+
+
 class Pregel(_Runnable, metaclass=_abc.ABCMeta):
     """Base class of the compiled graph, mirroring LangGraph's `Pregel` surface.
 
@@ -87,7 +141,7 @@ class Pregel(_Runnable, metaclass=_abc.ABCMeta):
 # own engine.
 _MISSING = fill_unsupported(
     globals(),
-    ["ChannelWrite", "ChannelWriteEntry", "NodeBuilder", "PregelNode", "SyncAsyncFuture"],
+    ["ChannelWrite", "ChannelWriteEntry", "PregelNode", "SyncAsyncFuture"],
     hint="Use the compiled graph returned by StateGraph.compile() instead.",
 )
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

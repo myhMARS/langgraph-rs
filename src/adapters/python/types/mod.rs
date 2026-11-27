@@ -158,6 +158,28 @@ pub struct PyToolRuntime {
 
 #[pymethods]
 impl PyToolRuntime {
+    /// Stream a partial tool output on the `tools` channel (LangGraph 1.2).
+    ///
+    /// A no-op when the run does not stream tools, matching LangGraph's writer-absent behaviour.
+    fn emit_output_delta(&self, py: Python<'_>, delta: Py<PyAny>) -> PyResult<()> {
+        let value = crate::adapters::python::convert::py_to_value(delta.bind(py))?;
+        let mut payload = serde_json::Map::new();
+        payload.insert(
+            "event".to_string(),
+            serde_json::Value::String("tool-output-delta".to_string()),
+        );
+        payload.insert("delta".to_string(), value);
+        if let Some(id) = &self.tool_call_id {
+            payload.insert(
+                "tool_call_id".to_string(),
+                serde_json::Value::String(id.clone()),
+            );
+        }
+        // Outside a run there is no sink; ignore the failure like LangGraph's missing writer.
+        let _ = crate::runtime::context::push_tool_event(serde_json::Value::Object(payload));
+        Ok(())
+    }
+
     #[new]
     #[pyo3(signature = (state=None, context=None, config=None, stream_writer=None, tool_call_id=None, store=None, tools=None, execution_info=None, server_info=None))]
     #[allow(clippy::too_many_arguments)]

@@ -177,6 +177,20 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 内部协议类型与工具输出增量（2026-11-27）
+
+类扫描从 5 处收窄到 **1 处**：
+
+| 项 | 变化 |
+|---|---|
+| `PregelExecutableTask` | 按 LG 的 dataclass 字段补齐（13 个字段，含 `cache_key` / `path` / `retry_policy` / `subgraphs` / `timeout`） |
+| `ChannelProtocol` | 补上（`ValueType` / `UpdateType` / `get` / `update` / `checkpoint` / `from_checkpoint` / `consume`） |
+| `NodeBuilder` | 补上 10 个方法（`subscribe_to` / `read_from` / `write_to` / `meta` / `add_cache_policy` / `add_retry_policies` / `set_timeout` / `subscribe_only` / `do` / `build`） |
+| `ToolRuntime.emit_output_delta(delta)` | **原生实现**：把增量推到 `stream_mode="tools"` 通道（`tool-output-delta` 事件）；不在运行期时静默无操作，与 LG 的"无 writer"行为一致 |
+
+唯一剩余：`RetryPolicy` 的 `count` / `index`（LG 是 NamedTuple，扩展是原生类；字段访问与重试行为实测一致，
+不为此重写类型）。
+
 ### 编译图就是 `Pregel`、通道协议补全（2026-11-27）
 
 **1. `isinstance(compiled, Pregel)` 现在是 `True`。** LG 的编译图是 `Pregel` 的子类；扩展此前没有这个关系。

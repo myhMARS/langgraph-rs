@@ -187,6 +187,34 @@ except Exception:  # pragma: no cover - langchain_core is optional
     from ..types import RunnableConfig  # type: ignore[assignment]  # noqa: F401
 
 
+class ChannelProtocol:
+    """The channel protocol a custom channel implements."""
+
+    ValueType: Any = None
+    UpdateType: Any = None
+
+    def get(self) -> Any:
+        """The channel's current value."""
+        raise NotImplementedError
+
+    def update(self, values: Sequence[Any]) -> bool:
+        """Apply writes; returns whether the value changed."""
+        raise NotImplementedError
+
+    def checkpoint(self) -> Any:
+        """Serializable form of the current value."""
+        raise NotImplementedError
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: Any) -> "ChannelProtocol":
+        """Rebuild a channel from `checkpoint()`."""
+        raise NotImplementedError
+
+    def consume(self) -> bool:
+        """Whether the channel was updated in this step."""
+        raise NotImplementedError
+
+
 class BaseCheckpointSaver:
     """LangGraph's checkpointer protocol.
 

@@ -3979,3 +3979,22 @@ The class sweep is down to 5 internal entries: `ToolRuntime.emit_output_delta`, 
 `index`, `PregelExecutableTask`, `ChannelProtocol`, `NodeBuilder`.
 
 Suite is 611 tests (two new), parity 89/89, examples 10/10, clippy and Rust tests clean.
+
+### Round 191: internal protocol types and tool output deltas
+
+The class sweep (73 public LangGraph classes) went from 5 remaining entries to **one**:
+
+* `PregelExecutableTask` now carries LangGraph's 13 dataclass fields.
+* `ChannelProtocol` was added with its seven members.
+* `NodeBuilder` gained its ten fluent methods (`subscribe_to`, `read_from`, `write_to`, `meta`,
+  `add_cache_policy`, `add_retry_policies`, `set_timeout`, `subscribe_only`, plus `do`/`build` that
+  explain where to build nodes instead).
+* `ToolRuntime.emit_output_delta(delta)` is implemented **natively**: it pushes the delta onto the
+  `tools` stream (`tool-output-delta`), and silently no-ops outside a run, matching LangGraph's
+  missing-writer behaviour. (The shim-side override was removed once the native method existed — the
+  injected runtime is the native object.)
+
+The only remaining surface difference is `RetryPolicy.count`/`index`, because LangGraph models that
+policy as a NamedTuple while ours is a native class with identical field access and retry behaviour.
+
+Suite is 612 tests (one new), parity 89/89, examples 10/10, clippy and Rust tests clean.

@@ -3741,3 +3741,43 @@ class PregelAndChannelSurfaceTest(unittest.TestCase):
         self.assertIs(type(channel.copy()), LastValue)
         for name in ("checkpoint", "from_checkpoint", "consume", "finish"):
             self.assertTrue(hasattr(BaseChannel, name), name)
+
+
+class ToolOutputDeltaTest(unittest.TestCase):
+    """`ToolRuntime.emit_output_delta` streams on the `tools` channel."""
+
+    def test_delta_reaches_the_tools_stream(self):
+        from langchain_core.tools import tool
+
+        from langgraph_rs.prebuilt import ToolRuntime as _Runtime
+
+        # The annotation is resolved from module globals at call time.
+        globals()["ToolRuntime"] = _Runtime
+
+        @tool
+        def streamer(query: str, runtime: ToolRuntime) -> str:
+            """Stream partial output."""
+            runtime.emit_output_delta({"partial": query})
+            return "done"
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", langgraph_rs.prebuilt.ToolNode([streamer]))
+        graph.add_edge(langgraph_rs.START, "tools")
+        graph.add_edge("tools", langgraph_rs.END)
+        payload = {
+            "messages": [
+                {
+                    "role": "ai",
+                    "content": "",
+                    "tool_calls": [
+                        {"name": "streamer", "args": {"query": "q"}, "id": "c1"}
+                    ],
+                }
+            ]
+        }
+        events = list(graph.compile().stream(payload, stream_mode="tools"))
+        self.assertEqual(
+            [event["event"] for event in events],
+            ["tool-started", "tool-output-delta", "tool-finished"],
+        )
+        self.assertEqual(events[1]["delta"], {"partial": "q"})

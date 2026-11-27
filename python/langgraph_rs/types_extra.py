@@ -263,18 +263,53 @@ class CacheKey(NamedTuple):
     ttl: int | None
 
 class PregelExecutableTask:
-    """Internal executable task (shape kept for annotations)."""
+    """Internal executable task (LangGraph's dataclass shape)."""
 
-    __slots__ = ("name", "input", "proc", "writes", "config", "triggers")
+    __slots__ = (
+        "name",
+        "input",
+        "proc",
+        "writes",
+        "config",
+        "triggers",
+        "retry_policy",
+        "cache_key",
+        "id",
+        "path",
+        "writers",
+        "subgraphs",
+        "timeout",
+    )
 
-    def __init__(self, name: str = "", input: Any = None, proc: Any = None) -> None:
+    def __init__(
+        self,
+        name: str = "",
+        input: Any = None,
+        proc: Any = None,
+        writes: Any = None,
+        config: Any = None,
+        triggers: Any = None,
+        retry_policy: Any = None,
+        cache_key: Any = None,
+        id: str = "",
+        path: Any = None,
+        writers: Any = (),
+        subgraphs: Any = (),
+        timeout: Any = None,
+    ) -> None:
         self.name = name
         self.input = input
         self.proc = proc
-        self.writes: list[Any] = []
-        self.config: dict[str, Any] = {}
-        self.triggers: tuple[str, ...] = ()
-
+        self.writes = writes if writes is not None else []
+        self.config = config if config is not None else {}
+        self.triggers = tuple(triggers or ())
+        self.retry_policy = tuple(retry_policy or ())
+        self.cache_key = cache_key
+        self.id = id
+        self.path = tuple(path or ())
+        self.writers = tuple(writers or ())
+        self.subgraphs = tuple(subgraphs or ())
+        self.timeout = timeout
 
 class ToolOutputMixin:
     """Mixin marking a message as tool output."""
