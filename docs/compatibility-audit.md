@@ -4463,3 +4463,23 @@ cannot be interrupted), but its result is discarded — the thread stays at the 
 thread-backed executor our guarantee is "completed supersteps are kept, the in-flight one is dropped".
 
 Suite is 661 tests (two new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 215: locating the timeout difference
+
+Measuring both executors on the same `async def` node gave an answer opposite to the earlier guess:
+
+| scenario | `StateGraph` (sync engine) | `AsyncStateGraph` (async engine) |
+|---|---|---|
+| `run_timeout` exceeded | `NodeTimeoutError` | `NodeTimeoutError` |
+| `idle_timeout` exceeded | **runs to completion** | `NodeTimeoutError` |
+
+The async engine is the correct one; the sync engine never enforces `idle_timeout` for coroutine nodes.
+The idle watchdog is implemented in Python (`wrap_async_idle`, because a coroutine runs on a private
+loop) and only the async builder installs it — the sync builder's generic `node_from_python` wrapper does
+not.
+
+Fixing it means threading the timeout policy into `node_from_python`, which changes the sync builder's
+node-wrapping signature; that needed more verification than the round allowed, so it is recorded as a
+known difference with the workaround (`AsyncStateGraph` for nodes that need `idle_timeout`).
+
+Suite is 661 tests, parity 99/99, examples 10/10, clippy and Rust tests clean.

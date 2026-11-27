@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 超时语义：`idle_timeout` 在同步构建器上不生效（2026-11-27，第 118 轮实测）
+
+第 106 轮审计提到的"异步执行器超时语义不同"，本轮测清楚了，方向**与预期相反**：
+
+| 场景（`async def` 节点） | `StateGraph`（同步引擎） | `AsyncStateGraph`（异步引擎） |
+|---|---|---|
+| `run_timeout=0.15`，节点 0.4s | `NodeTimeoutError` ✓ | `NodeTimeoutError` ✓ |
+| `idle_timeout=0.1`，节点静默 0.4s | **无超时，正常运行** ✗ | `NodeTimeoutError` ✓ |
+
+即：**异步引擎是对的，同步引擎缺了 `idle_timeout`**。原因是 idle 看门狗用 Python 包装实现
+（`wrap_async_idle`，因为协程跑在私有事件循环上），而这个包装只装在异步构建器
+（`async_builder.rs`）里；同步构建器的通用 Python 节点包装
+（`convert::node_from_python`）没有装。
+
+修法需要把超时策略传进 `node_from_python` 并在返回协程时套用同一个包装 —— 涉及同步构建器的节点包装签名，
+本轮时间不够做完整验证，因此**记录为已知差异**（规避方式：需要 `idle_timeout` 的异步节点用 `AsyncStateGraph`）。
+
 ### 取消传播：`RunControl.abort()` 真正生效（2026-11-27，第 117 轮）
 
 第 106 轮审计指出"`task.cancel()` 后节点仍跑完并写检查点"。本轮发现**更基础的缺陷**：
