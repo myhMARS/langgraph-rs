@@ -3122,4 +3122,25 @@ the same values, and multi-mode streaming (`["updates", "values", "custom"]`, v1
 same sequence of parts.
 
 Suite is 498 tests (one new), parity 67/67 (new `checkpoint_history` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 143: `add_node(defer=True)`
+
+LangGraph declares a deferred node with `defer=True` and allows it to be an **entry point** and to
+have **outgoing / conditional edges**. The extension used a different keyword (`deferred`) and
+rejected both situations at validation:
+
+```
+TypeError: StateGraph.add_node() got an unexpected keyword argument 'defer'
+RuntimeError: graph validation failed: deferred node `d` cannot be an entry point
+```
+
+`defer` is now accepted (`deferred` kept as an alias) and both restrictions are gone — the scheduler
+already runs deferred tasks only when no regular task is pending, which is exactly LangGraph's rule.
+Verified end to end: input `{'log': [], 'value': 0}` yields `{'log': ['e'], 'value': 1}`, the deferred
+node running after the regular one.
+
+The Rust test that encoded the old restrictions now asserts the LangGraph behaviour instead.
+
+Also verified as matching: `Command(update=..., goto=...)` returns `{'value': 11}` on both engines.
+
+Suite is 500 tests (two new), parity 68/68 (new `defer` scenario), examples 10/10, clippy and Rust
+tests clean.

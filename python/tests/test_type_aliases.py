@@ -1820,3 +1820,31 @@ class InputCheckpointTest(unittest.TestCase):
         self.assertEqual(sources, ["loop", "loop", "loop", "input"])
         self.assertEqual(history[-1].values, {})
         self.assertEqual(history[0].values, {"value": 2})
+
+
+class DeferAndCommandTest(unittest.TestCase):
+    """`add_node(defer=True)` and `Command(update=..., goto=...)` follow LangGraph."""
+
+    def test_defer_keyword_and_entry_node(self):
+        graph = langgraph_rs.StateGraph({"log": "append", "value": "last_value"})
+        graph.add_node("d", lambda state: {"value": 1}, defer=True)
+        graph.add_node("e", lambda state: {"log": ["e"]})
+        graph.add_edge(langgraph_rs.START, "d")
+        graph.add_edge(langgraph_rs.START, "e")
+        graph.add_edge("d", langgraph_rs.END)
+        graph.add_edge("e", langgraph_rs.END)
+        # The deferred node runs after the regular one and may have outgoing edges.
+        self.assertEqual(
+            graph.compile().invoke({"log": [], "value": 0}), {"log": ["e"], "value": 1}
+        )
+
+    def test_command_update_with_goto(self):
+        def start_node(state):
+            return langgraph_rs.Command(update={"value": 1}, goto="b")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", start_node)
+        graph.add_node("b", lambda state: {"value": (state.get("value") or 0) + 10})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("b", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 11})

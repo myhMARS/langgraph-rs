@@ -56,29 +56,8 @@ impl<S: State> StateGraph<S> {
         }
         for node in &self.deferred {
             self.require_node("deferred node", node)?;
-            if self.entry.contains(node) {
-                return Err(Error::validation(format!(
-                    "deferred node `{node}` cannot be an entry point"
-                )));
-            }
-            if self
-                .edges
-                .get(node)
-                .is_some_and(|targets| !targets.is_empty())
-            {
-                return Err(Error::validation(format!(
-                    "deferred node `{node}` cannot have outgoing edges"
-                )));
-            }
-            if self
-                .conditional
-                .get(node)
-                .is_some_and(|edges| !edges.is_empty())
-            {
-                return Err(Error::validation(format!(
-                    "deferred node `{node}` cannot have conditional edges"
-                )));
-            }
+            // LangGraph lets a deferred node have ordinary outgoing edges: they are followed once
+            // the deferred task finally runs.
         }
 
         // Subgraphs compiled without their own checkpointer adopt the parent's saver, like

@@ -488,6 +488,50 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+class _DeferState(TypedDict, total=False):
+    log: Annotated[list, operator.add]
+    value: int
+
+
+def run_defer_scenario() -> list[dict]:
+    """`add_node(defer=True)` runs after regular tasks and may have outgoing edges."""
+
+    class LgState(TypedDict, total=False):
+        log: list
+        value: int
+
+    def lg_run():
+        graph = LgStateGraph(_DeferState)
+        graph.add_node("d", lambda state: {"value": 1}, defer=True)
+        graph.add_node("e", lambda state: {"log": ["e"]})
+        graph.add_edge(START, "d")
+        graph.add_edge(START, "e")
+        graph.add_edge("d", END)
+        graph.add_edge("e", END)
+        return dict(graph.compile().invoke({"log": [], "value": 0}))
+
+    def rs_run():
+        graph = rs.StateGraph({"log": "append", "value": "last_value"})
+        graph.add_node("d", lambda state: {"value": 1}, defer=True)
+        graph.add_node("e", lambda state: {"log": ["e"]})
+        graph.add_edge(rs.START, "d")
+        graph.add_edge(rs.START, "e")
+        graph.add_edge("d", rs.END)
+        graph.add_edge("e", rs.END)
+        return dict(graph.compile().invoke({"log": [], "value": 0}))
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "defer",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_checkpoint_history_scenario() -> list[dict]:
     """`get_state_history` entries: step, source, values and next for a plain run."""
 
@@ -4127,6 +4171,7 @@ def main() -> None:
         run_saver_surface_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
+        run_defer_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

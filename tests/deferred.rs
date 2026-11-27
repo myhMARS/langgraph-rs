@@ -98,25 +98,35 @@ fn deferred_node_interrupt_can_be_resumed() {
 }
 
 #[test]
-fn deferred_validation_rejects_invalid_definitions() {
-    let error = StateGraph::<DeferredState>::new()
-        .add_node_deferred("entry", |_state: &DeferredState| Ok(NodeOutput::new()))
+fn deferred_nodes_may_be_entries_and_have_edges() {
+    // LangGraph accepts a deferred entry point and deferred nodes with outgoing edges; the deferred
+    // task simply runs once no regular task is pending.
+    let graph = StateGraph::<DeferredState>::new()
+        .add_node_deferred("entry", |_state: &DeferredState| {
+            Ok(NodeOutput::new().set("value", 7))
+        })
         .set_entry_point("entry")
+        .set_finish_point("entry")
         .compile()
-        .err()
-        .expect("deferred entry point must be rejected");
-    assert!(error.to_string().contains("deferred"));
+        .expect("deferred entry point compiles");
+    let output = graph.invoke(&DeferredState::default(), &RunConfig::new()).unwrap();
+    assert_eq!(output.value, 7);
 
-    let error = StateGraph::<DeferredState>::new()
-        .add_node("a", |_state: &DeferredState| Ok(NodeOutput::new()))
-        .add_node_deferred("summary", |_state: &DeferredState| Ok(NodeOutput::new()))
+    let graph = StateGraph::<DeferredState>::new()
+        .add_node("a", |_state: &DeferredState| {
+            Ok(NodeOutput::new().set("log", vec!["a".to_string()]))
+        })
+        .add_node_deferred("summary", |_state: &DeferredState| {
+            Ok(NodeOutput::new().set("value", 1))
+        })
         .set_entry_point("a")
         .add_edge("a", "summary")
-        .add_edge("summary", "a")
+        .set_finish_point("summary")
         .compile()
-        .err()
-        .expect("deferred node with outgoing edges must be rejected");
-    assert!(error.to_string().contains("outgoing edges"));
+        .expect("deferred node with outgoing edges compiles");
+    let output = graph.invoke(&DeferredState::default(), &RunConfig::new()).unwrap();
+    assert_eq!(output.value, 1);
+    assert_eq!(output.log, vec!["a".to_string()]);
 }
 
 #[test]

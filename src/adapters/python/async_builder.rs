@@ -229,7 +229,7 @@ impl PyAsyncStateGraph {
     }
 
     /// Register a Python callable as an async node.
-    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, deferred=false, destinations=None, timeout=None))]
+    #[pyo3(signature = (name, function, retry_policy=None, cache_policy=None, error_handler=None, defer=None, deferred=None, destinations=None, timeout=None))]
     #[allow(clippy::too_many_arguments)]
     fn add_node(
         mut slf: PyRefMut<'_, Self>,
@@ -239,7 +239,8 @@ impl PyAsyncStateGraph {
         retry_policy: Option<PyRef<'_, PyRetryPolicy>>,
         cache_policy: Option<PyRef<'_, PyCachePolicy>>,
         error_handler: Option<String>,
-        deferred: bool,
+        defer: Option<bool>,
+        deferred: Option<bool>,
         destinations: Option<Vec<String>>,
         timeout: Option<PyRef<'_, PyTimeoutPolicy>>,
     ) -> PyResult<Py<Self>> {
@@ -269,6 +270,8 @@ impl PyAsyncStateGraph {
             None => function,
         };
         let mut builder = builder;
+        // LangGraph spells this `defer`; `deferred` is kept as an alias.
+        let deferred = defer.or(deferred).unwrap_or(false);
         if deferred {
             builder = builder.set_deferred(name.clone());
         }

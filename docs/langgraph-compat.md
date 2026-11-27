@@ -332,6 +332,26 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `add_node(defer=True)`（2026-11-27）
+
+LG 用 `defer=True` 声明延迟节点（等没有常规任务时才跑），并且允许：
+
+- 延迟节点**作为入口**
+- 延迟节点**有出边** / 条件边
+
+扩展此前：关键字叫 `deferred`（LG 是 `defer`），且把上面两种情况都当校验错误
+（`deferred node ... cannot be an entry point` / `cannot have outgoing edges`）。
+
+现在 `defer` 与 `deferred` 都接受，两条校验限制已移除（调度器本来就在没有常规任务时才跑延迟
+任务）。实测与 LG 一致：
+
+```
+输入 {'log': [], 'value': 0}
+输出 {'log': ['e'], 'value': 1}   # 延迟节点 d 在 e 之后执行
+```
+
+顺带核对了 `Command(update=..., goto=...)`：两边都是 `{'value': 11}`。
+
 ### 检查点历史里的 `source="input"` 条目（2026-11-27）
 
 LG 的 `get_state_history` 会给出四条记录，其中 `metadata.source == "input"`、`step == -1` 的那条
