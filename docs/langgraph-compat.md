@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `bulk_update_state` 的入参与返回值（2026-11-27）
+
+LG 的 `bulk_update_state(config, supersteps)` 里每个 superstep 是
+`(values, as_node, task_id)` **元组**列表，返回**新检查点的 config**；扩展此前只接受
+`{"values": ..., "as_node": ...}` 字典形式，返回 `StateSnapshot`。
+
+现在两种入参都接受（元组是 LG 的原生形式，字典是扩展的便利形式），返回值改成 config：
+
+```
+bulk_update_state(cfg, [[({"value": 7}, "a", None)]])
+→ {'configurable': {...}}；get_state(cfg): values {'value': 7}，next ('b',)
+```
+
+顺带核对 `StateSnapshot` 的属性面：`values` / `next` / `config` / `metadata` / `created_at` /
+`parent_config` / `tasks` / `interrupts` 八项都能取到，与 LG 一致（扩展额外支持字典式下标访问）。
+
 ### `update_state` 的作者推断与返回值（2026-11-27）
 
 LG 的 `update_state(config, values)` 在没给 `as_node` 时**自动推断作者**（按 `versions_seen` 里

@@ -3416,4 +3416,24 @@ genuine ties.
 state back with `get_state` as LangGraph documents. Tests and the parity scenario were updated to that
 flow (the scenario now also compares the returned keys).
 
-Suite is 524 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.
+Suite is 524 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.### Round 157: `bulk_update_state` input and return shape
+
+LangGraph's `bulk_update_state(config, supersteps)` takes a list of supersteps where each step is a
+list of `(values, as_node, task_id)` **tuples**, and returns the new checkpoint's config. The
+extension only accepted `{"values": ..., "as_node": ...}` dictionaries and returned a
+`StateSnapshot`.
+
+Tuples (LangGraph's native form) are now accepted next to the dictionaries the extension already
+supported, and the call returns the `{'configurable': {...}}` config:
+
+```
+bulk_update_state(cfg, [[({"value": 7}, "a", None)]])
+-> {'configurable': {...}}; get_state(cfg) -> values {'value': 7}, next ('b',)
+```
+
+Also verified while here: `StateSnapshot` exposes `values` / `next` / `config` / `metadata` /
+`created_at` / `parent_config` / `tasks` / `interrupts` like LangGraph (the extension additionally
+supports mapping-style subscripts).
+
+Suite is 526 tests (two new), parity 75/75 (the `bulk_update_state` scenario now also compares the
+returned config keys), examples 10/10, clippy and Rust tests clean.

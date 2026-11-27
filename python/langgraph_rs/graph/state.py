@@ -297,6 +297,24 @@ class _CompiledMeta(ABCMeta):
         return getattr(_NATIVE_COMPILED, name)
 
 
+
+def _normalize_supersteps(supersteps: Any) -> Any:
+    """Accept LangGraph's `(values, as_node, task_id)` tuples as well as update dicts."""
+    if not supersteps:
+        return supersteps
+    normalized = []
+    for step in supersteps:
+        entries = []
+        for entry in step:
+            if isinstance(entry, dict):
+                entries.append(
+                    (entry.get("values"), entry.get("as_node"), entry.get("task_id"))
+                )
+            else:
+                entries.append(tuple(entry))
+        normalized.append(entries)
+    return normalized
+
 class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     """The compiled graph, exposing LangGraph's ``Runnable`` API.
 
@@ -480,16 +498,32 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             )
         return getattr(snapshot, "config", snapshot)
 
+    def bulk_update_state(
+        self, config: Any = None, supersteps: Any = None, *, thread_id: Any = None
+    ) -> Any:
+        """Apply several supersteps of updates, returning the new checkpoint's config."""
+        snapshot = self._inner.bulk_update_state(
+            config, _normalize_supersteps(supersteps), thread_id=thread_id
+        )
+        if isinstance(snapshot, (list, tuple)):
+            return [getattr(item, "config", item) for item in snapshot]
+        return getattr(snapshot, "config", snapshot)
+
     async def abulk_update_state(
         self, config: Any = None, supersteps: Any = None, *, thread_id: Any = None
     ) -> Any:
+        normalized = _normalize_supersteps(supersteps)
         if getattr(self._inner, "_native_async", False):
-            return await self._inner.abulk_update_state(
-                config, supersteps, thread_id=thread_id
+            snapshot = await self._inner.abulk_update_state(
+                config, normalized, thread_id=thread_id
             )
-        return await asyncio.to_thread(
-            self._inner.bulk_update_state, config, supersteps, thread_id=thread_id
-        )
+        else:
+            snapshot = await asyncio.to_thread(
+                self._inner.bulk_update_state, config, normalized, thread_id=thread_id
+            )
+        if isinstance(snapshot, (list, tuple)):
+            return [getattr(item, "config", item) for item in snapshot]
+        return getattr(snapshot, "config", snapshot)
 
     async def aclear_cache(self, nodes: Any = None) -> Any:
         if getattr(self._inner, "_native_async", False):

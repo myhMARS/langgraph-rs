@@ -418,8 +418,10 @@ class StateApiSurfaceTest(unittest.TestCase):
 
     def test_bulk_update_state_applies_supersteps(self):
         app, config = self._app()
-        snapshot = app.bulk_update_state(config, [[{"values": {"n": 42}, "as_node": "node"}]])
-        self.assertEqual(snapshot.values["n"], 42)
+        # LangGraph returns the new config; the state is read back with `get_state`.
+        written = app.bulk_update_state(config, [[({"n": 42}, "node", None)]])
+        self.assertEqual(sorted(written), ["configurable"])
+        self.assertEqual(app.get_state(config).values["n"], 42)
 
     def test_clear_cache_is_available(self):
         app, _ = self._app()
@@ -2322,3 +2324,34 @@ class UpdateStateShapeTest(unittest.TestCase):
         app.invoke({"value": 0, "log": []}, config)
         app.update_state(config, {"value": 100}, as_node="a")
         self.assertEqual(app.get_state(config).next, ("b",))
+
+
+class BulkUpdateStateShapeTest(unittest.TestCase):
+    """`bulk_update_state` takes LangGraph's tuples and returns the new config."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_tuple_supersteps(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "bulk-tuple"}}
+        app.invoke({"value": 0}, config)
+        written = app.bulk_update_state(config, [[({"value": 7}, "a", None)]])
+        self.assertEqual(sorted(written), ["configurable"])
+        snapshot = app.get_state(config)
+        self.assertEqual(snapshot.values, {"value": 7})
+        self.assertEqual(snapshot.next, ("b",))
+
+    def test_dict_supersteps_still_work(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "bulk-dict"}}
+        app.invoke({"value": 0}, config)
+        app.bulk_update_state(config, [[{"values": {"value": 9}, "as_node": "a"}]])
+        self.assertEqual(app.get_state(config).values, {"value": 9})

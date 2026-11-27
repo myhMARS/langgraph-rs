@@ -2618,8 +2618,8 @@ def run_bulk_update_scenario() -> list[dict]:
     rs_graph.invoke({"value": 0}, rs_cfg)
     before_lg = len(list(lg.get_state_history(lg_cfg)))
     before_rs = len(list(rs_graph.get_state_history(rs_cfg)))
-    lg.bulk_update_state(lg_cfg, supersteps)
-    rs_graph.bulk_update_state(rs_cfg, supersteps)
+    lg_bulk = lg.bulk_update_state(lg_cfg, supersteps)
+    rs_bulk = rs_graph.bulk_update_state(rs_cfg, supersteps)
     lg_after = len(list(lg.get_state_history(lg_cfg))) - before_lg
     rs_after = len(list(rs_graph.get_state_history(rs_cfg))) - before_rs
     lg_state = dict(lg.get_state(lg_cfg).values)
@@ -2629,9 +2629,25 @@ def run_bulk_update_scenario() -> list[dict]:
     return [
         {
             "scenario": "bulk_update_state",
-            "rs": {"added": rs_after, "values": rs_state, "next": rs_next},
-            "lg": {"added": lg_after, "values": lg_state, "next": lg_next},
-            "equivalent": (rs_after, rs_state, rs_next) == (lg_after, lg_state, lg_next),
+            "rs": {
+                "added": rs_after,
+                "values": rs_state,
+                "next": rs_next,
+                "config_keys": sorted(rs_bulk),
+            },
+            "lg": {
+                "added": lg_after,
+                "values": lg_state,
+                "next": lg_next,
+                "config_keys": sorted(lg_bulk),
+            },
+            "equivalent": (
+                rs_after,
+                rs_state,
+                rs_next,
+                sorted(rs_bulk),
+            )
+            == (lg_after, lg_state, lg_next, sorted(lg_bulk)),
             "bench": {
                 "rs": measure(
                     lambda: rs_build().invoke(
