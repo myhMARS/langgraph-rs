@@ -175,3 +175,9 @@ _MISSING = fill_unsupported(
     hint="Use a concrete saver, or pass an object implementing the saver protocol to compile().",
 )
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+
+try:  # LangGraph re-exports the config type here.
+    from langchain_core.runnables import RunnableConfig  # noqa: F401
+except Exception:  # pragma: no cover - langchain_core is optional
+    from ..types import RunnableConfig  # type: ignore[assignment]  # noqa: F401

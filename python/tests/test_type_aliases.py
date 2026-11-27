@@ -2698,3 +2698,49 @@ class BuilderHelpersTest(unittest.TestCase):
         store = langgraph_rs.InMemoryStore(index={"dims": 2, "embed": embed})
         self.assertEqual(store.index_config["dims"], 2)
         self.assertIs(store.embeddings, embed)
+
+
+class MessagesModeClassTest(unittest.TestCase):
+    """`stream_mode="messages"` yields a message (not a chunk) for non-streamed models."""
+
+    @staticmethod
+    def _app(content_calls=True):
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        class Stub(BaseChatModel):
+            replies: list
+            index: int = 0
+
+            @property
+            def _llm_type(self):
+                return "stub"
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                reply = self.replies[min(self.index, len(self.replies) - 1)]
+                self.index += 1
+                return ChatResult(generations=[ChatGeneration(message=reply)])
+
+        model = Stub(replies=[AIMessage(content="hello")])
+
+        def node(state):
+            return {"messages": [model.invoke(state["messages"])]}
+
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        return graph.compile()
+
+    def test_complete_message_keeps_its_class(self):
+        chunks = list(
+            self._app().stream(
+                {"messages": [{"role": "user", "content": "hi"}]}, stream_mode="messages"
+            )
+        )
+        self.assertEqual([type(chunk).__name__ for chunk, _ in chunks], ["AIMessage"])
+        self.assertEqual([chunk.content for chunk, _ in chunks], ["hello"])

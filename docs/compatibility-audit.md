@@ -3598,3 +3598,21 @@ Still different, documented: `StateSnapshot` is a dict subclass rather than a Na
 `InMemorySaver` has no `put`/`put_writes` (the engine writes through its own path).
 
 Suite is 553 tests (five new), parity 81/81, examples 10/10, clippy and Rust tests clean.
+
+### Round 167: `messages` stream keeps complete messages whole
+
+LangGraph's `stream_mode="messages"` yields the **message itself** (`AIMessage`) when the model was
+not streamed token by token, and an `AIMessageChunk` only for real token streaming. The extension
+always produced a chunk, so `type(chunk).__name__` differed for non-streaming models.
+
+The callback bridge now distinguishes the two paths (`on_llm_new_token` → chunk, `on_llm_end`
+without streamed tokens → complete message) and `message_chunk` builds the matching class:
+
+```
+non-streaming model -> ('AIMessage', 'hello')
+token streaming     -> ('AIMessageChunk', 'Hello') / ('AIMessageChunk', ' ') / ...
+```
+
+Also added `langgraph_rs.checkpoint.base.RunnableConfig`, which LangGraph exports from that module.
+
+Suite is 554 tests, parity 81/81, examples 10/10, clippy and Rust tests clean.

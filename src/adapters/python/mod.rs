@@ -353,7 +353,7 @@ class _CallbackHandlerBody(_LcBase):
         self._streamed = set()
         self._run_metadata = {}
 
-    def _emit(self, token, kwargs=None):
+    def _emit(self, token, kwargs=None, complete=False):
         import langgraph_rs
         metadata = {}
         if self.model:
@@ -393,6 +393,8 @@ class _CallbackHandlerBody(_LcBase):
         if hasattr(token, "content"):
             payload = {
                 "content": token.content,
+                # LangGraph emits the message itself when it was not streamed token by token.
+                "chunk": type(token).__name__.endswith("Chunk"),
                 "id": getattr(token, "id", None),
                 "tool_call_chunks": list(getattr(token, "tool_call_chunks", []) or []),
                 "additional_kwargs": dict(getattr(token, "additional_kwargs", {}) or {}),
@@ -401,7 +403,12 @@ class _CallbackHandlerBody(_LcBase):
                 "metadata": metadata,
             }
         else:
-            payload = {"content": token, "tags": self.tags, "metadata": metadata}
+            payload = {
+                "content": token,
+                "chunk": not complete,
+                "tags": self.tags,
+                "metadata": metadata,
+            }
         # A live `stream_events` run reads tokens straight from this bridge, so `run.messages`
         # shows deltas while the model is still generating rather than when the node returns.
         try:
@@ -485,12 +492,12 @@ class _CallbackHandlerBody(_LcBase):
             if input_tokens or output_tokens:
                 import langgraph_rs
                 langgraph_rs.record_tokens(int(input_tokens), int(output_tokens))
-        # LangGraph emits the completed message when the model did not stream tokens.
+        # LangGraph emits the completed message (not a chunk) when the model did not stream tokens.
         run_id = kwargs.get("run_id")
         if run_id not in self._streamed:
             text = self._final_message_text(response)
             if text:
-                self._emit(text, kwargs)
+                self._emit(text, kwargs, complete=True)
 
     def on_llm_error(self, error, **kwargs):
         pass

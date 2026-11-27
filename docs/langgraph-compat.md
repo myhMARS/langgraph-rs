@@ -332,6 +332,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `messages` 流：完整消息不再被包成 chunk（2026-11-27）
+
+LG 的 `stream_mode="messages"` 里，模型**没有逐 token 流式**时会给出**消息本体**（`AIMessage`），
+逐 token 时才是 `AIMessageChunk`。扩展此前一律返回 `AIMessageChunk`。
+
+现在按回调事件区分（`on_llm_new_token` → chunk；`on_llm_end` 且未流过 token → 完整消息）：
+
+```
+非流式模型：('AIMessage', 'hello')      ← 与 LG 相同
+逐 token  ：('AIMessageChunk', 'Hello') / ('AIMessageChunk', ' ') / ...
+```
+
+顺带补上 `langgraph_rs.checkpoint.base.RunnableConfig`（LG 从该模块导出，之前缺）。
+
 ### `StateGraph` 的辅助方法与 store 索引属性（2026-11-27）
 
 补齐上一轮 `dir()` 对比里剩下的两处（纯门面改动，不涉及引擎）：

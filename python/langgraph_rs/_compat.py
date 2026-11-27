@@ -167,16 +167,33 @@ def message_chunk(payload: Any) -> Any:
     if not isinstance(payload, dict):
         return payload
     try:
-        from langchain_core.messages import AIMessageChunk, HumanMessageChunk, SystemMessageChunk
+        from langchain_core.messages import (
+            AIMessage,
+            AIMessageChunk,
+            HumanMessage,
+            HumanMessageChunk,
+            SystemMessage,
+            SystemMessageChunk,
+        )
     except Exception:  # pragma: no cover - langchain_core is optional at runtime
         return payload
     role = str(payload.get("type") or "ai").lower()
-    factory = {
-        "human": HumanMessageChunk,
-        "system": SystemMessageChunk,
-        "ai": AIMessageChunk,
-        "assistant": AIMessageChunk,
-    }.get(role, AIMessageChunk)
+    # LangGraph yields the plain message class when the model was not streamed token by token.
+    streamed = payload.get("chunk", True)
+    if streamed:
+        factory = {
+            "human": HumanMessageChunk,
+            "system": SystemMessageChunk,
+            "ai": AIMessageChunk,
+            "assistant": AIMessageChunk,
+        }.get(role, AIMessageChunk)
+    else:
+        factory = {
+            "human": HumanMessage,
+            "system": SystemMessage,
+            "ai": AIMessage,
+            "assistant": AIMessage,
+        }.get(role, AIMessage)
     kwargs: dict[str, Any] = {"content": payload.get("content") or ""}
     if payload.get("id"):
         kwargs["id"] = payload["id"]
