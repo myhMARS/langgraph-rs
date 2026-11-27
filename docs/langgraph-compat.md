@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `snapshot.tasks` / `snapshot.interrupts` 的元素类型（2026-11-27）
+
+LG 的 `snapshot.tasks[i]` 是 **`PregelTask` named tuple**（字段 `id, name, path, error,
+interrupts, state, result`），`snapshot.interrupts[i]` 是 **`Interrupt` 对象**。扩展两者都是普通
+dict，于是 `task.name` / `interrupt.value` 这类属性访问直接报错。
+
+现在构建快照时转成对象：
+
+```
+task: PregelTask(name='ask', path=('__pregel_pull', 'ask'), error=None, ...)
+interrupt: Interrupt(id='...', value='q?')
+```
+
+实现上 `snapshot_to_py` 拆成「原始 dict」与「最终对象」两步：`get_state(subgraphs=True)` 需要先把
+子图状态写进 task dict（named tuple 不可变），完成后再统一转成 `PregelTask`。
+
 ### `StateSnapshot` 的字段类型（2026-11-27）
 
 LG 的 `StateSnapshot` 里 `next` / `interrupts` / `tasks` 都是**元组**，`metadata` 一定带

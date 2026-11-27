@@ -15,7 +15,8 @@ pub(crate) fn embed_subgraph_states(
     root: &crate::StateSnapshot<crate::JsonState>,
     subgraphs: &[crate::StateSnapshot<crate::JsonState>],
 ) -> PyResult<Py<PyAny>> {
-    let root_py = snapshot_to_py(py, root)?;
+    // Tasks stay dicts until the child states are attached.
+    let root_py = crate::adapters::python::convert::stream_convert::snapshot_to_py_raw(py, root)?;
     if let Ok(root_snapshot) = root_py
         .bind(py)
         .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
@@ -59,6 +60,11 @@ pub(crate) fn embed_subgraph_states(
                 task_dict.set_item("state", snapshot_to_py(py, child)?)?;
             }
         }
+        // The tasks were dicts while the child states were embedded; hand back `PregelTask`s.
+        let _ = crate::adapters::python::convert::stream_convert::finalize_tasks(
+            py,
+            root_snapshot.dict(py),
+        );
     }
     Ok(root_py)
 }

@@ -731,7 +731,7 @@ class ParallelInterruptTest(unittest.TestCase):
         config = {"configurable": {"thread_id": "pi-3"}}
         app.invoke({}, config)
         snapshot = app.get_state(config)
-        per_task = {task["name"]: len(task["interrupts"]) for task in snapshot.tasks}
+        per_task = {task.name: len(task.interrupts) for task in snapshot.tasks}
         self.assertEqual(per_task, {"na": 1, "nb": 1})
 
 
@@ -1612,3 +1612,35 @@ class StateSnapshotShapeTest(unittest.TestCase):
 
     def test_metadata_carries_parents(self):
         self.assertEqual(self._snapshot().metadata["parents"], {})
+
+
+class SnapshotTaskObjectsTest(unittest.TestCase):
+    """`snapshot.tasks` holds `PregelTask` named tuples and `interrupts` holds `Interrupt`."""
+
+    @staticmethod
+    def _snapshot():
+        def ask(state):
+            return {"value": langgraph_rs.interrupt("q?")}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.add_edge(langgraph_rs.START, "ask")
+        graph.add_edge("ask", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "task-objects"}}
+        app.invoke({"value": 0}, config)
+        return app.get_state(config)
+
+    def test_task_is_a_named_tuple(self):
+        task = self._snapshot().tasks[0]
+        self.assertEqual(
+            task._fields, ("id", "name", "path", "error", "interrupts", "state", "result")
+        )
+        self.assertEqual(task.name, "ask")
+        self.assertEqual(task.path, ("__pregel_pull", "ask"))
+        self.assertIsNone(task.error)
+
+    def test_interrupt_is_an_object(self):
+        interrupt = self._snapshot().interrupts[0]
+        self.assertTrue(interrupt.id)
+        self.assertEqual(interrupt.value, "q?")

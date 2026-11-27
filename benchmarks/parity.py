@@ -482,6 +482,68 @@ class _MessagesState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
+def run_snapshot_objects_scenario() -> list[dict]:
+    """`snapshot.tasks` are `PregelTask` objects and `snapshot.interrupts` are `Interrupt`s."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        def ask(state):
+            return {"value": lg_interrupt("q?")}
+
+        graph = LgStateGraph(LgState)
+        graph.add_node("ask", ask)
+        graph.add_edge(START, "ask")
+        graph.add_edge("ask", END)
+        app = graph.compile(checkpointer=LgInMemorySaver())
+        config = {"configurable": {"thread_id": "objects-lg"}}
+        app.invoke({"value": 0}, config)
+        snapshot = app.get_state(config)
+        task = snapshot.tasks[0]
+        interrupt = snapshot.interrupts[0]
+        return {
+            "task_type": type(task).__name__,
+            "task_name": task.name,
+            "task_path": list(task.path),
+            "interrupt_type": type(interrupt).__name__,
+            "interrupt_value": interrupt.value,
+        }
+
+    def rs_run():
+        def ask(state):
+            return {"value": rs.interrupt("q?")}
+
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.add_edge(rs.START, "ask")
+        graph.add_edge("ask", rs.END)
+        app = graph.compile(checkpointer=rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "objects-rs"}}
+        app.invoke({"value": 0}, config)
+        snapshot = app.get_state(config)
+        task = snapshot.tasks[0]
+        interrupt = snapshot.interrupts[0]
+        return {
+            "task_type": type(task).__name__,
+            "task_name": task.name,
+            "task_path": list(task.path),
+            "interrupt_type": type(interrupt).__name__,
+            "interrupt_value": interrupt.value,
+        }
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "snapshot_objects",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_snapshot_shape_scenario() -> list[dict]:
     """`StateSnapshot` containers are tuples and metadata carries `parents`."""
 
@@ -2835,7 +2897,7 @@ def rs_update_state_task():
         pass
     task = compiled.get_state("parity-rs-task-update")["tasks"][0]
     compiled.update_state(
-        "parity-rs-task-update", {"value": 5}, task_id=task["id"]
+        "parity-rs-task-update", {"value": 5}, task_id=task.id
     )
     snapshot = compiled.get_state("parity-rs-task-update")
     return {"value": snapshot["values"].get("value"), "next": list(snapshot["next"])}
@@ -3773,6 +3835,7 @@ def main() -> None:
         run_message_token_scenario,
         run_react_agent_loop_scenario,
         run_snapshot_shape_scenario,
+        run_snapshot_objects_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

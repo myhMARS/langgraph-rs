@@ -2998,4 +2998,24 @@ message prepended), `store=` (`runtime.store` inside tools) and `context_schema`
 (`runtime.context` inside tools).
 
 Suite is 481 tests (two new), parity 61/61 (new `snapshot_shape` scenario), examples 10/10, clippy
+and Rust tests clean.### Round 137: `PregelTask` and `Interrupt` objects in snapshots
+
+LangGraph's `snapshot.tasks[i]` is a `PregelTask` named tuple (`id, name, path, error, interrupts,
+state, result`) and `snapshot.interrupts[i]` is an `Interrupt` object. The extension returned plain
+dicts, so the documented attribute access (`task.name`, `interrupt.value`) raised
+`TypeError: tuple indices must be integers` / `'Interrupt' is not subscriptable`.
+
+Both are now built as objects:
+
+```
+task:      PregelTask(name='ask', path=('__pregel_pull', 'ask'), error=None, ...)
+interrupt: Interrupt(id='...', value='q?')
+```
+
+`snapshot_to_py` was split into a raw-dict stage and a final-object stage, because
+`get_state(..., subgraphs=True)` has to write child states into the task dicts first and named tuples
+are immutable. That split also fixed the child-state embedding, which had silently stopped working
+once tasks stopped being dicts.
+
+Suite is 483 tests (two new), parity 62/62 (new `snapshot_objects` scenario), examples 10/10, clippy
 and Rust tests clean.

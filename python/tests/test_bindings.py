@@ -529,11 +529,11 @@ class PythonParityRound2Tests(unittest.TestCase):
         self.assertTrue(compiled.get_state("py-sub")["interrupted"])
         root = compiled.get_state("py-sub", subgraphs=True)
         child_task = next(
-            task for task in root["tasks"] if task["node"] == "child"
+            task for task in root["tasks"] if task.name == "child"
         )
-        self.assertIsNotNone(child_task["state"])
-        self.assertTrue(child_task["state"]["interrupted"])
-        child_ns = child_task["state"]["checkpoint_ns"]
+        self.assertIsNotNone(child_task.state)
+        self.assertTrue(child_task.state["interrupted"])
+        child_ns = child_task.state["checkpoint_ns"]
 
         output = compiled.resume("py-sub", 5)
         self.assertEqual(output["value"], 15)
@@ -804,10 +804,10 @@ class PythonParityRound2Tests(unittest.TestCase):
         snapshot = compiled.get_state("py-multi")
         interrupts = snapshot["interrupts"]
         self.assertEqual(len(interrupts), 2)
-        self.assertTrue(all(item["id"] for item in interrupts))
+        self.assertTrue(all(item.id for item in interrupts))
 
         mapping = {
-            item["id"]: (5 if item["node"] == "a" else 7)
+            item.id: (5 if item.node == "a" else 7)
             for item in interrupts
         }
         output = compiled.resume("py-multi", mapping)
@@ -1108,7 +1108,7 @@ class AsyncPythonTests(unittest.TestCase):
         result = compiled.invoke({"value": 0}, thread_id="py-schema")
         self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-schema")
-        self.assertIn("response_schema", snapshot["interrupts"][0])
+        self.assertIsNotNone(snapshot.interrupts[0].response_schema)
         with self.assertRaises(Exception):
             compiled.resume("py-schema", "nope")
         output = compiled.resume("py-schema", 9)
@@ -1450,10 +1450,10 @@ class AsyncPythonTests(unittest.TestCase):
         self.assertIn("__interrupt__", result)
         snapshot = compiled.get_state("py-task-id")
         task = snapshot["tasks"][0]
-        self.assertEqual(task["node"], "ask")
-        self.assertTrue(task["id"])
+        self.assertEqual(task.name, "ask")
+        self.assertTrue(task.id)
         updated = compiled.update_state(
-            "py-task-id", {"value": 5}, task_id=task["id"]
+            "py-task-id", {"value": 5}, task_id=task.id
         )
         self.assertEqual(updated["values"]["value"], 5)
         self.assertIn("ask", updated["next"])

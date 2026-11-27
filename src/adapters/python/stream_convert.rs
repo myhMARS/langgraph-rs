@@ -11,6 +11,21 @@ pub(crate) fn snapshot_to_py(
     py: Python<'_>,
     snapshot: &crate::StateSnapshot<JsonState>,
 ) -> PyResult<Py<PyAny>> {
+    let snapshot_py = snapshot_to_py_raw(py, snapshot)?;
+    if let Ok(root) = snapshot_py
+        .bind(py)
+        .extract::<pyo3::PyRef<'_, crate::adapters::python::types::PyStateSnapshot>>()
+    {
+        finalize_tasks(py, root.dict(py))?;
+    }
+    Ok(snapshot_py)
+}
+
+/// Build the snapshot with `tasks` still as dicts, so callers can fill subgraph states first.
+pub(crate) fn snapshot_to_py_raw(
+    py: Python<'_>,
+    snapshot: &crate::StateSnapshot<JsonState>,
+) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("values", json_state_to_py(py, &snapshot.values)?)?;
     // LangGraph exposes `next`, `interrupts` and `tasks` as tuples.
@@ -39,14 +54,20 @@ pub(crate) fn snapshot_to_py(
         .interrupts
         .iter()
         .map(|interrupt| {
-            let item = PyDict::new(py);
-            item.set_item("id", interrupt.id.clone())?;
-            item.set_item("node", interrupt.node.clone())?;
-            item.set_item("value", value_to_py(py, &interrupt.value)?)?;
-            if let Some(schema) = &interrupt.response_schema {
-                item.set_item("response_schema", value_to_py(py, schema)?)?;
-            }
-            Ok(item.into_any().unbind())
+            Ok(Py::new(
+                py,
+                crate::adapters::python::types::PyInterrupt {
+                    id: interrupt.id.clone(),
+                    value: value_to_py(py, &interrupt.value)?,
+                    node: Some(interrupt.node.clone()),
+                    resumable: true,
+                    response_schema: match &interrupt.response_schema {
+                        Some(schema) => Some(value_to_py(py, schema)?),
+                        None => None,
+                    },
+                },
+            )?
+            .into_any())
         })
         .collect::<PyResult<Vec<_>>>()?;
     dict.set_item("interrupts", PyTuple::new(py, interrupts)?)?;
@@ -116,6 +137,51 @@ pub(crate) fn snapshot_to_py(
         },
     )?
     .into_any())
+}
+
+/// Rewrite `tasks` into `PregelTask` named tuples (`path` / `error` / `result` included).
+///
+/// LangGraph hands out `PregelTask` objects, so callers use attribute access (`task.name`).
+pub(crate) fn finalize_tasks(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+    let Some(tasks) = dict.get_item("tasks")? else {
+        return Ok(());
+    };
+    let Ok(iter) = tasks.try_iter() else {
+        return Ok(());
+    };
+    let class = match py
+        .import("langgraph_rs.types")
+        .and_then(|module| module.getattr("PregelTask"))
+    {
+        Ok(class) => class,
+        Err(_) => return Ok(()),
+    };
+    let mut converted: Vec<Py<PyAny> > = Vec::new();
+    for task in iter {
+        let Ok(task) = task else { continue };
+        let Ok(task_dict) = task.cast::<PyDict>() else {
+            converted.push(task.unbind());
+            continue;
+        };
+        let get = |key: &str| task_dict.get_item(key).ok().flatten();
+        let node: String = get("node")
+            .and_then(|value| value.extract().ok())
+            .unwrap_or_default();
+        let path = PyTuple::new(py, [PyString::new(py, "__pregel_pull"), PyString::new(py, &node)])?;
+        let value = class.call1((
+            get("id").unwrap_or_else(|| py.None().into_bound(py)),
+            PyString::new(py, &node),
+            path,
+            get("error").unwrap_or_else(|| py.None().into_bound(py)),
+            get("interrupts").unwrap_or_else(|| {
+                PyTuple::new(py, Vec::<Py<PyAny>>::new()).unwrap().into_any()
+            }),
+            get("state").unwrap_or_else(|| py.None().into_bound(py)),
+        ))?;
+        converted.push(value.unbind());
+    }
+    dict.set_item("tasks", PyTuple::new(py, converted)?)?;
+    Ok(())
 }
 
 /// LangGraph v2 stream-part shape: `{type, ns, data}`.
