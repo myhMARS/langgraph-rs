@@ -4999,3 +4999,29 @@ class SingleElementModeListTest(unittest.TestCase):
             asyncio.run(collect(["updates"])), [("updates", {"a": {"value": 1}})]
         )
         self.assertEqual(asyncio.run(collect("updates")), [{"a": {"value": 1}}])
+
+
+class SubgraphInterruptStreamTest(unittest.TestCase):
+    """`subgraphs=True` reports both the inner and the parent interrupt chunk, like LangGraph."""
+
+    @staticmethod
+    def _app():
+        inner = langgraph_rs.StateGraph({"answer": "last_value"})
+        inner.add_node("ask", lambda state: {"answer": langgraph_rs.interrupt({"q": "ok?"})})
+        inner.add_edge(langgraph_rs.START, "ask")
+        inner.add_edge("ask", langgraph_rs.END)
+        outer = langgraph_rs.StateGraph({"answer": "last_value"})
+        outer.add_node("sub", inner.compile())
+        outer.add_edge(langgraph_rs.START, "sub")
+        outer.add_edge("sub", langgraph_rs.END)
+        return outer.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_pause_reports_both_namespaces(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "subgraph-interrupt"}}
+        chunks = list(app.stream({"answer": None}, config, stream_mode="updates", subgraphs=True))
+        self.assertEqual(len(chunks), 2)
+        namespaces = [namespace for namespace, _payload in chunks]
+        self.assertEqual(namespaces[0][0].split(":")[0], "sub")
+        self.assertEqual(namespaces[1], ())
+        self.assertIn("__interrupt__", chunks[1][1])

@@ -170,15 +170,18 @@ impl PyLiveStream {
                     return Err(PyRuntimeError::new_err(message));
                 }
                 Ok(LiveItem::Chunk(chunk)) => {
-                    if chunk.is_interrupt() {
+                    if chunk.is_interrupt() && !self.wrap_namespaces {
                         // Held until the run ends so the payload is one `__interrupt__` entry.
+                        // Namespaced streams report one entry per namespace, so they keep order.
                         self.pending_interrupts
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner())
                             .push(*chunk);
                         continue;
                     }
-                    if !chunk.matches_modes_strict(&self.requested) {
+                    // Interrupts bypass the mode filter (they are reported for every mode); a
+                    // namespaced stream converts them one by one above.
+                    if !chunk.is_interrupt() && !chunk.matches_modes_strict(&self.requested) {
                         continue;
                     }
                     // The eager conversion runs over the whole list and collapses a repeated

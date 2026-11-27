@@ -4750,3 +4750,18 @@ Two tests that encoded the old bare-payload shape were corrected against LangGra
 
 Suite is 673 tests (two new), parity 101/101 (new `single_mode_list` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 231: namespaced pause chunks match
+
+With `subgraphs=True` a pause now reports both the inner namespaced chunk and the parent one, matching
+LangGraph. Two details in the live path had to change:
+
+* interrupt chunks were aggregated into a single entry (needed for the non-namespaced shape); namespaced
+  streams now skip the aggregation and report one entry per namespace;
+* the mode filter must explicitly exempt interrupts (`!chunk.is_interrupt() && !matches(...)`), otherwise a
+  namespaced `updates` stream drops them.
+
+Still open from this pair: on resume LangGraph re-emits the inner `('sub:…', {'ask': …})` chunk, while only
+the parent chunk is produced — the subgraph resume forwarding is not connected yet.
+
+Suite is 674 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
