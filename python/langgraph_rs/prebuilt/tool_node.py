@@ -154,6 +154,23 @@ def _validate_call(schema: Any, arguments: dict[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
+def _validated_tool_message(content: Any, call_id: str, name: str | None) -> Any:
+    """A validated call is reported as a successful `ToolMessage`, as in LangGraph."""
+    try:
+        from langchain_core.messages import ToolMessage
+    except Exception:  # pragma: no cover - langchain_core is optional
+        return {
+            "role": "tool",
+            "content": content,
+            "tool_call_id": call_id,
+            "name": name,
+            "status": "success",
+        }
+    return ToolMessage(
+        content=content, tool_call_id=call_id, name=name, status="success"
+    )
+
+
 class ValidationNode(_Runnable):
     """Validate pending tool calls instead of executing them.
 
@@ -233,16 +250,7 @@ class ValidationNode(_Runnable):
                     content = self.format_error(ValueError(error), call, schema)
                 else:
                     content = error
-            results.append(
-                {
-                    "role": "tool",
-                    "content": content,
-                    "tool_call_id": call_id,
-                    "name": name,
-                    # A validated call is reported as a successful tool message.
-                    "status": "success",
-                }
-            )
+            results.append(_validated_tool_message(content, call_id, name))
         return {"messages": results}
 
 
@@ -563,5 +571,28 @@ class ToolNode(_Runnable):
         return self._execute_one(request)
 
 
-_MISSING = re_export(globals(), ["tools_condition"])
+def tools_condition(
+    state: Any, messages_key: str = "messages"
+) -> str:
+    """Route to `"tools"` when the last message asked for a tool call, else `"__end__"`.
+
+    Mirrors LangGraph's implementation: the last message is inspected for a non-empty
+    `tool_calls` attribute, so real `AIMessage` objects route to the tool node.
+    """
+    if isinstance(state, (list, tuple)):
+        ai_message = state[-1] if state else None
+    else:
+        messages = state.get(messages_key, []) if isinstance(state, dict) else getattr(state, messages_key, [])
+        if not messages:
+            raise ValueError(f"No messages found in input state to tool_edge: {state}")
+        ai_message = messages[-1]
+    calls = getattr(ai_message, "tool_calls", None)
+    if calls is None and isinstance(ai_message, dict):
+        # The engine's JSON form keeps the fields at the top level; LangChain's serialized form
+        # nests them under `kwargs`.
+        calls = ai_message.get("tool_calls")
+        if calls is None:
+            calls = (ai_message.get("kwargs") or {}).get("tool_calls")
+    return "tools" if calls else "__end__"
+_MISSING: list[str] = []
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

@@ -1396,13 +1396,13 @@ class ValidationNodeTest(unittest.TestCase):
     def test_valid_call_reports_success(self):
         out = self._node()({"messages": [{"role": "ai", "content": "", "tool_calls": [
             {"name": "search", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}]}]})
-        self.assertEqual(out["messages"][0]["status"], "success")
-        self.assertEqual(out["messages"][0]["content"], '{"query":"x"}')
+        self.assertEqual(out["messages"][0].status, "success")
+        self.assertEqual(out["messages"][0].content, '{"query":"x"}')
 
     def test_invalid_arguments_are_reported(self):
         out = self._node()({"messages": [{"role": "ai", "content": "", "tool_calls": [
             {"name": "need_int", "args": {"count": "nope"}, "id": "c2", "type": "tool_call"}]}]})
-        self.assertIn("validation error", out["messages"][0]["content"])
+        self.assertIn("validation error", out["messages"][0].content)
 
 
 class ToolNodeSurfaceTest(unittest.TestCase):
@@ -1592,14 +1592,14 @@ class ReactAgentLoopTest(unittest.TestCase):
 
     def test_full_loop(self):
         output = self._app().invoke({"messages": [{"role": "user", "content": "double 21"}]})
-        types = [message.get("type") or message.get("role") for message in output["messages"]]
-        # LangGraph: human -> ai(tool call) -> tool -> ai(answer).
-        self.assertEqual(len(types), 4)
-        self.assertEqual(types[1], "ai")
-        self.assertEqual(output["messages"][1]["tool_calls"][0]["name"], "double")
-        self.assertEqual(types[2], "tool")
-        self.assertEqual(output["messages"][2]["content"], "42")
-        self.assertEqual(output["messages"][3]["content"], "the answer is 42")
+        messages = output["messages"]
+        # LangGraph: human -> ai(tool call) -> tool -> ai(answer), as LangChain message objects.
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(messages[1].type, "ai")
+        self.assertEqual(messages[1].tool_calls[0]["name"], "double")
+        self.assertEqual(messages[2].type, "tool")
+        self.assertEqual(messages[2].content, "42")
+        self.assertEqual(messages[3].content, "the answer is 42")
 
 
 class StateSnapshotShapeTest(unittest.TestCase):
@@ -2016,7 +2016,12 @@ class NodeExceptionPropagationTest(unittest.TestCase):
             attempts.append(1)
             raise ValueError("kaboom")
 
-        app = self._app(boom, retry_policy=langgraph_rs.RetryPolicy(max_attempts=2, initial_interval=0.01))
+        app = self._app(
+            boom,
+            retry_policy=langgraph_rs.RetryPolicy(
+                max_attempts=2, initial_interval=0.01, retry_on=(ValueError,)
+            ),
+        )
         with self.assertRaises(ValueError):
             app.invoke({"value": 0})
         self.assertEqual(len(attempts), 2)
@@ -2682,7 +2687,9 @@ class BuilderHelpersTest(unittest.TestCase):
 
         graph = langgraph_rs.StateGraph({"value": "last_value"})
         graph.set_node_defaults(
-            retry_policy=langgraph_rs.RetryPolicy(max_attempts=2, initial_interval=0.01)
+            retry_policy=langgraph_rs.RetryPolicy(
+                max_attempts=2, initial_interval=0.01, retry_on=(ValueError,)
+            )
         )
         graph.add_node("n", boom)
         graph.add_edge(langgraph_rs.START, "n")
@@ -2935,7 +2942,8 @@ class AsyncNodeInSyncGraphTest(unittest.TestCase):
             return [chunk async for chunk in app.astream({"value": 0})]
 
         chunks = asyncio.run(collect())
-        self.assertEqual(chunks[-1], {"value": 3})
+        # `stream` defaults to LangGraph's `updates` mode.
+        self.assertEqual(chunks[-1], {"n": {"value": 3}})
 
 
 class ContextSchemaTest(unittest.TestCase):
@@ -3838,3 +3846,82 @@ class IdleTimeoutKindTest(unittest.TestCase):
         with self.assertRaises(Exception) as raised:
             asyncio.run(graph.compile().ainvoke({"value": 0}))
         self.assertIn("run timeout", str(raised.exception))
+
+
+class AuditRegressionTest(unittest.TestCase):
+    """Regressions the adversarial audit found (tools_condition, stream default, retry default)."""
+
+    def test_tools_condition_routes_real_messages(self):
+        from langchain_core.messages import AIMessage
+
+        call = [{"name": "t", "args": {}, "id": "1", "type": "tool_call"}]
+        self.assertEqual(
+            langgraph_rs.prebuilt.tools_condition({"messages": [AIMessage("", tool_calls=call)]}),
+            "tools",
+        )
+        self.assertEqual(
+            langgraph_rs.prebuilt.tools_condition({"messages": [AIMessage("hi")]}), "__end__"
+        )
+        with self.assertRaises(ValueError):
+            langgraph_rs.prebuilt.tools_condition({})
+
+    def test_stream_defaults_to_updates(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        self.assertEqual(list(graph.compile().stream({"value": 0})), [{"a": {"value": 1}}])
+
+    def test_default_retry_policy_follows_langgraph(self):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("bad")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", boom, retry_policy=langgraph_rs.RetryPolicy())
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        with self.assertRaises(ValueError):
+            graph.compile().invoke({"value": 0})
+        # LangGraph's default policy does not retry a ValueError.
+        self.assertEqual(len(attempts), 1)
+
+    def test_retry_policy_still_retries_connection_errors(self):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ConnectionError("transient")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", boom, retry_policy=langgraph_rs.RetryPolicy(max_attempts=3))
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        with self.assertRaises(ConnectionError):
+            graph.compile().invoke({"value": 0})
+        self.assertEqual(len(attempts), 3)
+
+    def test_validation_node_returns_tool_messages(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        @tool
+        def add(a: int, b: int) -> int:
+            """Add."""
+            return a + b
+
+        with self.assertWarns(langgraph_rs.warnings.LangGraphDeprecatedSinceV10):
+            node = langgraph_rs.prebuilt.ValidationNode([add])
+        output = node.invoke(
+            {
+                "messages": [
+                    AIMessage("", tool_calls=[{"name": "add", "args": {"a": 1, "b": 2}, "id": "c1"}])
+                ]
+            }
+        )
+        message = output["messages"][-1]
+        self.assertEqual(type(message).__name__, "ToolMessage")
+        self.assertEqual(message.status, "success")
+        self.assertEqual(message.content, '{"a":1,"b":2}')

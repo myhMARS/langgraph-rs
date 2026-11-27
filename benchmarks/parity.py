@@ -676,6 +676,79 @@ def run_checkpoint_shape_scenario() -> list[dict]:
     ]
 
 
+def run_audit_regressions_scenario() -> list[dict]:
+    """Defaults the audit flagged: tools_condition routing, stream default, retry default."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        from langchain_core.messages import AIMessage
+
+        if engine == "lg":
+            from langgraph.prebuilt import tools_condition
+
+            condition = tools_condition
+            graph = LgStateGraph(LgState)
+        else:
+            condition = rs.prebuilt.tools_condition
+            graph = rs.StateGraph({"value": "last_value"})
+        call = [{"name": "t", "args": {}, "id": "1", "type": "tool_call"}]
+        routing = [
+            condition({"messages": [AIMessage("", tool_calls=call)]}),
+            condition({"messages": [AIMessage("hi")]}),
+        ]
+        graph.add_node("a", lambda state: {"value": 1})
+        if engine == "lg":
+            graph.add_edge(START, "a")
+            graph.add_edge("a", END)
+        else:
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", END)
+        chunks = list(graph.compile().stream({"value": 0}))
+
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("bad")
+
+        if engine == "lg":
+            from langgraph.types import RetryPolicy
+
+            retry = RetryPolicy
+            retry_graph = LgStateGraph(LgState)
+        else:
+            retry = rs.RetryPolicy
+            retry_graph = rs.StateGraph({"value": "last_value"})
+        retry_graph.add_node("n", boom, retry_policy=retry())
+        if engine == "lg":
+            retry_graph.add_edge(START, "n")
+            retry_graph.add_edge("n", END)
+        else:
+            retry_graph.add_edge(rs.START, "n")
+            retry_graph.add_edge("n", END)
+        try:
+            retry_graph.compile().invoke({"value": 0})
+        except BaseException:
+            pass
+        return {"routing": routing, "stream": chunks, "retry_attempts": len(attempts)}
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "audit_regressions",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_delta_history_scenario() -> list[dict]:
     """Delta history keeps the channel's value reachable (as seed or as writes)."""
 
@@ -5539,6 +5612,7 @@ def main() -> None:
         run_unknown_channel_scenario,
         run_store_item_scenario,
         run_delta_history_scenario,
+        run_audit_regressions_scenario,
         run_checkpoint_shape_scenario,
         run_stream_events_scenario,
         run_subgraph_events_scenario,

@@ -12,9 +12,10 @@ class AsyncStreamTests(unittest.TestCase):
             graph.set_entry_point("inc")
             graph.set_finish_point("inc")
             compiled = graph.compile()
-            # LangGraph's `astream` is an async generator (not awaitable).
+            # LangGraph's `astream` is an async generator (not awaitable) and defaults to
+            # `updates`, so one superstep yields one chunk.
             streamed = [chunk async for chunk in compiled.astream({"value": 0})]
-            self.assertEqual(len(streamed), 2)
+            self.assertEqual(streamed, [{"inc": {"value": 1}}])
 
         asyncio.run(scenario())
 

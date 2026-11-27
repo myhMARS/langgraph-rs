@@ -254,7 +254,8 @@ class ReactAgentGuardTests(unittest.TestCase):
         graph = lg.create_react_agent(model, {"noop": lambda args: "ok"})
         output = graph.invoke({"messages": []}, config={"recursion_limit": 3})
         last = output["messages"][-1]
-        self.assertIn("Sorry, need more steps", last.get("content", ""))
+        content = last.content if hasattr(last, "content") else last.get("content", "")
+        self.assertIn("Sorry, need more steps", content)
 
 
 if __name__ == "__main__":

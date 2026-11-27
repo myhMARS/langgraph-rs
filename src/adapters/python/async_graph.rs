@@ -513,7 +513,7 @@ impl PyAsyncCompiledGraph {
             config = config.with_stream_subgraphs(true);
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
-            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+            .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         // Only a streaming mode makes the model stream (LangGraph's behaviour).
         super::convert::set_stream_tokens(requested.contains(&crate::StreamMode::Messages));
         let config = config.with_stream_modes(requested.clone());
@@ -652,7 +652,7 @@ impl PyAsyncCompiledGraph {
             config = config.with_stream_subgraphs(true);
         }
         let requested = super::graph::stream_modes_from_py(stream_mode)?
-            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+            .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         let mut config = config.with_stream_modes(requested.clone());
         if let Some(callback) = live_sink.filter(|value| !value.is_none()) {
             // Node-produced chunks go straight to the caller instead of being buffered per node.

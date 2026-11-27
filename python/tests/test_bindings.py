@@ -393,7 +393,8 @@ class PythonApiParityTests(unittest.TestCase):
         def flaky(state):
             calls["count"] += 1
             if calls["count"] < 3:
-                raise RuntimeError(f"transient {calls['count']}")
+                # LangGraph's default retry policy retries connection errors only.
+                raise ConnectionError(f"transient {calls['count']}")
             return {"value": 7}
 
         graph = lg.StateGraph({"value": "last_value"})

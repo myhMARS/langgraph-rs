@@ -819,6 +819,9 @@ pub(super) fn create_react_agent(
     };
     let schema = base_schema
         .with_reducer(&messages_key, reducers::messages())
+        // Mark the channel so the runtime hands LangChain message objects to Python, like any
+        // graph whose state declares an `add_messages` channel.
+        .with_messages_channel(&messages_key)
         .last_value(STRUCTURED_KEY)
         .with_managed_values();
     // `response_format` binds a structured-output model once; the agent node uses it to turn the

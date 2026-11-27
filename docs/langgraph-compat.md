@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 对抗性审计发现的四处行为差异（2026-11-27）
+
+让独立审计逐条验证文档里的"已对齐"声明，查出四处**真实行为差异**（非文案）：
+
+| # | 问题 | 改前 | 现在 |
+|---|---|---|---|
+| 1 | `tools_condition` **判断反了** | 真实 `AIMessage` → `__end__`，dict → `tools`（移植的图会静默跳过工具节点） | 与 LG 相同：看最后一个消息的 `tool_calls` 属性；空消息抛 `ValueError` |
+| 2 | `stream()` 默认模式 | `values`（还多发一个初始整状态 chunk） | **`updates`**（LG 的默认） |
+| 3 | `RetryPolicy()` 默认重试规则 | 空谓词 = 全部重试（`ValueError` 也重试 3 次） | LG 的 `default_retry_on`：连接类错误重试，`ValueError`/`TypeError`/`OSError` 等不重试 |
+| 4 | `create_react_agent` 默认 schema + `ValidationNode` 返回 **dict 消息** | `messages[-1].content` 直接 `AttributeError` | 都是 LangChain 消息对象（`AIMessage`/`ToolMessage`，带 `status`） |
+
+`create_react_agent` 的原因是没有把它的 `messages` 通道标记为消息通道；`ValidationNode` 是直接返回了 dict。
+
+**另一处相关**：`context_schema` 仍只接受 pydantic/TypedDict/JSON schema，裸类（LG 接受）会被拒绝 —— 待处理。
+
 ### 空闲超时（idle_timeout）语义修正（2026-11-27）
 
 独立审计发现的真实缺陷：`TimeoutPolicy(idle_timeout=...)` 在**阻塞执行路径**上被当成**整体运行时限**，

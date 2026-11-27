@@ -4039,3 +4039,31 @@ reports the idle wording; `run_timeout` still fires. A Rust test that asserted t
 updated.
 
 Suite is 615 tests (three new), parity 90/90, examples 10/10, clippy and Rust tests clean.
+
+### Round 194: adversarial audit — four behavioural differences fixed
+
+An independent audit tested twelve documented "now matches" claims against real LangGraph. Seven held
+(including the hardest ones: checkpoint history rows, interrupt semantics, store, error text). Four
+real behavioural differences did not:
+
+1. **`tools_condition` was inverted**: it read `tool_calls` from the serialized dict, so real
+   `AIMessage` objects (which the engine encodes as `{"lc":1,...,"kwargs":{...}}`) routed to `__end__`
+   while plain dicts routed to `tools`. Ported graphs silently skipped their tool node. The function is
+   now implemented in the shim with LangGraph's logic (attribute check, `ValueError` on empty input).
+2. **`stream()` defaulted to `values`** and emitted an extra initial state chunk. LangGraph defaults to
+   `updates`; the four defaults in the Python adapters were switched.
+3. **`RetryPolicy()` retried everything**: an empty predicate list meant retry-all, so a `ValueError`
+   ran a node three times where LangGraph runs it once. The engine now applies LangGraph's
+   `default_retry_on` (connection errors retry, `ValueError`/`TypeError`/`OSError`/… do not).
+4. **`create_react_agent` and `ValidationNode` returned dict messages**: the react agent never marked
+   its `messages` channel as a messages channel, and `ValidationNode` built dicts directly. Both now
+   yield LangChain objects (`AIMessage`, `ToolMessage` with `status`), so `messages[-1].content` works.
+
+Five of our own tests encoded the old behaviour and were updated to LangGraph's semantics.
+
+Still open from the audit: `context_schema` rejects plain classes (LangGraph accepts them), duplicate
+`add_node` fails at `compile` rather than at `add_node`, and three doc/cosmetic items (stale
+`create_react_agent` signature table, `get_config()` always adding `tags`, a stale §4.1 sentence).
+
+Suite is 620 tests (five new), parity 91/91 (new `audit_regressions` scenario), examples 10/10, clippy
+and Rust tests clean.

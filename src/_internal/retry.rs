@@ -129,15 +129,19 @@ impl RetryPolicy {
     }
 
     /// Returns `true` when `message` matches the configured `retry_on` predicates.
+    ///
+    /// With no predicates configured this applies LangGraph's `default_retry_on`: connection
+    /// problems are retried, ordinary programming errors are not, anything else is.
     pub fn should_retry(&self, message: &str) -> bool {
         if let Some(condition) = &self.condition {
             return condition(message);
         }
-        self.retry_on.is_empty()
-            || self
-                .retry_on
-                .iter()
-                .any(|predicate| message.contains(predicate))
+        if self.retry_on.is_empty() {
+            return default_retry_on(message);
+        }
+        self.retry_on
+            .iter()
+            .any(|predicate| message.contains(predicate))
     }
 
     /// Returns `true` when the policy allows more than one attempt.
@@ -163,4 +167,29 @@ impl RetryPolicy {
         }
         Duration::from_secs_f64(seconds.max(0.0))
     }
+}
+
+/// LangGraph's `default_retry_on`, matched against the error text.
+///
+/// `ConnectionError` retries; the usual programming errors do not; everything else does.
+fn default_retry_on(message: &str) -> bool {
+    if message.contains("ConnectionError") {
+        return true;
+    }
+    const NOT_RETRYABLE: [&str; 11] = [
+        "ValueError",
+        "TypeError",
+        "ArithmeticError",
+        "ImportError",
+        "LookupError",
+        "NameError",
+        "SyntaxError",
+        "RuntimeError",
+        "ReferenceError",
+        "StopIteration",
+        "OSError",
+    ];
+    !NOT_RETRYABLE
+        .iter()
+        .any(|name| message.contains(name))
 }

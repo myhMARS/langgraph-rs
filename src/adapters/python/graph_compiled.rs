@@ -311,7 +311,7 @@ impl PyCompiledGraph {
                 .unwrap_or_default()
         });
         let requested = stream_modes_from_py(stream_mode)?
-            .unwrap_or_else(|| vec![crate::StreamMode::Values]);
+            .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         // Live consumers (the events API) need model tokens, as LangGraph's tracer does.
         crate::adapters::python::convert::set_stream_tokens(true);
         let mut config = RunConfig::new().with_stream_modes(requested.clone());
@@ -403,7 +403,7 @@ impl PyCompiledGraph {
             config = config.with_stream_subgraphs(true);
         }
         let requested =
-            stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Values]);
+            stream_modes_from_py(stream_mode)?.unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         let lifecycle: crate::_internal::lifecycle::LifecycleSink =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let config = config
