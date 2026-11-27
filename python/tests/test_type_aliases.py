@@ -2407,3 +2407,33 @@ class RetryOnCallableTest(unittest.TestCase):
             "retry_on=[<class 'ValueError'>, <class 'KeyError'>]",
             repr(langgraph_rs.RetryPolicy(retry_on=[ValueError, KeyError])),
         )
+
+
+class SubgraphDebugStreamTest(unittest.TestCase):
+    """`stream_mode="debug", subgraphs=True` wraps the whole debug chunk."""
+
+    @staticmethod
+    def _app():
+        child = langgraph_rs.StateGraph({"value": "last_value"})
+        child.add_node("c", lambda state: {"value": 1})
+        child.add_edge(langgraph_rs.START, "c")
+        child.add_edge("c", langgraph_rs.END)
+        parent = langgraph_rs.StateGraph({"value": "last_value"})
+        parent.add_node("sub", child.compile())
+        parent.add_edge(langgraph_rs.START, "sub")
+        parent.add_edge("sub", langgraph_rs.END)
+        return parent.compile()
+
+    def test_chunks_keep_their_shape(self):
+        chunks = list(self._app().stream({"value": 0}, stream_mode="debug", subgraphs=True))
+        shapes = [(list(namespace), chunk.get("type")) for namespace, chunk in chunks]
+        self.assertEqual(
+            [kind for _, kind in shapes], ["task", "task", "task_result", "task_result"]
+        )
+        # Only the subgraph's own records carry a namespace.
+        self.assertEqual(shapes[0][0], [])
+        self.assertEqual(len(shapes[1][0]), 1)
+        self.assertTrue(shapes[1][0][0].startswith("sub:"))
+        # The wrapped chunk is the full debug record, not just its payload.
+        for _, chunk in chunks:
+            self.assertEqual(sorted(chunk), ["payload", "step", "timestamp", "type"])

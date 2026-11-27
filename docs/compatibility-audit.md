@@ -3476,4 +3476,26 @@ Note for future benchmark work: a parity `measure()` loop around retries replays
 sleeps; the scenario measures policy construction instead.
 
 Suite is 532 tests (four new), parity 76/76 (new `retry_on` scenario), examples 10/10, clippy and Rust
-tests clean.
+tests clean.### Round 160: subgraph debug chunks keep their full record
+
+With `stream_mode="debug", subgraphs=True`, LangGraph yields `(namespace, chunk)` where the chunk is
+the **complete** debug record (`type`, `timestamp`, `step`, `payload`). The extension only wrapped the
+payload, so `chunk["type"]` was missing:
+
+```
+LG:   [([], 'task'), (['sub:...'], 'task'), (['sub:...'], 'task_result'), ([], 'task_result')]
+was:  [([], None), (['sub:...'], None), ...]
+now:  identical, every chunk carrying all four fields
+```
+
+Also verified as matching while here: `stream_mode="tasks", subgraphs=True` (names and namespaces) and
+`astream_events(version="v2")` (the full `on_chain_start` / `on_chain_stream` / `on_chain_end`
+sequence, including the `LangGraph` root).
+
+Cosmetic differences documented rather than fixed: `get_graph().draw_mermaid()` emits ordinary edges
+before conditional ones (LangGraph keeps declaration order), `Graph.nodes[...].data` is `None`, and the
+compiled graph is missing the `nodes` / `attach_node` / `attach_edge` / `attach_branch` Pregel
+internals.
+
+Suite is 533 tests (one new), parity 77/77 (new `subgraph_debug` scenario), examples 10/10, clippy and
+Rust tests clean.

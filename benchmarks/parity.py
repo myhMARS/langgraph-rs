@@ -501,6 +501,56 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_subgraph_debug_scenario() -> list[dict]:
+    """`stream_mode="debug", subgraphs=True` yields `(namespace, debug record)` pairs."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        if engine == "lg":
+            child = LgStateGraph(LgState)
+            child.add_node("c", lambda state: {"value": 1})
+            child.add_edge(START, "c")
+            child.add_edge("c", END)
+            parent = LgStateGraph(LgState)
+            parent.add_node("sub", child.compile())
+            parent.add_edge(START, "sub")
+            parent.add_edge("sub", END)
+            app = parent.compile()
+        else:
+            child = rs.StateGraph({"value": "last_value"})
+            child.add_node("c", lambda state: {"value": 1})
+            child.add_edge(rs.START, "c")
+            child.add_edge("c", rs.END)
+            parent = rs.StateGraph({"value": "last_value"})
+            parent.add_node("sub", child.compile())
+            parent.add_edge(rs.START, "sub")
+            parent.add_edge("sub", rs.END)
+            app = parent.compile()
+        chunks = list(app.stream({"value": 0}, stream_mode="debug", subgraphs=True))
+        return {
+            "kinds": [
+                (len(namespace), chunk.get("type")) for namespace, chunk in chunks
+            ],
+            "keys": sorted(sorted(chunk) for _, chunk in chunks)[0],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "subgraph_debug",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_retry_on_scenario() -> list[dict]:
     """`RetryPolicy(retry_on=...)` accepts callables, types and sequences."""
 
@@ -4777,6 +4827,7 @@ def main() -> None:
         run_store_surface_scenario,
         run_saver_surface_scenario,
         run_retry_on_scenario,
+        run_subgraph_debug_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

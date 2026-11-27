@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 子图 + `debug` 流：整条记录进元组（2026-11-27）
+
+`stream_mode="debug", subgraphs=True` 时 LG 产出 `(namespace, chunk)`，其中 chunk 是**完整的** debug
+记录（`type` / `timestamp` / `step` / `payload`）。扩展此前只把 `payload` 放进去，`type` 等字段丢失：
+
+```
+LG: [([], 'task'), (['sub:...'], 'task'), (['sub:...'], 'task_result'), ([], 'task_result')]
+改前: [([], None), (['sub:...'], None), ...]         ← type 不在
+现在: 与 LG 完全一致，且每条都能取到 4 个字段
+```
+
+顺带核对（已一致）：`stream_mode="tasks", subgraphs=True` 的名称与命名空间序列；`astream_events(version="v2")`
+的事件序列（`on_chain_start` / `on_chain_stream` / `on_chain_end`，含 `LangGraph` 根节点）逐条相同。
+
+**已知的表层差异（不影响功能）**：`get_graph().draw_mermaid()` 里条件边的**输出顺序**与 LG 不同（扩展先输出
+普通边再输出条件边；LG 按声明顺序）；`Graph.nodes[...].data` 为 `None`（LG 是内部 `PregelNode` 的 repr）。
+编译后的图对象公共面仅缺 `nodes` / `attach_node` / `attach_edge` / `attach_branch` 这组 Pregel 内部成员。
+
 ### `RetryPolicy(retry_on=<callable>)`（2026-11-27）
 
 LG 的 `retry_on` 接受**三种**形式：异常类型、类型序列、以及 `(exc) -> bool` 的谓词。扩展此前只把

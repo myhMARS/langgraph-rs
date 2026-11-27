@@ -293,6 +293,37 @@ fn convert_stream_chunks_inner(
 
     for chunk in chunks {
         if debug_mode {
+            // A subgraph's debug records keep their `type`/`timestamp`/`step` fields and gain the
+            // namespace in front, exactly like LangGraph's `(namespace, chunk)` pairs.
+            if let StreamChunk::Subgraph { namespace, chunk: inner } = chunk
+                && matches!(**inner, StreamChunk::Debug { .. } | StreamChunk::Task { .. })
+            {
+                let parts = match &**inner {
+                    StreamChunk::Task { .. } => task_debug_parts(py, inner, v2)?,
+                    _ => {
+                        if v2 {
+                            chunk_to_py_v2_parts(py, inner)?
+                        } else {
+                            vec![chunk_to_py_v1(py, inner, false)?]
+                        }
+                    }
+                };
+                let namespace: Vec<String> = if namespace.is_empty() {
+                    Vec::new()
+                } else {
+                    namespace.split('|').map(str::to_owned).collect()
+                };
+                let namespace = PyTuple::new(py, namespace)?;
+                for part in parts {
+                    converted.push(
+                        (namespace.clone(), part).into_pyobject(py)?.into_any().unbind(),
+                    );
+                }
+                if tasks_enabled {
+                    convert_regular(&mut converted, &mut values_indices, chunk)?;
+                }
+                continue;
+            }
             match chunk {
                 StreamChunk::Debug { .. } => {
                     convert_regular(&mut converted, &mut values_indices, chunk)?
