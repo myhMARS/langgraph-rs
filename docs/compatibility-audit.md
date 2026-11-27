@@ -4300,3 +4300,25 @@ invoke the sink as each superstep completes), not in the Python bindings. Docume
 numbers.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 206: the buffering is in the facade, not the engine
+
+Last round I concluded the engine defers chunk emission. That was wrong. Driving the facade's `stream()`
+through the pre-existing native `stream_live` (worker thread + channel) immediately produced LangGraph's
+timing: `[0.30, 0.60]` instead of `[0.60, 0.60]` for two 0.3 s nodes. The engine already calls the sink at
+the end of every superstep; the facade was collecting into a list via `_inner.stream(...)` and handing it
+over at once.
+
+The change is not kept yet: switching the return type to an iterator broke eight tests. They are all
+mechanically fixable, but doing it properly needs one focused pass:
+
+1. `stream()` now returns an iterator rather than a list — add `__getitem__`/`__len__` to the live
+   wrapper (or switch the affected assertions to `list(...)`).
+2. A missing `thread_id` then surfaces on first iteration instead of at call time — which is what
+   LangGraph does (its `stream` is a generator); the test asserting an eager error has to follow suit.
+3. `custom` chunks are missing from the live path in multi-mode (`lg.custom()` goes through the pending
+   live sink); needs investigation before switching.
+
+Documented, with the measurement, as next round's first task.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
