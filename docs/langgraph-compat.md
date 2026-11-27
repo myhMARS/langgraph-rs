@@ -332,6 +332,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `astream_events` 的图级事件按超步发出（2026-11-27）
+
+LG 在 `astream_events` 里，**每个超步结束**都会发一次图级 `on_chain_stream`（两个节点 → 两次 + 一次 start/end）。
+扩展只在最后发一次：
+
+```
+LG : start LangGraph | start a | stream a | end a | stream LangGraph | start b | ... | stream LangGraph | end LangGraph
+改前: ... 只有结尾那一个 stream LangGraph
+```
+
+现在数量与顺序逐条相同（含"图级 chunk 在节点事件之后"这个顺序细节）。
+
+顺带确认已一致：递归上限错误（`GraphRecursionError` 文案逐字相同）、节点超时
+（`NodeTimeoutError`，仅 elapsed 实测值不同）、`astream_events` 的事件字段集合。
+
 ### 错误文案与空线程快照（2026-11-27）
 
 三处小差异，均已对齐：

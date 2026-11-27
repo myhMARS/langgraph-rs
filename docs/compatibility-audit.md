@@ -3761,3 +3761,18 @@ Confirmed equal in the same pass: parallel interrupts resumed by id map
 `update_state` history rows.
 
 Suite is 580 tests, parity 86/86, examples 10/10, clippy and Rust tests clean.
+
+### Round 177: `astream_events` emits the graph chunk per superstep
+
+LangGraph emits the graph-level `on_chain_stream` after **every** superstep (two nodes: two chunks),
+and always *after* that step's node events. The extension emitted a single graph chunk at the end.
+
+The event builder now holds the step's `values` payload until its node events are out, then emits the
+graph chunk, and drops the trailing values-only chunk that has no step of its own. The full event
+sequence for a two-node graph is now identical to LangGraph's, order included.
+
+Confirmed equal in the same pass: the recursion-limit error text (byte for byte), `NodeTimeoutError`
+(only the measured `elapsed` differs) and the `astream_events` field set.
+
+Suite is 581 tests, parity 87/87 (new `stream_events` scenario), examples 10/10, clippy and Rust tests
+clean.

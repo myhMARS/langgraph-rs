@@ -3166,3 +3166,38 @@ class ErrorShapeTest(unittest.TestCase):
         self.assertEqual(snapshot.config, {"configurable": {"thread_id": "nope"}})
         self.assertIsNone(snapshot.metadata)
         self.assertEqual(snapshot.next, ())
+
+
+class StreamEventsOrderTest(unittest.TestCase):
+    """`astream_events` emits the graph stream once per superstep, like LangGraph."""
+
+    def test_graph_events_per_superstep(self):
+        import asyncio
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_node("b", lambda state: {"value": state["value"] + 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile()
+
+        async def collect():
+            return [event async for event in app.astream_events({"value": 0}, version="v2")]
+
+        events = [(item["event"], item["name"]) for item in asyncio.run(collect())]
+        self.assertEqual(
+            events,
+            [
+                ("on_chain_start", "LangGraph"),
+                ("on_chain_start", "a"),
+                ("on_chain_stream", "a"),
+                ("on_chain_end", "a"),
+                ("on_chain_stream", "LangGraph"),
+                ("on_chain_start", "b"),
+                ("on_chain_stream", "b"),
+                ("on_chain_end", "b"),
+                ("on_chain_stream", "LangGraph"),
+                ("on_chain_end", "LangGraph"),
+            ],
+        )

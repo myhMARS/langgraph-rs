@@ -536,6 +536,20 @@ async def astream_events_v2(
 
     node_runs: dict[tuple, str] = {}
     collected: Any = None
+    # The engine emits `values` before `updates` for a superstep; the graph-level chunk is held
+    # back until that step's node events are out, which is the order LangGraph uses.
+    pending_values: Any = None
+
+    def graph_chunk(payload: Any) -> Any:
+        return event(
+            "on_chain_stream",
+            graph_name,
+            graph_run,
+            {"chunk": payload},
+            {"ls_integration": "langgraph"},
+            [],
+        )
+
     async for part in _aiter_collected(parts()):
         if isinstance(part, dict) and "type" in part:
             # v2 parts are `{"type", "ns", "data"}`.
@@ -546,6 +560,7 @@ async def astream_events_v2(
             namespace, mode, payload = (), "values", part
         if mode == "values":
             collected = payload
+            pending_values = payload
             continue
         for node, update in (payload or {}).items():
             key = (namespace, node)
@@ -568,14 +583,9 @@ async def astream_events_v2(
                 metadata,
                 [graph_run],
             )
-    yield event(
-        "on_chain_stream",
-        graph_name,
-        graph_run,
-        {"chunk": collected},
-        {"ls_integration": "langgraph"},
-        [],
-    )
+        if pending_values is not None:
+            yield graph_chunk(pending_values)
+            pending_values = None
     yield event(
         "on_chain_end",
         graph_name,

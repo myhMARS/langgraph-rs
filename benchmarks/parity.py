@@ -501,6 +501,61 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_stream_events_scenario() -> list[dict]:
+    """`astream_events` emits the same event sequence as LangGraph."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        import asyncio
+
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"value": state["value"] + 1})
+            graph.add_edge(START, "a")
+            graph.add_edge("a", "b")
+            graph.add_edge("b", END)
+        else:
+            graph = rs.StateGraph({"value": "last_value"})
+            graph.add_node("a", lambda state: {"value": 1})
+            graph.add_node("b", lambda state: {"value": state["value"] + 1})
+            graph.add_edge(rs.START, "a")
+            graph.add_edge("a", "b")
+            graph.add_edge("b", rs.END)
+        app = graph.compile()
+
+        async def collect_events():
+            return [
+                event async for event in app.astream_events({"value": 0}, version="v2")
+            ]
+
+        events = asyncio.run(collect_events())
+        return {
+            "sequence": [[item["event"], item["name"]] for item in events],
+            "graph_chunks": sum(
+                1
+                for item in events
+                if item["event"] == "on_chain_stream" and item["name"] == "LangGraph"
+            ),
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "stream_events",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_checkpoint_shape_scenario() -> list[dict]:
     """`get_state_history` rows (step, source, values, next) match LangGraph's."""
 
@@ -5305,6 +5360,7 @@ def main() -> None:
         run_python_state_scenario,
         run_unknown_channel_scenario,
         run_checkpoint_shape_scenario,
+        run_stream_events_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
