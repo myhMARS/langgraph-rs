@@ -332,6 +332,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `interrupt(response_schema=...)` 与非法节点输出（2026-11-27）
+
+**`response_schema` 可以传类**：LG 接受 pydantic / TypedDict 类或 JSON schema 字典。扩展此前只认
+字典 —— 传类会在 `interrupt()` 里报 `TypeError: value of type 'type' cannot be converted to JSON`。
+现在类会先转成 JSON schema 再存进 interrupt 记录（`snapshot.interrupts[0].response_schema` 能看到
+`{'title': 'Answer', ...}`）。
+
+**非法节点输出**：节点返回非映射时，LG 抛
+`InvalidUpdateError: Expected dict, got ['not-a-dict']` 加排错链接；扩展抛
+`RuntimeError: node 'b' failed: ...`。现在与 LG 一致（消息逐字，含值本身）。
+
+**一处已记录的差异**：`resume` 值不满足 schema 时，LG 抛 pydantic 的 `ValidationError`
+（`1 validation error for Answer ...`）；扩展由引擎按 JSON schema 校验，抛 `RuntimeError: resume
+value is missing required response_schema property 'answer'`。两者都会失败，只是异常类型不同。
+
 ### 工具里的 `interrupt()`（2026-11-27）
 
 LG 允许在**工具内部**调用 `interrupt()`，效果与节点内相同：图暂停、`__interrupt__` 带上值、`resume`

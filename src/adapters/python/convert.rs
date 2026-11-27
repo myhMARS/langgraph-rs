@@ -284,6 +284,18 @@ pub(super) fn usage_from_py(obj: &Bound<'_, PyAny>) -> PyResult<Usage> {
 ///
 /// The engine formats timeouts as ``node `<name>` timed out after <millis> ms``; the retry layer then
 /// appends the attempt count, so the prefix is what identifies the shape.
+/// The `Expected dict, got ...` detail of an invalid node output, when the message carries one.
+fn invalid_node_output(message: &str) -> Option<String> {
+    let marker = "Expected dict, got ";
+    let start = message.find(marker)?;
+    let mut detail = message[start..].trim_end().to_string();
+    // The retry bookkeeping appends `(failed after N attempt(s))`; LangGraph does not show it.
+    if let Some(position) = detail.find(" (failed after ") {
+        detail.truncate(position);
+    }
+    Some(detail)
+}
+
 fn idle_millis(node: &str, message: &str) -> Option<u64> {
     let prefix = format!("node `{node}` went idle for ");
     let rest = message.strip_prefix(&prefix)?;
@@ -315,6 +327,33 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
              You can increase the limit by setting the `recursion_limit` config key.\n\
              For troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT"
         )),
+        // A node that returns something other than an update mapping is an invalid update.
+        Error::Node { message, .. } if invalid_node_output(&message).is_some() => {
+            let detail = invalid_node_output(&message).unwrap_or_default();
+            let text = format!(
+                "{detail}\nFor troubleshooting, visit: \
+                 https://docs.langchain.com/oss/python/langgraph/errors/INVALID_CONCURRENT_GRAPH_UPDATE"
+            );
+            match py
+                .import("langgraph_rs.errors")
+                .and_then(|module| module.getattr("InvalidUpdateError"))
+                .and_then(|class| class.call1((text.clone(),)))
+            {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(text),
+            }
+        }
+        Error::Other(message) if invalid_node_output(&message).is_some() => {
+            let detail = invalid_node_output(&message).unwrap_or_default();
+            match py
+                .import("langgraph_rs.errors")
+                .and_then(|module| module.getattr("InvalidUpdateError"))
+                .and_then(|class| class.call1((detail,)))
+            {
+                Ok(error) => PyErr::from_value(error),
+                Err(_) => PyRuntimeError::new_err(message),
+            }
+        }
         // LangGraph reports conflicting writes to a plain channel as `InvalidUpdateError`.
         Error::ConcurrentUpdate { channel, .. } => {
             let message = format!(
@@ -504,15 +543,23 @@ pub(super) fn node_output_from_py(obj: &Bound<'_, PyAny>) -> PyResult<NodeOutput
                     output = output.send(send);
                 }
             } else {
-                return Err(PyTypeError::new_err(
-                    "a node list must contain Send or Command objects",
-                ));
+                // LangGraph reports the whole value: `Expected dict, got [...]`.
+                let repr = obj
+                    .repr()
+                    .map(|text| text.to_string())
+                    .unwrap_or_else(|_| "?".to_string());
+                return Err(PyTypeError::new_err(format!("Expected dict, got {repr}")));
             }
         }
         return Ok(output);
     }
     let dict = obj.cast::<PyDict>().map_err(|_| {
-        PyTypeError::new_err("a node must return a dict of channel updates, Send/Command, or None")
+        // LangGraph reports this as `InvalidUpdateError: Expected dict, got <repr>`.
+        let repr = obj
+            .repr()
+            .map(|text| text.to_string())
+            .unwrap_or_else(|_| "?".to_string());
+        PyTypeError::new_err(format!("Expected dict, got {repr}"))
     })?;
 
     let mut output = NodeOutput::new();

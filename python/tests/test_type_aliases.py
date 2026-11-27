@@ -1911,3 +1911,60 @@ class ToolInterruptTest(unittest.TestCase):
             for message in resumed["messages"]
         ]
         self.assertEqual(contents[-2:], ["answer=yes", "done"])
+
+
+class InterruptSchemaTest(unittest.TestCase):
+    """`interrupt(response_schema=...)` accepts a class and validates the resume value."""
+
+    @staticmethod
+    def _app():
+        from typing import TypedDict
+
+        class Answer(TypedDict):
+            answer: str
+
+        def ask(state):
+            return {"value": langgraph_rs.interrupt({"q": "?"}, response_schema=Answer)}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("ask", ask)
+        graph.add_edge(langgraph_rs.START, "ask")
+        graph.add_edge("ask", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_schema_is_a_class(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "schema-ok"}}
+        paused = app.invoke({"value": None}, config)
+        schema = paused["__interrupt__"][0].response_schema
+        self.assertEqual(schema["title"], "Answer")
+        resumed = app.invoke(langgraph_rs.Command(resume={"answer": "yes"}), config)
+        self.assertEqual(resumed, {"value": {"answer": "yes"}})
+
+    def test_invalid_resume_is_rejected(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "schema-bad"}}
+        app.invoke({"value": None}, config)
+        with self.assertRaises(Exception) as raised:
+            app.invoke(langgraph_rs.Command(resume={"bad": 1}), config)
+        # LangGraph raises pydantic's `ValidationError`; the engine reports the same problem as a
+        # `RuntimeError` naming the missing property (documented difference).
+        self.assertIn("answer", str(raised.exception))
+
+
+class InvalidNodeOutputTest(unittest.TestCase):
+    """A node returning a non-mapping raises `InvalidUpdateError`, as in LangGraph."""
+
+    def test_bad_output(self):
+        from langgraph_rs.errors import InvalidUpdateError
+
+        def bad(state):
+            return ["not-a-dict"]
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("b", bad)
+        graph.add_edge(langgraph_rs.START, "b")
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(InvalidUpdateError) as raised:
+            graph.compile().invoke({"value": 0})
+        self.assertIn("Expected dict, got ['not-a-dict']", str(raised.exception))

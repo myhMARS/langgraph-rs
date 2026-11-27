@@ -3171,4 +3171,22 @@ conditional edges with a `path_map` dict, and three-way `stream_mode` mixes. `ad
 action needed.
 
 Suite is 501 tests (one new), parity 69/69 (new `tool_interrupt` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 145: `interrupt(response_schema=...)` accepts classes; invalid node output
+
+* `interrupt(response_schema=...)` only accepted a JSON-schema dict; passing a pydantic/TypedDict
+  class (what LangGraph documents) raised `TypeError: value of type 'type' cannot be converted to
+  JSON`. The class is now converted to its JSON schema for the interrupt record, so
+  `snapshot.interrupts[0].response_schema` shows `{'title': 'Answer', ...}`.
+* A node returning something that is not an update mapping now raises `InvalidUpdateError: Expected
+  dict, got ['not-a-dict']` with LangGraph's troubleshooting link, instead of
+  `RuntimeError: node 'b' failed: ...`.
+
+Documented difference: when the resumed value does not satisfy the schema, LangGraph raises pydantic's
+`ValidationError` (`1 validation error for Answer ...`) while the engine validates against the JSON
+schema in Rust and raises `RuntimeError: resume value is missing required response_schema property
+'answer'`. Both fail; only the exception type differs.
+
+Also checked and matching: `get_state_history` with `limit` / `before` / `filter` on a three-turn
+thread (identical step numbers and counts).
+
+Suite is 504 tests (three new), parity 69/69, examples 10/10, clippy and Rust tests clean.
