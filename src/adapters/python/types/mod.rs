@@ -112,7 +112,7 @@ impl PySend {
 ///
 /// Constructed by the engine when a tool declares a `ToolRuntime` parameter, so the extension does
 /// not have to import the shim's dataclass.
-#[pyclass(name = "ToolRuntime", module = "langgraph_rs")]
+#[pyclass(name = "ToolRuntime", module = "langgraph_rs", subclass)]
 pub struct PyToolRuntime {
     #[pyo3(get, set)]
     pub state: Option<Py<PyAny>>,

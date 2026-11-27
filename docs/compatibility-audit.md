@@ -3498,4 +3498,20 @@ compiled graph is missing the `nodes` / `attach_node` / `attach_edge` / `attach_
 internals.
 
 Suite is 533 tests (one new), parity 77/77 (new `subgraph_debug` scenario), examples 10/10, clippy and
+Rust tests clean.### Round 161: `ToolRuntime` injection
+
+LangGraph injects a `ToolRuntime` handle into tools that declare `runtime: ToolRuntime` and hides the
+parameter from the model-facing schema. The extension injected the handle, but `config` came through
+empty and `tool.tool_call_schema` raised `PydanticInvalidForJsonSchema` because the parameter was not
+recognised as injected.
+
+Now identical to LangGraph: the schema exposes only `['query']` and the tool sees
+`state=['messages'] cfg=True writer=True`.
+
+How: the Python `ToolRuntime` subclasses langchain's `_DirectlyInjectedToolArg` (which is what makes
+`@tool` drop the parameter) and declares a pydantic core schema that accepts the handle the engine
+builds in Rust — so the parameter is hidden without Rust importing the shim's class. The engine also
+fills `config` (the run's `get_config()` view) and a `stream_writer`.
+
+Suite is 535 tests (two new), parity 78/78 (new `tool_runtime` scenario), examples 10/10, clippy and
 Rust tests clean.

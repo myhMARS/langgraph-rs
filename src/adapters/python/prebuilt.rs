@@ -148,8 +148,14 @@ fn tool_definitions(tools: &Bound<'_, PyAny>) -> PyResult<Vec<ToolDefinition>> {
                                             Some(context) => Some(value_to_py(py, &context)?),
                                             None => None,
                                         },
-                                        config: None,
-                                        stream_writer: None,
+                                        // LangGraph hands tools the run config and a writer for
+                                        // custom stream values.
+                                        config: Some(value_to_py(py, &crate::get_config())?),
+                                        stream_writer: pyo3::IntoPyObjectExt::into_py_any(
+                                            super::types::PyStreamWriter,
+                                            py,
+                                        )
+                                        .ok(),
                                         tool_call_id: None,
                                         store: match crate::get_store() {
                                             Some(store) => Some(

@@ -45,9 +45,14 @@ __all__ = [
 
 try:  # pragma: no cover - langchain_core is optional
     from langchain_core.tools.base import InjectedToolArg as _InjectedToolArg
+    from langchain_core.tools.base import (
+        _DirectlyInjectedToolArg as _DirectInjectedToolArg,
+    )
 except Exception:  # pragma: no cover - fall back to a plain marker base
     class _InjectedToolArg:  # type: ignore[no-redef]
         """Base marker for tool arguments the model must not provide."""
+
+    _DirectInjectedToolArg = _InjectedToolArg  # type: ignore[assignment,misc]
 
 # LangGraph parameterises ``ToolRuntime`` as ``Generic[ContextT, StateT]``.
 try:  # ``default=`` needs Python 3.13 / typing_extensions.TypeVar
@@ -71,8 +76,26 @@ class InjectedStore(_InjectedToolArg):
 
 
 # The runtime handle is a native class: the engine builds it when a tool declares a
-# `ToolRuntime` parameter, so the shim no longer re-implements the object.
-from ..langgraph_rs import ToolRuntime  # noqa: E402  (native re-export)
+# `ToolRuntime` parameter. The Python subclass adds langchain's injected-argument marker so
+# `@tool` leaves `runtime` out of the model-facing schema, exactly as LangGraph's does.
+from ..langgraph_rs import ToolRuntime as _NativeToolRuntime  # noqa: E402
+
+
+class ToolRuntime(_NativeToolRuntime, _DirectInjectedToolArg):
+    """Runtime context LangGraph injects into tools (`runtime: ToolRuntime`).
+
+    The engine builds the handle in Rust (it owns the run's state, store and config), so the
+    subclass accepts the native instance here instead of constructing a second copy.
+    """
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        try:
+            from pydantic_core import core_schema
+
+            return core_schema.is_instance_schema(_NativeToolRuntime)
+        except Exception:  # pragma: no cover - pydantic_core ships with pydantic
+            return handler(source)
 
 
 def _validation_error_text(error: Exception) -> str:

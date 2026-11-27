@@ -501,6 +501,73 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_tool_runtime_scenario() -> list[dict]:
+    """A `runtime: ToolRuntime` parameter is hidden from the schema and injected filled."""
+
+    def collect(engine):
+        from langchain_core.messages import AIMessage
+        from langchain_core.tools import tool
+
+        if engine == "lg":
+            from langgraph.prebuilt import ToolRuntime as RuntimeType
+        else:
+            from langgraph_rs.prebuilt import ToolRuntime as RuntimeType
+
+        # `parity.py` uses postponed annotations, so the runtime class is attached directly
+        # instead of by name.
+        def _inspect(query, runtime):
+            """Read the runtime."""
+            return (
+                f"state={sorted(runtime.state)}"
+                f"|cfg={bool(runtime.config)}"
+                f"|writer={runtime.stream_writer is not None}"
+            )
+
+        _inspect.__annotations__ = {"query": str, "runtime": RuntimeType, "return": str}
+        _inspect.__name__ = "inspect_runtime"
+        inspect_runtime = tool(_inspect)
+
+        ai = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "inspect_runtime", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}
+            ],
+        )
+        if engine == "lg":
+            class LgState(TypedDict):
+                messages: Annotated[list, add_messages]
+
+            graph = LgStateGraph(LgState)
+            graph.add_node("tools", LgToolNode([inspect_runtime]))
+            graph.add_edge(START, "tools")
+            graph.add_edge("tools", END)
+        else:
+            graph = rs.StateGraph({"messages": "add_messages"})
+            graph.add_node("tools", rs.prebuilt.ToolNode([inspect_runtime]))
+            graph.set_entry_point("tools")
+            graph.set_finish_point("tools")
+        out = graph.compile().invoke({"messages": [ai]})
+        last = out["messages"][-1]
+        return {
+            "schema": sorted(inspect_runtime.tool_call_schema.model_json_schema()["properties"]),
+            "content": last.get("content") if isinstance(last, dict) else last.content,
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "tool_runtime",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_subgraph_debug_scenario() -> list[dict]:
     """`stream_mode="debug", subgraphs=True` yields `(namespace, debug record)` pairs."""
 
@@ -4828,6 +4895,7 @@ def main() -> None:
         run_saver_surface_scenario,
         run_retry_on_scenario,
         run_subgraph_debug_scenario,
+        run_tool_runtime_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

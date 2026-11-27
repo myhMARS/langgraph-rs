@@ -2437,3 +2437,47 @@ class SubgraphDebugStreamTest(unittest.TestCase):
         # The wrapped chunk is the full debug record, not just its payload.
         for _, chunk in chunks:
             self.assertEqual(sorted(chunk), ["payload", "step", "timestamp", "type"])
+
+
+from langgraph_rs.prebuilt import ToolRuntime as _ToolRuntime
+
+
+class ToolRuntimeInjectionTest(unittest.TestCase):
+    """A `runtime: ToolRuntime` parameter is hidden from the schema and injected filled."""
+
+    @staticmethod
+    def _tool():
+        from langchain_core.tools import tool
+
+        @tool
+        def inspect_runtime(query: str, runtime: _ToolRuntime) -> str:
+            """Read the runtime."""
+            return (
+                f"state={sorted(runtime.state)}"
+                f"|cfg={bool(runtime.config)}"
+                f"|writer={runtime.stream_writer is not None}"
+            )
+
+        return inspect_runtime
+
+    def test_schema_hides_the_runtime(self):
+        tool = self._tool()
+        self.assertEqual(sorted(tool.tool_call_schema.model_json_schema()["properties"]), ["query"])
+
+    def test_runtime_is_filled(self):
+        from langchain_core.messages import AIMessage
+
+        from langgraph_rs.prebuilt import ToolNode
+
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"name": "inspect_runtime", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}],
+        )
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", ToolNode([self._tool()]))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        content = graph.compile().invoke({"messages": [ai]})["messages"][-1].content
+        self.assertIn("state=['messages']", content)
+        self.assertIn("cfg=True", content)
+        self.assertIn("writer=True", content)

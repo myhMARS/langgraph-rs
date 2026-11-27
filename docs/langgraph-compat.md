@@ -111,8 +111,8 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
   `checkpoint.base` 辅助函数（`empty_checkpoint`/`create_checkpoint`/`copy_checkpoint`/`writes_sort_key`/
   `get_checkpoint_id`/`get_checkpoint_metadata`/`WRITES_IDX_MAP`/`EXCLUDED_METADATA_KEYS`）、
   `checkpoint.memory.MemorySaver`（= `InMemorySaver`）
-- `langgraph.prebuilt` 参数注入：`InjectedState`、`InjectedStore`（模型工具 schema 中自动隐藏，
-  运行时由引擎填入状态/长期 store）；`ToolRuntime` 仅提供类型名，注入未实现（使用时明确报错）
+- `langgraph.prebuilt` 参数注入：`InjectedState`、`InjectedStore`、`ToolRuntime`（模型工具 schema 中
+  自动隐藏，运行时由引擎填入状态/长期 store/运行 config/custom 流写入器）
 - `create_react_agent` / `ToolNode` 支持上述注入（含普通可调用对象与 `@tool` 工具）
 - `langgraph.errors` / `langgraph.warnings` 全量类：`GraphBubbleUp`、`GraphRecursionError`
   （`RecursionError` 子类，文案与 LangGraph 一致）、`GraphDrained`、`NodeInterrupt`、`NodeError`、
@@ -331,6 +331,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - `isinstance(app, Runnable)` 为真，`app | fn`、`app.with_config(...)`、`app.as_tool()` 可用
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
+
+### `ToolRuntime` 注入（2026-11-27）
+
+LG 允许工具声明 `runtime: ToolRuntime`，运行时注入一个带 `state` / `config` / `store` /
+`stream_writer` / `tool_call_id` / `context` 等字段的句柄，并在模型可见的 schema 里**隐藏**这个参数。
+
+扩展此前：注入本身能跑，但 `config` 是空的，且 `tool_call_schema` 直接抛
+`PydanticInvalidForJsonSchema`（因为 `runtime` 没有被标记为注入参数）。
+
+现在与 LG 一致：
+
+```
+schema 参数：['query']                       # runtime 被隐藏
+工具内：state=['messages'] cfg=True writer=True
+```
+
+实现要点：`ToolRuntime` 改为继承 langchain 的 `_DirectlyInjectedToolArg`（由 langchain 的
+`@tool` 判定"隐藏此参数"），并用自定义 pydantic schema 接受引擎在 Rust 侧构造的句柄 ——
+这样既隐藏了参数、又不必让 Rust 反向导入 shim 的类。
 
 ### 子图 + `debug` 流：整条记录进元组（2026-11-27）
 
