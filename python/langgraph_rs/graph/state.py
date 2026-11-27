@@ -621,6 +621,17 @@ class _LiveIterator:
             if part is not None:
                 if self._wrap_namespaces and not _is_namespaced(part):
                     part = ((), part)
+                # LangGraph attaches a pause to the superstep's value chunk; the live path reports
+                # it separately, so fold it back into the previous chunk.
+                if (
+                    isinstance(part, dict)
+                    and set(part) == {"__interrupt__"}
+                    and self._chunks
+                    and isinstance(self._chunks[-1], dict)
+                    and "__interrupt__" not in self._chunks[-1]
+                ):
+                    self._chunks[-1] = {**self._chunks[-1], "__interrupt__": part["__interrupt__"]}
+                    return True
                 self._chunks.append(part)
                 return True
             time.sleep(0.0005)

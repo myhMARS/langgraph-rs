@@ -4569,3 +4569,18 @@ runtime, whereas the sync path's dedicated worker thread does. Fixing it needs a
 model for the async path; recorded rather than attempted.
 
 Suite is 668 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 221: pause chunk shape (F17) fixed; subgraph interrupt propagation measured
+
+The duplicate `values` chunk at a pause is gone: LangGraph attaches `__interrupt__` to the superstep's
+value chunk, while the live path reported it as a separate chunk. `_LiveIterator` now folds a chunk whose
+only key is `__interrupt__` back into the previous one, so a paused `values` stream yields two chunks like
+LangGraph instead of three.
+
+Measuring the subgraph-interrupt case (the audit's F18) showed it is two gaps in the stream propagation, not
+in state: LangGraph emits both the inner namespaced `__interrupt__` chunk and a parent one at the pause, and
+on resume re-emits the inner `('sub:…', …)` chunk; only the inner one is produced here. State, `next` and
+history all match, so this is a streaming-observability gap that needs namespace-aware propagation inside the
+engine — recorded for a dedicated pass.
+
+Suite is 669 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.

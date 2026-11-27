@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 暂停的 `values` 块形状修正（2026-11-27，第 124 轮）
+
+第 120 轮审计的 F17（暂停时 `values` 模式多出一个重复块）已修：live 路径把 `__interrupt__` 单独作为一块上报，
+而 LG 是把它**挂在该 superstep 的 values 块上**。现在 `_LiveIterator` 把"只有 `__interrupt__` 的块"折回上一块：
+
+```
+改前: [{'answer': None}, {'answer': None}, {'__interrupt__': (…)}]   ← 3 块
+现在: [{'answer': None}, {'answer': None, '__interrupt__': (…)}]     ← 2 块，与 LG 相同
+```
+
+**仍剩两项（都在子图中断的传播路径上，需要引擎内改造）**：
+
+1. 子图内中断时，LG 在暂停流里发**两块**（内层命名空间块 + 父级块），扩展只发内层。
+2. 恢复时 LG 会补发内层 `('sub:…', {'ask': …})`，扩展只有父级块。
+
+状态本身是对的（暂停/恢复/历史都一致），只是流里的命名空间块缺失。
+
 ### 超时诊断信息修正 + `AsyncStateGraph.astream` 缓冲确认（2026-11-27，第 123 轮）
 
 **诊断修正**：idle 超时的错误消息此前在同步构建器路径上报 `0.000s`（数值丢失，因为 Python 侧看门狗抛的

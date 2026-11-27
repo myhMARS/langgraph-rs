@@ -4900,3 +4900,19 @@ class IdleTimeoutDiagnosticsTest(unittest.TestCase):
             message = str(raised.exception)
             self.assertIn("0.120s", message)
             self.assertNotIn("0.000s", message)
+
+
+class PauseChunkShapeTest(unittest.TestCase):
+    """A paused `values` stream reports the interrupt on the superstep's chunk, like LangGraph."""
+
+    def test_values_pause_is_one_chunk(self):
+        graph = langgraph_rs.StateGraph({"answer": "last_value"})
+        graph.add_node("ask", lambda state: {"answer": langgraph_rs.interrupt({"q": "ok?"})})
+        graph.add_edge(langgraph_rs.START, "ask")
+        graph.add_edge("ask", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        chunks = list(app.stream({"answer": None}, {"configurable": {"thread_id": "pause-shape"}}, stream_mode="values"))
+        self.assertEqual(len(chunks), 2)
+        self.assertNotIn("__interrupt__", chunks[0])
+        self.assertIn("__interrupt__", chunks[1])
+        self.assertEqual(chunks[1]["answer"], None)
