@@ -84,6 +84,8 @@ pub struct PyLiveStream {
     handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     v2: bool,
     requested: Vec<crate::StreamMode>,
+    /// Wrap every chunk as `(namespace, payload)`, as `subgraphs=True` requires.
+    wrap_namespaces: bool,
     /// Interrupt chunks are reported together when the run ends, like the eager conversion does.
     pending_interrupts: std::sync::Mutex<Vec<StreamChunk>>,
     /// Step and payload of the last `values` chunk, so a duplicate for one step is not repeated.
@@ -96,12 +98,14 @@ impl PyLiveStream {
         handle: std::thread::JoinHandle<()>,
         v2: bool,
         requested: Vec<crate::StreamMode>,
+        wrap_namespaces: bool,
     ) -> Self {
         Self {
             receiver: std::sync::Mutex::new(receiver),
             handle: std::sync::Mutex::new(Some(handle)),
             v2,
             requested,
+            wrap_namespaces,
             pending_interrupts: std::sync::Mutex::new(Vec::new()),
             last_values: std::sync::Mutex::new(None),
         }
@@ -154,7 +158,7 @@ impl PyLiveStream {
                                 &pending,
                                 self.v2,
                                 &self.requested,
-                                false,
+                                self.wrap_namespaces,
                             )?;
                         if let Some(item) = converted.into_iter().next() {
                             return Ok(Some(item));
@@ -200,7 +204,7 @@ impl PyLiveStream {
                             &[*chunk],
                             self.v2,
                             &self.requested,
-                            false,
+                            self.wrap_namespaces,
                         )?;
                     if let Some(item) = converted.into_iter().next() {
                         return Ok(Some(item));
@@ -407,7 +411,7 @@ impl PyCompiledGraph {
     }
 
     /// Stream chunks as the graph produces them (pull-based, live).
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, config=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, config=None, wrap_subgraphs=false))]
     #[allow(clippy::too_many_arguments)]
     fn stream_live(
         &self,
@@ -419,6 +423,7 @@ impl PyCompiledGraph {
         subgraphs: bool,
         version: Option<String>,
         config: Option<&Bound<'_, PyAny>>,
+        wrap_subgraphs: bool,
     ) -> PyResult<Py<PyLiveStream>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
@@ -505,7 +510,7 @@ impl PyCompiledGraph {
                 );
             })
             .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-        Py::new(py, PyLiveStream::new(receiver, handle, v2, requested))
+        Py::new(py, PyLiveStream::new(receiver, handle, v2, requested, wrap_subgraphs))
     }
     #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, control=None, config=None))]
     #[allow(clippy::too_many_arguments)]

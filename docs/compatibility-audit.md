@@ -4539,3 +4539,18 @@ Caveat kept in the docs: closing a stream stops the consumer, not the run — a 
 interrupted; stopping a run needs `RunControl.abort()` on the `invoke` path.
 
 Suite is 666 tests (three new), parity 99/99, examples 10/10, clippy and Rust tests clean.
+
+### Round 219: `subgraphs=True` streams incrementally
+
+The seventh audit's F1 is fixed: namespaced streams now use the live path, with the
+`(namespace, payload)` wrapping done at the conversion layer rather than in Python — `PyLiveStream` gained
+a `wrap_namespaces` flag (`stream_live(wrap_subgraphs=...)`) that `poll` passes to
+`convert_stream_chunks_with`. Putting it there keeps internal consumers such as `stream_events` untouched.
+
+Measured with a 0.2 s node inside the subgraph and a 0.2 s tail: chunks arrive at `[0.20, 0.40, 0.40]`
+(LangGraph: `[0.21, 0.42, 0.42]`) with identical namespaces and payloads.
+
+One item from the audit remains: `AsyncStateGraph.astream` still collects (two 0.2 s nodes all arrive at
+0.41 s), which points at the async executor's sink timing rather than the Python wrapper.
+
+Suite is 667 tests (one new), parity 99/99, examples 10/10, clippy and Rust tests clean.

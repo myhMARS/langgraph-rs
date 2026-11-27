@@ -1034,10 +1034,9 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
 
         modes = call.get("stream_mode")
         mode_list = modes if isinstance(modes, (list, tuple)) else ([modes] if modes else [])
+        subgraphs = bool(call.get("subgraphs"))
         live_eligible = (
             live_factory is not None
-            # Namespaced (`subgraphs=True`) chunks are wrapped by the eager conversion.
-            and not call.get("subgraphs")
             # A `Command` resume needs the resume plumbing, which only the eager path has.
             and not isinstance(input, _Command)
             # A one-element mode list must keep the `(mode, payload)` wrapper, and `debug`/`tasks`
@@ -1052,8 +1051,10 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             live_call = {
                 key: value
                 for key, value in call.items()
-                if key in ("stream_mode", "context", "version")
+                if key in ("stream_mode", "context", "version", "subgraphs")
             }
+            # Namespaced chunks need the `(namespace, payload)` wrapper on the live path too.
+            live_call["wrap_subgraphs"] = subgraphs
             if thread is not None:
                 live_call["thread_id"] = thread
             if config is not None:

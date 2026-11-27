@@ -4836,3 +4836,45 @@ class AsyncStreamCooperativeTest(unittest.TestCase):
             await generator.aclose()
 
         asyncio.run(scenario())
+
+
+class SubgraphIncrementalStreamTest(unittest.TestCase):
+    """`subgraphs=True` streams deliver namespaced chunks as each superstep finishes."""
+
+    def test_namespaced_chunks_stream(self):
+        import time as _time
+
+        inner = langgraph_rs.StateGraph({"value": "last_value"})
+
+        def slow_inner(state):
+            _time.sleep(0.2)
+            return {"value": 7}
+
+        inner.add_node("inner", slow_inner)
+        inner.add_edge(langgraph_rs.START, "inner")
+        inner.add_edge("inner", langgraph_rs.END)
+        outer = langgraph_rs.StateGraph({"value": "last_value"})
+        outer.add_node("sub", inner.compile())
+
+        def slow_tail(state):
+            _time.sleep(0.2)
+            return {"value": 9}
+
+        outer.add_node("tail", slow_tail)
+        outer.add_edge(langgraph_rs.START, "sub")
+        outer.add_edge("sub", "tail")
+        outer.add_edge("tail", langgraph_rs.END)
+        app = outer.compile()
+
+        started = _time.perf_counter()
+        chunks = []
+        stamps = []
+        for chunk in app.stream({"value": 0}, stream_mode="updates", subgraphs=True):
+            namespace, payload = chunk
+            chunks.append((namespace, payload))
+            stamps.append(_time.perf_counter() - started)
+        self.assertEqual(len(chunks), 3)
+        self.assertEqual(chunks[0][0][0].split(":")[0], "sub")
+        self.assertEqual(chunks[1], ((), {"sub": {"value": 7}}))
+        # The namespaced chunk arrives when the inner node finishes, well before the tail does.
+        self.assertLess(stamps[0], stamps[-1] - 0.1)

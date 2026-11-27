@@ -177,6 +177,24 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `subgraphs=True` 的流也逐 superstep（2026-11-27，第 122 轮）
+
+第 120 轮审计的 F1 已修：`subgraphs=True` 的流现在走 live 路径。关键是命名空间包装放在**转换层**而不是
+Python 侧 —— 给 `PyLiveStream` 增加 `wrap_namespaces` 标志（`stream_live(wrap_subgraphs=...)`），
+`poll` 时用 `convert_stream_chunks_with(..., wrap)`。这样 `stream_events` 等内部消费者不受影响。
+
+实测（子图内 0.2s 节点 + 父图 0.2s 尾节点）：
+
+```
+扩展: [(('sub:…',), {...}), ((), {...}), ((), {...})]  到达 [0.20, 0.40, 0.40]
+LG:   同样三块                                        到达 [0.21, 0.42, 0.42]
+```
+
+形状与增量交付都与 LG 一致。
+
+**仍剩一项**：`AsyncStateGraph.astream` 还是收集式（两个 0.2s 节点在 0.41s 一起到）—— 原生异步执行器的
+sink 似乎也在运行结束时才回调，需要单独排查。
+
 ### `astream` 不再阻塞事件循环，且可取消（2026-11-27，第 121 轮）
 
 第 120 轮审计里最严重的一项已修：`astream` 的每一块 `next()` 现在都跳到工作线程执行
