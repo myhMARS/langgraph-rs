@@ -332,6 +332,23 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `update_state` 的作者推断与返回值（2026-11-27）
+
+LG 的 `update_state(config, values)` 在没给 `as_node` 时**自动推断作者**（按 `versions_seen` 里
+最新的节点），返回**新检查点的 config**；扩展此前直接报
+`Ambiguous update, specify as_node`，而且返回的是 `StateSnapshot`。
+
+现在两边一致：
+
+```
+默认调用        → 返回 {'configurable': {...}}，next: ()，values: {'log': ['a','b'], 'value': 99}
+as_node="a"    → next: ('b',)（按 a 的出边重新调度）
+```
+
+推断修复的关键：扩展的 `versions_seen` 按**通道**记录（一次写入会让 `log`、`value` 共享同一版本），
+而 LG 按**节点**记录一条。旧代码把重复版本当成"两个节点同时写"而判定歧义；现在先按节点取最大版本
+再比较。
+
 ### 函数式 API：`entrypoint` 的取值语义与签名（2026-11-27）
 
 LG 的 `@entrypoint` 是**值进值出**：装饰的函数收到输入值本身，返回值就是结果；签名是

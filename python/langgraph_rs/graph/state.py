@@ -450,6 +450,19 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
             )
         )
 
+    def update_state(
+        self,
+        thread_id: Any,
+        values: Any,
+        as_node: Any = None,
+        task_id: Any = None,
+    ) -> Any:
+        """Write values to a thread, returning the new checkpoint's config (LangGraph shape)."""
+        snapshot = self._inner.update_state(
+            thread_id, values, as_node=as_node, task_id=task_id
+        )
+        return getattr(snapshot, "config", snapshot)
+
     async def aupdate_state(
         self,
         thread_id: Any,
@@ -458,12 +471,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         task_id: Any = None,
     ) -> Any:
         if getattr(self._inner, "_native_async", False):
-            return await self._inner.aupdate_state(
+            snapshot = await self._inner.aupdate_state(
                 thread_id, values, as_node=as_node, task_id=task_id
             )
-        return await asyncio.to_thread(
-            self._inner.update_state, thread_id, values, as_node=as_node, task_id=task_id
-        )
+        else:
+            snapshot = await asyncio.to_thread(
+                self._inner.update_state, thread_id, values, as_node=as_node, task_id=task_id
+            )
+        return getattr(snapshot, "config", snapshot)
 
     async def abulk_update_state(
         self, config: Any = None, supersteps: Any = None, *, thread_id: Any = None

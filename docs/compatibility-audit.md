@@ -3400,4 +3400,20 @@ already resolved them, and futures embedded in a returned structure are unwrappe
 Three tests that encoded the old mapping-state API (`entry(fn).compile(...)`, `head + tail` on raw
 task results) were migrated to LangGraph's form, and the parity functional scenario with them.
 
-Suite is 522 tests, parity 75/75, examples 10/10, clippy and Rust tests clean.
+Suite is 522 tests, parity 75/75, examples 10/10, clippy and Rust tests clean.### Round 156: `update_state` infers the author and returns a config
+
+LangGraph's `update_state(config, values)` infers `as_node` from `versions_seen` when it is omitted
+and returns the **new checkpoint's config**. The extension raised
+`Ambiguous update, specify as_node` for the same call and returned a `StateSnapshot`.
+
+Root cause of the false ambiguity: this engine records `versions_seen` **per channel** (both `log` and
+`value` share the version of one write), while LangGraph records one entry per node. The duplicate
+versions made the "two nodes wrote at once" check fire. `infer_as_node` now keeps the maximum version
+per node before comparing, which reproduces LangGraph's answer (`b`, the last writer) and still detects
+genuine ties.
+
+`update_state` / `aupdate_state` now return the `{'configurable': {...}}` config, so callers read the
+state back with `get_state` as LangGraph documents. Tests and the parity scenario were updated to that
+flow (the scenario now also compares the returned keys).
+
+Suite is 524 tests (two new), parity 75/75, examples 10/10, clippy and Rust tests clean.

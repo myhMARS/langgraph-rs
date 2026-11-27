@@ -355,7 +355,10 @@ pub(crate) fn infer_as_node(
     if let Some(node) = single_node {
         return Ok(Some(node.to_string()));
     }
-    let mut pairs: Vec<(String, String)> = Vec::new();
+    // One entry per node: LangGraph records the node's trigger channel, while this engine records
+    // every channel the node wrote. Channels written in the same superstep share a version, so the
+    // per-node maximum is what identifies the latest writer.
+    let mut latest: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for (node, seen) in &checkpoint.versions_seen {
         // LangGraph skips its internal snapshot-bump bookkeeping and nodes that no longer
         // exist in this graph.
@@ -366,9 +369,16 @@ pub(crate) fn infer_as_node(
             continue;
         };
         for version in seen.values().filter_map(Value::as_str) {
-            pairs.push((version.to_string(), node.clone()));
+            let entry = latest.entry(node.clone()).or_insert_with(|| version.to_string());
+            if version > entry.as_str() {
+                *entry = version.to_string();
+            }
         }
     }
+    let mut pairs: Vec<(String, String)> = latest
+        .into_iter()
+        .map(|(node, version)| (version, node))
+        .collect();
     if pairs.is_empty() {
         return Ok(None);
     }

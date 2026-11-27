@@ -162,7 +162,9 @@ class HumanInTheLoopTests(unittest.TestCase):
         compiled = graph.compile(checkpointer=True)
         compiled.invoke({"value": 0}, thread_id="patch")
 
-        snapshot = compiled.update_state("patch", {"value": 10}, as_node="a")
+        # LangGraph returns the new checkpoint's config; the snapshot is read back separately.
+        config = compiled.update_state("patch", {"value": 10}, as_node="a")
+        snapshot = compiled.get_state(config)
         self.assertEqual(snapshot["values"]["value"], 10)
         self.assertEqual(snapshot["next"], ("b",))
         self.assertIsNotNone(snapshot["parent_checkpoint_id"])
@@ -1453,8 +1455,8 @@ class AsyncPythonTests(unittest.TestCase):
         task = snapshot["tasks"][0]
         self.assertEqual(task.name, "ask")
         self.assertTrue(task.id)
-        updated = compiled.update_state(
-            "py-task-id", {"value": 5}, task_id=task.id
+        updated = compiled.get_state(
+            compiled.update_state("py-task-id", {"value": 5}, task_id=task.id)
         )
         self.assertEqual(updated["values"]["value"], 5)
         self.assertIn("ask", updated["next"])
@@ -1806,9 +1808,8 @@ class AsyncPythonTests(unittest.TestCase):
             graph.set_finish_point("inc")
             compiled = graph.compile(checkpointer=lg.InMemorySaver())
             await compiled.ainvoke({"value": 0}, thread_id="py-async-update")
-            snapshot = await compiled.aupdate_state(
-                "py-async-update", {"value": 42}
-            )
+            config = await compiled.aupdate_state("py-async-update", {"value": 42})
+            snapshot = compiled.get_state(config)
             history = compiled.get_state_history("py-async-update")
             document = compiled.export_checkpoint("py-async-update")
             compiled.import_checkpoint("py-async-imported", document)

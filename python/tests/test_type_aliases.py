@@ -437,8 +437,12 @@ class StateApiSurfaceTest(unittest.TestCase):
         async def scenario():
             state = await app.aget_state(config)
             history = await app.aget_state_history(config)
-            updated = await app.aupdate_state(config, {"n": 5})
-            bulk = await app.abulk_update_state(config, [[{"values": {"n": 7}, "as_node": "node"}]])
+            await app.aupdate_state(config, {"n": 5})
+            updated = await app.aget_state(config)
+            await app.abulk_update_state(
+                config, [[{"values": {"n": 7}, "as_node": "node"}]]
+            )
+            bulk = await app.aget_state(config)
             await app.aclear_cache()
             return state.values["n"], len(history), updated.values["n"], bulk.values["n"]
 
@@ -2284,3 +2288,37 @@ class SaverSurfaceTest2(unittest.TestCase):
             saver.prune(["surface"])
         with self.assertRaises(NotImplementedError):
             saver.delete_for_runs(["run"])
+
+
+class UpdateStateShapeTest(unittest.TestCase):
+    """`update_state` infers its author and returns the new config, as LangGraph does."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value", "log": "append"})
+        graph.add_node("a", lambda state: {"value": 1, "log": ["a"]})
+        graph.add_node("b", lambda state: {"value": 2, "log": ["b"]})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_infers_the_last_writer(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "infer"}}
+        app.invoke({"value": 0, "log": []}, config)
+        written = app.update_state(config, {"value": 99})
+        # A config dict, not a snapshot.
+        self.assertEqual(sorted(written), ["configurable"])
+        snapshot = app.get_state(config)
+        # `b` wrote last and has no outgoing edge besides END.
+        self.assertEqual(snapshot.next, ())
+        self.assertEqual(snapshot.values, {"value": 99, "log": ["a", "b"]})
+        self.assertEqual(snapshot.metadata["source"], "update")
+
+    def test_explicit_as_node_reschedules(self):
+        app = self._app()
+        config = {"configurable": {"thread_id": "as-node"}}
+        app.invoke({"value": 0, "log": []}, config)
+        app.update_state(config, {"value": 100}, as_node="a")
+        self.assertEqual(app.get_state(config).next, ("b",))

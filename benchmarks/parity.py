@@ -4229,14 +4229,14 @@ def run_checkpoint_scenarios() -> list[dict]:
     rs_graph.invoke({"value": 0}, thread_id="parity-rs-update")
     rs_state = rs_graph.update_state("parity-rs-update", {"value": 42})
     lg_values = dict(lg_graph.get_state(lg_thread).values)
+    # Both engines return the new checkpoint's config; the state is read back with `get_state`.
+    rs_values = dict(rs_graph.get_state("parity-rs-update").values)
     results.append(
         {
             "scenario": "update_state",
-            "rs": rs_state["values"],
-            "lg": lg_values,
-            "equivalent": rs_state["values"] == lg_values,
-            # LangGraph returns a config dict here; the binding returns the snapshot.
-            "note": "language API shape differs (snapshot vs config); state matches",
+            "rs": {"values": rs_values, "config": sorted(rs_state)},
+            "lg": {"values": lg_values, "config": sorted(lg_state)},
+            "equivalent": rs_values == lg_values and sorted(rs_state) == sorted(lg_state),
             "bench": {
                 "rs": measure(
                     lambda: (
