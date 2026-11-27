@@ -4340,3 +4340,22 @@ The facade wiring is still not kept: four concrete issues remain — the missing
 than when the run ends; and `stream(thread_id=...)` must resolve the thread like a config dict does.
 
 Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.
+
+### Round 208: the live stream now takes a full config
+
+`stream_live` used to build a minimal `RunConfig`, so a caller's callbacks, metadata, durability and
+recursion limit were silently dropped. It now accepts `config=` and parses it with `config_from_py`,
+layering the stream settings (modes, thread, subgraphs) on top.
+
+One change was reverted on evidence: making `PyLiveStream` wrap namespaced chunks like `subgraphs=True`
+breaks `stream_events(version="v3")`, whose raw event log then reports an empty mode instead of `debug` —
+the event pipeline already handles namespaces, so the live stream must not re-wrap.
+
+Two items remain before the facade can switch to the live stream (it is reverted, tree green): the
+interrupt chunk shape on the live path (an extra empty chunk, and `__interrupt__` as a tuple rather than a
+list), and lifecycle dispatch for `stream` (it works for `invoke`).
+
+Measured state of the native live path: two 0.2 s nodes deliver chunks at `[0.25, 0.47]` and the
+checkpointer records four history rows — incremental delivery and persistence both correct.
+
+Suite is 653 tests, parity 98/98, examples 10/10, clippy and Rust tests clean.

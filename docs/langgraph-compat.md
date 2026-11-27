@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `stream_live` 现在能接收完整 config（2026-11-27，第 111 轮）
+
+第 110 轮列的 4 项前置条件，本轮修掉两项：
+
+1. **`stream_live` 接受并解析完整 config**（`config=` 参数，走 `config_from_py`）—— 此前它自建一个最小
+   `RunConfig`，**丢掉调用方的 callbacks / metadata / durability / recursion_limit**。转发 config 后，
+   `stream` 路径上的 lifecycle 事件与回调才有机会触发。
+2. **`subgraphs` 的越权修正已回退**：把命名空间包装塞进 `PyLiveStream` 会破坏 `stream_events(v3)` 的原始
+   事件口径（`debug` 变成空串），事件管道自己已经处理命名空间，live 流不该再包装。
+
+**仍剩两项**（门面接线未保留，树保持全绿）：
+
+- 中断块的**形状**：live 路径比 eager 多出一个中间 `{}` 块，且 `__interrupt__` 从 list 变 tuple —— 需要统一。
+- lifecycle 事件在 `stream` 上仍不派发（`invoke` 上正常）—— 需要把"运行结束后 drain"接到 live 迭代器。
+
+修完这两项即可安全接线；`stream_live` 本身现在已经是"config 完整 + 逐 superstep + 正确落盘"的了。
+
 ### `stream_live` 的线程解析缺陷已修（2026-11-27，第 110 轮）
 
 本轮先把 `stream_live`（后台线程 + 通道的原生流）修对：它此前从 `thread_id` 参数**只读顶层**，传

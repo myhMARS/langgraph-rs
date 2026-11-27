@@ -308,7 +308,7 @@ impl PyCompiledGraph {
     }
 
     /// Stream chunks as the graph produces them (pull-based, live).
-    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None))]
+    #[pyo3(signature = (input=None, thread_id=None, stream_mode=None, context=None, subgraphs=false, version=None, config=None))]
     #[allow(clippy::too_many_arguments)]
     fn stream_live(
         &self,
@@ -319,6 +319,7 @@ impl PyCompiledGraph {
         context: Option<&Bound<'_, PyAny>>,
         subgraphs: bool,
         version: Option<String>,
+        config: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyLiveStream>> {
         let v2 = match version.as_deref() {
             None | Some("v1") => false,
@@ -343,7 +344,13 @@ impl PyCompiledGraph {
             .unwrap_or_else(|| vec![crate::StreamMode::Updates]);
         // Live consumers (the events API) need model tokens, as LangGraph's tracer does.
         crate::adapters::python::convert::set_stream_tokens(true);
-        let mut config = RunConfig::new().with_stream_modes(requested.clone());
+        // Keep the caller's configuration (callbacks, metadata, durability, recursion limit) and
+        // layer the stream-specific settings on top; a minimal config silently dropped them.
+        let mut config = match config.filter(|value| !value.is_none()) {
+            Some(value) => crate::adapters::python::convert::config_from_py(py, Some(value))?.1,
+            None => RunConfig::new(),
+        };
+        config = config.with_stream_modes(requested.clone());
         if let Some(thread) = thread.as_deref() {
             config = config.with_thread(thread.to_string());
         }
