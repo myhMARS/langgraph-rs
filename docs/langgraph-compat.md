@@ -179,9 +179,16 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 
 ### 子图中断的两种接入方式（已知差异）
 
-在父节点里**手工调用**子图（`child.invoke(...)`）时，子图返回 `{"__interrupt__": [...]}` 而不是抛出，父图会继续
-跑完（`answer: None`）；LG 会让父图暂停，`Command(resume=...)` 后子图拿到答案。**改用
-`parent.add_node("child", compiled_subgraph)` 这种接入方式则完全一致**（暂停载荷、`next`、任务路径、恢复都相同）。
+在父节点里**手工调用**带 checkpointer 的子图（`child.invoke(...)`，且不传 config）：LG 会把父图的 config 传进嵌套
+运行，因此子图的中断能让**父图暂停**（`next=('child',)`），`Command(resume=...)` 后子图拿到答案；扩展没有把
+config 传入嵌套运行，所以会抛 `ValueError: Checkpointer requires ... thread_id`（2026-11-27 之前是静默跑完并给出
+`answer: None` —— 现在至少是显式失败而不是静默错误结果）。
+
+**改用 `parent.add_node("child", compiled_subgraph)` 这种接入方式则完全一致**（暂停载荷、`next`、任务路径、恢复都
+相同），这也是 LG 文档推荐的形式。
+
+根因是嵌套调用不继承父运行的 config（LG 用 contextvar 传递）。要做对需要命名空间感知的 resume 管道，牵涉子图独立的
+checkpoint 线程，风险大，故记录为已知差异。
 
 另外：`interrupt()` 写在条件边路由器里，LG 允许（暂停 + 恢复），扩展会在运行时拒绝 —— 这是未文档化的边缘用法。
 
