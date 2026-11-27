@@ -103,8 +103,10 @@ class BuilderTests(unittest.TestCase):
     def test_validation_errors_are_python_errors(self):
         graph = lg.StateGraph({"value": "last_value"})
         graph.add_node("a", lambda state: {})
-        with self.assertRaises(RuntimeError):
+        # LangGraph reports graph-construction problems as `ValueError`.
+        with self.assertRaises(ValueError) as raised:
             graph.compile()  # no entry point
+        self.assertIn("entrypoint", str(raised.exception))
 
 
 class HumanInTheLoopTests(unittest.TestCase):

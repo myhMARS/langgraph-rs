@@ -1,4 +1,9 @@
 //! Graph validation and compilation.
+/// LangGraph's wording for a graph without an entry point.
+const ENTRYPOINT_MESSAGE: &str =
+    "Graph must have an entrypoint: add at least one edge from START to another node";
+
+
 
 use super::*;
 
@@ -105,12 +110,13 @@ impl<S: State> StateGraph<S> {
 
     fn validate(&self) -> Result<()> {
         if self.nodes.is_empty() {
-            return Err(Error::validation("the graph has no nodes"));
+            return Err(Error::validation(ENTRYPOINT_MESSAGE));
         }
         if !self.duplicate_nodes.is_empty() {
+            // LangGraph reports the first duplicate by name.
             return Err(Error::validation(format!(
-                "nodes registered more than once: {}",
-                self.duplicate_nodes.join(", ")
+                "Node `{}` already present.",
+                self.duplicate_nodes[0]
             )));
         }
         for reserved in [START, END] {
@@ -127,9 +133,7 @@ impl<S: State> StateGraph<S> {
             ));
         }
         if self.conditional_entry.is_none() && self.entry.is_empty() {
-            return Err(Error::validation(
-                "no entry point: call set_entry_point(...) or add_edge(START, ...)",
-            ));
+            return Err(Error::validation(ENTRYPOINT_MESSAGE));
         }
 
         for name in &self.entry {
@@ -186,6 +190,12 @@ impl<S: State> StateGraph<S> {
             )));
         }
         if !self.nodes.contains_key(name) {
+            // LangGraph models `add_edge(START, x)` as an edge, so an unknown target reads that way.
+            if what == "entry point" {
+                return Err(Error::validation(format!(
+                    "Found edge ending at unknown node `{name}`"
+                )));
+            }
             return Err(Error::validation(format!(
                 "{what} `{name}` is not a registered node"
             )));
@@ -196,6 +206,17 @@ impl<S: State> StateGraph<S> {
     fn require_target(&self, source: &str, target: &str) -> Result<()> {
         if target == END {
             return Ok(());
+        }
+        if !self.nodes.contains_key(target) {
+            // LangGraph names the node and, for a branch, the branch key.
+            if self.conditional.contains_key(source) {
+                return Err(Error::validation(format!(
+                    "At '{source}' node, 'condition' branch found unknown target '{target}'"
+                )));
+            }
+            return Err(Error::validation(format!(
+                "Found edge ending at unknown node `{target}`"
+            )));
         }
         if target == START {
             return Err(Error::validation(format!(

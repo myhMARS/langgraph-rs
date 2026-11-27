@@ -460,6 +460,8 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
                 None => PyRuntimeError::new_err(strip_python_error_marker(&message)),
             }
         }
+        // LangGraph reports every graph-construction problem as a `ValueError`.
+        Error::Validation(message) => PyValueError::new_err(message),
         other => PyRuntimeError::new_err(strip_python_error_marker(&other.to_string())),
     }
 }

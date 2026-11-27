@@ -501,6 +501,58 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_validation_error_scenario() -> list[dict]:
+    """Graph-construction problems raise `ValueError` with the same wording."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def collect(engine):
+        def build(kind):
+            if engine == "lg":
+                graph = LgStateGraph(LgState)
+            else:
+                graph = rs.StateGraph({"value": "last_value"})
+            start, end = (START, END) if engine == "lg" else (rs.START, rs.END)
+            try:
+                if kind == "no_entry":
+                    graph.add_node("a", lambda state: {})
+                    graph.add_edge("a", end)
+                elif kind == "unknown_target":
+                    graph.add_node("a", lambda state: {})
+                    graph.add_edge(start, "b")
+                elif kind == "unknown_branch":
+                    graph.add_node("a", lambda state: {})
+                    graph.add_edge(start, "a")
+                    graph.add_conditional_edges("a", lambda state: "missing", ["other"])
+                elif kind == "duplicate":
+                    graph.add_node("a", lambda state: {})
+                    graph.add_node("a", lambda state: {})
+                graph.compile()
+                return {"kind": kind, "error": None}
+            except BaseException as exc:
+                return {"kind": kind, "error": type(exc).__name__, "message": str(exc)}
+
+        return [
+            build(kind)
+            for kind in ("no_entry", "unknown_target", "unknown_branch", "duplicate")
+        ]
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "validation_errors",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_tool_runtime_scenario() -> list[dict]:
     """A `runtime: ToolRuntime` parameter is hidden from the schema and injected filled."""
 
@@ -4896,6 +4948,7 @@ def main() -> None:
         run_retry_on_scenario,
         run_subgraph_debug_scenario,
         run_tool_runtime_scenario,
+        run_validation_error_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,

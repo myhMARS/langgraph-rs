@@ -2481,3 +2481,45 @@ class ToolRuntimeInjectionTest(unittest.TestCase):
         self.assertIn("state=['messages']", content)
         self.assertIn("cfg=True", content)
         self.assertIn("writer=True", content)
+
+
+class GraphValidationErrorTest(unittest.TestCase):
+    """Graph-construction problems raise `ValueError` with LangGraph's wording."""
+
+    def test_no_entry_point(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {})
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertEqual(
+            str(raised.exception),
+            "Graph must have an entrypoint: add at least one edge from START to another node",
+        )
+
+    def test_unknown_edge_target(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "b")
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertEqual(str(raised.exception), "Found edge ending at unknown node `b`")
+
+    def test_unknown_branch_target(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_conditional_edges("a", lambda state: "missing", ["other"])
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertEqual(
+            str(raised.exception),
+            "At 'a' node, 'condition' branch found unknown target 'other'",
+        )
+
+    def test_duplicate_node(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {})
+        graph.add_node("a", lambda state: {})
+        with self.assertRaises(ValueError) as raised:
+            graph.compile()
+        self.assertEqual(str(raised.exception), "Node `a` already present.")

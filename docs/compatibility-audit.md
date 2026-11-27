@@ -3514,4 +3514,22 @@ builds in Rust — so the parameter is hidden without Rust importing the shim's 
 fills `config` (the run's `get_config()` view) and a `stream_writer`.
 
 Suite is 535 tests (two new), parity 78/78 (new `tool_runtime` scenario), examples 10/10, clippy and
-Rust tests clean.
+Rust tests clean.### Round 162: graph-construction errors are `ValueError` with LangGraph's wording
+
+LangGraph reports every graph-construction problem as a `ValueError`; the extension raised
+`RuntimeError: graph validation failed: ...`, so `except ValueError` never matched. `Error::Validation`
+now maps to Python's `ValueError` without the internal prefix, and the common messages were aligned
+word for word:
+
+```
+no entry point      -> Graph must have an entrypoint: add at least one edge from START to another node
+unknown edge target -> Found edge ending at unknown node `b`
+unknown branch      -> At 'a' node, 'condition' branch found unknown target 'other'
+duplicate node      -> Node `a` already present.
+```
+
+One test that asserted the old `RuntimeError` was updated, and a new parity scenario compares the
+exception type and message for all four cases.
+
+Suite is 539 tests (four new), parity 79/79 (new `validation_errors` scenario), examples 10/10, clippy
+and Rust tests clean.

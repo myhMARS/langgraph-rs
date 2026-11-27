@@ -332,6 +332,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 图构建错误：`ValueError` + LG 文案（2026-11-27）
+
+LG 把所有图构建期的问题都报成 `ValueError`；扩展此前一律 `RuntimeError: graph validation failed: ...`，
+`except ValueError` 完全接不住。现在两者一致：
+
+| 情况 | 异常与文案（与 LG 逐字相同） |
+|---|---|
+| 没有入口 | `ValueError: Graph must have an entrypoint: add at least one edge from START to another node` |
+| 边指向不存在的节点 | `ValueError: Found edge ending at unknown node \`b\`` |
+| 分支目标不存在 | `ValueError: At 'a' node, 'condition' branch found unknown target 'other'` |
+| 重复注册节点 | `ValueError: Node \`a\` already present.` |
+
+`Error::Validation` 现在映射为 Python 的 `ValueError`（不再带 `graph validation failed:` 前缀）。
+
 ### `ToolRuntime` 注入（2026-11-27）
 
 LG 允许工具声明 `runtime: ToolRuntime`，运行时注入一个带 `state` / `config` / `store` /
