@@ -171,7 +171,7 @@ impl<S: State> StateSnapshot<S> {
     }
 
     pub(crate) fn from_parts(checkpoint: &Checkpoint, values: S) -> Result<Self> {
-        let tasks = checkpoint
+        let tasks: Vec<StateTask> = checkpoint
             .next
             .iter()
             .map(|task| StateTask {
@@ -195,13 +195,19 @@ impl<S: State> StateSnapshot<S> {
                     .collect(),
             })
             .collect();
-        // Siblings that finished before the interrupt are reported as completed tasks.
-        let mut tasks: Vec<StateTask> = tasks;
+        // Siblings that finished before the interrupt are reported as completed tasks, ordered by
+        // their position in the superstep's schedule (LangGraph keeps the declaration order).
+        let pending_schedule = checkpoint.next.clone();
+        let mut scheduled: Vec<(Option<usize>, StateTask)> = tasks
+            .into_iter()
+            .zip(pending_schedule.iter())
+            .map(|(task, source)| (source.schedule_index, task))
+            .collect();
         for task in &checkpoint.completed_tasks {
-            if tasks.iter().any(|known| known.id == task.id) {
+            if scheduled.iter().any(|(_, known)| known.id == task.id) {
                 continue;
             }
-            tasks.push(StateTask {
+            scheduled.push((task.schedule_index, StateTask {
                 id: task.id.clone(),
                 node: task.node.clone(),
                 state: None,
@@ -213,8 +219,12 @@ impl<S: State> StateSnapshot<S> {
                     .or_else(|| checkpoint.task_results.get(&task.id))
                     .cloned(),
                 interrupts: Vec::new(),
-            });
+            }));
         }
+        // Pending tasks keep their relative order after the completed ones unless the schedule
+        // index says otherwise; a stable sort by index reproduces LangGraph's order.
+        scheduled.sort_by_key(|(index, _)| index.unwrap_or(usize::MAX));
+        let tasks: Vec<StateTask> = scheduled.into_iter().map(|(_, task)| task).collect();
         let next = checkpoint.next_nodes();
         let config = serde_json::json!({
             "configurable": {

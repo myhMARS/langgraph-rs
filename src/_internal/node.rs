@@ -579,6 +579,10 @@ pub struct Task {
     /// Nodes (or `START`) that triggered this task, for `stream_mode="tasks"` payloads.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<String>,
+    /// Position of this task in the superstep's schedule, so a paused snapshot can report the
+    /// declared order even when the pending and completed tasks are stored apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule_index: Option<usize>,
     /// Position of this task in the superstep's `Send` list (LangGraph `PUSH` tasks).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub push_index: Option<usize>,
@@ -602,6 +606,7 @@ impl Task {
             interrupted: false,
             triggers: Vec::new(),
             push_index: None,
+            schedule_index: None,
             push: false,
         }
     }
@@ -620,6 +625,7 @@ impl Task {
             interrupted: false,
             triggers: Vec::new(),
             push_index: None,
+            schedule_index: None,
             push: false,
         }
     }

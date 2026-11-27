@@ -4699,3 +4699,17 @@ LangGraph uses declaration order `[a, b]`.
 
 Suite is 671 tests (two new), parity 100/100 (new `task_result` scenario), examples 10/10, clippy and Rust
 tests clean.
+
+### Round 228: paused-snapshot task order
+
+The audit's F8 is fixed: a paused snapshot used to list unfinished tasks first and completed siblings after
+(`[b, a]`), while LangGraph keeps the superstep's declaration order (`[a, b]`). `Task` now carries a
+`schedule_index` recorded when a pause splits the scheduled tasks, and the snapshot merges pending and
+completed tasks with a stable sort on it.
+
+```
+before: [('b', None), ('a', {'seen': ['a']})]
+now:    [('a', {'seen': ['a']}), ('b', None)]
+```
+
+Suite is 671 tests, parity 100/100, examples 10/10, clippy and Rust tests clean.

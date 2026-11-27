@@ -312,8 +312,13 @@ where
                 .collect(),
             completed_tasks: tasks
                 .iter()
-                .filter(|task| !interrupted_ids.contains(&task.id))
-                .cloned()
+                .enumerate()
+                .filter(|(_, task)| !interrupted_ids.contains(&task.id))
+                .map(|(index, task)| {
+                    let mut task = task.clone();
+                    task.schedule_index = Some(index);
+                    task
+                })
                 .collect(),
         },
         context.force_new,

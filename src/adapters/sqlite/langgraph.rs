@@ -482,6 +482,7 @@ pub(crate) fn enrich_with(connection: &Connection, checkpoint: &mut Checkpoint) 
             interrupted: !checkpoint.interrupts.is_empty(),
             triggers: Vec::new(),
             push_index: None,
+            schedule_index: None,
             push: false,
         });
     }

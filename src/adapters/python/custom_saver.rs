@@ -393,6 +393,7 @@ fn checkpoint_from_langgraph_tuple(
             interrupted: !interrupts.is_empty(),
             triggers: Vec::new(),
             push_index: None,
+            schedule_index: None,
             push: false,
         });
     }

@@ -4958,6 +4958,9 @@ class TaskResultTest(unittest.TestCase):
         app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
         config = {"configurable": {"thread_id": "task-results-paused"}}
         app.invoke({"seen": []}, config)
-        results = {task.name: task.result for task in app.get_state(config).tasks}
+        tasks = app.get_state(config).tasks
+        # LangGraph keeps the superstep's declaration order.
+        self.assertEqual([task.name for task in tasks], ["a", "b"])
+        results = {task.name: task.result for task in tasks}
         self.assertEqual(results["a"], {"seen": ["a"]})
         self.assertIsNone(results["b"])

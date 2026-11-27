@@ -177,6 +177,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 暂停快照的任务顺序已对齐（2026-11-27，第 131 轮）
+
+第 103 轮审计的 F8 修掉了：暂停快照里的任务顺序此前是"未完成在前、已完成在后"（`[b, a]`），LG 用的是
+**superstep 的声明顺序**（`[a, b]`）。
+
+修法：`Task` 增加 `schedule_index`（暂停时记录各任务在原调度列表里的位置），快照把"待执行 + 已完成"合并后按
+该索引稳定排序。
+
+```
+改前: [('b', None), ('a', {'seen': ['a']})]
+现在: [('a', {'seen': ['a']}), ('b', None)]   ← 与 LG 相同
+```
+
 ### `PregelTask.result` 已对齐（2026-11-27，第 130 轮）
 
 第 129 轮锁定的疑点是对的：`finalize_tasks`（把 dict 改写成 `PregelTask` 对象的那一步）**只传了 6 个字段，

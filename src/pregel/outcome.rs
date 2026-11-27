@@ -158,6 +158,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                             interrupted: false,
                             triggers: Vec::new(),
                             push_index: None,
+                            schedule_index: None,
                             push: false,
                         });
                     }
@@ -334,6 +335,7 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         interrupted: false,
                         triggers: Vec::new(),
                         push_index: None,
+                        schedule_index: None,
                         push: true,
                     });
                 }
