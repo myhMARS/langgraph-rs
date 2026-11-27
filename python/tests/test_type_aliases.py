@@ -1390,3 +1390,64 @@ class ValidationNodeTest(unittest.TestCase):
         out = self._node()({"messages": [{"role": "ai", "content": "", "tool_calls": [
             {"name": "need_int", "args": {"count": "nope"}, "id": "c2", "type": "tool_call"}]}]})
         self.assertIn("validation error", out["messages"][0]["content"])
+
+
+class ToolNodeSurfaceTest(unittest.TestCase):
+    """`ToolNode` exposes LangGraph's constructor surface and the call wrappers."""
+
+    @staticmethod
+    def _tool():
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        return add
+
+    @staticmethod
+    def _ai(name="add", args=None):
+        from langchain_core.messages import AIMessage
+
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {"name": name, "args": args or {"a": 1, "b": 2}, "id": "c1", "type": "tool_call"}
+            ],
+        )
+
+    def test_constructor_surface(self):
+        node = langgraph_rs.prebuilt.ToolNode([self._tool()], name="caller", tags=["x"])
+        self.assertEqual(node.name, "caller")
+        self.assertEqual(node.get_name(), "caller")
+        self.assertEqual(node.tags, ["x"])
+        self.assertEqual(list(node.tools_by_name), ["add"])
+
+    def test_wrap_tool_call_receives_the_request(self):
+        seen = []
+
+        def wrap(request, handler):
+            seen.append((type(request).__name__, request.tool_call["name"]))
+            return handler(request)
+
+        node = langgraph_rs.prebuilt.ToolNode([self._tool()], wrap_tool_call=wrap)
+        message = node({"messages": [self._ai()]})["messages"][0]
+        self.assertEqual(seen, [("ToolCallRequest", "add")])
+        self.assertEqual(message["content"], "3")
+        self.assertEqual(message["status"], "success")
+
+    def test_awrap_tool_call_runs_async(self):
+        import asyncio
+
+        seen = []
+
+        async def awrap(request, handler):
+            seen.append(request.tool_call["name"])
+            return await handler(request)
+
+        node = langgraph_rs.prebuilt.ToolNode([self._tool()], awrap_tool_call=awrap)
+        output = asyncio.run(node.ainvoke({"messages": [self._ai(args={"a": 2, "b": 3})]}))
+        self.assertEqual(seen, ["add"])
+        self.assertEqual(output["messages"][0]["content"], "5")
+
+    def test_invoke_delegates(self):
+        node = langgraph_rs.prebuilt.ToolNode([self._tool()])
+        self.assertEqual(node.invoke({"messages": [self._ai()]})["messages"][0]["content"], "3")

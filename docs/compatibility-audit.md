@@ -2855,4 +2855,29 @@ The `send_interrupts` parity scenario was flaky: parallel `Send` tasks have no d
 interrupt values are now compared sorted.
 
 Suite is 470 tests (five new), parity 55/55 (new `validation_node` scenario), examples 10/10, clippy
+and Rust tests clean.### Round 131: `ToolNode` constructor surface and tool-call middleware
+
+LangGraph's `ToolNode` signature is
+`(tools, *, name="tools", tags=None, handle_tool_errors=..., messages_key="messages",
+wrap_tool_call=None, awrap_tool_call=None)` with `tools_by_name`, `get_name()` and `invoke()` on the
+instance. The extension only had `(tools, messages_key=...)` plus `__call__`.
+
+Added: `name` / `tags` / `tools_by_name` / `get_name()` / `invoke()` / `ainvoke()`, and the
+middleware pair `wrap_tool_call` / `awrap_tool_call`. LangGraph passes the wrapper a
+`ToolCallRequest(tool_call, tool, state, runtime)` and a `handler`; calling `handler(request)`
+executes the tool and its return value becomes the `ToolMessage`. Both engines now agree:
+
+```
+wrap(request, handler) sees ("ToolCallRequest", "add")
+handler(request) -> status="success", content="3", name="add", tool_call_id="c1"
+```
+
+The native node still runs unchecked when no wrapper is configured (no overhead); the Python path
+only engages when a wrapper is present.
+
+Also fixed a false parity failure: `send_interrupts` resumed interrupts by **list index**, but
+parallel `Send` tasks have no defined order, so LangGraph sometimes resumed the other task. The
+scenario now locates the interrupt by its own `ask` value; three consecutive runs are a stable 56/56.
+
+Suite is 474 tests (four new), parity 56/56 (new `wrap_tool_call` scenario), examples 10/10, clippy
 and Rust tests clean.

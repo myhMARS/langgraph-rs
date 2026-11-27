@@ -370,5 +370,138 @@ def create_tool(
     return build(name_or_callable)
 from ._tool_call_transformer import ToolCallTransformer  # noqa: E402
 
-_MISSING = re_export(globals(), ["ToolNode", "tools_condition"])
+from ..langgraph_rs import ToolNode as _NativeToolNode  # noqa: E402  (native implementation)
+
+
+def _tool_message(message: Any) -> Any:
+    """Turn the native node's message dict into the ``ToolMessage`` LangGraph hands wrappers."""
+    try:
+        from langchain_core.messages import ToolMessage
+    except Exception:  # pragma: no cover - langchain_core is optional
+        return message
+    if not isinstance(message, dict):
+        return message
+    kwargs = {
+        "content": message.get("content", ""),
+        "tool_call_id": message.get("tool_call_id", ""),
+        "name": message.get("name"),
+    }
+    if message.get("status"):
+        kwargs["status"] = message["status"]
+    return ToolMessage(**kwargs)
+
+
+def _message_dict(message: Any) -> dict[str, Any]:
+    """Normalise a wrapper's return value (``ToolMessage``/dict/``Command``) into a dict."""
+    if isinstance(message, dict):
+        return message
+    tool_call_id = getattr(message, "tool_call_id", None)
+    if tool_call_id is None:
+        return message
+    data = {
+        "role": "tool",
+        "content": getattr(message, "content", ""),
+        "tool_call_id": tool_call_id,
+        "name": getattr(message, "name", None),
+    }
+    status = getattr(message, "status", None)
+    if status:
+        data["status"] = status
+    return data
+
+
+class ToolNode:
+    """LangGraph's ``ToolNode`` including its constructor surface.
+
+    The native node executes the calls; ``wrap_tool_call`` / ``awrap_tool_call`` run in Python
+    around it, exactly as LangGraph's middleware does.
+    """
+
+    def __init__(
+        self,
+        tools: Sequence[Any],
+        *,
+        name: str = "tools",
+        tags: list[str] | None = None,
+        handle_tool_errors: Any = None,
+        messages_key: str = "messages",
+        wrap_tool_call: Callable[..., Any] | None = None,
+        awrap_tool_call: Callable[..., Any] | None = None,
+    ) -> None:
+        self.tools = list(tools)
+        self.tools_by_name: dict[str, Any] = {}
+        for tool in self.tools:
+            key = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+            if key:
+                self.tools_by_name[key] = tool
+        self.name = name
+        self.tags = list(tags or [])
+        self.messages_key = messages_key
+        self._wrap = wrap_tool_call
+        self._awrap = awrap_tool_call
+        kwargs: dict[str, Any] = {"messages_key": messages_key}
+        if handle_tool_errors is not None:
+            kwargs["handle_tool_errors"] = handle_tool_errors
+        self._inner = _NativeToolNode(self.tools, **kwargs)
+
+    def get_name(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"ToolNode({list(self.tools_by_name)})"
+
+    def _calls(self, state: Any) -> list[Any]:
+        messages = state.get(self.messages_key, []) if isinstance(state, dict) else []
+        if not messages:
+            return []
+        last = messages[-1]
+        calls = (
+            last.get("tool_calls") if isinstance(last, dict) else getattr(last, "tool_calls", None)
+        )
+        return list(calls or [])
+
+    def _execute_one(self, tool_call: Any) -> Any:
+        # LangGraph's handler receives the request object, not the bare tool call.
+        tool_call = getattr(tool_call, "tool_call", tool_call)
+        output = self._inner(
+            {self.messages_key: [{"role": "ai", "content": "", "tool_calls": [tool_call]}]}
+        )
+        messages = output.get(self.messages_key) or [{}]
+        return _tool_message(messages[0])
+
+    def _request(self, tool_call: dict[str, Any], state: Any) -> Any:
+        return ToolCallRequest(
+            tool_call=tool_call,
+            tool=self.tools_by_name.get(tool_call.get("name")),
+            state=state,
+            runtime=None,
+        )
+
+    def __call__(self, state: Any) -> Any:
+        if self._wrap is None:
+            return self._inner(state)
+        results = [
+            _message_dict(self._wrap(self._request(call, state), self._execute_one))
+            for call in self._calls(state)
+        ]
+        return {self.messages_key: results}
+
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        return self(input)
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        if self._awrap is None:
+            return self(input)
+        results = []
+        for call in self._calls(input):
+            request = self._request(call, input)
+            produced = await self._awrap(request, self._aexecute)
+            results.append(_message_dict(produced))
+        return {self.messages_key: results}
+
+    async def _aexecute(self, request: Any) -> Any:
+        return self._execute_one(request)
+
+
+_MISSING = re_export(globals(), ["tools_condition"])
 __getattr__ = module_getattr(__name__, globals(), _MISSING)

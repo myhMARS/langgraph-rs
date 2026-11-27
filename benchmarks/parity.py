@@ -477,6 +477,62 @@ def task_triggers_pair():
     return lg_linear.compile(), rs_linear.compile(), lg_fan.compile(), rs_fan.compile()
 
 
+def run_wrap_tool_call_scenario() -> list[dict]:
+    """`ToolNode(wrap_tool_call=...)` middleware sees the request and can replace the result."""
+
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    call = {"role": "ai", "content": "", "tool_calls": [
+        {"name": "add", "args": {"a": 1, "b": 2}, "id": "c1", "type": "tool_call"}
+    ]}
+
+    def lg_run():
+        class S(TypedDict):
+            messages: Annotated[list, add_messages]
+
+        seen = []
+
+        def wrap(request, handler):
+            seen.append((type(request).__name__, request.tool_call["name"]))
+            return handler(request)
+
+        graph = LgStateGraph(S)
+        graph.add_node("tools", LgToolNode([add], wrap_tool_call=wrap))
+        graph.add_edge(START, "tools")
+        graph.add_edge("tools", END)
+        out = graph.compile().invoke({"messages": [call]})
+        last = out["messages"][-1]
+        return {"seen": seen, "status": getattr(last, "status", None), "content": str(last.content)}
+
+    def rs_run():
+        seen = []
+
+        def wrap(request, handler):
+            seen.append((type(request).__name__, request.tool_call["name"]))
+            return handler(request)
+
+        graph = rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", rs.prebuilt.ToolNode([add], wrap_tool_call=wrap))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        out = graph.compile().invoke({"messages": [call]})
+        last = out["messages"][-1]
+        return {"seen": seen, "status": last.get("status"), "content": str(last.get("content"))}
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "wrap_tool_call",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_validation_node_scenario() -> list[dict]:
     """`ValidationNode` answers every tool call with a validated `ToolMessage`."""
 
@@ -734,11 +790,15 @@ def run_send_interrupt_scenario() -> list[dict]:
         config = {"configurable": {"thread_id": f"send-int-{label}"}}
         out = app.invoke({"log": []}, config)
         pending = list(out.get("__interrupt__", ()))
-        ids = [interrupt.id for interrupt in pending]
-        # Parallel `Send` tasks have no defined order, so compare the interrupt values sorted.
-        steps = [[sorted(i.value["ask"] for i in pending)]]
-        for index, value in enumerate(("a", "b")):
-            out = app.invoke(LgCommand(resume={ids[index]: value}) if label == "lg" else rs.Command(resume={ids[index]: value}), config)
+        # Parallel `Send` tasks have no defined order, so resume by the interrupt's own value
+        # (`ask`) instead of by list position, and compare the resulting log sorted.
+        by_ask = {interrupt.value["ask"]: interrupt.id for interrupt in pending}
+        steps = [[sorted(by_ask)]]
+        for ask, value in ((0, "a"), (1, "b")):
+            resume = {by_ask[ask]: value}
+            out = app.invoke(
+                LgCommand(resume=resume) if label == "lg" else rs.Command(resume=resume), config
+            )
             steps.append([
                 sorted(out.get("log") or []),
                 sorted(i.value["ask"] for i in out.get("__interrupt__", ())),
@@ -3422,6 +3482,7 @@ def main() -> None:
         run_command_graph_scenario,
         run_tool_error_scenario,
         run_validation_node_scenario,
+        run_wrap_tool_call_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

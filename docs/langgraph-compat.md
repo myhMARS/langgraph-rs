@@ -332,6 +332,33 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `ToolNode` 的构造面与工具调用中间件（2026-11-27）
+
+LG 的 `ToolNode` 构造签名是
+`(tools, *, name="tools", tags=None, handle_tool_errors=..., messages_key="messages",
+wrap_tool_call=None, awrap_tool_call=None)`，实例上还有 `tools_by_name`、`get_name()`、`invoke()`。
+扩展此前只有 `(tools, messages_key=...)` 和 `__call__`。
+
+现在补全：
+
+- `name` / `tags` / `tools_by_name` / `get_name()` / `invoke()` / `ainvoke()`
+- **`wrap_tool_call` / `awrap_tool_call`**：LG 的中间件语义 —— 包装函数收到
+  `ToolCallRequest(tool_call, tool, state, runtime)` 和一个 `handler`，调用 `handler(request)`
+  才真正执行工具，返回值即最终的 `ToolMessage`
+
+实测两边一致：
+
+```
+wrap(request, handler) 收到 ("ToolCallRequest", "add")
+handler(request) -> status="success", content="3", name="add", tool_call_id="c1"
+```
+
+实现上，未配置包装函数时仍走原生节点（零开销），配置后才在 Python 侧逐个调用并包装结果。
+
+**顺带修了 parity 的假失败**：`send_interrupts` 场景原来按**下标**取 interrupt id 来 resume，
+而并行 `Send` 任务顺序本身不固定，于是 LG 有时恢复的是另一个任务。现在按 interrupt 自身的
+`ask` 值定位，三次运行稳定 **56/56**。
+
 ### `ValidationNode` 与超时的时间类型（2026-11-27）
 
 **`ValidationNode`**：LG 逐条校验 tool_calls 而不执行工具，扩展此前的输出缺 `status`、不校验参数类型、
