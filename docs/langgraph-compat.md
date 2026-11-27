@@ -332,6 +332,22 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `StateGraph` 的辅助方法与 store 索引属性（2026-11-27）
+
+补齐上一轮 `dir()` 对比里剩下的两处（纯门面改动，不涉及引擎）：
+
+| 成员 | 行为（与 LG 一致） |
+|---|---|
+| `add_sequence(nodes)` | 依次注册节点并串成链（支持 `callable` 或 `(name, callable)`），返回 `self`；入口仍需自己连 |
+| `set_node_defaults(retry_policy=…, cache_policy=…, error_handler=…, timeout=…)` | 对**之后**注册的节点生效 |
+| `validate(interrupt=None)` | 做一次编译期校验（非法时抛 `ValueError`），成功返回 `self` |
+| `InMemoryStore.embeddings` / `index_config` | 暴露构造时的索引配置（无索引时为 `None`） |
+
+实测：`set_node_defaults(retry_policy=RetryPolicy(max_attempts=2))` 后注册的节点确实重试 2 次。
+
+**仍未对齐（已记录）**：`StateSnapshot` 是 dict 子类而非 NamedTuple；`InMemorySaver` 缺 `put` /
+`put_writes`（引擎内部写入路径）。
+
 ### `Send` / `Interrupt` / `TimeoutPolicy` 的属性面（2026-11-27）
 
 按类做 `dir()` 对比后补齐的可读属性：

@@ -62,6 +62,11 @@ class InMemoryStore(_NativeStore):
 
     def __init__(self, *, index: Any = None, ttl: Any = None) -> None:
         self.ttl = ttl
+        # LangGraph exposes the constructor's index settings on the store.
+        self.index_config = dict(index) if isinstance(index, dict) else index
+        self.embeddings = (
+            self.index_config.get("embed") if isinstance(self.index_config, dict) else None
+        )
 
     def batch(self, ops: Sequence[Any]) -> list[Any]:
         """Run a list of ops, mirroring LangGraph's dispatch.

@@ -3580,4 +3580,21 @@ read fine, `dir()`/`isinstance` differ), `InMemoryStore` lacks `embeddings`/`ind
 `InMemorySaver` lacks `put`/`put_writes` (the engine writes internally), and `StateGraph` lacks
 `add_sequence`/`set_node_defaults`/`validate`.
 
-Suite is 548 tests (three new), parity 81/81, examples 10/10, clippy and Rust tests clean.
+Suite is 548 tests (three new), parity 81/81, examples 10/10, clippy and Rust tests clean.### Round 166: `StateGraph` builder helpers and store index attributes
+
+Closing the rest of the class diff from the previous round (facade-only work):
+
+* `StateGraph.add_sequence(nodes)` — registers each node (callable or `(name, callable)`) and chains
+  them, returning `self`; the entry point stays the caller's job, exactly like LangGraph.
+* `StateGraph.set_node_defaults(...)` — stores `retry_policy` / `cache_policy` / `error_handler` /
+  `timeout` and applies them to nodes registered afterwards (verified: a node added after
+  `set_node_defaults(retry_policy=RetryPolicy(max_attempts=2))` retries twice).
+* `StateGraph.validate(interrupt=None)` — runs the compile-time validation and returns `self`,
+  raising `ValueError` for an invalid graph.
+* `InMemoryStore.embeddings` / `index_config` — expose the constructor's index settings (`None`
+  without one).
+
+Still different, documented: `StateSnapshot` is a dict subclass rather than a NamedTuple, and
+`InMemorySaver` has no `put`/`put_writes` (the engine writes through its own path).
+
+Suite is 553 tests (five new), parity 81/81, examples 10/10, clippy and Rust tests clean.

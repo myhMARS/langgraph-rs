@@ -223,6 +223,12 @@ class StateGraph(_native.StateGraph):
         LangGraph synthesises `__error_handler__<node>` and routes the failure there, so the
         handler sees the state and its update replaces the node's result; the branch then ends.
         """
+        # `set_node_defaults` applies to nodes registered afterwards.
+        defaults = getattr(self, "_node_defaults", None)
+        if defaults:
+            for key, value in defaults.items():
+                if value is not None and key not in kwargs:
+                    kwargs[key] = value
         timeout = kwargs.get("timeout")
         if timeout is not None:
             # LangGraph accepts seconds / `timedelta` / `TimeoutPolicy`; the engine takes the
@@ -242,6 +248,47 @@ class StateGraph(_native.StateGraph):
         if handlers is not None and handler is not None:
             handlers[str(name)] = handler
         return super().add_node(name, action, **kwargs)
+
+    def add_sequence(self, nodes: Any) -> Any:
+        """Add a chain of nodes, each wired to the next, like LangGraph's `add_sequence`."""
+        items = list(nodes)
+        names: list[str] = []
+        for item in items:
+            if isinstance(item, tuple):
+                name, action = item
+                self.add_node(name, action)
+                names.append(str(name))
+            else:
+                action = item
+                name = getattr(action, "__name__", f"node_{len(names)}")
+                self.add_node(name, action)
+                names.append(str(name))
+        for source, target in zip(names, names[1:]):
+            self.add_edge(source, target)
+        return self
+
+    def set_node_defaults(
+        self,
+        *,
+        retry_policy: Any = None,
+        cache_policy: Any = None,
+        error_handler: Any = None,
+        timeout: Any = None,
+    ) -> Any:
+        """Apply defaults to nodes added afterwards (LangGraph's `set_node_defaults`)."""
+        self._node_defaults = {
+            "retry_policy": retry_policy,
+            "cache_policy": cache_policy,
+            "error_handler": error_handler,
+            "timeout": timeout,
+        }
+        return self
+
+    def validate(self, interrupt: Any = None) -> Any:
+        """Compile-time validation without running: raises `ValueError` when the graph is invalid."""
+        del interrupt
+        self.compile()
+        return self
 
     def compile(self, *args: Any, **kwargs: Any) -> Any:
         # LangGraph refuses a timeout on a synchronous node: the thread cannot be cancelled, so a

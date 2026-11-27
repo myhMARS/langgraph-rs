@@ -2635,3 +2635,66 @@ class TypesSurfaceTest(unittest.TestCase):
             repr(langgraph_rs.TimeoutPolicy(run_timeout=0.5)),
             "TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on='auto')",
         )
+
+
+class BuilderHelpersTest(unittest.TestCase):
+    """`add_sequence`, `set_node_defaults` and `validate` behave like LangGraph."""
+
+    def test_add_sequence_chains_nodes(self):
+        def first(state):
+            return {"value": 1}
+
+        def second(state):
+            return {"value": 2}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_sequence([first, second])
+        graph.add_edge(langgraph_rs.START, "first")
+        graph.add_edge("second", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 2})
+
+    def test_add_sequence_with_named_pairs(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_sequence([("a", lambda state: {"value": 1}), ("b", lambda state: {"value": 2})])
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("b", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 2})
+
+    def test_validate_returns_self_and_rejects_missing_entry(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {})
+        with self.assertRaises(ValueError):
+            graph.validate()
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        self.assertIs(graph.validate(), graph)
+
+    def test_set_node_defaults_applies_retry_policy(self):
+        attempts = []
+
+        def boom(state):
+            attempts.append(1)
+            raise ValueError("x")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.set_node_defaults(
+            retry_policy=langgraph_rs.RetryPolicy(max_attempts=2, initial_interval=0.01)
+        )
+        graph.add_node("n", boom)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        with self.assertRaises(ValueError):
+            graph.compile().invoke({"value": 0})
+        self.assertEqual(len(attempts), 2)
+
+    def test_store_index_attributes(self):
+        plain = langgraph_rs.InMemoryStore()
+        self.assertIsNone(plain.embeddings)
+        self.assertIsNone(plain.index_config)
+
+        def embed(texts):
+            return [[1.0, 0.0] for _ in texts]
+
+        store = langgraph_rs.InMemoryStore(index={"dims": 2, "embed": embed})
+        self.assertEqual(store.index_config["dims"], 2)
+        self.assertIs(store.embeddings, embed)
