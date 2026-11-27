@@ -4194,3 +4194,27 @@ conditional-edge router, which LangGraph tolerates and we reject.
 
 Suite is 649 tests (four new), parity 98/98 (new `interrupt_object` scenario), examples 10/10, clippy
 and Rust tests clean.
+
+### Round 201: drop-in audit — silent no-persist and message pollution
+
+A fifth audit wrote four realistic user programs (ReAct agent with memory, supervisor with subgraph
+handoff + `Send` fan-out + list-returning conditional edges, the four stream modes, and
+persistence/fork/durability/interrupt) and swapped only the root package name. **No API had to change** —
+imports, call forms and argument names all carried over. Two real defects surfaced:
+
+1. **A checkpointered run without a `thread_id` silently persisted nothing** (`invoke` returned the right
+   values, the saver had zero rows). LangGraph raises `ValueError: Checkpointer requires one or more of
+   the following 'configurable' keys: thread_id, checkpoint_ns, checkpoint_id`; the engine now does too,
+   in the shared sync and async execute paths.
+2. **`create_react_agent` polluted `AIMessage.additional_kwargs`** with `invalid_tool_calls` and
+   `usage_metadata`, because model output was stored as a flat `model_dump()` dict. It is now encoded as
+   a LangChain constructor object like every other message, and the native `tool_calls` readers accept
+   both shapes (`message_field`), since state legitimately holds both.
+
+Remaining cosmetic findings from this audit (documented, not fixed): `created_at` format and
+`checkpoint_id` shape, 32-hex vs uuid4 message ids, `create_react_agent` not emitting LangGraph's
+deprecation warning, `stream_mode="bogus"` raising `TypeError` where LangGraph yields nothing, an empty
+list channel missing from the initial checkpoint, and `KeyError: 'thread_id'` vs `TypeError` for
+`get_state`/`update_state` without a thread.
+
+Suite is 652 tests (three new), parity 98/98, examples 10/10, clippy and Rust tests clean.

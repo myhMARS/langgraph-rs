@@ -185,6 +185,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 
 另外：`interrupt()` 写在条件边路由器里，LG 允许（暂停 + 恢复），扩展会在运行时拒绝 —— 这是未文档化的边缘用法。
 
+### drop-in 压测发现的两处真实缺陷（2026-11-27，第五轮审计）
+
+第五次审计换了视角：写四个"真实用户会写"的程序（ReAct 智能体多轮记忆、supervisor + 子图 handoff + `Send` 扇出 +
+返回列表的条件边、四种流模式、持久化/fork/durability/中断），只改根包名跑两边。**结论：除了根包名，一处 API 都没
+需要改** —— 导入路径、调用形式、参数名全部通用。但发现两处真实缺陷：
+
+| # | 问题 | LG | 改前 | 现在 |
+|---|---|---|---|---|
+| 1 | 有 checkpointer 但 `invoke` 没给 `thread_id` | `ValueError: Checkpointer requires one or more of the following 'configurable' keys: thread_id, checkpoint_ns, checkpoint_id` | **静默成功、什么都没存**（数据丢失） | 同样的 `ValueError` |
+| 2 | `create_react_agent` 产出的 `AIMessage.additional_kwargs` | `{}` | `{'invalid_tool_calls': [], 'usage_metadata': None}` | `{}` |
+
+第 2 条的原因：模型输出被 `model_dump()` 成扁平 dict 存进 `messages` 通道，复活时两个非构造参数落进
+`additional_kwargs`。现在改用与其他 LangChain 对象相同的 `{"lc": 1, ...}` 封装；同时把 `tool_calls` 的读取改成
+两种形状都支持（`message_field` 辅助函数），因为状态里两种形状本来就会共存。
+
 ### `Interrupt` 对象语义与按键恢复错误类型（2026-11-27）
 
 审计还发现两处 API 契约差异，已修复：

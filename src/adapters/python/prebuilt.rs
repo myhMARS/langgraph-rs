@@ -700,13 +700,11 @@ fn runnable_model_node(
             // Stream the model when it supports it, forwarding each chunk on the `messages`
             // stream and aggregating the chunks into the final message (LangChain's `+`).
             let (result, streamed) = streamed_model_result(py, model.bind(py), py_messages.bind(py))?;
-            let dumped = result
-                .bind(py)
-                .call_method0("model_dump")
-                .or_else(|_| result.bind(py).call_method0("dict"))
-                .map_err(|error| pyerr_to_error(py, error))?;
             let _ = streamed;
-            let value = py_to_value(&dumped).map_err(|error| pyerr_to_error(py, error))?;
+            // Encode the message the way the state stores LangChain objects (`{"lc": 1, ...}`), so
+            // reviving it rebuilds an `AIMessage` instead of a flat dict whose extra `model_dump`
+            // fields leak into `additional_kwargs`.
+            let value = py_to_value(result.bind(py)).map_err(|error| pyerr_to_error(py, error))?;
             let message = match value {
                 serde_json::Value::Array(mut values) => {
                     values.pop().unwrap_or(serde_json::Value::Null)
@@ -717,8 +715,7 @@ fn runnable_model_node(
                 NodeOutput::new().update(&messages_key, serde_json::Value::Array(vec![message.clone()]));
             // When the model finished (no tool calls) and a structured output was requested,
             // LangGraph stores the parsed object under `structured_response`.
-            let has_calls = message
-                .get("tool_calls")
+            let has_calls = crate::prebuilt::message_field(&message, "tool_calls")
                 .and_then(serde_json::Value::as_array)
                 .is_some_and(|calls| !calls.is_empty());
             if let (Some(structured), false) = (structured.as_ref().as_ref(), has_calls) {
@@ -747,7 +744,7 @@ fn guard_react_output(messages_key: &str, output: NodeOutput) -> NodeOutput {
         .get(messages_key)
         .and_then(serde_json::Value::as_array)
         .and_then(|messages| messages.last())
-        .and_then(|message| message.get("tool_calls"))
+        .and_then(|message| crate::prebuilt::message_field(message, "tool_calls"))
         .and_then(serde_json::Value::as_array)
         .is_some_and(|calls| !calls.is_empty());
     if !calls_tools {

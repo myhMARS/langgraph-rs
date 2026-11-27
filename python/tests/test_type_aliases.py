@@ -4460,3 +4460,60 @@ class AmbiguousResumeTest(unittest.TestCase):
         with self.assertRaises(RuntimeError) as raised:
             app.invoke(langgraph_rs.Command(resume="PLAIN"), config)
         self.assertIn("must specify the interrupt id", str(raised.exception))
+
+
+class CheckpointerThreadRequirementTest(unittest.TestCase):
+    """A checkpointered run without a thread id raises, as in LangGraph."""
+
+    @staticmethod
+    def _app():
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        return graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+
+    def test_missing_thread_raises(self):
+        app = self._app()
+        with self.assertRaises(ValueError) as raised:
+            app.invoke({"value": 0})
+        self.assertIn("Checkpointer requires one or more", str(raised.exception))
+        with self.assertRaises(ValueError):
+            list(app.stream({"value": 0}))
+
+    def test_thread_still_works(self):
+        app = self._app()
+        self.assertEqual(
+            app.invoke({"value": 0}, {"configurable": {"thread_id": "ok"}}), {"value": 1}
+        )
+
+
+class AgentMessageKwargsTest(unittest.TestCase):
+    """Model output keeps an empty `additional_kwargs`, as LangChain messages do."""
+
+    def test_react_agent_ai_message_is_clean(self):
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.messages import AIMessage, HumanMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+
+        class Stub(BaseChatModel):
+            replies: list
+            index: int = 0
+
+            @property
+            def _llm_type(self):
+                return "stub"
+
+            def bind_tools(self, tools, **kwargs):
+                return self
+
+            def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                reply = self.replies[min(self.index, len(self.replies) - 1)]
+                self.index += 1
+                return ChatResult(generations=[ChatGeneration(message=reply)])
+
+        app = langgraph_rs.prebuilt.create_react_agent(
+            Stub(replies=[AIMessage("hello")]), []
+        )
+        output = app.invoke({"messages": [HumanMessage("hi")]})
+        self.assertEqual(output["messages"][-1].additional_kwargs, {})

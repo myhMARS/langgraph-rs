@@ -74,6 +74,28 @@ pub(crate) fn execute_quiet<S: State>(
     execute_with_emit(graph, start, config, sink, false)
 }
 
+/// LangGraph requires a thread when the graph has a checkpointer.
+///
+/// Without one the run would silently not persist anything, so the same `ValueError` LangGraph
+/// raises is returned instead.
+fn require_thread_for_checkpointer<S: State>(
+    graph: &CompiledGraph<S>,
+    config: &RunConfig,
+) -> Result<()> {
+    if !graph.has_checkpointer() {
+        return Ok(());
+    }
+    if config.thread_id.is_some()
+        || config.checkpoint_ns.as_deref().is_some_and(|ns| !ns.is_empty())
+        || config.checkpoint_id.is_some()
+    {
+        return Ok(());
+    }
+    Err(crate::_internal::error::Error::validation(
+        "Checkpointer requires one or more of the following 'configurable' keys: thread_id, checkpoint_ns, checkpoint_id",
+    ))
+}
+
 fn execute_with_emit<S: State>(
     graph: &CompiledGraph<S>,
     start: StartInput,
@@ -81,6 +103,7 @@ fn execute_with_emit<S: State>(
     sink: &mut dyn FnMut(StreamChunk),
     emit: bool,
 ) -> Result<RunOutcome<S>> {
+    require_thread_for_checkpointer(graph, config)?;
     // The async writer exists to keep slow savers off the run thread; an in-memory saver
     // cannot block, so spawning a thread and cloning every checkpoint into it is pure
     // overhead (it dominated short runs).

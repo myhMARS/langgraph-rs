@@ -24,13 +24,23 @@ pub fn tools_condition_with(state: &JsonState, messages_key: &str) -> Route {
         .get(messages_key)
         .and_then(Value::as_array)
         .and_then(|messages| messages.last())
-        .and_then(|message| message.get("tool_calls"))
+        .and_then(|message| message_field(message, "tool_calls"))
         .and_then(Value::as_array);
     if calls.is_some_and(|calls| !calls.is_empty()) {
         Route::node(TOOLS)
     } else {
         Route::end()
     }
+}
+
+/// Read a field from a stored chat message.
+///
+/// Messages reach the engine either as LangChain constructor dicts (their fields under `kwargs`) or
+/// as plain mappings, so both shapes are supported.
+pub(crate) fn message_field<'a>(message: &'a Value, key: &str) -> Option<&'a Value> {
+    message
+        .get(key)
+        .or_else(|| message.get("kwargs").and_then(|kwargs| kwargs.get(key)))
 }
 
 /// A named tool usable by [`ToolNode`].
@@ -158,7 +168,7 @@ impl ToolNode {
         };
         let Some(calls) = messages
             .last()
-            .and_then(|message| message.get("tool_calls"))
+            .and_then(|message| message_field(message, "tool_calls"))
             .and_then(Value::as_array)
         else {
             return Ok(NodeOutput::new());
@@ -278,7 +288,7 @@ where
                 .get("messages")
                 .and_then(Value::as_array)
                 .and_then(|messages| messages.last())
-                .and_then(|message| message.get("tool_calls"))
+                .and_then(|message| message_field(message, "tool_calls"))
                 .and_then(Value::as_array)
                 .is_some_and(|calls| !calls.is_empty());
             if calls_tools {

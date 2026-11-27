@@ -3623,7 +3623,11 @@ def run_multi_resume_scenario() -> list[dict]:
             "lg": lg_view,
             "equivalent": rs_view == lg_view,
             "bench": {
-                "rs": measure(lambda: rs_loop().invoke({"log": []})),
+                "rs": measure(
+                    lambda: rs_loop().invoke(
+                        {"log": []}, {"configurable": {"thread_id": "resume-bench"}}
+                    )
+                ),
                 "lg": measure(
                     lambda: lg_loop().invoke(
                         {"log": []}, {"configurable": {"thread_id": "resume-bench"}}
