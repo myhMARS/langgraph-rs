@@ -3215,4 +3215,24 @@ Known difference, documented: after a node fails, LangGraph's
 `None`, because a failed run writes no checkpoint carrying that task error.
 
 Suite is 507 tests (three new), parity 70/70 (new `node_exception` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 147: `snapshot.tasks[i].error` after a failure
+
+LangGraph keeps the failing task's error on the previous checkpoint, so `get_state()` after a failed
+run reports it without adding a history entry:
+
+```
+values: {'value': 1} | next: ('b',) | tasks: [('b', "ValueError('kaboom')")]
+history steps: [1, 0, -1]
+```
+
+The extension reported `tasks[0].error == None`. The failure path now writes the error back onto the
+previous checkpoint's pending task and re-puts it under the **same** checkpoint id (which the saver
+already treats as an update, so history does not grow). The error is rendered as LangGraph does — the
+exception's `repr` — which required the exception stash to keep entries after the exception has been
+re-raised for the caller (bounded to 64 entries).
+
+Verified identical: values, `next`, `(task.name, task.error)` and the history step list, all in one
+parity scenario.
+
+Suite is 508 tests (one new), parity 71/71 (new `failed_task` scenario), examples 10/10, clippy and
+Rust tests clean.

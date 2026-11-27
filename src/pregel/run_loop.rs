@@ -349,6 +349,9 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             Ok(outcomes) => outcomes,
             Err(error) => {
                 drain_collector(backend, &setup, sink);
+                // LangGraph leaves the failing task on the previous checkpoint with its error, so
+                // `get_state()` can report what went wrong.
+                record_task_failure(backend, previous_checkpoint.as_ref(), &tasks, &error).await;
                 return Err(error);
             }
         };
@@ -418,7 +421,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
             return Err(Error::Interrupt(interrupt));
         }
 
-        let processed = process_outcomes(backend, outcomes, step, &mut report, sink, emit)?;
+        let processed = match process_outcomes(backend, outcomes, step, &mut report, sink, emit) {
+            Ok(processed) => processed,
+            Err(error) => {
+                // A node failure reaches `get_state()` through the previous checkpoint's task.
+                record_task_failure(backend, previous_checkpoint.as_ref(), &tasks, &error).await;
+                return Err(error);
+            }
+        };
         let written_for_barriers: HashSet<String> = processed
             .channel_updates
             .iter()
@@ -639,3 +649,44 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
 #[path = "pregel_support.rs"]
 mod pregel_support;
 pub(crate) use pregel_support::*;
+
+/// Attach a node failure to the previous checkpoint's pending task.
+///
+/// LangGraph reports `snapshot.tasks[i].error` after a failed run; the checkpoint keeps the same id,
+/// so history does not grow by an entry.
+async fn record_task_failure<S, B>(
+    backend: &B,
+    previous: Option<&crate::checkpoint::SharedCheckpoint>,
+    tasks: &[crate::_internal::node::Task],
+    error: &Error,
+) where
+    S: State,
+    B: crate::pregel::backend::PregelBackend<S>,
+{
+    let Error::Node { node, message } = error else {
+        return;
+    };
+    let Some(previous) = previous else {
+        return;
+    };
+    let Some(task) = tasks.iter().find(|task| &task.node == node) else {
+        return;
+    };
+    let mut checkpoint = (**previous).clone();
+    let failure = crate::_internal::error::NodeFailure::new(node.clone(), message.clone(), 1);
+    let mut updated = false;
+    for pending in checkpoint.next.iter_mut() {
+        if pending.id == task.id || pending.node == *node {
+            pending.error = Some(failure.clone());
+            updated = true;
+        }
+    }
+    if !updated {
+        let mut pending = task.clone();
+        pending.error = Some(failure);
+        checkpoint.next.push(pending);
+    }
+    let _ = backend
+        .persist_checkpoint(std::sync::Arc::new(checkpoint))
+        .await;
+}

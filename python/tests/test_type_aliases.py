@@ -2007,3 +2007,34 @@ class NodeExceptionPropagationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.invoke({"value": 0})
         self.assertEqual(len(attempts), 2)
+
+
+class FailedTaskSnapshotTest(unittest.TestCase):
+    """A failed run leaves the failing task's error on the snapshot, as in LangGraph."""
+
+    def test_task_error_is_reported(self):
+        def ok(state):
+            return {"value": 1}
+
+        def boom(state):
+            raise ValueError("kaboom")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", ok)
+        graph.add_node("b", boom)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "failed-run"}}
+        with self.assertRaises(ValueError):
+            app.invoke({"value": 0}, config)
+        snapshot = app.get_state(config)
+        self.assertEqual(snapshot.values, {"value": 1})
+        self.assertEqual(snapshot.next, ("b",))
+        self.assertEqual(snapshot.tasks[0].name, "b")
+        self.assertEqual(snapshot.tasks[0].error, "ValueError('kaboom')")
+        # The failure does not add a history entry.
+        self.assertEqual(
+            [item.metadata["step"] for item in app.get_state_history(config)], [1, 0, -1]
+        )

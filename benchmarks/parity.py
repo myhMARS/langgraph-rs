@@ -493,6 +493,78 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_failed_task_scenario() -> list[dict]:
+    """After a failed run, `snapshot.tasks[i].error` describes the exception."""
+
+    class LgState(TypedDict, total=False):
+        value: int
+
+    def lg_run():
+        def ok(state):
+            return {"value": 1}
+
+        def boom(state):
+            raise ValueError("kaboom")
+
+        graph = LgStateGraph(LgState)
+        graph.add_node("a", ok)
+        graph.add_node("b", boom)
+        graph.add_edge(START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", END)
+        app = graph.compile(checkpointer=LgInMemorySaver())
+        config = {"configurable": {"thread_id": "failed-lg"}}
+        try:
+            app.invoke({"value": 0}, config)
+        except BaseException:
+            pass
+        snapshot = app.get_state(config)
+        return {
+            "values": dict(snapshot.values),
+            "next": list(snapshot.next),
+            "tasks": [(task.name, task.error) for task in snapshot.tasks],
+            "steps": [item.metadata.get("step") for item in app.get_state_history(config)],
+        }
+
+    def rs_run():
+        def ok(state):
+            return {"value": 1}
+
+        def boom(state):
+            raise ValueError("kaboom")
+
+        graph = rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", ok)
+        graph.add_node("b", boom)
+        graph.add_edge(rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", rs.END)
+        app = graph.compile(checkpointer=rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "failed-rs"}}
+        try:
+            app.invoke({"value": 0}, config)
+        except BaseException:
+            pass
+        snapshot = app.get_state(config)
+        return {
+            "values": dict(snapshot.values),
+            "next": list(snapshot.next),
+            "tasks": [(task.name, task.error) for task in snapshot.tasks],
+            "steps": [item.metadata.get("step") for item in app.get_state_history(config)],
+        }
+
+    lg_value, rs_value = lg_run(), rs_run()
+    return [
+        {
+            "scenario": "failed_task",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {"rs": measure(rs_run), "lg": measure(lg_run)},
+        }
+    ]
+
+
 def run_node_exception_scenario() -> list[dict]:
     """A failing node re-raises its original exception type and message."""
 
@@ -4338,6 +4410,7 @@ def main() -> None:
         run_defer_scenario,
         run_tool_interrupt_scenario,
         run_node_exception_scenario,
+        run_failed_task_scenario,
         run_subgraph_interrupt_scenario,
         run_reducer_scenario,
         run_big_state_scenario,

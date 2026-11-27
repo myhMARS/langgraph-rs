@@ -461,11 +461,22 @@ fn stash_python_error(py: Python<'_>, error: &PyErr) -> u64 {
     id
 }
 
-pub(super) fn take_python_error(id: u64) -> Option<Py<PyAny>> {
+/// Look up a stashed exception without consuming it (used when building snapshots).
+pub(super) fn peek_python_error(py: Python<'_>, id: u64) -> Option<Py<PyAny>> {
     PY_ERRORS
         .lock()
         .ok()
-        .and_then(|mut stash| stash.remove(&id))
+        .and_then(|stash| stash.get(&id).map(|value| value.clone_ref(py)))
+}
+
+/// Fetch a stashed exception. The entry is kept (the map is capped in `stash_python_error`), so the
+/// snapshot builder can still describe the failure after the exception was re-raised.
+pub(super) fn take_python_error(id: u64) -> Option<Py<PyAny>> {
+    PY_ERRORS.lock().ok().and_then(|stash| {
+        stash
+            .get(&id)
+            .map(|value| pyo3::Python::attach(|py| value.clone_ref(py)))
+    })
 }
 
 /// Id of the Python exception carried by an engine error message, when it has one.

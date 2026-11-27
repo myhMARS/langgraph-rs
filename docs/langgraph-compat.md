@@ -332,6 +332,25 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### 失败节点的 `snapshot.tasks[i].error`（2026-11-27）
+
+LG 在一次失败之后仍能从 `get_state()` 读到"哪个任务失败了、为什么"：
+
+```
+values: {'value': 1} | next: ('b',) | tasks: [('b', "ValueError('kaboom')")]
+history steps: [1, 0, -1]      # 失败不新增检查点
+```
+
+扩展此前 `tasks[0].error` 是 `None`（失败不写检查点，快照里没有这条错误）。现在在失败路径上把错误
+挂回**上一条检查点**的待执行任务（复用同一 checkpoint id，所以历史条数不变），并把 error 渲染成
+LG 的形式 —— 异常本体的 `repr`：
+
+```
+rs: [('b', "ValueError('kaboom')")]
+```
+
+实现细节：为了让快照能拿到 repr，异常表的条目在"重新抛出给调用方"之后**不再删除**（表有 64 条上限）。
+
 ### 节点异常按原样抛出（2026-11-27）
 
 LG 把节点里抛出的异常**原样**抛给调用方：`ValueError("kaboom")` 就是 `ValueError: kaboom`（重试耗尽
