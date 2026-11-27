@@ -332,6 +332,24 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### state 里可以放任意 Python 对象（2026-11-27）
+
+LG 的 state 不限于 JSON：`invoke({"point": Point(1)})`、节点返回 `set`/自定义类都能跑（有无 checkpointer 都一样）。
+扩展此前直接拒绝：`TypeError: value of type 'Point' cannot be converted to JSON`。
+
+现在无 JSON 形式的对象按引用暂存，引擎看到占位符，取回时还原成原对象：
+
+```
+no saver:    {'point': Point(x=1), 'tag': {'set'}}         ← 与 LG 相同
+with saver:  {'point': Point(x=2), 'tag': {'set'}}         ← 状态里读回来也是原对象
+```
+
+同一个对象重复传入会复用同一个占位符（按对象地址去重），所以 `is` 与相等性都保持。
+可调用对象与模块仍然**明确拒绝**（它们是代码而非数据，静默暂存会掩盖 bug）。
+
+**已知限制**：对象按引用保存于**本进程**，因此跨进程恢复检查点（如落盘 sqlite 后换进程读）只能拿到占位符；
+LG 依靠 msgpack 序列化能跨进程。同一进程内（内存 saver、sqlite 同进程）不受影响。
+
 ### `context_schema` 与 `context=` 参数（2026-11-27）
 
 LG 允许 `StateGraph(state_schema, context_schema=Ctx)`，运行期 `invoke(..., context=Ctx(user="ann"))`，

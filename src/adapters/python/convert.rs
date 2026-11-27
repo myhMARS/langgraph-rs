@@ -73,6 +73,11 @@ pub(super) fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     if let Some(encoded) = encode_object(obj)? {
         return Ok(encoded);
     }
+    // LangGraph lets state hold any Python object. Anything without a JSON form travels by
+    // reference: the engine sees a placeholder and `value_to_py` hands the object back unchanged.
+    if let Some(stashed) = stash_python_value(obj) {
+        return Ok(stashed);
+    }
     Err(PyTypeError::new_err(format!(
         "value of type `{}` cannot be converted to JSON; use None, bool, int, float, str, list, tuple or dict",
         type_name(obj)
@@ -203,8 +208,20 @@ const STASHED_KEY: &str = "__langgraph_rs_object__";
 /// How many referenced objects are kept before the oldest are dropped.
 const STASH_LIMIT: usize = 4096;
 
+/// Object identity of a stashed value, so re-sending the same object keeps the same placeholder.
+static STASHED_BY_POINTER: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<usize, u64>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 fn stash_object(value: &Bound<'_, PyAny>) -> u64 {
-    let id = NEXT_STASHED_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    use std::sync::atomic::Ordering;
+
+    let pointer = value.as_ptr() as usize;
+    if let Ok(map) = STASHED_BY_POINTER.lock()
+        && let Some(id) = map.get(&pointer)
+    {
+        return *id;
+    }
+    let id = NEXT_STASHED_ID.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut map) = STASHED_OBJECTS.lock() {
         // Bounded so a long-lived process does not grow without limit; running graphs look their
         // context up by id, and only very old finished runs can fall out.
@@ -212,10 +229,26 @@ fn stash_object(value: &Bound<'_, PyAny>) -> u64 {
             && let Some(oldest) = map.keys().min().copied()
         {
             map.remove(&oldest);
+            if let Ok(mut by_pointer) = STASHED_BY_POINTER.lock() {
+                by_pointer.retain(|_, value| *value != oldest);
+            }
         }
         map.insert(id, value.clone().unbind());
     }
+    if let Ok(mut map) = STASHED_BY_POINTER.lock() {
+        map.insert(pointer, id);
+    }
     id
+}
+
+/// Placeholder for a Python value that has no JSON form, or `None` when it has one.
+fn stash_python_value(value: &Bound<'_, PyAny>) -> Option<Value> {
+    // Callables and modules are programming artefacts, not state: keep rejecting them loudly.
+    if value.is_callable() || value.is_instance_of::<pyo3::types::PyModule>() {
+        return None;
+    }
+    let id = stash_object(value);
+    Some(serde_json::json!({ STASHED_KEY: id }))
 }
 
 fn stashed_object(py: Python<'_>, id: u64) -> Option<Py<PyAny>> {

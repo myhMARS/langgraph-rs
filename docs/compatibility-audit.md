@@ -3694,3 +3694,20 @@ LangGraph's output.
 
 Suite is 568 tests (two new), parity 83/83 (new `context_schema` scenario), examples 10/10, clippy and
 Rust tests clean.
+
+### Round 173: arbitrary Python objects in state
+
+LangGraph state is not JSON-only: `invoke({"point": Point(1)})` and nodes returning a `set` work with
+and without a checkpointer. The extension refused them with
+`TypeError: value of type `Point` cannot be converted to JSON`.
+
+Values without a JSON form are now carried by reference through the same stash the runtime context
+uses: the engine stores a `{"__langgraph_rs_object__": id}` placeholder and `value_to_py` hands the
+original object back, so a round trip preserves identity. Placeholders are deduplicated by object
+address, and callables/modules are still rejected loudly (they are code, not data).
+
+Known limitation, documented: the objects live in this process, so a checkpoint written to disk and
+resumed in another process only carries placeholders — LangGraph serialises them with msgpack instead.
+
+Suite is 572 tests (four new), parity 84/84 (new `python_state` scenario), examples 10/10, clippy and
+Rust tests clean.

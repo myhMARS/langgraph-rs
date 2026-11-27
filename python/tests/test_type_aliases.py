@@ -2970,3 +2970,69 @@ class ContextSchemaTest(unittest.TestCase):
         schema = app.get_context_jsonschema()
         self.assertEqual(schema["properties"]["user"]["type"], "string")
         self.assertEqual(schema["required"], ["user"])
+
+
+class PythonStateValuesTest(unittest.TestCase):
+    """LangGraph state may hold arbitrary Python objects."""
+
+    def test_dataclass_and_set_survive_a_run(self):
+        from dataclasses import dataclass
+
+        @dataclass
+        class Point:
+            x: int
+
+        def node(state):
+            return {"tag": {"set", "frozenset"}}
+
+        graph = langgraph_rs.StateGraph({"point": "last_value", "tag": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        out = graph.compile().invoke({"point": Point(1), "tag": None})
+        self.assertEqual(out["point"], Point(1))
+        self.assertIs(type(out["point"]), Point)
+        self.assertEqual(out["tag"], {"set", "frozenset"})
+
+    def test_objects_survive_a_checkpointer(self):
+        from dataclasses import dataclass
+
+        @dataclass
+        class Point:
+            x: int
+
+        graph = langgraph_rs.StateGraph({"point": "last_value"})
+        graph.add_node("n", lambda state: {"point": state["point"]})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "objects"}}
+        app.invoke({"point": Point(2)}, config)
+        state = app.get_state(config)
+        self.assertEqual(state.values["point"], Point(2))
+
+    def test_same_object_keeps_one_placeholder(self):
+        from dataclasses import dataclass
+
+        @dataclass
+        class Box:
+            value: int
+
+        box = Box(1)
+        graph = langgraph_rs.StateGraph({"box": "last_value"})
+        graph.add_node("n", lambda state: {"box": state["box"]})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+        first = app.invoke({"box": box})["box"]
+        second = app.invoke({"box": box})["box"]
+        self.assertIs(first, box)
+        self.assertIs(second, box)
+
+    def test_callables_are_still_rejected(self):
+        graph = langgraph_rs.StateGraph({"fn": "last_value"})
+        graph.add_node("n", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        with self.assertRaises(TypeError):
+            graph.compile().invoke({"fn": lambda: None})

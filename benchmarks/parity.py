@@ -501,6 +501,55 @@ class _DeferState(TypedDict, total=False):
     value: int
 
 
+def run_python_state_scenario() -> list[dict]:
+    """State may hold arbitrary Python objects (LangGraph keeps them by reference)."""
+
+    class LgState(TypedDict, total=False):
+        point: object
+        tag: object
+
+    def collect(engine):
+        from dataclasses import dataclass
+
+        @dataclass
+        class Point:
+            x: int
+
+        def node(state):
+            return {"tag": frozenset({"a"})}
+
+        if engine == "lg":
+            graph = LgStateGraph(LgState)
+        else:
+            graph = rs.StateGraph({"point": "last_value", "tag": "last_value"})
+        graph.add_node("n", node)
+        if engine == "lg":
+            graph.add_edge(START, "n")
+            graph.add_edge("n", END)
+        else:
+            graph.add_edge(rs.START, "n")
+            graph.add_edge("n", rs.END)
+        out = graph.compile().invoke({"point": Point(3), "tag": None})
+        return {
+            "point": [type(out["point"]).__name__, repr(out["point"])],
+            "tag": [type(out["tag"]).__name__, sorted(out["tag"])],
+        }
+
+    lg_value, rs_value = collect("lg"), collect("rs")
+    return [
+        {
+            "scenario": "python_state",
+            "rs": rs_value,
+            "lg": lg_value,
+            "equivalent": rs_value == lg_value,
+            "bench": {
+                "rs": measure(lambda: collect("rs")),
+                "lg": measure(lambda: collect("lg")),
+            },
+        }
+    ]
+
+
 def run_context_schema_scenario() -> list[dict]:
     """`context_schema` on the builder and the object handed to `Runtime.context`."""
 
@@ -5163,6 +5212,7 @@ def main() -> None:
         run_no_checkpointer_scenario,
         run_drawing_scenario,
         run_context_schema_scenario,
+        run_python_state_scenario,
         run_error_types_scenario,
         run_checkpoint_history_scenario,
         run_defer_scenario,
