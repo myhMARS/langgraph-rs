@@ -3563,4 +3563,21 @@ Three divergences found by probing LangGraph directly:
    `ttl=0.2`. It is now an `f64` of seconds, and expiry behaves like LangGraph (`calls == [1, 1]`).
 
 Suite is 545 tests (four new), parity 81/81 (new `no_checkpointer` scenario), examples 10/10, clippy
-and Rust tests clean.
+and Rust tests clean.### Round 165: `Send`, `Interrupt` and `TimeoutPolicy` attribute surfaces
+
+A class-by-class `dir()` comparison against LangGraph turned up missing readable attributes:
+
+* `Send` — `arg` and `timeout` were unreadable. LangGraph normalises a plain number into a
+  `TimeoutPolicy`, so `Send("n", arg, timeout=0.5).timeout` is a policy; the native class now does the
+  same while the engine keeps the resolved seconds internally.
+* `Interrupt` — added `interrupt_id` (an alias of `id`) and `from_ns(value, ns)`, which builds a stable
+  per-(namespace, value) id.
+* `TimeoutPolicy` — `repr` now prints LangGraph's single-quoted form
+  (`refresh_on='auto'` instead of `"auto"`).
+
+Documented as still different: `StateSnapshot` is a dict subclass rather than a NamedTuple (attributes
+read fine, `dir()`/`isinstance` differ), `InMemoryStore` lacks `embeddings`/`index_config`,
+`InMemorySaver` lacks `put`/`put_writes` (the engine writes internally), and `StateGraph` lacks
+`add_sequence`/`set_node_defaults`/`validate`.
+
+Suite is 548 tests (three new), parity 81/81, examples 10/10, clippy and Rust tests clean.

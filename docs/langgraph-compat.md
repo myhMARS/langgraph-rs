@@ -332,6 +332,21 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `Send` / `Interrupt` / `TimeoutPolicy` 的属性面（2026-11-27）
+
+按类做 `dir()` 对比后补齐的可读属性：
+
+| 类 | 补上 | 说明 |
+|---|---|---|
+| `Send` | `arg`、`timeout` | `send.arg` 此前读不到；`send.timeout` 现在与 LG 一样是 **`TimeoutPolicy`**（传 0.5 会被规范化） |
+| `Interrupt` | `interrupt_id`、`from_ns(value, ns)` | `interrupt_id` 是 `id` 的别名；`from_ns` 给出稳定的命名空间 id |
+| `TimeoutPolicy` | — | `repr` 改成 LG 的单引号形式：`TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on='auto')` |
+
+**仍未对齐（已记录）**：`StateSnapshot` 是 dict 子类（LG 是 NamedTuple）——字段属性可读，但
+`dir()` 形状与 `isinstance(snapshot, tuple)` 不同；`InMemoryStore` 缺 `embeddings` / `index_config`
+属性；`InMemorySaver` 缺 `put` / `put_writes`（引擎内部写入路径）；`StateGraph` 缺
+`add_sequence` / `set_node_defaults` / `validate`。
+
 ### 无检查点器时的行为、`Command` 字段、缓存 TTL（2026-11-27）
 
 三处一起修：

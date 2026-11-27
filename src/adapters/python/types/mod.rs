@@ -24,9 +24,14 @@ use crate::_internal::retry::RetryPolicy;
 pub struct PySend {
     #[pyo3(get)]
     pub node: String,
+    /// Payload delivered to the target node.
+    #[pyo3(get)]
     pub arg: Option<Py<PyAny>>,
-    /// Run timeout in seconds, from `float`, `timedelta` or a `TimeoutPolicy`.
-    pub timeout: Option<f64>,
+    /// The timeout as given (`float`, `timedelta` or a `TimeoutPolicy`), like LangGraph.
+    #[pyo3(get)]
+    pub timeout: Option<Py<PyAny>>,
+    /// Run timeout in seconds, resolved from `timeout`.
+    pub timeout_seconds: Option<f64>,
 }
 
 #[pymethods]
@@ -39,10 +44,27 @@ impl PySend {
         arg: Option<Py<PyAny>>,
         timeout: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let seconds = timeout.and_then(|value| send_timeout_seconds(py, value));
+        // LangGraph stores a `TimeoutPolicy` here, converting a plain number.
+        let timeout = seconds.map(|seconds| {
+            pyo3::Py::new(
+                py,
+                PyTimeoutPolicy {
+                    run_timeout: Some(seconds),
+                    idle_timeout: None,
+                    refresh_on: "auto".to_string(),
+                },
+            )
+            .map(|policy| policy.into_any())
+        });
         Ok(Self {
             node,
             arg,
-            timeout: timeout.and_then(|value| send_timeout_seconds(py, value)),
+            timeout: match timeout {
+                Some(policy) => Some(policy?),
+                None => None,
+            },
+            timeout_seconds: seconds,
         })
     }
 
@@ -99,7 +121,7 @@ impl PySend {
             None => Send::to(node),
             Some(arg) => Send::with_arg(node, py_to_value(arg.bind(py))?),
         };
-        Ok(match self.timeout {
+        Ok(match self.timeout_seconds {
             Some(timeout) => send.with_timeout(std::time::Duration::from_secs_f64(timeout)),
             None => send,
         })
@@ -189,6 +211,41 @@ pub struct PyInterrupt {
 
 #[pymethods]
 impl PyInterrupt {
+    /// LangGraph exposes the id under both names.
+    #[getter]
+    fn interrupt_id(&self) -> String {
+        self.id.clone()
+    }
+
+    /// Build an interrupt for a namespaced run (LangGraph's `Interrupt.from_ns`).
+    ///
+    /// LangGraph derives a stable hash from the namespace and value; callers only use it to match
+    /// the interrupt when resuming, so a stable per-(ns, value) digest is enough.
+    #[staticmethod]
+    #[pyo3(signature = (value, ns, response_schema=None))]
+    fn from_ns(py: Python<'_>, value: Py<PyAny>, ns: String, response_schema: Option<Py<PyAny>>) -> Self {
+        let digest = value
+            .bind(py)
+            .repr()
+            .map(|repr| repr.to_string())
+            .unwrap_or_default();
+        // A stable digest keeps the id reproducible for the same (namespace, value) pair.
+        let id = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            ns.hash(&mut hasher);
+            digest.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        };
+        Self {
+            id,
+            value,
+            node: None,
+            resumable: true,
+            response_schema,
+        }
+    }
+
     #[new]
     #[pyo3(signature = (value, id=None, node=None, response_schema=None))]
     fn new(
@@ -704,8 +761,9 @@ impl PyTimeoutPolicy {
             Some(seconds) => seconds.to_string(),
             None => "None".to_string(),
         };
+        // LangGraph prints the refresh mode as a plain quoted string.
         format!(
-            "TimeoutPolicy(run_timeout={}, idle_timeout={}, refresh_on={:?})",
+            "TimeoutPolicy(run_timeout={}, idle_timeout={}, refresh_on='{}')",
             show(self.run_timeout),
             show(self.idle_timeout),
             self.refresh_on

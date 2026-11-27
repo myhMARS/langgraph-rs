@@ -2606,3 +2606,32 @@ class CommandSurfaceTest(unittest.TestCase):
         app.invoke({"value": 1})
         app.invoke({"value": 1})
         self.assertEqual(calls, [1])
+
+
+class TypesSurfaceTest(unittest.TestCase):
+    """`Send` / `Interrupt` / `TimeoutPolicy` expose LangGraph's attributes."""
+
+    def test_send_attributes(self):
+        send = langgraph_rs.Send("n", {"a": 1}, timeout=0.5)
+        self.assertEqual(send.node, "n")
+        self.assertEqual(send.arg, {"a": 1})
+        # LangGraph normalises a plain number into a TimeoutPolicy.
+        self.assertEqual(type(send.timeout).__name__, "TimeoutPolicy")
+        self.assertEqual(send.timeout.run_timeout, 0.5)
+        plain = langgraph_rs.Send("m")
+        self.assertIsNone(plain.arg)
+        self.assertIsNone(plain.timeout)
+
+    def test_interrupt_namespace_helpers(self):
+        interrupt = langgraph_rs.Interrupt("q")
+        self.assertEqual(interrupt.interrupt_id, interrupt.id)
+        first = langgraph_rs.Interrupt.from_ns("v", "ns")
+        second = langgraph_rs.Interrupt.from_ns("v", "ns")
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(first.interrupt_id, first.id)
+
+    def test_timeout_policy_repr(self):
+        self.assertEqual(
+            repr(langgraph_rs.TimeoutPolicy(run_timeout=0.5)),
+            "TimeoutPolicy(run_timeout=0.5, idle_timeout=None, refresh_on='auto')",
+        )
