@@ -507,12 +507,14 @@ pub(crate) fn chunk_to_py(py: Python<'_>, chunk: &StreamChunk) -> PyResult<Py<Py
             // LangGraph yields `(message_chunk, metadata)`; rebuild the chunk type from the
             // JSON payload so callers can read `.content` / `.tool_call_chunks`.
             let payload = value_to_py(py, message)?;
-            let chunk = py
-                .import("langgraph_rs._compat")
-                .and_then(|module| module.getattr("message_chunk"))
-                .and_then(|helper| helper.call1((payload.clone_ref(py),)))
-                .map(|value| value.unbind())
-                .unwrap_or(payload);
+            let chunk = match crate::adapters::python::convert::shim_hook(py, "message_chunk") {
+                Some(helper) => helper
+                    .bind(py)
+                    .call1((payload.clone_ref(py),))
+                    .map(|value| value.unbind())
+                    .unwrap_or(payload),
+                None => payload,
+            };
             let result = PyTuple::new(py, [chunk, metadata.into_any().unbind()])?;
             Ok(result.into_any().unbind())
         }

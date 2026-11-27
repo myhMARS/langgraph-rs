@@ -3824,3 +3824,22 @@ Still different, documented: `langgraph_triggers` (LangGraph distinguishes edge-
 parallel tasks' events within a superstep, and the child `LangGraph` `on_chain_end` payload.
 
 Suite is 587 tests (two new), parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 181: the extension no longer imports the Python shim
+
+The architecture rule says Rust must not call back into `langgraph_rs.*`. Nine reverse imports
+existed:
+
+| Old | New |
+|---|---|
+| `py.import("langgraph_rs.errors")` ×6 (`InvalidUpdateError`, `NodeTimeoutError`) | the shim registers its exception classes at import (`_register_error_classes`); Rust looks them up |
+| `py.import("langgraph_rs._compat").message_chunk` | the shim registers the helper (`_register_shim_hook("message_chunk", ...)`) |
+| `py.import("langgraph_rs.types").PregelTask` | same registry, `"pregel_task"` |
+
+`grep 'import("langgraph_rs'` over `src/` is now empty, and the raised exceptions are still the shim's
+own classes (`isinstance` / `except` unchanged, verified by the suite).
+
+One documented exception: the callback handler is Python source embedded in `mod.rs`; its
+`import langgraph_rs._live` runs as Python (invoked by LangChain callbacks), not as a Rust call.
+
+Suite is 587 tests, parity 88/88, examples 10/10, clippy and Rust tests clean.

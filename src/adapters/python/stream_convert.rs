@@ -160,12 +160,9 @@ pub(crate) fn finalize_tasks(py: Python<'_>, dict: &Bound<'_, PyDict>) -> PyResu
     let Ok(iter) = tasks.try_iter() else {
         return Ok(());
     };
-    let class = match py
-        .import("langgraph_rs.types")
-        .and_then(|module| module.getattr("PregelTask"))
-    {
-        Ok(class) => class,
-        Err(_) => return Ok(()),
+    let class = match crate::adapters::python::convert::shim_hook(py, "pregel_task") {
+        Some(class) => class.bind(py).clone(),
+        None => return Ok(()),
     };
     let mut converted: Vec<Py<PyAny> > = Vec::new();
     for task in iter {

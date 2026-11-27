@@ -198,3 +198,33 @@ def _deprecated_warning_class() -> type:
 LangGraphDeprecatedSinceV10 = _deprecated_warning_class()
 
 __getattr__ = module_getattr(__name__, globals(), _MISSING)
+
+
+def _register_native_error_classes() -> None:
+    """Hand the exception classes to the extension.
+
+    Rust must not import this package, so it raises these classes only after they are registered
+    here (the shim imports `langgraph_rs.errors` early in its `__init__`).
+    """
+    try:
+        from . import langgraph_rs as _native
+    except Exception:  # pragma: no cover - the extension is always present at runtime
+        return
+    register = getattr(_native, "_register_error_classes", None)
+    if register is None:  # pragma: no cover - older builds
+        return
+    try:
+        register(
+            {
+                "InvalidUpdateError": InvalidUpdateError,
+                "NodeTimeoutError": NodeTimeoutError,
+                "EmptyInputError": EmptyInputError,
+                "EmptyChannelError": EmptyChannelError,
+                "TaskNotFound": TaskNotFound,
+            }
+        )
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+_register_native_error_classes()

@@ -281,6 +281,57 @@ pub(crate) fn context_to_value(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyRe
     }
 }
 
+/// Exception classes the Python shim hands over at import time.
+///
+/// Rust must not import the shim, so the classes are registered from Python and looked up here.
+static ERROR_CLASSES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Py<PyAny>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Register the shim's exception classes (`langgraph_rs.errors` calls this at import).
+#[pyfunction]
+pub(super) fn _register_error_classes(classes: &Bound<'_, pyo3::types::PyDict>) -> PyResult<()> {
+    let mut registry = ERROR_CLASSES
+        .lock()
+        .map_err(|_| PyRuntimeError::new_err("error class registry is poisoned"))?;
+    for (name, class) in classes.iter() {
+        let name: String = name.extract()?;
+        registry.insert(name, class.unbind());
+    }
+    Ok(())
+}
+
+/// Helpers the shim hands over at import time (Rust must not import it).
+static SHIM_HOOKS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Py<PyAny>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Register a shim helper: `message_chunk` (rebuild a streamed chunk) or `pregel_task` (class).
+#[pyfunction]
+pub(super) fn _register_shim_hook(name: String, value: Py<PyAny>) -> PyResult<()> {
+    let mut hooks = SHIM_HOOKS
+        .lock()
+        .map_err(|_| PyRuntimeError::new_err("shim hook registry is poisoned"))?;
+    hooks.insert(name, value);
+    Ok(())
+}
+
+/// Look up a registered shim helper.
+pub(super) fn shim_hook(py: Python<'_>, name: &str) -> Option<Py<PyAny>> {
+    SHIM_HOOKS
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.get(name).map(|hook| hook.clone_ref(py)))
+}
+
+/// Look up a registered exception class by name.
+pub(super) fn error_class(py: Python<'_>, name: &str) -> Option<Py<PyAny>> {
+    ERROR_CLASSES
+        .lock()
+        .ok()
+        .and_then(|registry| registry.get(name).map(|class| class.clone_ref(py)))
+}
+
 pub(crate) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     use pyo3::conversion::IntoPyObjectExt;
 
@@ -455,24 +506,22 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
                 "{detail}\nFor troubleshooting, visit: \
                  https://docs.langchain.com/oss/python/langgraph/errors/INVALID_GRAPH_NODE_RETURN_VALUE"
             );
-            match py
-                .import("langgraph_rs.errors")
-                .and_then(|module| module.getattr("InvalidUpdateError"))
-                .and_then(|class| class.call1((text.clone(),)))
+            match error_class(py, "InvalidUpdateError")
+                .ok_or_else(|| PyRuntimeError::new_err(text.clone()))
+                .and_then(|class| class.bind(py).call1((text.clone(),)))
             {
                 Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(text),
+                Err(error) => error,
             }
         }
         Error::Other(message) if invalid_node_output(&message).is_some() => {
             let detail = invalid_node_output(&message).unwrap_or_default();
-            match py
-                .import("langgraph_rs.errors")
-                .and_then(|module| module.getattr("InvalidUpdateError"))
-                .and_then(|class| class.call1((detail,)))
+            match error_class(py, "InvalidUpdateError")
+                .ok_or_else(|| PyRuntimeError::new_err(message.clone()))
+                .and_then(|class| class.bind(py).call1((detail,)))
             {
                 Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(message),
+                Err(error) => error,
             }
         }
         // LangGraph reports conflicting writes to a plain channel as `InvalidUpdateError`.
@@ -482,27 +531,26 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
                  handle multiple values.\nFor troubleshooting, visit: \
                  https://docs.langchain.com/oss/python/langgraph/errors/INVALID_CONCURRENT_GRAPH_UPDATE"
             );
-            match py
-                .import("langgraph_rs.errors")
-                .and_then(|module| module.getattr("InvalidUpdateError"))
-                .and_then(|class| class.call1((message.clone(),)))
+            match error_class(py, "InvalidUpdateError")
+                .ok_or_else(|| PyRuntimeError::new_err(message.clone()))
+                .and_then(|class| class.bind(py).call1((message.clone(),)))
             {
                 Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(message),
+                Err(error) => error,
             }
         }
         // An idle timeout (the node stopped reporting progress) is a distinct LangGraph error kind.
         Error::IdleTimeout { node, millis } => {
             let seconds = millis as f64 / 1000.0;
-            match py.import("langgraph_rs.errors").and_then(|module| {
-                let factory = module.getattr("NodeTimeoutError")?;
-                let kwargs = pyo3::types::PyDict::new(py);
-                kwargs.set_item("kind", "idle")?;
-                kwargs.set_item("idle_timeout", seconds)?;
-                factory.call((node.clone(), seconds), Some(&kwargs))
-            }) {
-                Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(format!("node `{node}` went idle")),
+            let kwargs = pyo3::types::PyDict::new(py);
+            let _ = kwargs.set_item("kind", "idle");
+            let _ = kwargs.set_item("idle_timeout", seconds);
+            match error_class(py, "NodeTimeoutError") {
+                Some(factory) => match factory.bind(py).call((node.clone(), seconds), Some(&kwargs)) {
+                    Ok(error) => PyErr::from_value(error),
+                    Err(error) => error,
+                },
+                None => PyRuntimeError::new_err(format!("node `{node}` went idle")),
             }
         }
         // A run timeout that went through the retry bookkeeping arrives wrapped as a node
@@ -514,35 +562,35 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
             let idle = idle_millis(&node, &message);
             let millis = idle.or_else(|| timeout_millis(&node, &message)).unwrap_or_default();
             let seconds = millis as f64 / 1000.0;
-            match py.import("langgraph_rs.errors").and_then(|module| {
-                let factory = module.getattr("NodeTimeoutError")?;
-                let kwargs = pyo3::types::PyDict::new(py);
-                if idle.is_some() {
-                    kwargs.set_item("kind", "idle")?;
-                    kwargs.set_item("idle_timeout", seconds)?;
-                } else {
-                    kwargs.set_item("kind", "run")?;
-                    kwargs.set_item("run_timeout", seconds)?;
-                }
-                factory.call((node.clone(), seconds), Some(&kwargs))
-            }) {
-                Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(format!("node `{node}` timed out")),
+            let kwargs = pyo3::types::PyDict::new(py);
+            if idle.is_some() {
+                let _ = kwargs.set_item("kind", "idle");
+                let _ = kwargs.set_item("idle_timeout", seconds);
+            } else {
+                let _ = kwargs.set_item("kind", "run");
+                let _ = kwargs.set_item("run_timeout", seconds);
+            }
+            match error_class(py, "NodeTimeoutError") {
+                Some(factory) => match factory.bind(py).call((node.clone(), seconds), Some(&kwargs)) {
+                    Ok(error) => PyErr::from_value(error),
+                    Err(error) => error,
+                },
+                None => PyRuntimeError::new_err(format!("node `{node}` timed out")),
             }
         }
         // LangGraph raises `NodeTimeoutError` (an `os.error`-style exception carrying the node,
         // the elapsed time and the configured timeout) instead of a bare `RuntimeError`.
         Error::Timeout { node, millis } => {
             let seconds = millis as f64 / 1000.0;
-            match py.import("langgraph_rs.errors").and_then(|module| {
-                let factory = module.getattr("NodeTimeoutError")?;
-                let kwargs = pyo3::types::PyDict::new(py);
-                kwargs.set_item("kind", "run")?;
-                kwargs.set_item("run_timeout", seconds)?;
-                factory.call((node.clone(), seconds), Some(&kwargs))
-            }) {
-                Ok(error) => PyErr::from_value(error),
-                Err(_) => PyRuntimeError::new_err(Error::Timeout { node, millis }.to_string()),
+            let kwargs = pyo3::types::PyDict::new(py);
+            let _ = kwargs.set_item("kind", "run");
+            let _ = kwargs.set_item("run_timeout", seconds);
+            match error_class(py, "NodeTimeoutError") {
+                Some(factory) => match factory.bind(py).call((node.clone(), seconds), Some(&kwargs)) {
+                    Ok(error) => PyErr::from_value(error),
+                    Err(error) => error,
+                },
+                None => PyRuntimeError::new_err(Error::Timeout { node, millis }.to_string()),
             }
         }
         // A Python exception raised inside a node is re-raised with its original type, as

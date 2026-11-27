@@ -69,3 +69,23 @@ def __getattr__(name: str):
 
 def __dir__() -> list[str]:
     return sorted(set(globals()) | set(dir(_native)))
+
+
+def _register_native_hooks() -> None:
+    """Hand helpers to the extension so it never has to import this package."""
+    try:
+        from . import _compat, langgraph_rs as _native
+        from .types import PregelTask
+    except Exception:  # pragma: no cover - the extension is always present at runtime
+        return
+    register = getattr(_native, "_register_shim_hook", None)
+    if register is None:  # pragma: no cover - older builds
+        return
+    for name, value in (("message_chunk", _compat.message_chunk), ("pregel_task", PregelTask)):
+        try:
+            register(name, value)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+_register_native_hooks()
