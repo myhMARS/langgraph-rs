@@ -189,8 +189,9 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 
 现在 `grep 'import("langgraph_rs' src/` 为空；异常对象仍是 shim 定义的类，`isinstance` / `except` 行为不变。
 
-**仍存在的例外（说明）**：`src/adapters/python/mod.rs` 里的回调处理器是**以 Python 源码字符串**注入解释器的，其中
-`import langgraph_rs._live` 是 Python→Python 调用（由 LangChain 回调触发），不是 Rust 反向调用。
+原先 `src/adapters/python/mod.rs` 里还有 220 行**以 Rust 字符串内嵌的 Python 回调处理器**。现已移到
+`python/langgraph_rs/_callbacks.py`，由 shim 在导入时注册工厂（`_register_shim_hook("callback_handler", ...)`），
+Rust 只查表调用。至此 Rust 里既无 `import langgraph_rs`，也无 `PyModule::from_code` 内嵌 Python。
 
 ## 5. 如何验证
 

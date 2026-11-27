@@ -81,7 +81,18 @@ def _register_native_hooks() -> None:
     register = getattr(_native, "_register_shim_hook", None)
     if register is None:  # pragma: no cover - older builds
         return
-    for name, value in (("message_chunk", _compat.message_chunk), ("pregel_task", PregelTask)):
+    from ._callbacks import LangChainCallbackHandler, StreamingLangChainCallbackHandler
+
+    def callback_handler(model=None, tags=None, streaming=False):
+        """Build the handler class LangGraph attaches to model calls."""
+        cls = StreamingLangChainCallbackHandler if streaming else LangChainCallbackHandler
+        return cls(model, tags)
+
+    for name, value in (
+        ("message_chunk", _compat.message_chunk),
+        ("pregel_task", PregelTask),
+        ("callback_handler", callback_handler),
+    ):
         try:
             register(name, value)
         except Exception:  # pragma: no cover - defensive

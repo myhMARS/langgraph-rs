@@ -3843,3 +3843,16 @@ One documented exception: the callback handler is Python source embedded in `mod
 `import langgraph_rs._live` runs as Python (invoked by LangChain callbacks), not as a Rust call.
 
 Suite is 587 tests, parity 88/88, examples 10/10, clippy and Rust tests clean.
+
+### Round 182: the embedded callback handler moved into the shim
+
+The last piece of Python living inside Rust was the ~220-line LangChain callback handler, embedded as
+a Rust string and compiled with `PyModule::from_code`. It is now `python/langgraph_rs/_callbacks.py`,
+an ordinary shim module; `__init__` registers a factory (`_register_shim_hook("callback_handler", ...)`)
+and `langchain_callback_handler` looks it up.
+
+`src/` now contains neither `import langgraph_rs` calls nor `PyModule::from_code`, so Rust never
+executes or imports the Python package. The handler behaves identically (`stream_mode="messages"`
+still yields the completed `AIMessage` for a non-streaming model).
+
+Suite is 587 tests, parity 88/88, examples 10/10, clippy and Rust tests clean.
