@@ -420,6 +420,32 @@ fn tool_error_policy(
     }
     // The default message must not show the invisible exception marker.
     let strip = crate::adapters::python::convert::strip_python_error_marker;
+    // A type (or tuple of types) only handles the exceptions it matches; others propagate.
+    let is_type = handler.is_instance_of::<pyo3::types::PyType>();
+    let is_type_tuple = handler
+        .cast::<pyo3::types::PyTuple>()
+        .is_ok_and(|items| !items.is_empty() && items.iter().all(|item| item.is_instance_of::<pyo3::types::PyType>()));
+    if is_type || is_type_tuple {
+        let types = handler.clone().unbind();
+        return Ok(Some(Arc::new(move |message: &str| {
+            Python::attach(|py| {
+                let types = types.bind(py);
+                let exception = crate::adapters::python::convert::python_error_id(message)
+                    .and_then(|id| crate::adapters::python::convert::peek_python_error(py, id));
+                let matched = match exception {
+                    Some(exception) => exception.bind(py).is_instance(types).unwrap_or(false),
+                    None => false,
+                };
+                if !matched {
+                    return None;
+                }
+                Some(format!(
+                    "Error: {}\n Please fix your mistakes.",
+                    crate::_internal::error::strip_hidden_marker(message)
+                ))
+            })
+        })));
+    }
     if handler.is_callable() {
         let callable = handler.clone().unbind();
         return Ok(Some(Arc::new(move |message: &str| {

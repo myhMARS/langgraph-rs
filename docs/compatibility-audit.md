@@ -3252,4 +3252,23 @@ policy sees the message, not the exception) and `RetryPolicy(retry_on=<callable>
 only.
 
 Suite is 508 tests, parity 71/71 (the `tool_errors` scenario now also compares the exception class the
-handler sees), examples 10/10, clippy and Rust tests clean.
+handler sees), examples 10/10, clippy and Rust tests clean.### Round 149: `handle_tool_errors=<exception type>` filters by type
+
+LangGraph's `handle_tool_errors` accepts an exception type (or tuple of them) and only converts
+**matching** failures into a `ToolMessage`; anything else propagates. The extension treated every
+type as "handle everything", so a `KeyError` was swallowed by `handle_tool_errors=ValueError`.
+
+The policy now checks `isinstance` against the stashed exception. All four shapes match LangGraph:
+
+```
+ValueError              -> Error: ValueError('kaboom')   (handled)
+(ValueError, KeyError)  -> Error: ValueError('kaboom')   (handled)
+KeyError                -> ValueError: kaboom            (propagates)
+(KeyError,)             -> ValueError: kaboom            (propagates)
+```
+
+Still open, documented: `RetryPolicy(retry_on=<callable>)` matches by name only, since the engine
+decides retries without calling back into Python.
+
+Suite is 511 tests (three new), parity 71/71 (the `tool_errors` scenario now covers type matching,
+tuples and non-matching types), examples 10/10, clippy and Rust tests clean.

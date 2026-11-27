@@ -1563,6 +1563,10 @@ def run_tool_error_scenario() -> list[dict]:
         "rs": rs_run(make_handler("rs")),
         "lg": lg_run(make_handler("lg")),
     }
+    # Type (and tuple-of-types) filtering: non-matching exceptions propagate.
+    cases["type_match"] = {"rs": rs_run(ValueError), "lg": lg_run(ValueError)}
+    cases["type_tuple"] = {"rs": rs_run((ValueError, KeyError)), "lg": lg_run((ValueError, KeyError))}
+    cases["type_miss"] = {"rs": rs_run(KeyError), "lg": lg_run(KeyError)}
     cases["seen"] = {"rs": seen["rs"], "lg": seen["lg"]}
     return [
         {

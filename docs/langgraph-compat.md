@@ -332,6 +332,20 @@ schema introspection 全套由基类提供。扩展现在也这样：
 - 不支持的运行期关键字（`interrupt_before` / `interrupt_after` / `output_keys`）会显式抛
   `NotImplementedError` 并给出替代做法，而不是静默忽略
 
+### `handle_tool_errors=<异常类型/元组>` 按类型过滤（2026-11-27）
+
+LG 允许只处理特定异常：`handle_tool_errors=ValueError` 只接住 `ValueError`，其它异常照常抛出。扩展此前
+把类型当成"总是处理"，任何异常都会被吞成 `ToolMessage`。
+
+现在按 `isinstance` 判断，四种形态与 LG 逐条一致：
+
+```
+ValueError                     → Error: ValueError('kaboom')  (被处理)
+(ValueError, KeyError)         → Error: ValueError('kaboom')  (被处理)
+KeyError                       → ValueError: kaboom           (向上抛)
+(KeyError,)                    → ValueError: kaboom           (向上抛)
+```
+
 ### `handle_tool_errors` 的可调用对象拿到原异常（2026-11-27）
 
 LG 把**异常本体**交给 `handle_tool_errors` 的回调；扩展此前构造一个 `RuntimeError` 代替，于是

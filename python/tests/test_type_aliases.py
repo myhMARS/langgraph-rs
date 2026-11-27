@@ -2045,3 +2045,36 @@ class FailedTaskSnapshotTest(unittest.TestCase):
         self.assertEqual(
             [item.metadata["step"] for item in app.get_state_history(config)], [1, 0, -1]
         )
+
+
+class ToolErrorTypeFilterTest(unittest.TestCase):
+    """`handle_tool_errors=<type or tuple>` only handles matching exceptions."""
+
+    @staticmethod
+    def _run(handle):
+        from langchain_core.messages import AIMessage
+
+        def boom(query: str) -> str:
+            raise ValueError("kaboom")
+
+        ai = AIMessage(
+            content="",
+            tool_calls=[{"name": "boom", "args": {"query": "x"}, "id": "c1", "type": "tool_call"}],
+        )
+        graph = langgraph_rs.StateGraph({"messages": "add_messages"})
+        graph.add_node("tools", langgraph_rs.prebuilt.ToolNode([boom], handle_tool_errors=handle))
+        graph.set_entry_point("tools")
+        graph.set_finish_point("tools")
+        return graph.compile().invoke({"messages": [ai]})["messages"][-1]
+
+    def test_matching_type_is_handled(self):
+        last = self._run(ValueError)
+        self.assertEqual(last["status"], "error")
+        self.assertIn("Error: ValueError('kaboom')", last["content"])
+
+    def test_tuple_of_types_is_handled(self):
+        self.assertIn("Error: ValueError('kaboom')", self._run((ValueError, KeyError))["content"])
+
+    def test_non_matching_type_propagates(self):
+        with self.assertRaises(ValueError):
+            self._run(KeyError)
