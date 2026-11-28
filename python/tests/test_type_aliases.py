@@ -5074,3 +5074,16 @@ class GraphDrainedTest(unittest.TestCase):
         with self.assertRaises(langgraph_rs.GraphDrained) as raised:
             graph.compile().invoke({"value": 0}, control=control)
         self.assertEqual(str(raised.exception), "Graph drained: mid")
+
+    def test_pre_run_drain_raises_graph_drained(self):
+        control = langgraph_rs.RunControl()
+        control.request_drain("shutdown")
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "pre-drain"}}
+        with self.assertRaises(langgraph_rs.GraphDrained) as raised:
+            app.invoke({"value": 0}, config, control=control)
+        self.assertEqual(str(raised.exception), "Graph drained: shutdown")

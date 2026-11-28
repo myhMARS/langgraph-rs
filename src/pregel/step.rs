@@ -75,6 +75,9 @@ pub(crate) fn begin_step<S: State>(
     skip_interrupt_before: bool,
     is_before: impl Fn(&str) -> bool,
 ) -> Result<StepStart> {
+    if let Some(reason) = control.and_then(RunControl::drain_reason) {
+        return Err(crate::_internal::error::Error::Drained { reason });
+    }
     if control.is_some_and(RunControl::is_aborted) {
         return Err(Error::other("run aborted by RunControl"));
     }

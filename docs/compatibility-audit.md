@@ -4827,3 +4827,45 @@ boundary (`request_drain` sets both, so checking abort first reported a generic 
 to `GraphDrained` with LangGraph's message format.
 
 Suite is 677 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 236: independent final acceptance audit (eighth audit)
+
+An independent reviewer wrote five programs (tool-using agent over three turns; conditional edges with a
+compiled subgraph, interrupt and `subgraphs=True`; every stream mode singly and in lists; timeouts and
+cancellation across sync/async; error and edge cases) and diffed them against LangGraph 1.2.22. Both sides
+were deterministic across reruns.
+
+**Confirmed matches:** the three-turn agent transcript and the exact model inputs; all 13 history rows'
+`step`/`source`/`next`; conditional routing; `Command(resume=…)` through a nested graph; the interrupt
+payload; `updates`/`custom`/`messages`/`tasks`/`checkpoints` chunk counts; sync and async timeouts (byte
+identical error messages); cancellation with post-cancel checkpoint and resume; recursion limits; unknown
+threads; missing `thread_id`.
+
+**Blocker-class findings and what was done:**
+
+1. *pre-run `request_drain` raised `RuntimeError` and checkpointed nothing.* Fixed this round: the run loop
+   and the step start report `GraphDrained` with the reason, so `except GraphDrained` works. LangGraph also
+   checkpoints the submitted input (`next=("__start__",)`); ours still does not — recorded as a gap.
+2. *`runtime.control` is `None` inside a node* so the documented in-node graceful shutdown cannot be used —
+   open. The control lives in the run config, not in the thread-local run context the node sees.
+3. *`runtime.heartbeat()` never refreshes the idle budget* — an attempt to wire it (bumping the async
+   progress counter) did not reach the watchdog, because the counter is a thread-local installed on the
+   polling thread; reverted. Open.
+4. *mid-run `request_drain` from the consumer is ignored* (the run finishes) — open; the sync executor reads
+   the drain flag at superstep boundaries, but a stream consumer's call does not interrupt an in-flight
+   superstep.
+
+**Findings I could not reproduce:** the report's "`stream_mode="values"` drops `__interrupt__`" (5.13) — both a
+two-node pause and a single-node pause include the interrupt in the values payload here, verified directly.
+Also re-verified: the module surface (18/18 modules, 118/118 names) and that no Rust code calls into the
+Python shim (the only `import langgraph_rs` occurrence is a doc comment).
+
+**Functional-but-minor, recorded for future work:** subgraph-as-node merges only the child's delta through the
+parent's reducer (LangGraph re-applies the inherited prefix, duplicating it for plain list reducers);
+`AIMessageChunk` is not coerced to `AIMessage` on write; `messages`-mode metadata lacks `thread_id`;
+multi-mode `values`/`tasks`/`debug` interleaving differs; `debug`-mode lacks the leading checkpoint event on a
+resumed thread; channels with reducer defaults are absent from `values`; `PregelTask.state` is `None` for a
+pending subgraph task; the `__start__` row's task result is `None`; `update_state(as_node=…, unknown)` raises
+`ValueError` instead of `InvalidUpdateError`; the unknown-tool message omits the "try one of" hint.
+
+Suite is 678 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.

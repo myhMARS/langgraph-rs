@@ -177,6 +177,24 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 终审发现（2026-11-27，第 138 轮）
+
+独立审计代理用五个程序压测后，确认**大量核心行为与 LG 完全一致**（三轮 agent 对话与模型入参、13 行历史、
+条件路由、嵌套图 `Command` 恢复、各流式模式的块数、超时（错误文本逐字节相同）、取消后的检查点与恢复、递归
+限制、未知线程等）。
+
+同时指出三处"生产级用法会踩"的缺口：
+
+| 缺口 | 现状 |
+|---|---|
+| 运行前 `request_drain` 抛 `RuntimeError` 且不写检查点 | **已修**（抛 `GraphDrained`；LG 会写输入检查点，我们仍不写） |
+| 节点内 `runtime.control` 为 `None`（无法优雅关停） | 未修 |
+| `runtime.heartbeat()` 不刷新空闲预算 | 未修（试过，异步计数在轮询线程的 thread-local 上，未触达；已回退） |
+| 消费端 mid-run `request_drain` 被忽略 | 未修 |
+
+**未能复现**的一条：报告称 `stream_mode="values"` 会丢 `__interrupt__` —— 我直接验证了两节点与单节点两种暂停，
+`__interrupt__` 都在 values 负荷里。
+
 ### `GraphDrained` 已补齐（2026-11-27，第 137 轮）
 
 第 120 轮审计的 F15b：扩展有 `GraphBubbleUp`/`GraphInterrupt`/`GraphRecursionError`，独缺 `GraphDrained`，

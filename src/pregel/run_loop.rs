@@ -203,6 +203,12 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         tasks = backend.entry_tasks(&state)?;
         expanded_entry = true;
     }
+    if let Some(control) = config.control.as_ref()
+        && let Some(reason) = control.drain_reason()
+    {
+        // LangGraph reports a requested drain as `GraphDrained`, even before the first step.
+        return Err(crate::_internal::error::Error::Drained { reason });
+    }
     if config
         .control
         .as_ref()
