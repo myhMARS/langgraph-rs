@@ -4967,3 +4967,24 @@ non-dict `Send` args, duplicate ids in one fresh-thread input batch, dict `conte
 the process-wide heartbeat counter (A2).
 
 Suite is 686 tests (four new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 242: unknown route destinations warn instead of failing
+
+LangGraph logs a warning and drops a route to a node that does not exist (conditional edge, `Command(goto=…)`
+and `Send` fan-out alike); the engine raised `invalid route from \`a\`: unknown destination node \`ghost\``. The
+scheduler now drops such targets and prints one warning per `(source, target)` to stderr, with
+`LANGGRAPH_RS_QUIET=1` silencing it:
+
+```
+conditional route to "ghost" -> warning, run ends with the node's writes  ({'x': 1})
+Command(goto="ghost")        -> warning, update applied, run ends         ({'x': 2})
+```
+
+The check also had to drop the target in `schedule_next_tasks` (not just relax validation): otherwise the run
+still tried to execute the unknown node.
+
+Still open: `runtime.store` bridge (no `BaseStore.batch`, not the passed instance), `SqliteSaver.from_conn_string`,
+non-dict `Send` args, duplicate ids in one fresh-thread input batch, dict `context` not coerced to a dataclass,
+the process-wide heartbeat counter.
+
+Suite is 688 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.

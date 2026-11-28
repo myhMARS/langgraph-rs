@@ -133,9 +133,9 @@ fn check_target<'a>(
     target: &str,
     node_exists: impl Fn(&str) -> bool,
     destinations_of: impl Fn(&str) -> Option<&'a [String]>,
-) -> Result<()> {
+) -> Result<bool> {
     if target == END {
-        return Ok(());
+        return Ok(true);
     }
     if target == START {
         return Err(Error::routing(
@@ -144,10 +144,9 @@ fn check_target<'a>(
         ));
     }
     if !node_exists(target) {
-        return Err(Error::routing(
-            source,
-            format!("unknown destination node `{target}`"),
-        ));
+        // LangGraph warns and drops the route instead of failing the run.
+        warn_unknown_destination(source, target);
+        return Ok(false);
     }
     if let Some(allowed) = destinations_of(source) {
         if !allowed.iter().any(|node| node == target) {
@@ -157,7 +156,34 @@ fn check_target<'a>(
             ));
         }
     }
-    Ok(())
+    Ok(true)
+}
+
+/// Warn about a route to a node that does not exist, once per `(source, target)`.
+///
+/// LangGraph logs a warning and drops the route instead of failing the run, so the run continues and
+/// the caller sees the warning on stderr rather than an exception.
+fn warn_unknown_destination(source: &str, target: &str) {
+    static WARNED: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
+        std::sync::Mutex::new(None);
+    if std::env::var("LANGGRAPH_RS_QUIET").is_ok() {
+        return;
+    }
+    let key = format!("{source}->{target}");
+    let mut slot = WARNED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let seen = slot.get_or_insert_with(std::collections::HashSet::new);
+    if !seen.insert(key) {
+        return;
+    }
+    if source.is_empty() {
+        eprintln!(
+            "langgraph_rs: dropped a route to unknown node `{target}` (as LangGraph does)"
+        );
+    } else {
+        eprintln!(
+            "langgraph_rs: node `{source}` routed to unknown node `{target}`; ignoring it (as LangGraph does)"
+        );
+    }
 }
 
 /// Turn resolved edge targets and router Sends into the next superstep's tasks.
@@ -185,16 +211,19 @@ pub(crate) fn schedule_next_tasks<'a>(
         if handler_nodes.contains(&node) {
             continue;
         }
+        // A route to a node that does not exist is dropped with a warning (LangGraph behaviour).
+        if !node_exists(&node) {
+            warn_unknown_destination("", &node);
+            continue;
+        }
         next_tasks.push(Task::new(node));
     }
     for (index, (source, send)) in router_sends.into_iter().enumerate() {
         let mut task = send_task(&source, send)?;
         task.push_index = Some(index);
         if !node_exists(&task.node) {
-            return Err(Error::routing(
-                &source,
-                format!("unknown destination node `{}`", task.node),
-            ));
+            warn_unknown_destination(&source, &task.node);
+            continue;
         }
         if let Some(allowed) = destinations_of(&source) {
             if !allowed.iter().any(|node| node == &task.node) {

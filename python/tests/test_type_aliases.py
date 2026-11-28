@@ -5212,3 +5212,24 @@ class OutsideRunTest(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             get_store()
+
+
+class UnknownRouteTest(unittest.TestCase):
+    """A route to an unknown node is dropped with a warning, as in LangGraph."""
+
+    def test_conditional_route_to_unknown_node(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_conditional_edges("a", lambda state: "ghost")
+        graph.add_edge(langgraph_rs.START, "a")
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 1})
+
+    def test_command_goto_unknown_node(self):
+        def jump(state):
+            return langgraph_rs.Command(update={"value": 2}, goto="ghost")
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", jump)
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 2})
