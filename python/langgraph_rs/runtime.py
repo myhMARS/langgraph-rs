@@ -202,9 +202,16 @@ def get_runtime(context: Any = None) -> Runtime:
             store = NATIVE.get_store()
         except Exception:  # pragma: no cover - store unavailable mid-teardown
             store = None
+    control = None
+    if (raw or {}).get("has_control"):
+        try:
+            control = NATIVE.current_control()
+        except Exception:  # pragma: no cover - control unavailable mid-teardown
+            control = None
     return Runtime(
         context=context_value,
         store=store,
+        control=control,
         stream_writer=_native_stream_writer(),
         execution_info=ExecutionInfo(thread_id=thread_id, checkpoint_ns=namespace),
         namespace=namespace,

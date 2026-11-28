@@ -5087,3 +5087,37 @@ class GraphDrainedTest(unittest.TestCase):
         with self.assertRaises(langgraph_rs.GraphDrained) as raised:
             app.invoke({"value": 0}, config, control=control)
         self.assertEqual(str(raised.exception), "Graph drained: shutdown")
+
+
+class InNodeControlTest(unittest.TestCase):
+    """`runtime.control` is the caller's RunControl, and a drain keeps the node's writes."""
+
+    def test_node_can_drain_its_run(self):
+        from langgraph_rs.runtime import get_runtime
+
+        control = langgraph_rs.RunControl()
+        seen = {}
+
+        def first(state):
+            runtime = get_runtime()
+            seen["control"] = runtime.control
+            runtime.control.request_drain("from-node")
+            return {"x": "3"}
+
+        graph = langgraph_rs.StateGraph({"x": "last_value"})
+        graph.add_node("a", first)
+        graph.add_node("b", lambda state: {"x": "4"})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        app = graph.compile(checkpointer=langgraph_rs.InMemorySaver())
+        config = {"configurable": {"thread_id": "in-node-drain"}}
+        with self.assertRaises(langgraph_rs.GraphDrained) as raised:
+            app.invoke({"x": ""}, config, control=control)
+        self.assertEqual(str(raised.exception), "Graph drained: from-node")
+        self.assertIsNotNone(seen["control"])
+        self.assertTrue(control.drain_requested)
+        snapshot = app.get_state(config)
+        # The drained superstep's writes are kept; the thread can be resumed.
+        self.assertEqual(snapshot["values"]["x"], "3")
+        self.assertEqual(snapshot["next"], ("b",))

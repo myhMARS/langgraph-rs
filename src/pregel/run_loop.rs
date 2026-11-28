@@ -58,6 +58,10 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         config.stream_subgraphs,
         backend.collector(),
         config.live_sink.clone(),
+        config
+            .control
+            .clone()
+            .map(std::sync::Arc::new),
     )?;
     // `get_config()` surfaces the caller's tags and metadata, like LangGraph.
     crate::runtime::context::set_user_config(config.tags.clone(), config.metadata.clone());
@@ -387,17 +391,15 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         };
         drain_collector(backend, &setup, sink);
 
-        // A requested drain takes precedence over a plain abort: it reports `GraphDrained`.
-        if let Some(reason) = config
+        // A drain keeps the superstep that just ran (LangGraph stops at the boundary and keeps the
+        // node's writes); the next loop iteration reports `GraphDrained`. A plain abort discards.
+        let draining = config
             .control
             .as_ref()
-            .and_then(|control| control.drain_reason())
-        {
-            return Err(crate::_internal::error::Error::Drained { reason });
-        }
+            .is_some_and(|control| control.drain_reason().is_some());
         // A run aborted while this superstep was executing discards its result, so the thread
         // keeps the previous checkpoint (LangGraph's cancelled runs behave the same way).
-        if config.control.as_ref().is_some_and(|control| control.is_aborted()) {
+        if !draining && config.control.as_ref().is_some_and(|control| control.is_aborted()) {
             return Err(crate::_internal::error::Error::other(
                 "the run was aborted; the current superstep was discarded",
             ));

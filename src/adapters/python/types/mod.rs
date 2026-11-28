@@ -538,6 +538,13 @@ pub struct PyRunControl {
     pub(super) inner: crate::RunControl,
 }
 
+impl PyRunControl {
+    /// Wrap a control handle the engine already owns.
+    pub(crate) fn from_control(inner: crate::RunControl) -> Self {
+        Self { inner }
+    }
+}
+
 #[pymethods]
 impl PyRunControl {
     #[new]

@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 节点内 `runtime.control` 已可用（2026-11-27，第 139 轮）
+
+终审指出的第二条缺口修掉了：节点代码里 `get_runtime().control` 此前恒为 `None`。
+
+实现：`RunContext` 增加 `control` 字段（随 `capture_run_context`/`install` 一起带到工作线程），`begin_run` 从
+run config 取 `config.control` 塞进去；新增 `NATIVE.current_control()` 与 `current_runtime()["has_control"]`，
+shim 的 `get_runtime()` 据此填 `control=`。
+
+顺带把 drain 的语义修对：**drain 不丢弃已完成的 superstep**（此前报成普通中止并丢掉节点写入），现在与 LG 一致：
+
+```
+LG:   GraphDrained("Graph drained: from-node")，values 含节点写入，next 指向后续节点
+扩展: GraphDrained("Graph drained: from-node")，values {"x":"3"}，next ("b",)
+```
+
 ### 终审发现（2026-11-27，第 138 轮）
 
 独立审计代理用五个程序压测后，确认**大量核心行为与 LG 完全一致**（三轮 agent 对话与模型入参、13 行历史、

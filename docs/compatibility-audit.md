@@ -4869,3 +4869,23 @@ pending subgraph task; the `__start__` row's task result is `None`; `update_stat
 `ValueError` instead of `InvalidUpdateError`; the unknown-tool message omits the "try one of" hint.
 
 Suite is 678 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 237: `runtime.control` inside nodes; drain keeps the superstep
+
+The audit said node code could not reach the run's control object (`runtime.control` was `None`) and that a
+drain discarded progress. Both fixed:
+
+* `RunContext` carries `control`, filled from the run config in `begin_run`, so worker threads and async tasks
+  see it; a new `NATIVE.current_control()` plus a `has_control` flag feeds the shim's `get_runtime()`.
+* A drain no longer discards the superstep that just ran: it is checkpointed and `GraphDrained` is raised at
+  the next boundary. `RunControl.abort()` keeps its discard semantics.
+
+```
+LangGraph: GraphDrained("Graph drained: from-node"), values keep the node's write, next=("b",)
+engine:    GraphDrained("Graph drained: from-node"), values {"x":"3"}, next ("b",)
+```
+
+Still open from the audit: `runtime.heartbeat()` does not refresh the async idle budget, mid-run drain from a
+stream consumer is only observed at the next boundary, and a pre-run drain checkpoints no input row.
+
+Suite is 679 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.

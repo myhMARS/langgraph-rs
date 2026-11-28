@@ -227,6 +227,10 @@ fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
     dict.set_item("namespace", runtime.namespace)?;
     dict.set_item("has_store", runtime.store.is_some())?;
     dict.set_item(
+        "has_control",
+        crate::runtime::context::current_control().is_some(),
+    )?;
+    dict.set_item(
         "context",
         match runtime.context {
             Some(context) => value_to_py(py, &context)?,
@@ -239,6 +243,14 @@ fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
 // ---------------------------------------------------------------------------
 // Module level functions
 // ---------------------------------------------------------------------------
+
+/// The run control of the current run, for `runtime.control` inside a node.
+#[pyfunction]
+fn current_control() -> Option<crate::adapters::python::types::PyRunControl> {
+    crate::runtime::context::current_control().map(|control| {
+        crate::adapters::python::types::PyRunControl::from_control((*control).clone())
+    })
+}
 
 /// Pause the graph and wait for human input; returns the resume value on retry.
 #[pyfunction]
@@ -470,6 +482,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_checkpoint_ns, module)?)?;
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
+    module.add_function(wrap_pyfunction!(current_control, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
     module.add_function(wrap_pyfunction!(is_last_step, module)?)?;
     module.add("GraphBubbleUp", module.py().get_type::<GraphBubbleUp>())?;

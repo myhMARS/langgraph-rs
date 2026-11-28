@@ -127,6 +127,7 @@ pub(crate) fn begin_run(
     stream_subgraphs: bool,
     collector: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::_internal::stream::StreamChunk>>>>,
     live_sink: Option<crate::runtime::context::LiveSink>,
+    control: Option<std::sync::Arc<crate::RunControl>>,
 ) -> Result<RunSetup> {
     // A new run must not inherit a parent command left by an unconsumed goto_parent.
     crate::runtime::context::clear_parent_command();
@@ -143,7 +144,15 @@ pub(crate) fn begin_run(
             Error::validation(format!("context does not match context_schema: {error}"))
         })?;
     }
-    let run = crate::runtime::context::install_run(thread_id, namespace, store, context, live_sink);
+    let run = crate::runtime::context::install_run(
+        thread_id,
+        namespace,
+        store,
+        context,
+        live_sink,
+        // The run context owns a handle so node code can reach `runtime.control`.
+        control,
+    );
     let collector = collector.or_else(|| {
         stream_subgraphs.then(|| std::sync::Arc::new(std::sync::Mutex::new(Vec::new())))
     });

@@ -56,6 +56,8 @@ pub(crate) struct RunContext {
     pub(crate) metadata: serde_json::Map<String, serde_json::Value>,
     /// Channels holding LangChain message lists (`add_messages`).
     pub(crate) messages_channels: Vec<String>,
+    /// Run control of the current run, so node code can reach `runtime.control`.
+    pub(crate) control: Option<std::sync::Arc<crate::RunControl>>,
 }
 
 /// RAII guard restoring the previous run context when the engine returns.
@@ -149,6 +151,7 @@ pub(crate) fn install_run(
     store: Option<std::sync::Arc<dyn BaseStore>>,
     context: Option<Value>,
     live_sink: Option<LiveSink>,
+    control: Option<std::sync::Arc<crate::RunControl>>,
 ) -> RunGuard {
     let live_sink = live_sink.or_else(take_pending_live_sink).or_else(current_live_sink);
     let previous = CURRENT_RUN.with(|slot| {
@@ -165,6 +168,7 @@ pub(crate) fn install_run(
             recursion_limit: Default::default(),
             step_active: Default::default(),
             live_sink,
+            control,
         })
     });
     RunGuard { previous }
@@ -191,6 +195,7 @@ pub(crate) fn run_context(
         recursion_limit: Default::default(),
         step_active: Default::default(),
         live_sink: None,
+        control: None,
     }
 }
 
@@ -251,6 +256,11 @@ pub(crate) fn has_sync_task() -> bool {
 /// Capture the current run context for a scoped worker thread.
 pub(crate) fn capture_run_context() -> Option<RunContext> {
     current_run()
+}
+
+/// Run control of the active run, when the caller passed one.
+pub(crate) fn current_control() -> Option<std::sync::Arc<crate::RunControl>> {
+    CURRENT_RUN.with(|slot| slot.borrow().as_ref().and_then(|run| run.control.clone()))
 }
 
 /// Install a captured run context on the current thread.
