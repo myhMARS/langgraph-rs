@@ -5233,3 +5233,31 @@ class UnknownRouteTest(unittest.TestCase):
         graph.add_edge(langgraph_rs.START, "a")
         graph.add_edge("a", langgraph_rs.END)
         self.assertEqual(graph.compile().invoke({"value": 0}), {"value": 2})
+
+
+class RuntimeStoreBridgeTest(unittest.TestCase):
+    """`runtime.store` implements LangGraph's `BaseStore` op protocol."""
+
+    def test_batch_and_isinstance(self):
+        from langgraph_rs.runtime import get_runtime
+        from langgraph_rs.store.base import BaseStore, GetOp, SearchOp
+
+        seen = {}
+
+        def node(state):
+            store = get_runtime().store
+            seen["is_base_store"] = isinstance(store, BaseStore)
+            store.put(("users",), "u1", {"name": "a"})
+            seen["got"] = store.batch([GetOp(("users",), "u1")])
+            seen["searched"] = store.batch([SearchOp(("users",))])
+            return {}
+
+        graph = langgraph_rs.StateGraph({"x": "last_value"})
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        graph.compile(store=langgraph_rs.InMemoryStore()).invoke({"x": 0})
+
+        self.assertTrue(seen["is_base_store"])
+        self.assertEqual(seen["got"][0].value, {"name": "a"})
+        self.assertEqual(len(seen["searched"][0]), 1)

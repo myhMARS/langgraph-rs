@@ -188,6 +188,59 @@ def _native_stream_writer() -> Callable[..., None]:
     return writer if callable(writer) else _no_op_stream_writer
 
 
+class _StoreBridge:
+    """The runtime's store, with LangGraph's `BaseStore` op protocol on top of the native one.
+
+    The engine hands out a native store object exposing `get`/`put`/`delete`/`search`; LangGraph code
+    expects `batch`/`abatch` (and `isinstance(store, BaseStore)`) as well.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        object.__setattr__(self, "_inner", inner)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+    def batch(self, ops: Any) -> list[Any]:
+        from .store.base import GetOp, ListNamespacesOp, PutOp, SearchOp
+
+        results: list[Any] = []
+        for op in ops:
+            if isinstance(op, GetOp):
+                results.append(self._inner.get(tuple(op.namespace), op.key))
+            elif isinstance(op, PutOp):
+                if op.value is None:
+                    self._inner.delete(tuple(op.namespace), op.key)
+                else:
+                    self._inner.put(tuple(op.namespace), op.key, op.value)
+                results.append(None)
+            elif isinstance(op, SearchOp):
+                results.append(
+                    self._inner.search(
+                        tuple(op.namespace_prefix),
+                        filter=op.filter,
+                        limit=op.limit,
+                        offset=op.offset,
+                    )
+                )
+            elif isinstance(op, ListNamespacesOp):
+                results.append(self._inner.list_namespaces())
+            else:
+                raise TypeError(f"unsupported store op {type(op).__name__}")
+        return results
+
+    async def abatch(self, ops: Any) -> list[Any]:
+        return self.batch(ops)
+
+
+try:  # LangGraph code checks `isinstance(runtime.store, BaseStore)`.
+    from .store.base import BaseStore as _BaseStore
+
+    _BaseStore.register(_StoreBridge)
+except Exception:  # pragma: no cover - store module unavailable
+    pass
+
+
 def _native_heartbeat(*args: Any, **kwargs: Any) -> None:
     """`runtime.heartbeat()`: refresh the node's idle-timeout budget."""
     try:
@@ -211,7 +264,8 @@ def get_runtime(context: Any = None) -> Runtime:
     store = None
     if (raw or {}).get("has_store"):
         try:
-            store = NATIVE.get_store()
+            native_store = NATIVE.get_store()
+            store = _StoreBridge(native_store) if native_store is not None else None
         except Exception:  # pragma: no cover - store unavailable mid-teardown
             store = None
     control = None

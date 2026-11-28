@@ -5006,3 +5006,21 @@ the channel variant the Python binding creates for a callable reducer (whether i
 before the first write) — the next pass should start there rather than in `start.rs`.
 
 Suite is 688 tests, parity 101/101, clippy and Rust tests clean; the tree is unchanged apart from this note.
+
+### Round 244: `runtime.store` implements the `BaseStore` protocol
+
+The second audit found `runtime.store` exposed only the native `get`/`put`/`delete`/`search`/
+`list_namespaces`, so official `BaseStore` code failed with `AttributeError: ... has no attribute 'batch'`
+(and `isinstance(store, BaseStore)` was false).
+
+The runtime now wraps the native store in a bridge that
+* implements `batch`/`abatch` by dispatching `GetOp`/`PutOp`/`SearchOp`/`ListNamespacesOp` to the native
+  methods (a `PutOp` with `value=None` is a delete, as in LangGraph),
+* forwards every other attribute to the native store, and
+* registers itself as a virtual `BaseStore` subclass, so `isinstance` checks pass.
+
+Still open: duplicate message ids in one fresh-thread input batch (round 243 located it: a Python-callable
+reducer channel is never consulted on the input path), `SqliteSaver.from_conn_string`, non-dict `Send` args,
+dict `context` not coerced to a dataclass, the process-wide heartbeat counter.
+
+Suite is 689 tests (one new), parity 101/101, examples 10/10, clippy clean.

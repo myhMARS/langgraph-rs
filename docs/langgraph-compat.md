@@ -177,6 +177,14 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `runtime.store` 支持 `BaseStore` 协议（2026-11-27，第 145 轮）
+
+此前 `runtime.store` 只有原生的 `get`/`put`/`delete`/`search`，官方 `BaseStore` 写法会报
+`AttributeError: ... has no attribute 'batch'`，`isinstance(store, BaseStore)` 也是 False。
+
+现在运行时把原生 store 包一层桥接：实现 `batch`/`abatch`（把 `GetOp`/`PutOp`/`SearchOp`/`ListNamespacesOp`
+派发到原生方法，`PutOp(value=None)` 视为删除），其余属性透传，并注册为 `BaseStore` 的虚拟子类。
+
 ### 未知路由目标改为警告并忽略（2026-11-27，第 143 轮）
 
 LG 对"路由到不存在的节点"只是记一条警告并丢弃该路由（条件边、`Command(goto=…)`、`Send` 都一样），我们此前直接报
