@@ -5039,3 +5039,22 @@ Still open: duplicate message ids in one fresh-thread input batch, dict `context
 the process-wide heartbeat counter.
 
 Suite is 690 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 246: a mapping `context` builds the declared dataclass
+
+LangGraph coerces `context={"user_id": "u2"}` into the declared dataclass (`schema(**context)`), so node code
+reads attributes; the project passed the dict through and the attribute access failed. The compiled graph now
+keeps its declared context schema and coerces a mapping before the run:
+
+```
+context={"user_id": "u2"} -> runtime.context is Ctx(user_id="u2")   (was: dict)
+context=Ctx("u3")         -> passed through unchanged
+context={"n": 5}          -> TypeError from the dataclass           (was: ValueError about the schema)
+```
+
+`TypedDict` schemas and schema-less graphs still receive the mapping unchanged.
+
+Still open: duplicate message ids in one fresh-thread input batch, the process-wide heartbeat counter, and
+`Send` with a non-dict argument (documented as a deliberate error).
+
+Suite is 691 tests (one new), parity 101/101, examples 10/10, clippy clean.

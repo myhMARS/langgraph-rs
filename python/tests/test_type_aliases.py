@@ -5287,3 +5287,31 @@ class SqliteSaverConstructionTest(unittest.TestCase):
         self.assertEqual(
             reopened.get_state({"configurable": {"thread_id": "t1"}})["values"]["value"], 1
         )
+
+
+class ContextCoercionTest(unittest.TestCase):
+    """A mapping passed as `context` builds the declared dataclass, as in LangGraph."""
+
+    def test_mapping_is_coerced(self):
+        from dataclasses import dataclass
+
+        from langgraph_rs.runtime import get_runtime
+
+        @dataclass
+        class Ctx:
+            user_id: str
+            n: int = 1
+
+        def node(state):
+            runtime = get_runtime()
+            return {"seen": f"{type(runtime.context).__name__}:{runtime.context.user_id}"}
+
+        graph = langgraph_rs.StateGraph({"seen": "last_value"}, context_schema=Ctx)
+        graph.add_node("n", node)
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        app = graph.compile()
+        self.assertEqual(app.invoke({"seen": ""}, context={"user_id": "u2"})["seen"], "Ctx:u2")
+        self.assertEqual(app.invoke({"seen": ""}, context=Ctx("u3"))["seen"], "Ctx:u3")
+        with self.assertRaises(TypeError):
+            app.invoke({"seen": ""}, context={"n": 5})

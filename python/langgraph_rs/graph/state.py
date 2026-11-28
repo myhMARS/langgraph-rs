@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import asyncio
 import time
 import inspect
@@ -106,13 +108,17 @@ def _call_kwargs(
     durability: Any,
     kwargs: dict[str, Any],
     allowed: Sequence[str] = _COMMON_KWARGS,
+    context_schema: Any = None,
 ) -> dict[str, Any]:
     """Split LangGraph's keyword arguments into those the extension forwards and those it drops."""
     _check_kwargs(kwargs)
     call: dict[str, Any] = {"config": _with_durability(config, durability)}
     for name in allowed:
         if name in kwargs:
-            call[name] = kwargs.pop(name)
+            value = kwargs.pop(name)
+            if name == "context":
+                value = _coerce_context(context_schema, value)
+            call[name] = value
     for name in list(kwargs):
         if name in _IGNORED_RUN_KWARGS:
             kwargs.pop(name)
@@ -120,6 +126,19 @@ def _call_kwargs(
         unknown = ", ".join(sorted(kwargs))
         raise TypeError(f"unexpected keyword argument(s): {unknown}")
     return call
+
+
+def _coerce_context(schema: Any, context: Any) -> Any:
+    """Build the declared context schema from a mapping, like LangGraph's `_coerce_context`.
+
+    A dataclass schema turns `{"user_id": "u2"}` into `Ctx(user_id="u2")`; anything else (a
+    `TypedDict`, no schema, an instance) is passed through unchanged.
+    """
+    if context is None or schema is None or not isinstance(context, dict):
+        return context
+    if not dataclasses.is_dataclass(schema):
+        return context
+    return schema(**context)
 
 
 def _thread_id_of(config: Any) -> str | None:
@@ -344,7 +363,7 @@ class StateGraph(_native.StateGraph):
             declared = getattr(self, "_builder_context_schema", None)
             if declared is not None:
                 kwargs["context_schema"] = declared
-        return CompiledStateGraph(
+        compiled = CompiledStateGraph(
             super().compile(*args, **kwargs),
             schema_class=getattr(self, "_builder_schema", None),
             output_names=getattr(self, "_builder_outputs", None),
@@ -352,6 +371,9 @@ class StateGraph(_native.StateGraph):
             edge_order=getattr(self, "_edge_order", None),
             messages_keys=getattr(self, "_builder_messages_keys", None),
         )
+        # `invoke(context={...})` builds the declared schema from a mapping, like LangGraph.
+        compiled._context_schema = kwargs.get("context_schema")
+        return compiled
 
 
 class AsyncStateGraph(_native.AsyncStateGraph):
@@ -1007,14 +1029,14 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
     def invoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
         self._reject_resume_without_checkpointer(input)
         input = _coerce_messages_input(input, getattr(self, "_messages_keys", []))
-        call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
+        call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
         result = self._inner.invoke(input, **call)
         _dispatch_lifecycle(self._inner, config)
         return result
 
     async def ainvoke(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Any:
         if getattr(self._inner, "_native_async", False):
-            call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS)
+            call = _call_kwargs(config, durability, kwargs, _INVOKE_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
             result = await self._inner.ainvoke(input, **call)
             _dispatch_lifecycle(self._inner, config)
             return result
@@ -1036,7 +1058,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
 
     def stream(self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any) -> Iterator[Any]:
         self._reject_resume_without_checkpointer(input)
-        call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+        call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
         # LangGraph yields each chunk as its superstep finishes. The engine already calls a sink per
         # superstep, so a single-mode, non-subgraph stream can be driven live instead of collected.
         # Multi-mode, subgraph and v2 streams keep the eager path, whose shapes are covered by tests.
@@ -1094,7 +1116,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         self, input: Any, config: Any = None, *, durability: Any = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
         if getattr(self._inner, "_native_async", False):
-            call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS)
+            call = _call_kwargs(config, durability, kwargs, _STREAM_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
             try:
                 stream = self._inner.astream(input, **call)
             except TypeError as error:
@@ -1136,7 +1158,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         return_exceptions: bool = False,
         **kwargs: Any,
     ) -> list[Any]:
-        call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
+        call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
         return self._inner.batch(inputs, return_exceptions=return_exceptions, **call)
 
     async def abatch(
@@ -1148,7 +1170,7 @@ class CompiledStateGraph(Runnable, metaclass=_CompiledMeta):
         **kwargs: Any,
     ) -> list[Any]:
         if getattr(self._inner, "_native_async", False):
-            call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS)
+            call = _call_kwargs(config, None, kwargs, _BATCH_KWARGS, getattr(self, "_context_schema", None) or getattr(self, "_builder_context_schema", None))
             return await self._inner.abatch(
                 inputs, return_exceptions=return_exceptions, **call
             )

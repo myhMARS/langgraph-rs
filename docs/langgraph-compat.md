@@ -177,6 +177,19 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `context` 传字典会按 dataclass 构造（2026-11-27，第 147 轮）
+
+LG 会把 `context={"user_id": "u2"}` 构造成声明的 dataclass（`schema(**context)`），节点里按属性访问；我们此前原样
+传字典，导致 `AttributeError`。现在编译后的图记住声明的 schema，运行前完成转换：
+
+```
+context={"user_id": "u2"} -> runtime.context 是 Ctx(user_id="u2")
+context=Ctx("u3")         -> 原样传递
+context={"n": 5}          -> TypeError（与 LG 同为 dataclass 构造错误）
+```
+
+`TypedDict` schema 与无 schema 的图仍原样接收字典。
+
 ### `SqliteSaver.from_conn_string` 与上下文管理器（2026-11-27，第 146 轮）
 
 LG 文档里的写法 `with SqliteSaver.from_conn_string(path) as saver:` 现在也能跑了（此前只有 `SqliteSaver(path)`）。
