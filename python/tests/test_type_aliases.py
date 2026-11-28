@@ -5051,3 +5051,26 @@ class TaskChunkOrderTest(unittest.TestCase):
         app = graph.compile()
         modes = [mode for mode, _payload in app.stream({"value": 0}, stream_mode=["updates", "tasks"])]
         self.assertEqual(modes, ["tasks", "updates", "tasks"])
+
+
+class GraphDrainedTest(unittest.TestCase):
+    """`RunControl.request_drain` raises LangGraph's `GraphDrained` with the reason."""
+
+    def test_drain_raises_graph_drained(self):
+        self.assertTrue(hasattr(langgraph_rs, "GraphDrained"))
+        self.assertTrue(issubclass(langgraph_rs.GraphDrained, langgraph_rs.GraphBubbleUp))
+        control = langgraph_rs.RunControl()
+
+        def first(state):
+            control.request_drain("mid")
+            return {"value": 1}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", first)
+        graph.add_node("b", lambda state: {"value": 2})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(langgraph_rs.GraphDrained) as raised:
+            graph.compile().invoke({"value": 0}, control=control)
+        self.assertEqual(str(raised.exception), "Graph drained: mid")

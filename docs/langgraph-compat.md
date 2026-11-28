@@ -177,6 +177,22 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `GraphDrained` 已补齐（2026-11-27，第 137 轮）
+
+第 120 轮审计的 F15b：扩展有 `GraphBubbleUp`/`GraphInterrupt`/`GraphRecursionError`，独缺 `GraphDrained`，
+而 `request_drain("原因")` 传的原因也被丢弃。
+
+补齐后：
+
+```
+LG:   GraphDrained | Graph drained: mid
+扩展: GraphDrained | Graph drained: mid
+```
+
+实现要点：新增 `Error::Drained { reason }`；run loop 在 superstep 边界**先查 drain 再查 abort**（`request_drain`
+内部会同时置 abort 标志，若不先查就会报成普通中止）；适配层映射到 `GraphDrained`，消息按 LG 的
+`Graph drained: <reason>` 格式。
+
 ### 多模式下 `tasks` 与 `updates` 的交错顺序已对齐（2026-11-27，第 136 轮）
 
 第 120 轮审计的 F7：`stream_mode=["updates","tasks"]` 的块顺序此前是"先两个 tasks 再 updates"，LG 是

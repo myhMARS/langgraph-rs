@@ -4811,3 +4811,19 @@ record) chunk still precedes the tasks chunk, whereas LangGraph emits the tasks 
 different order.
 
 Suite is 676 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 235: `GraphDrained`
+
+The audit's F15b is closed: the extension exposed `GraphBubbleUp`, `GraphInterrupt` and
+`GraphRecursionError` but not `GraphDrained`, and the reason passed to `request_drain("…")` was dropped.
+
+```
+LangGraph: GraphDrained | Graph drained: mid
+engine:    GraphDrained | Graph drained: mid
+```
+
+`Error::Drained { reason }` is new; the run loop checks for a drain **before** the abort flag at every superstep
+boundary (`request_drain` sets both, so checking abort first reported a generic abort), and the adapter maps it
+to `GraphDrained` with LangGraph's message format.
+
+Suite is 677 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.

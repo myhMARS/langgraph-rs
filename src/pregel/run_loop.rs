@@ -287,6 +287,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     }
     let mut iteration = 0usize;
     loop {
+        // A requested drain reports LangGraph's `GraphDrained` (with the recorded reason).
+        if let Some(reason) = config
+            .control
+            .as_ref()
+            .and_then(|control| control.drain_reason())
+        {
+            return Err(crate::_internal::error::Error::Drained { reason });
+        }
         // `RunControl::abort()` stops the run at a superstep boundary, so the state stays
         // consistent instead of being torn down mid-superstep.
         if config.control.as_ref().is_some_and(|control| control.is_aborted()) {
@@ -373,6 +381,14 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
         };
         drain_collector(backend, &setup, sink);
 
+        // A requested drain takes precedence over a plain abort: it reports `GraphDrained`.
+        if let Some(reason) = config
+            .control
+            .as_ref()
+            .and_then(|control| control.drain_reason())
+        {
+            return Err(crate::_internal::error::Error::Drained { reason });
+        }
         // A run aborted while this superstep was executing discards its result, so the thread
         // keeps the previous checkpoint (LangGraph's cancelled runs behave the same way).
         if config.control.as_ref().is_some_and(|control| control.is_aborted()) {

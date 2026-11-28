@@ -7,7 +7,7 @@ use pyo3::types::{PyAny, PyDict, PyInt, PyList};
 use super::types::{PyCommand, PySend};
 use serde_json::Map;
 
-use super::{GraphInterrupt, GraphRecursionError};
+use super::{GraphDrained, GraphInterrupt, GraphRecursionError};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -516,6 +516,10 @@ pub(super) fn to_pyerr(py: Python<'_>, error: Error) -> PyErr {
         }
         // LangGraph reports the recursion budget as `GraphRecursionError(RecursionError)` with a
         // fixed message shape that includes the troubleshooting link.
+        // LangGraph's message is `Graph drained: <reason>`.
+        Error::Drained { reason } => {
+            PyErr::new::<GraphDrained, _>(format!("Graph drained: {reason}"))
+        }
         Error::RecursionLimit(limit) => PyErr::new::<GraphRecursionError, _>(format!(
             "Recursion limit of {limit} reached without hitting a stop condition. \
              You can increase the limit by setting the `recursion_limit` config key.\n\

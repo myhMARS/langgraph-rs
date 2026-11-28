@@ -67,6 +67,12 @@ create_exception!(
 );
 create_exception!(
     langgraph_rs,
+    GraphDrained,
+    GraphBubbleUp,
+    "Raised when a run was asked to stop taking new work (`RunControl.request_drain`)."
+);
+create_exception!(
+    langgraph_rs,
     GraphRecursionError,
     pyo3::exceptions::PyRecursionError,
     "Raised when the recursion limit is reached without hitting a stop condition."
@@ -471,6 +477,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("_set_messages_objects", wrap_pyfunction!(_set_messages_objects, module)?)?;
     module.add_function(wrap_pyfunction!(messages_as_objects, module)?)?;
     module.add_function(wrap_pyfunction!(_send, module)?)?;
+    module.add("GraphDrained", module.py().get_type::<GraphDrained>())?;
     module.add("GraphRecursionError", module.py().get_type::<GraphRecursionError>())?;
     module.add_function(wrap_pyfunction!(interrupt, module)?)?;
     module.add_function(wrap_pyfunction!(custom, module)?)?;
