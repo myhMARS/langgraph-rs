@@ -5108,3 +5108,18 @@ every run, and `StateGraph(State, input_schema=TypedDict)` fails at construction
 
 Suite is 695 tests (two new in `python/tests/test_regressions.py`), parity 101/101, examples 10/10, clippy and Rust
 tests clean.
+
+### Round 250: consolidated "current known differences"
+
+The compatibility document is append-only history, so its older entries contradict today's behaviour (several
+are fixed). A single verified section now sits at the top of `docs/langgraph-compat.md`, listing only what is
+*still* different, classified as: language/thread-model limits (worker-thread cancellation, streams not stopping
+runs), our own extension API (`AsyncStateGraph`), data shapes (object stashing, `Interrupt` not a dataclass,
+`created_at` format, missing empty-channel defaults, the bridged `runtime.store`), and deliberate trade-offs
+(process-wide heartbeat counter, dict-only `Send` args, `debug`/`tasks` chunk order, three-mode interleaving,
+empty `get_delta_channel_history` writes).
+
+Each entry was re-checked today rather than copied from earlier rounds. The section also records the one
+non-reproducible observation from round 249 so it is not mistaken for a fixed bug.
+
+Suite is 695 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.

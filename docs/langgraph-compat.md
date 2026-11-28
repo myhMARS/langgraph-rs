@@ -1,5 +1,50 @@
 # 用 `langgraph_rs.*` 替换 `langgraph.*`
 
+## 当前已知差异（2026-11-27 复核，每条都实测过）
+
+下面是**今天**仍然存在的差异，按性质分类。其余 LG 行为（执行、检查点与历史、子图中断/恢复、流式各模式、
+重试/超时/缓存、错误处理、store、递归限制、取消与恢复等）都已对齐，并有测试与 parity 场景覆盖。
+
+### A. 语言 / 线程模型限制（在 Rust+CPython 下无法完全复现）
+
+| 差异 | 说明 |
+|---|---|
+| 取消不能中断工作线程 | `ainvoke`/`astream` 取消后，正在执行的节点会跑完，结果被丢弃，恢复时该节点重跑；LG 是立即停止 |
+| 放弃迭代不会停止运行 | 关闭流（`close()`/`aclose()`）不复位引擎；LG 会取消运行 |
+
+### B. 本扩展自有 API（LG 没有对应物）
+
+| 差异 | 说明 |
+|---|---|
+| `AsyncStateGraph.astream` 是收集式 | 两个 0.2s 节点仍是一起到（`[0.42, 0.42]`）；LG 兼容面 `StateGraph.astream` 已逐 superstep |
+| `AsyncStateGraph` 用 Python 线程模拟 | 原生异步执行器不交错，故用工作线程驱动（已记录原因） |
+
+### C. 数据形态
+
+| 差异 | 说明 |
+|---|---|
+| 无 JSON 形式的 Python 对象按引用存放 | 本进程内可用；跨进程恢复检查点只能取到占位符 |
+| `Interrupt` 不是 dataclass | `dataclasses.is_dataclass()` 为 `False`（其余行为一致） |
+| `created_at` 格式 | 扩展 `2026-11-28T02:51:14.623Z`（毫秒+Z），LG `2026-11-28T02:51:27.419254+00:00`（微秒+偏移） |
+| 空列表通道的默认值 | 最终检查点里可能缺少 `[]` 默认值（LG 在部分路径会物化） |
+| `runtime.store` 是桥接对象 | 兼容 `BaseStore`（`batch`/`abatch`/`isinstance` 均可用），但不是编译时传入的那个实例 |
+
+### D. 明确取舍
+
+| 差异 | 说明 |
+|---|---|
+| `runtime.heartbeat()` 的计数器是进程级 | 顺序执行的节点超时判定与 LG 完全一致；事件循环上**并行**的异步节点会共享刷新 |
+| `Send` 的目标参数必须是 dict | LG 允许任意 JSON 值作为节点输入；我们保持明确报错，避免悄悄改变节点所见状态 |
+| `debug` 与 `tasks` 块的先后 | 两者内容一致，`["debug","tasks"]` 时我们 debug 在前，LG 相反 |
+| 多模式 `values`/`tasks`/`debug` 的交错 | `updates`+`tasks` 已对齐；三模式组合的 debug/values 相对位置仍有差异 |
+| `get_delta_channel_history` 的 `writes` | 扩展通常为空（引擎按步快照，不保留每步写入明细） |
+
+### 未复现的记录
+
+第 149 轮曾在巨型测试模块内观察到一次"第二次 invoke 的输入被丢弃"，同代码在独立模块与多次重跑中均不复现；
+引擎行为已用三个独立探针验证正确。守卫测试已移入 `python/tests/test_regressions.py`。
+
+
 本文说明如何把现有的 LangGraph 程序切换到 Rust 实现：**只需要改写 import 行**，图的定义、
 节点函数、`compile`、`invoke`、`stream`、`get_state`、`update_state`、异步调用方式都保持不变。
 
