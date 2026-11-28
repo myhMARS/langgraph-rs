@@ -4910,3 +4910,14 @@ works inside a node, and heartbeat refreshes the budget. Remaining minor gap: a 
 input checkpoint.
 
 Suite is 681 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 239: why a pre-run drain checkpoints nothing yet
+
+LangGraph writes the submitted input as a checkpoint (`next=("__start__",)`) before reporting `GraphDrained`, so
+the thread stays resumable. Removing the early drain check to let the normal start path write that row did not
+work: the sync executor and `fresh::open_run` also guard on the abort flag (which `request_drain` sets), so the
+run failed with `RuntimeError("run aborted by RunControl")` and wrote nothing — worse than the current behaviour.
+
+The check is therefore back where it was: `GraphDrained` before the first step, no input row. Closing this
+properly means teaching those early guards to distinguish a drain from a plain abort and letting the start path
+run first — recorded as the last known gap rather than half-done.

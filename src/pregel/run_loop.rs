@@ -210,7 +210,8 @@ pub(crate) async fn run_loop<S: State, B: PregelBackend<S>, F: FnMut(StreamChunk
     if let Some(control) = config.control.as_ref()
         && let Some(reason) = control.drain_reason()
     {
-        // LangGraph reports a requested drain as `GraphDrained`, even before the first step.
+        // LangGraph reports a requested drain as `GraphDrained`, before the first step. (It also
+        // checkpoints the submitted input; ours reports the drain first — see the audit notes.)
         return Err(crate::_internal::error::Error::Drained { reason });
     }
     if config
