@@ -546,9 +546,11 @@ impl PyCompiledGraph {
                 .contains(&crate::StreamMode::Messages),
         );
         let _callback_scope = crate::adapters::python::convert::begin_callback_scope(py);
-        if let Some(control) = control {
-            config = config.with_control(control.inner.clone());
-        }
+        // LangGraph creates a control per run, so `runtime.control` is never `None` in a node.
+        config = config.with_control(match control {
+            Some(control) => control.inner.clone(),
+            None => crate::RunControl::new(),
+        });
         if let Some(context) = context {
             config = config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
         }

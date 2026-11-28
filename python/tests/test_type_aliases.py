@@ -5075,6 +5075,26 @@ class GraphDrainedTest(unittest.TestCase):
             graph.compile().invoke({"value": 0}, control=control)
         self.assertEqual(str(raised.exception), "Graph drained: mid")
 
+    def test_default_control_is_available(self):
+        # LangGraph creates a control per run, so a node can drain without the caller passing one.
+        from langgraph_rs.runtime import get_runtime
+
+        def first(state):
+            runtime = get_runtime()
+            self.assertIsNotNone(runtime.control)
+            runtime.control.request_drain("auto")
+            return {"x": "1"}
+
+        graph = langgraph_rs.StateGraph({"x": "last_value"})
+        graph.add_node("a", first)
+        graph.add_node("b", lambda state: {"x": "2"})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", langgraph_rs.END)
+        with self.assertRaises(langgraph_rs.GraphDrained) as raised:
+            graph.compile().invoke({"x": ""})
+        self.assertEqual(str(raised.exception), "Graph drained: auto")
+
     def test_pre_run_drain_raises_graph_drained(self):
         control = langgraph_rs.RunControl()
         control.request_drain("shutdown")

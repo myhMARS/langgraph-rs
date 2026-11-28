@@ -177,6 +177,17 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 每次运行都有默认 `RunControl`（2026-11-27，第 141 轮）
+
+第二轮独立审计指出：第 139 轮的修复只在调用方**显式传 `control=`** 时生效；LG 是每次运行都自动创建一个
+（`control=control or RunControl()`），所以 `get_runtime().control` 永远不是 `None`。现在 `invoke()`/`stream()`
+都会安装默认 control：
+
+```
+无 control= 的 invoke()：节点内 runtime.control.request_drain("auto")
+  -> GraphDrained | Graph drained: auto   ← 与 LG 相同
+```
+
 ### `runtime.heartbeat()` 已生效（2026-11-27，第 140 轮）
 
 终审的第三条缺口修掉了。上一轮失败的原因是：异步进度计数在**引擎线程的 thread-local** 上，而心跳和空闲看门狗都

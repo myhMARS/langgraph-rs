@@ -27,9 +27,12 @@ pub(crate) fn invoke(
     }
     // Captured after the explicit `checkpoint_ns` override is applied.
     let static_ns = invoke_config.checkpoint_ns.clone();
-    if let Some(control) = control.as_ref() {
-        invoke_config = invoke_config.with_control(control.inner.clone());
-    }
+    // LangGraph creates a control per run (`control=control or RunControl()`), so node code can
+    // always reach `runtime.control`; do the same when the caller did not pass one.
+    invoke_config = invoke_config.with_control(match control.as_ref() {
+        Some(control) => control.inner.clone(),
+        None => crate::RunControl::new(),
+    });
     if let Some(context) = context {
         invoke_config = invoke_config.with_context(crate::adapters::python::convert::context_to_value(py, context)?);
     }

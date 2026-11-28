@@ -4921,3 +4921,34 @@ run failed with `RuntimeError("run aborted by RunControl")` and wrote nothing �
 The check is therefore back where it was: `GraphDrained` before the first step, no input row. Closing this
 properly means teaching those early guards to distinguish a drain from a plain abort and letting the start path
 run first — recorded as the last known gap rather than half-done.
+
+### Round 240: second independent audit; default control per run
+
+**A1 (fixed this round).** The first audit's in-node drain fix only worked when the caller passed
+`control=`. LangGraph creates one per run (`control=control or RunControl()`), so `get_runtime().control` is
+never `None`; the project left it `None` on plain `invoke()`/`stream()`. Both entry points now install a default
+`RunControl`, so a node can drain without the caller having been told to pass one.
+
+**A2 (open, documented).** The heartbeat counter is process-wide, so a silent node is kept alive by any
+concurrent heartbeat — a parallel branch or an unrelated run on another thread. `refresh_on="heartbeat"` is
+also not honoured (stream writes still refresh). A precise fix needs a per-attempt/per-task channel rather than
+a global counter; recorded with the measured consequences.
+
+**A3 (correct).** Pre-run drain raises `GraphDrained`; the missing input checkpoint remains the known residual
+(after such a drain `invoke(None)` cannot resume here while it can in LangGraph).
+
+**Newly found, not yet fixed (all narrow):** `runtime.store` is a bridge object, not the instance the caller
+passed, and lacks `BaseStore.batch`; `SqliteSaver.from_conn_string`/context-manager missing (a
+`LangGraphSqliteReader` migration path exists); unknown conditional/`Command(goto)` destinations raise instead
+of being ignored with a warning; a START→END-only graph is rejected; non-dict `Send` args are rejected;
+duplicate message ids in one fresh-thread input batch are not deduped; a dict `context` is not coerced into a
+dataclass schema (and validation is stricter than LangGraph); `get_runtime()`/`get_store()` outside a run return
+defaults where LangGraph raises.
+
+**Confirmed faithful by this audit:** `Send` fan-out (counts, order, task payloads, concurrency), 200-message
+`add_messages` + `RemoveMessage` trimming, `update_state` merge, `SqliteSaver` cross-process persistence,
+interrupt/resume stress (two sequential interrupts, list resume, nested subgraph resume, no-checkpointer
+interrupt), store CRUD with namespace prefixes, construction edge cases (duplicate nodes, empty graph, unknown
+edge targets), `set_entry_point` twice.
+
+Suite is 682 tests (one new), parity 101/101, clippy clean.
