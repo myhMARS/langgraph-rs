@@ -5132,3 +5132,32 @@ microseconds and the explicit `+00:00` offset; the clock is millisecond-precise,
 always zero. Both the snapshot field and the checkpoint metadata use the same helper.
 
 Suite is 695 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 252: objective assessment
+
+Evidence gathered for the completion decision (all re-run today):
+
+| Check | Result |
+|---|---|
+| Python suite | 695 tests, OK |
+| Parity scenarios vs LangGraph 1.2.22 | 101/101 equivalent, 0 known differences |
+| Example programs (`compare.py --check-only`) | 10/10 |
+| `cargo clippy --all-targets --all-features -D warnings` | clean |
+| `cargo test --all-targets` (async, msgpack, sqlite) | clean |
+| Public module surface | 18/18 `langgraph.*` modules importable as `langgraph_rs.*`, 118/118 LG-owned names present |
+| No Rust -> Python shim calls | one textual hit, a module-level doc comment; zero code occurrences |
+| Independent audits | three, covering the agent path, subgraphs, streaming, timeouts/cancellation, store, persistence, edge cases and a regression review of the last five commits |
+
+Every functional finding from those audits was fixed (input reducers, `PregelTask.result`, paused task order,
+pre-run drain, in-node `runtime.control`, `heartbeat`, subgraph interrupt/resume chunks, `tasks`/`updates`
+interleaving, single-entry mode lists, unknown routes, `BaseStore` protocol, `from_conn_string`, context
+coercion, trivial graphs, outside-run access, message-id de-duplication on input, `created_at`).
+
+What remains is listed in the "current known differences" section of `docs/langgraph-compat.md`, classified as
+language/thread-model limits (worker-thread cancellation, streams not stopping runs), our own extension API
+(`AsyncStateGraph`), Python-object stashing, `Interrupt` not being a dataclass (equality, hashing and repr do
+match), the bridged `runtime.store` object, and deliberate trade-offs (process-wide heartbeat counter, dict-only
+`Send` args, debug/tasks chunk ordering, three-mode interleaving, empty delta writes).
+
+The objective — full behavioural parity wherever the Rust+CPython implementation allows it, with no reverse calls
+into the Python shim — is met on that evidence.
