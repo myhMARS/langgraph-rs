@@ -4988,3 +4988,21 @@ non-dict `Send` args, duplicate ids in one fresh-thread input batch, dict `conte
 the process-wide heartbeat counter.
 
 Suite is 688 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 243: message-id de-duplication on a fresh input — attempt reverted with a precise pointer
+
+The second audit found that `invoke({"messages": [a, b, a, b]})` on a fresh thread keeps four messages where
+LangGraph keeps two (node writes *are* de-duplicated, only the submitted input is not).
+
+Two changes were tried and then reverted, because neither fixed it:
+
+1. routing `StartInput::Values` through `apply_updates` instead of assigning the filtered map — the reducer is
+   still not called (`reducer calls: []` for a fresh `invoke`);
+2. folding reducer channels from their declared default (`[]` for `add_messages`) instead of initialising from
+   the first write — inert for the same reason.
+
+So the reducer for a Python-callable channel is not consulted on the input path at all. The remaining suspect is
+the channel variant the Python binding creates for a callable reducer (whether it reaches `Channel::Reducer`
+before the first write) — the next pass should start there rather than in `start.rs`.
+
+Suite is 688 tests, parity 101/101, clippy and Rust tests clean; the tree is unchanged apart from this note.
