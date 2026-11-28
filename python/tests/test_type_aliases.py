@@ -5121,3 +5121,43 @@ class InNodeControlTest(unittest.TestCase):
         # The drained superstep's writes are kept; the thread can be resumed.
         self.assertEqual(snapshot["values"]["x"], "3")
         self.assertEqual(snapshot["next"], ("b",))
+
+
+class HeartbeatTest(unittest.TestCase):
+    """`runtime.heartbeat()` refreshes the idle budget; silence still times out."""
+
+    def test_heartbeat_keeps_a_slow_node_alive(self):
+        import asyncio
+
+        from langgraph_rs.runtime import get_runtime
+
+        async def busy(state):
+            runtime = get_runtime()
+            for _ in range(4):
+                await asyncio.sleep(0.1)
+                runtime.heartbeat()
+            return {"value": "hb-done"}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", busy, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.25))
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        self.assertEqual(
+            asyncio.run(graph.compile().ainvoke({"value": ""})), {"value": "hb-done"}
+        )
+
+    def test_silence_still_times_out(self):
+        import asyncio
+
+        async def quiet(state):
+            await asyncio.sleep(0.8)
+            return {"value": "quiet"}
+
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("n", quiet, timeout=langgraph_rs.TimeoutPolicy(idle_timeout=0.25))
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        from langgraph_rs.errors import NodeTimeoutError
+
+        with self.assertRaises(NodeTimeoutError):
+            asyncio.run(graph.compile().ainvoke({"value": ""}))

@@ -188,6 +188,14 @@ def _native_stream_writer() -> Callable[..., None]:
     return writer if callable(writer) else _no_op_stream_writer
 
 
+def _native_heartbeat(*args: Any, **kwargs: Any) -> None:
+    """`runtime.heartbeat()`: refresh the node's idle-timeout budget."""
+    try:
+        NATIVE._bump_progress()
+    except Exception:  # pragma: no cover - outside a node there is nothing to refresh
+        pass
+
+
 def get_runtime(context: Any = None) -> Runtime:
     """Runtime for the current run, or `DEFAULT_RUNTIME` outside a graph/node."""
     raw = NATIVE.current_runtime()
@@ -213,6 +221,7 @@ def get_runtime(context: Any = None) -> Runtime:
         store=store,
         control=control,
         stream_writer=_native_stream_writer(),
+        heartbeat=_native_heartbeat,
         execution_info=ExecutionInfo(thread_id=thread_id, checkpoint_ns=namespace),
         namespace=namespace,
     )

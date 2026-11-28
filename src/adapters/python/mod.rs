@@ -245,6 +245,12 @@ fn current_runtime(py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
 // ---------------------------------------------------------------------------
 
 /// The run control of the current run, for `runtime.control` inside a node.
+/// Refresh the current node's idle-timeout budget (LangGraph's `runtime.heartbeat()`).
+#[pyfunction]
+fn _bump_progress() {
+    crate::runtime::context::bump_progress();
+}
+
 #[pyfunction]
 fn current_control() -> Option<crate::adapters::python::types::PyRunControl> {
     crate::runtime::context::current_control().map(|control| {
@@ -483,6 +489,7 @@ fn langgraph_rs(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(current_resume, module)?)?;
     module.add_function(wrap_pyfunction!(current_runtime, module)?)?;
     module.add_function(wrap_pyfunction!(current_control, module)?)?;
+    module.add_function(wrap_pyfunction!(_bump_progress, module)?)?;
     module.add_function(wrap_pyfunction!(remaining_steps, module)?)?;
     module.add_function(wrap_pyfunction!(is_last_step, module)?)?;
     module.add("GraphBubbleUp", module.py().get_type::<GraphBubbleUp>())?;

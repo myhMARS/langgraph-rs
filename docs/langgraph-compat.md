@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `runtime.heartbeat()` 已生效（2026-11-27，第 140 轮）
+
+终审的第三条缺口修掉了。上一轮失败的原因是：异步进度计数在**引擎线程的 thread-local** 上，而心跳和空闲看门狗都
+跑在事件循环线程，看不到它。
+
+改成**进程级心跳计数器**（`HEARTBEATS`），`current_progress()` 把它计入：
+
+```
+heartbeat 节点（4×0.1s，idle_timeout=0.25）-> {'x': 'hb-done'}   ← 完成，不再被误杀
+静默节点（0.8s 无心跳）                    -> NodeTimeoutError   ← 超时仍然生效
+```
+
+**已知近似**：计数器是进程级的，因此事件循环上**并行**的多个异步节点会共享"刷新"（A 的心跳也会延后 B 的超时判定）。
+顺序执行（绝大多数场景）与 LG 完全一致。
+
 ### 节点内 `runtime.control` 已可用（2026-11-27，第 139 轮）
 
 终审指出的第二条缺口修掉了：节点代码里 `get_runtime().control` 此前恒为 `None`。

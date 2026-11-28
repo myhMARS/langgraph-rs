@@ -42,7 +42,9 @@ pub(crate) fn current_progress() -> u64 {
     let sync_side = crate::runtime::context::current_progress_counter()
         .map(|counter| counter.load(std::sync::atomic::Ordering::Relaxed))
         .unwrap_or_default();
-    async_side + sync_side
+    // `runtime.heartbeat()` lands in a process-wide counter: it is called from the event-loop
+    // thread, where the per-node counters above are not visible.
+    async_side + sync_side + crate::runtime::context::heartbeat_count()
 }
 
 /// Install `counter` for the duration of the call.

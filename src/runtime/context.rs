@@ -276,7 +276,20 @@ pub(crate) fn current_progress_counter() -> Option<std::sync::Arc<std::sync::ato
 }
 
 /// Bump the running task's progress counter.
+/// Progress reported through `runtime.heartbeat()`.
+///
+/// The Python idle watchdog polls from the event-loop thread while the engine installs its counters
+/// on whichever thread started the node, so a heartbeat has to land somewhere both threads can read.
+/// (`bump_progress` also bumps the sync task counter when one is installed.)
+static HEARTBEATS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Heartbeats recorded so far, for the idle watchdog and `_progress_counter()`.
+pub(crate) fn heartbeat_count() -> u64 {
+    HEARTBEATS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub(crate) fn bump_progress() {
+    HEARTBEATS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if let Some(counter) = current_progress_counter() {
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }

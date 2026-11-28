@@ -4889,3 +4889,24 @@ Still open from the audit: `runtime.heartbeat()` does not refresh the async idle
 stream consumer is only observed at the next boundary, and a pre-run drain checkpoints no input row.
 
 Suite is 679 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 238: `runtime.heartbeat()` refreshes the idle budget
+
+The first attempt failed because the async progress counter is a thread-local installed on the engine thread,
+while both the heartbeat and the idle watchdog run on the event loop. The fix uses a process-wide heartbeat
+counter that `current_progress()` includes, so the poll sees the change from either thread:
+
+```
+heartbeating node (4 x 0.1 s, idle_timeout=0.25) -> completes
+silent node (0.8 s)                              -> NodeTimeoutError
+```
+
+Known approximation, documented: the counter is process-wide, so parallel async nodes on one loop share the
+refresh (one node's heartbeat also postpones another's idle deadline). Sequential execution — the normal case —
+matches LangGraph.
+
+Of the audit's three blockers, all are now addressed: pre-run drain raises `GraphDrained`, `runtime.control`
+works inside a node, and heartbeat refreshes the budget. Remaining minor gap: a pre-run drain does not write an
+input checkpoint.
+
+Suite is 681 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.
