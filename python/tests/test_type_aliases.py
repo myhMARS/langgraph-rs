@@ -5038,3 +5038,16 @@ class SubgraphInterruptStreamTest(unittest.TestCase):
         self.assertIn("ask", chunks[0][1])
         self.assertEqual(chunks[1][0], ())
         self.assertIn("sub", chunks[1][1])
+
+
+class TaskChunkOrderTest(unittest.TestCase):
+    """Multi-mode `tasks` chunks interleave around the update, as in LangGraph."""
+
+    def test_tasks_surround_the_update(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        app = graph.compile()
+        modes = [mode for mode, _payload in app.stream({"value": 0}, stream_mode=["updates", "tasks"])]
+        self.assertEqual(modes, ["tasks", "updates", "tasks"])

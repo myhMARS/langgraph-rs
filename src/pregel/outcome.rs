@@ -227,32 +227,23 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                 }
                 report.record(execution);
 
-                if emit {
-                    let task_result = {
-                        let updates = output.updates_map();
-                        if updates.is_empty() {
-                            None
-                        } else {
-                            Some(Value::Object(
-                                updates
-                                    .iter()
-                                    .map(|(channel, value)| (channel.clone(), value.clone()))
-                                    .collect(),
-                            ))
-                        }
-                    };
-                    sink(StreamChunk::Task {
-                        step,
-                        id: id.clone(),
-                        node: node.clone(),
-                        input: input.clone(),
-                        result: task_result,
-                        error: None,
-                        started: false,
-                        interrupts: Vec::new(),
-                        triggers: Vec::new(),
-                    });
-                }
+                // LangGraph reports a node's writes first and the task's own result after it, so
+                // the result chunk is emitted once the updates chunk is out.
+                let task_result = if emit {
+                    let updates = output.updates_map();
+                    if updates.is_empty() {
+                        None
+                    } else {
+                        Some(Value::Object(
+                            updates
+                                .iter()
+                                .map(|(channel, value)| (channel.clone(), value.clone()))
+                                .collect(),
+                        ))
+                    }
+                } else {
+                    None
+                };
                 if output.is_parent() {
                     let (updates, replaces, goto, _sends) = output.into_parts();
                     graph.record_parent_command(
@@ -288,6 +279,19 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                             node: node.clone(),
                         });
                     }
+                }
+                if emit {
+                    sink(StreamChunk::Task {
+                        step,
+                        id: id.clone(),
+                        node: node.clone(),
+                        input: input.clone(),
+                        result: task_result,
+                        error: None,
+                        started: false,
+                        interrupts: Vec::new(),
+                        triggers: Vec::new(),
+                    });
                 }
                 for (channel, value) in replaces {
                     replacements.push((channel, value));

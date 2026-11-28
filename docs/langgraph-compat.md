@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 多模式下 `tasks` 与 `updates` 的交错顺序已对齐（2026-11-27，第 136 轮）
+
+第 120 轮审计的 F7：`stream_mode=["updates","tasks"]` 的块顺序此前是"先两个 tasks 再 updates"，LG 是
+`tasks(开始) → updates → tasks(结束)`。
+
+根因：`outcome.rs` 里任务**结果**块在节点的 `updates` 块之前发出。把结果块移到 updates 之后：
+
+```
+改前: ['tasks', 'tasks', 'updates']
+现在: ['tasks', 'updates', 'tasks']   ← 与 LG 相同
+```
+
+**仍有一处轻微顺序差异**：`["debug","tasks"]` 时 debug 块（任务记录）仍排在 tasks 块之前，LG 相反。两者内容相同、
+只是顺序不同，作为已知表面差异记录。
+
 ### `AsyncStateGraph.astream` 仍是收集式（已知限制，2026-11-27）
 
 实测对比（两个各 0.2s 的 `async def` 节点）：

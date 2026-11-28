@@ -4799,3 +4799,15 @@ works). Fixing it needs a separate thread/runtime model for async runs — more 
 LangGraph-compatible surface already behaves correctly. Documented with the workaround.
 
 Suite is 675 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 234: `tasks`/`updates` interleaving fixed
+
+The audit's F7 is fixed: with `stream_mode=["updates","tasks"]` the chunks used to arrive as "both task chunks,
+then the update", while LangGraph emits task-start → update → task-result. The cause was in `outcome.rs`, where
+the task-result chunk was emitted before the node's updates chunk; moving it after yields the LangGraph order.
+
+A related ordering difference remains and is documented as cosmetic: with `["debug","tasks"]` the debug (task
+record) chunk still precedes the tasks chunk, whereas LangGraph emits the tasks chunk first. Same content,
+different order.
+
+Suite is 676 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.
