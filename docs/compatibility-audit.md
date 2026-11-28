@@ -4952,3 +4952,18 @@ interrupt), store CRUD with namespace prefixes, construction edge cases (duplica
 edge targets), `set_entry_point` twice.
 
 Suite is 682 tests (one new), parity 101/101, clippy clean.
+
+### Round 241: three of the second audit's narrow gaps closed
+
+* **`get_runtime()` // `get_store()` outside a run** now raise `RuntimeError("Called get_config outside of a
+  runnable context")`, matching LangGraph, instead of returning a default. (`re_export` overwrote a module-level
+  `get_store`, so the raising wrapper is bound after that call.)
+* **`add_edge(START, END)`** compiles and returns the input unchanged, as LangGraph does. Validation used to
+  reject both the node-less graph and an `END` entry point; only a graph with neither nodes nor edges fails now.
+
+Still open from that audit: `runtime.store` bridge (no `BaseStore.batch`, not the passed instance),
+`SqliteSaver.from_conn_string`, unknown conditional/`Command(goto)` destinations raising instead of warning,
+non-dict `Send` args, duplicate ids in one fresh-thread input batch, dict `context` not coerced to a dataclass,
+the process-wide heartbeat counter (A2).
+
+Suite is 686 tests (four new), parity 101/101, examples 10/10, clippy and Rust tests clean.

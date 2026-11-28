@@ -177,6 +177,14 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 运行外访问 runtime / 空图（2026-11-27，第 142 轮）
+
+两处第二轮的窄差异修掉：
+
+1. `get_runtime()` / `get_store()` 在运行外**抛错**（`Called get_config outside of a runnable context`），
+   不再返回默认对象 —— 与 LG 一致，也能及时暴露误用。
+2. `add_edge(START, END)` 的图可以编译，`invoke` 原样返回输入（此前报"缺少入口点"）。真正为空的图仍然拒绝。
+
 ### 每次运行都有默认 `RunControl`（2026-11-27，第 141 轮）
 
 第二轮独立审计指出：第 139 轮的修复只在调用方**显式传 `control=`** 时生效；LG 是每次运行都自动创建一个

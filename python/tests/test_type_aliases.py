@@ -5181,3 +5181,34 @@ class HeartbeatTest(unittest.TestCase):
 
         with self.assertRaises(NodeTimeoutError):
             asyncio.run(graph.compile().ainvoke({"value": ""}))
+
+
+class TrivialGraphTest(unittest.TestCase):
+    """`add_edge(START, END)` compiles and returns the input, like LangGraph."""
+
+    def test_start_to_end_only(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_edge(langgraph_rs.START, langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"value": 1}), {"value": 1})
+
+    def test_empty_graph_is_still_rejected(self):
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        with self.assertRaises(ValueError):
+            graph.compile()
+
+
+class OutsideRunTest(unittest.TestCase):
+    """`get_runtime`/`get_store` raise outside a run, as in LangGraph."""
+
+    def test_get_runtime_outside_raises(self):
+        from langgraph_rs.runtime import get_runtime
+
+        with self.assertRaises(RuntimeError) as raised:
+            get_runtime()
+        self.assertEqual(str(raised.exception), "Called get_config outside of a runnable context")
+
+    def test_get_store_outside_raises(self):
+        from langgraph_rs.config import get_store
+
+        with self.assertRaises(RuntimeError):
+            get_store()

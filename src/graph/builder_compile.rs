@@ -109,7 +109,9 @@ impl<S: State> StateGraph<S> {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.nodes.is_empty() {
+        // `add_edge(START, END)` yields a graph without nodes that still compiles (LangGraph
+        // returns the input unchanged), so only a graph with neither nodes nor edges fails here.
+        if self.nodes.is_empty() && self.entry.is_empty() {
             return Err(Error::validation(ENTRYPOINT_MESSAGE));
         }
         if !self.duplicate_nodes.is_empty() {
@@ -132,11 +134,18 @@ impl<S: State> StateGraph<S> {
                 "a graph cannot combine a static entry point with a conditional entry point",
             ));
         }
-        if self.conditional_entry.is_none() && self.entry.is_empty() {
+        // LangGraph accepts `add_edge(START, END)`: the graph runs and returns its input unchanged,
+        // so an entry of `END` counts as an entry point instead of failing validation.
+        let entry_ends = self.entry.iter().any(|target| target == END);
+        let real_entry = self.entry.iter().any(|target| target != END);
+        if self.conditional_entry.is_none() && !real_entry && !entry_ends {
             return Err(Error::validation(ENTRYPOINT_MESSAGE));
         }
 
         for name in &self.entry {
+            if name == END {
+                continue;
+            }
             self.require_node("entry point", name)?;
         }
 

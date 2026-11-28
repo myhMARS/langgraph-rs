@@ -34,7 +34,10 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(fields[: len(expected)], expected)
 
     def test_get_runtime_outside_a_run_returns_the_default(self):
-        self.assertIs(get_runtime(), DEFAULT_RUNTIME)
+        # LangGraph raises outside a run instead of handing back a default runtime.
+        with self.assertRaises(RuntimeError) as raised:
+            get_runtime()
+        self.assertEqual(str(raised.exception), "Called get_config outside of a runnable context")
         self.assertIsNone(DEFAULT_RUNTIME.context)
         self.assertIsNone(DEFAULT_RUNTIME.store)
 

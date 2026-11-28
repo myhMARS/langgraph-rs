@@ -197,10 +197,14 @@ def _native_heartbeat(*args: Any, **kwargs: Any) -> None:
 
 
 def get_runtime(context: Any = None) -> Runtime:
-    """Runtime for the current run, or `DEFAULT_RUNTIME` outside a graph/node."""
+    """Runtime for the current run.
+
+    LangGraph raises outside a run (`Called get_config outside of a runnable context`), so we do the
+    same instead of handing back a default that would hide a misplaced call.
+    """
     raw = NATIVE.current_runtime()
     if raw is None:
-        return DEFAULT_RUNTIME
+        raise RuntimeError("Called get_config outside of a runnable context")
     context_value = context if context is not None else (raw or {}).get("context")
     thread_id = (raw or {}).get("thread_id")
     namespace = (raw or {}).get("namespace") or ""
