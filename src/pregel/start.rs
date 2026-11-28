@@ -31,10 +31,31 @@ pub(crate) fn resolve_fresh_start<S: State>(
 ) -> Result<FreshStart<S>> {
     match input {
         StartInput::Values(values) => {
-            let values = schema.filter_input(values.clone());
-            let state = values_to_state::<S>(&values)?;
+            // LangGraph writes the input through the channels' reducers, so a reducer can inspect
+            // what it receives (that is what lets `add_messages` de-duplicate the submitted list).
+            // Only reducer channels fold the submitted value; barriers, topics and plain values
+            // keep their assignment semantics (a `false` barrier value is not a writer name).
+            let mut channel_values = Map::new();
+            let mut reduced: Vec<ChannelUpdate> = Vec::new();
+            for (channel, value) in schema.filter_input(values.clone()) {
+                match schema.resolve(&channel)? {
+                    Some(crate::channels::Channel::Reducer(_))
+                    | Some(crate::channels::Channel::Delta { .. }) => {
+                        reduced.push(ChannelUpdate {
+                            channel,
+                            value,
+                            node: "<input>".to_string(),
+                        });
+                    }
+                    _ => {
+                        channel_values.insert(channel, value);
+                    }
+                }
+            }
+            apply_updates(schema, &mut channel_values, reduced)?;
+            let state = values_to_state::<S>(&channel_values)?;
             let tasks = entry_tasks(&state)?;
-            Ok(Some((values, state, tasks)))
+            Ok(Some((channel_values, state, tasks)))
         }
         StartInput::Updates(updates) => {
             let updates = updates.clone();

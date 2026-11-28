@@ -5058,3 +5058,26 @@ Still open: duplicate message ids in one fresh-thread input batch, the process-w
 `Send` with a non-dict argument (documented as a deliberate error).
 
 Suite is 691 tests (one new), parity 101/101, examples 10/10, clippy clean.
+
+### Round 247: the submitted input is folded through reducers (message-id de-duplication fixed)
+
+Rounds 243/244 had located the gap but the attempts failed because **two** pieces were missing at once:
+
+1. `StartInput::Values` assigned the filtered map straight into the channels, so no reducer ran for the input;
+2. `Channel::apply` started reducer channels from the first write when there was no current value, so even a
+   routed input would not fold.
+
+Both are now in place, with one refinement the Rust tests demanded: only `Reducer`/`Delta` channels fold the
+input. Routing everything through `apply_updates` broke the named-barrier tests, because a `false` barrier value
+was then treated as a writer name.
+
+```
+invoke({"messages": [a, b, a, b]}) -> messages [a, b]   (LangGraph: [a, b])
+append channel                     -> ["a", "b"]        (unchanged)
+named barrier Rust tests           -> pass again
+```
+
+The remaining known differences are the process-wide heartbeat counter (documented) and `Send` with a non-dict
+argument (a deliberate error).
+
+Suite is 693 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.

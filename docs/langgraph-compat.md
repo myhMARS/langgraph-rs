@@ -177,6 +177,21 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 输入批次重复消息 id 已去重（2026-11-27，第 148 轮）
+
+第 143、144 轮都定位到"输入不经过 reducer"，但两次尝试都失败：因为缺的是**两处**改动，缺一不可。
+
+1. `StartInput::Values` 把过滤后的 map 直接写进通道 —— 输入路径上 reducer 从不执行；
+2. `Channel::apply` 在无当前值时用"首写直接初始化"的快路径 —— 即使输入改走 reducer，也不会折叠。
+
+现在两处都补齐，并按 Rust 测试的要求加了一条约束：**只有 `Reducer`/`Delta` 通道**折叠输入。把所有通道都走
+`apply_updates` 会让命名屏障测试失败（`false` 的屏障值被当成写者名字）。
+
+```
+invoke({"messages": [a, b, a, b]}) -> [a, b]     与 LG 相同
+append 通道                       -> ["a", "b"]  行为不变
+```
+
 ### `context` 传字典会按 dataclass 构造（2026-11-27，第 147 轮）
 
 LG 会把 `context={"user_id": "u2"}` 构造成声明的 dataclass（`schema(**context)`），节点里按属性访问；我们此前原样

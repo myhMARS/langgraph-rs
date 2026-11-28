@@ -278,16 +278,42 @@ impl Channel {
                 let Some(first) = incoming.first() else {
                     return Ok(current.cloned());
                 };
-                let mut accumulated = current.cloned().unwrap_or_else(|| first.clone());
-                // When there is no current value the first write already initializes the
-                // channel, exactly like LangGraph's `BinaryOperatorAggregate`.
-                let skip = usize::from(current.is_none());
-                for value in &incoming[skip..] {
+                // LangGraph's `BinaryOperatorAggregate` starts from the channel's empty value
+                // (`[]` for `add_messages`, `0` for `add`) and folds *every* write through the
+                // reducer — that is what lets a reducer de-duplicate the submitted input. A channel
+                // without a declared default uses the shape of the first write as that empty value.
+                let start = current
+                    .cloned()
+                    .or_else(|| reducer.default_value().cloned())
+                    .unwrap_or_else(|| empty_like(first));
+                let mut accumulated = start;
+                for value in incoming {
                     accumulated = (reducer.0.as_ref())(&accumulated, value)?;
                 }
                 Ok(Some(accumulated))
             }
         }
+    }
+}
+
+/// The empty value of the kind of collection/scalar `value` holds.
+///
+/// Used when a reducer channel has no declared default: LangGraph folds from the annotation's empty
+/// value, and the submitted value's shape is the closest equivalent available here.
+fn empty_like(value: &Value) -> Value {
+    match value {
+        Value::Array(_) => Value::Array(Vec::new()),
+        Value::Object(_) => Value::Object(serde_json::Map::new()),
+        Value::Number(number) => {
+            if number.is_f64() {
+                Value::from(0.0)
+            } else {
+                Value::from(0)
+            }
+        }
+        Value::String(_) => Value::from(""),
+        // Anything else (null/bool) has no obvious empty value; the first write initializes it.
+        other => other.clone(),
     }
 }
 

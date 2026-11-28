@@ -5315,3 +5315,28 @@ class ContextCoercionTest(unittest.TestCase):
         self.assertEqual(app.invoke({"seen": ""}, context=Ctx("u3"))["seen"], "Ctx:u3")
         with self.assertRaises(TypeError):
             app.invoke({"seen": ""}, context={"n": 5})
+
+
+class InputReducerTest(unittest.TestCase):
+    """The submitted input is folded through the channels' reducers, as in LangGraph."""
+
+    def test_duplicate_message_ids_are_deduplicated(self):
+        from langgraph_rs.graph.message import add_messages
+
+        messages = [
+            {"id": "a", "role": "user", "content": "1"},
+            {"id": "b", "role": "user", "content": "2"},
+        ]
+        graph = langgraph_rs.StateGraph({"messages": add_messages})
+        graph.add_node("n", lambda state: {})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        result = graph.compile().invoke({"messages": messages + messages})
+        self.assertEqual([message.id for message in result["messages"]], ["a", "b"])
+
+    def test_append_channel_still_appends(self):
+        graph = langgraph_rs.StateGraph({"items": "append"})
+        graph.add_node("n", lambda state: {"items": ["b"]})
+        graph.add_edge(langgraph_rs.START, "n")
+        graph.add_edge("n", langgraph_rs.END)
+        self.assertEqual(graph.compile().invoke({"items": ["a"]}), {"items": ["a", "b"]})
