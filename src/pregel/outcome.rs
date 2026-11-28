@@ -315,10 +315,9 @@ pub(crate) fn process_outcomes<G: OutcomeGraph + ?Sized>(
                         }
                     };
                     if !graph.has_node(&send.node) {
-                        return Err(Error::routing(
-                            &node,
-                            format!("Send targets unknown node `{}`", send.node),
-                        ));
+                        // LangGraph logs a warning and drops the send instead of failing the run.
+                        crate::pregel::scheduling::warn_unknown_destination(&node, &send.node);
+                        continue;
                     }
                     if let Some(allowed) = graph.destinations_of(&node) {
                         if !allowed.iter().any(|candidate| candidate == &send.node) {

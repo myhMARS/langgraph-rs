@@ -163,7 +163,7 @@ fn check_target<'a>(
 ///
 /// LangGraph logs a warning and drops the route instead of failing the run, so the run continues and
 /// the caller sees the warning on stderr rather than an exception.
-fn warn_unknown_destination(source: &str, target: &str) {
+pub(crate) fn warn_unknown_destination(source: &str, target: &str) {
     static WARNED: std::sync::Mutex<Option<std::collections::HashSet<String>>> =
         std::sync::Mutex::new(None);
     if std::env::var("LANGGRAPH_RS_QUIET").is_ok() {

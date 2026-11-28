@@ -5081,3 +5081,30 @@ The remaining known differences are the process-wide heartbeat counter (document
 argument (a deliberate error).
 
 Suite is 693 tests (two new), parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 249: third audit of the recent changes; two regressions fixed
+
+An independent reviewer diffed 42 scenarios across the last five commits. 35 matched byte for byte (including
+every ordinary input-reducer path: fresh-thread message input, duplicate-id dedupe, append/sum reducers, ignored
+undeclared channels, `update_state` merge order, duplicate ids in one node update, `Send` fan-out order, second
+call on the same thread, stream output). Three real problems were found and are now fixed:
+
+1. **Regression (4b7eb1f):** channels over values with no JSON form (e.g. `Annotated[set, operator.or_]`) raised
+   `TypeError` on their first write, because `empty_like` treated the stash marker
+   `{"__langgraph_rs_object__": id}` as a mapping and fabricated `{}` to fold from. A stash marker now yields
+   *no* empty value, so the first write initializes the channel (the old, correct behaviour) while list/int/str
+   reducers still fold from their real empty value — input de-duplication is unaffected.
+2. **Regression (41dc13f):** `get_store()` inside a run *without* a configured store raised instead of returning
+   `None`. The guard now only fires outside a run.
+3. **Incomplete fix (10e75cd):** the `BaseStore` bridge was only reachable through `get_runtime()`; the runtime
+   injected into a node and `get_store()` still returned the raw native store. Both paths now go through the
+   bridge, so `batch`/`abatch`/`isinstance(store, BaseStore)` work everywhere.
+4. **Incomplete fix (f10bd5b):** `Command(goto=[Send("ghost", …)])` still raised; the Command send path now warns
+   and drops the send like the other route kinds.
+
+Also recorded (not regressions, deferred): the bridge applies `PutOp`s sequentially where LangGraph defers them
+until after the reads in the same batch, `warn_unknown_destination` de-duplicates per process where LangGraph logs
+every run, and `StateGraph(State, input_schema=TypedDict)` fails at construction (pre-existing).
+
+Suite is 695 tests (two new in `python/tests/test_regressions.py`), parity 101/101, examples 10/10, clippy and Rust
+tests clean.

@@ -5340,3 +5340,4 @@ class InputReducerTest(unittest.TestCase):
         graph.add_edge(langgraph_rs.START, "n")
         graph.add_edge("n", langgraph_rs.END)
         self.assertEqual(graph.compile().invoke({"items": ["a"]}), {"items": ["a", "b"]})
+

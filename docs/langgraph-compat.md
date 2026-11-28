@@ -177,6 +177,18 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### 第三轮复审：两处回归已修（2026-11-27，第 149 轮）
+
+独立复审用 42 个场景比对了最近五个提交，35 个逐字节一致；发现两处**回归**和两处**修复不完整**，均已修：
+
+1. **回归**：无 JSON 形式的值（如 `Annotated[set, operator.or_]`）在首次写入时抛 `TypeError` —— 因为
+   `empty_like` 把 stash 标记 `{"__langgraph_rs_object__": id}` 当成映射、造出了 `{}`。现在遇到 stash 标记
+   就不造空值，回退到"首写即初始化"的旧行为；list/int/str 的 reducer 仍从真正的空值折叠，去重不受影响。
+2. **回归**：图未配置 store 时，运行内 `get_store()` 抛错而非返回 `None` —— 现在只在**运行外**抛错。
+3. **修复不完整**：`BaseStore` 桥接此前只有 `get_runtime()` 能用到；节点注入的 `runtime.store` 与
+   `get_store()` 仍是原生对象。现在两条路径都走桥接。
+4. **修复不完整**：`Command(goto=[Send("ghost")])` 仍报错 —— 现在与该路径其余情形一样警告并丢弃。
+
 ### 输入批次重复消息 id 已去重（2026-11-27，第 148 轮）
 
 第 143、144 轮都定位到"输入不经过 reducer"，但两次尝试都失败：因为缺的是**两处**改动，缺一不可。

@@ -285,8 +285,17 @@ impl Channel {
                 let start = current
                     .cloned()
                     .or_else(|| reducer.default_value().cloned())
-                    .unwrap_or_else(|| empty_like(first));
-                let mut accumulated = start;
+                    .or_else(|| empty_like(first));
+                // Values with no JSON form (sets, datetimes, Python objects) arrive as a stash
+                // marker, so there is no meaningful empty value: the first write initializes the
+                // channel, exactly like LangGraph's `BinaryOperatorAggregate` without a default.
+                let Some(mut accumulated) = start else {
+                    let mut accumulated = first.clone();
+                    for value in &incoming[1..] {
+                        accumulated = (reducer.0.as_ref())(&accumulated, value)?;
+                    }
+                    return Ok(Some(accumulated));
+                };
                 for value in incoming {
                     accumulated = (reducer.0.as_ref())(&accumulated, value)?;
                 }
@@ -300,20 +309,20 @@ impl Channel {
 ///
 /// Used when a reducer channel has no declared default: LangGraph folds from the annotation's empty
 /// value, and the submitted value's shape is the closest equivalent available here.
-fn empty_like(value: &Value) -> Value {
+fn empty_like(value: &Value) -> Option<Value> {
     match value {
-        Value::Array(_) => Value::Array(Vec::new()),
-        Value::Object(_) => Value::Object(serde_json::Map::new()),
-        Value::Number(number) => {
-            if number.is_f64() {
-                Value::from(0.0)
-            } else {
-                Value::from(0)
-            }
-        }
-        Value::String(_) => Value::from(""),
-        // Anything else (null/bool) has no obvious empty value; the first write initializes it.
-        other => other.clone(),
+        Value::Array(_) => Some(Value::Array(Vec::new())),
+        // A stash marker (`{"__langgraph_rs_object__": id}`, used for values with no JSON form)
+        // must not be mistaken for a mapping: there is no empty value to fold from.
+        Value::Object(map) if map.contains_key("__langgraph_rs_object__") => None,
+        Value::Object(_) => Some(Value::Object(serde_json::Map::new())),
+        Value::Number(number) => Some(if number.is_f64() {
+            Value::from(0.0)
+        } else {
+            Value::from(0)
+        }),
+        Value::String(_) => Some(Value::from("")),
+        Value::Null | Value::Bool(_) => None,
     }
 }
 

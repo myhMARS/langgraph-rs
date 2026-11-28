@@ -467,7 +467,10 @@ def _current_runtime() -> Any:
         writer = _native.get_stream_writer()
     except Exception:  # pragma: no cover - no stream writer
         writer = None
-    return Runtime(context=context, store=store, stream_writer=writer)
+    from ..runtime import _StoreBridge
+
+    bridged = _StoreBridge(store) if store is not None else None
+    return Runtime(context=context, store=bridged, stream_writer=writer)
 
 
 def _with_runtime(action: Any) -> Any:

@@ -16,13 +16,17 @@ var_child_runnable_config: ContextVar = ContextVar("var_child_runnable_config", 
 def _get_store_or_raise():
     """The store of the current run.
 
-    LangGraph raises outside a run (`Called get_config outside of a runnable context`), so this does
-    too instead of returning `None`.
+    Outside a run LangGraph raises (`Called get_config outside of a runnable context`); inside a run
+    without a configured store it returns `None`, so both cases are reproduced here.
     """
+    if _native.current_runtime() is None:
+        raise RuntimeError("Called get_config outside of a runnable context")
     store = _native.get_store()
     if store is None:
-        raise RuntimeError("Called get_config outside of a runnable context")
-    return store
+        return None
+    from .runtime import _StoreBridge
+
+    return _StoreBridge(store)
 
 
 __all__ = [
