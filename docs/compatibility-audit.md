@@ -5024,3 +5024,18 @@ reducer channel is never consulted on the input path), `SqliteSaver.from_conn_st
 dict `context` not coerced to a dataclass, the process-wide heartbeat counter.
 
 Suite is 689 tests (one new), parity 101/101, examples 10/10, clippy clean.
+
+### Round 245: `SqliteSaver.from_conn_string` and the context-manager protocol
+
+The second audit noted that the documented LangGraph snippet — `with SqliteSaver.from_conn_string(path) as saver:`
+— did not run, while `SqliteSaver(path)` did. The native class now provides `from_conn_string(path)` and
+`__enter__`/`__exit__`, so both spellings work, and a saver created inside the block still serves a graph
+compiled after the block (verified by reopening the same file).
+
+`Send` with a non-dict argument stays a documented difference: LangGraph passes the value as the node's input,
+while our tasks carry a channel map, so the engine raises a clear error instead of changing what a node sees.
+
+Still open: duplicate message ids in one fresh-thread input batch, dict `context` not coerced to a dataclass,
+the process-wide heartbeat counter.
+
+Suite is 690 tests (one new), parity 101/101, examples 10/10, clippy and Rust tests clean.

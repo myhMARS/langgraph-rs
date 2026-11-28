@@ -257,6 +257,28 @@ impl PySqliteSaver {
         })
     }
 
+    /// LangGraph's constructor helper: `SqliteSaver.from_conn_string(path)`.
+    ///
+    /// LangGraph's version yields a context manager that owns the connection; ours returns the saver
+    /// itself, which also supports `with` (the SQLite handle lives as long as the saver).
+    #[staticmethod]
+    fn from_conn_string(path: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Self::new(path)
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __exit__(
+        &self,
+        _exc_type: Option<Py<PyAny>>,
+        _exc: Option<Py<PyAny>>,
+        _traceback: Option<Py<PyAny>>,
+    ) -> bool {
+        false
+    }
+
     fn __repr__(&self) -> &'static str {
         "SqliteSaver()"
     }

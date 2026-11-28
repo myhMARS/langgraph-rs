@@ -5261,3 +5261,29 @@ class RuntimeStoreBridgeTest(unittest.TestCase):
         self.assertTrue(seen["is_base_store"])
         self.assertEqual(seen["got"][0].value, {"name": "a"})
         self.assertEqual(len(seen["searched"][0]), 1)
+
+
+class SqliteSaverConstructionTest(unittest.TestCase):
+    """`SqliteSaver.from_conn_string` and the context-manager protocol, as in LangGraph."""
+
+    def test_from_conn_string_context_manager(self):
+        import os
+        import tempfile
+
+        path = os.path.join(tempfile.gettempdir(), "lg-rs-from-conn-string.db")
+        if os.path.exists(path):
+            os.remove(path)
+        graph = langgraph_rs.StateGraph({"value": "last_value"})
+        graph.add_node("a", lambda state: {"value": 1})
+        graph.add_edge(langgraph_rs.START, "a")
+        graph.add_edge("a", langgraph_rs.END)
+        with langgraph_rs.SqliteSaver.from_conn_string(path) as saver:
+            app = graph.compile(checkpointer=saver)
+            app.invoke({"value": ""}, {"configurable": {"thread_id": "t1"}})
+            self.assertEqual(
+                app.get_state({"configurable": {"thread_id": "t1"}})["values"]["value"], 1
+            )
+        reopened = graph.compile(checkpointer=langgraph_rs.SqliteSaver(path))
+        self.assertEqual(
+            reopened.get_state({"configurable": {"thread_id": "t1"}})["values"]["value"], 1
+        )

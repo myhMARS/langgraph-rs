@@ -177,6 +177,14 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `SqliteSaver.from_conn_string` 与上下文管理器（2026-11-27，第 146 轮）
+
+LG 文档里的写法 `with SqliteSaver.from_conn_string(path) as saver:` 现在也能跑了（此前只有 `SqliteSaver(path)`）。
+原生类补上 `from_conn_string(path)` 与 `__enter__`/`__exit__`，块内创建的 saver 在块外仍可复用同一文件。
+
+**仍属已知差异**：`Send` 的目标参数若不是 dict，LG 会把它当作节点的输入状态；我们的任务携带的是通道映射，
+因此保持明确报错，而不是悄悄改变节点看到的状态。
+
 ### `runtime.store` 支持 `BaseStore` 协议（2026-11-27，第 145 轮）
 
 此前 `runtime.store` 只有原生的 `get`/`put`/`delete`/`search`，官方 `BaseStore` 写法会报
