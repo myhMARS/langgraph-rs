@@ -593,7 +593,12 @@ fn format_rfc3339(millis: u64) -> String {
     let hour = seconds_of_day / 3_600;
     let minute = (seconds_of_day % 3_600) / 60;
     let second = seconds_of_day % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}Z")
+    // LangGraph reports `datetime.now(timezone.utc).isoformat()`: microseconds and an
+    // explicit `+00:00` offset. The clock here is millisecond-precise, so the last three
+    // digits of the microsecond field are always zero.
+    format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}000+00:00"
+    )
 }
 
 fn civil_from_days(days: i64) -> (i64, u32, u32) {

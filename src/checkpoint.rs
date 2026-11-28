@@ -246,7 +246,12 @@ pub(crate) fn iso_timestamp(millis: u64) -> String {
     let hour = day_seconds / 3_600;
     let minute = (day_seconds % 3_600) / 60;
     let second = day_seconds % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}Z")
+    // LangGraph reports `datetime.now(timezone.utc).isoformat()`: microseconds and an
+    // explicit `+00:00` offset. The clock here is millisecond-precise, so the last three
+    // digits of the microsecond field are always zero.
+    format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_part:03}000+00:00"
+    )
 }
 
 fn civil_from_days(days: i64) -> (i64, i64, i64) {

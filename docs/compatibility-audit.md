@@ -5123,3 +5123,12 @@ Each entry was re-checked today rather than copied from earlier rounds. The sect
 non-reproducible observation from round 249 so it is not mistaken for a fixed bug.
 
 Suite is 695 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 251: `created_at` uses LangGraph's ISO shape
+
+Snapshots reported `2026-11-28T02:51:14.623Z` (milliseconds and a `Z` suffix) while LangGraph reports
+`datetime.now(timezone.utc).isoformat()` — `2026-11-28T03:03:10.800837+00:00`. The formatter now emits
+microseconds and the explicit `+00:00` offset; the clock is millisecond-precise, so the last three digits are
+always zero. Both the snapshot field and the checkpoint metadata use the same helper.
+
+Suite is 695 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
