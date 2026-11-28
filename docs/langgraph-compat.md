@@ -177,6 +177,23 @@ from langgraph_rs.checkpoint.memory import InMemorySaver
 ：`typing.get_type_hints` 需要能解析字符串注解；
    在函数内 `exec` 出来的类无法解析（LangGraph 同样如此，因此不算差异）。
 
+### `AsyncStateGraph.astream` 仍是收集式（已知限制，2026-11-27）
+
+实测对比（两个各 0.2s 的 `async def` 节点）：
+
+```
+StateGraph（LG 兼容面）      .astream -> [0.22, 0.43]   ← 逐 superstep
+AsyncStateGraph（扩展自有 API）.astream -> [0.42, 0.42]   ← 收集式
+```
+
+**这不算 LangGraph 一致性差异** —— LG 1.2.22 没有 `AsyncStateGraph`，它的 `StateGraph` 同时支持同步与异步，正是我们
+上面那一行已经对齐的形态。`AsyncStateGraph` 是本扩展自己的异步构建器。
+
+根因已定位：原生异步 `astream` 把运行 spawn 到 pyo3-async-runtimes 的运行时，运行与接收端的 future 在该运行时下
+不会交错推进（同步路径用独立工作线程，所以正常）。修它需要给异步运行单独的线程/运行时模型，风险大于收益。
+
+**规避方式**：用 `StateGraph`（LG 兼容面）—— 它支持 `async def` 节点，且 `astream` 逐 superstep 交付。
+
 ### 子图中断的恢复流已对齐（2026-11-27，第 135 轮）
 
 第 134 轮剩的另一半修掉了：恢复时 LG 会先发内层 `('sub:…', {'ask': …})`，再发父级 `((), {'sub': …})`，扩展此前只有

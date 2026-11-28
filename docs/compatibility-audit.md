@@ -4780,3 +4780,22 @@ inner one — are now closed, verified against LangGraph.
 behaviour is covered by two unit tests instead.)
 
 Suite is 675 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
+
+### Round 233: `AsyncStateGraph.astream` buffering classified
+
+Measured side by side with two 0.2 s `async def` nodes:
+
+```
+StateGraph (the LangGraph-compatible surface)   .astream -> [0.22, 0.43]
+AsyncStateGraph (our own extra builder)         .astream -> [0.42, 0.42]
+```
+
+This is **not** a LangGraph-parity gap: LangGraph 1.2.22 has no `AsyncStateGraph`; its single `StateGraph`
+supports both APIs, and that surface streams incrementally here. `AsyncStateGraph` is an extension of ours.
+
+The cause is known: the native async `astream` spawns the run on the pyo3-async-runtimes runtime, where the run
+and the receiving future do not interleave (the sync path uses a dedicated worker thread, which is why it
+works). Fixing it needs a separate thread/runtime model for async runs — more risk than value, since the
+LangGraph-compatible surface already behaves correctly. Documented with the workaround.
+
+Suite is 675 tests, parity 101/101, examples 10/10, clippy and Rust tests clean.
